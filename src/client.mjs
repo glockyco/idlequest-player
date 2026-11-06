@@ -2,8 +2,10 @@ import { readFile } from "node:fs/promises";
 
 const here = new URL(".", import.meta.url);
 
+const METHODS = ["status", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "packets"];
+
 /**
- * Inject the bridge into a browser tab and return a thin handle.
+ * Inject the bridge into a browser tab and return a handle with one async method per bridge call.
  * `tab` needs `evaluate(expression | function, ...args)` that runs in the page.
  */
 export async function attach(tab) {
@@ -14,10 +16,13 @@ export async function attach(tab) {
   await tab.evaluate(bridge);
   await tab.evaluate((table) => window.iq.setOpcodeNames(table), opcodes);
 
-  return {
+  const handle = {
     tab,
-    status: () => tab.evaluate(() => window.iq.status()),
-    /** Packets after `sinceSeq`, optionally filtered by an opcode-name regex source. */
-    packets: (sinceSeq = 0, nameRe = null) => tab.evaluate((s, r) => window.iq.packets(s, r), sinceSeq, nameRe),
+    /** Kill log built from server combat messages: [{t, enemy, xp}]. */
+    kills: () => tab.evaluate(() => window.iq.kills),
   };
+  for (const name of METHODS) {
+    handle[name] = (...args) => tab.evaluate((n, a) => window.iq[n](...a), name, args);
+  }
+  return handle;
 }
