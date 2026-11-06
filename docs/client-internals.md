@@ -36,3 +36,33 @@ What the web client does, as needed to drive it. Source: the shipped bundles und
 `CharacterData`, `CharacterInventory`, `CharacterSkills`, `CharacterCurrency`, `CharacterBind`,
 `CharacterStatsData`, `CharacterSpellbook` and `ZonePlayerSnapshot`. The client applies them
 through its own handlers and sets `socket.worldReady`. The zone and 3D scene load after that.
+
+## Combat runtime and AutoLevel
+
+The combat runtime is a singleton: `G.getInstance()` exported from the chunk that holds the string
+`Waiting for party to be ready` (the bridge reaches it through `iq.mods`). Its `combatScene`
+exposes the live world. Chunk and export names change per release, so find it by method names such
+as `castSpellAtSelectedTarget` and `getAliveCombatTargetList`.
+
+- Target picker: AutoLevel takes `combatScene.findClosestCombatTarget` filtered by con, level cap and
+  reachability. It does not weigh XP, nearby danger, water or the route.
+- Readiness gate: every start through AutoLevel, the Enemy Targets list or the Auto Attack button
+  runs `prepareAutomatedCombat`, which summons pets and then waits until every party member and pet
+  has full HP and, for mana users, full mana (`waitForPartyReady`, up to 2 minutes). The wait
+  happens standing still before the walk to the next target.
+- Direct starts skip the gate: `castSpellAtSelectedTarget(gem)` (a manual spell cast, mode
+  `manual-spell`) and `commandPetAttackSelectedTarget()` (mode `pet-command`) call
+  `startCombatWithEntity` directly. The companions then assist the player's target with their own
+  tactics. A manual pull at about 430 units started the fight at once and all five alts joined.
+- Live targets: `combatScene.getAliveCombatTargetList()` returns `{spawnInstanceId, npcId, name,
+  level, distance}` sorted by distance. `combatScene.navigateToCombatTarget(spawnInstanceId, onError)`
+  walks with the client's own navigation, and `clearNavigationTarget()` stops it.
+- Do not call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They exist for debugging and
+  are not something a player can do.
+
+## Party tactics
+
+- Default bot tactics are keyed `bot:<characterId>:<bot>` in the party spells store. A bare bot name
+  is stored and never read.
+- A level 1 recruit gets about half the XP share of a level 5 leader on the same kill, because shares
+  are level-weighted.
