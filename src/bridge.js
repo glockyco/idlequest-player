@@ -197,6 +197,127 @@
     if (events.length > EVENT_MAX) events.splice(0, EVENT_MAX / 5);
   });
 
+  // ---- Guard --------------------------------------------------------------------------------
+  // Lives in the page, so it keeps working while no script is attached. When a fight turns
+  // dangerous it stops AutoLevel, leaves the fight with the game's own zone-change request (the
+  // one the Travel window sends) and starts AutoLevel again with the same limits.
+  // Triggers, each checked once a second while a mob is engaged:
+  //   level   a mob is `levelGap` or more levels above the leader
+  //   hit     a mob's biggest hit times `hitsToKill` reaches the lowest max HP in the party
+  //   down    a party member has died since the guard last looked
+  //   healer  a Cleric is below `healerManaPct` mana while someone is below `healerHpPct` HP
+  const guardPrev = window.iq?.guard;
+  if (guardPrev?.timerId) clearInterval(guardPrev.timerId);
+  const guard = {
+    config: guardPrev?.config ?? { enabled: true, levelGap: 8, hitsToKill: 3, healerManaPct: 10, healerHpPct: 50, maxTripsPerHour: 6, retreatZone: null },
+    phase: "watching", // watching | leaving | halted
+    trips: guardPrev?.trips ?? [],
+    knownDown: new Set(),
+    halted: null,
+    timerId: null,
+    enable() {
+      guard.config.enabled = true;
+      guard.halted = null;
+      guard.phase = "watching";
+    },
+    disable() {
+      guard.config.enabled = false;
+    },
+  };
+  const guardApi = {
+    /** The guard's settings, phase, why it halted (if it did) and the escapes of the last hour. */
+    guardStatus: () => ({ config: guard.config, phase: guard.phase, halted: guard.halted, trips: guard.trips }),
+    /** Change guard settings, e.g. `{ levelGap: 6 }` or `{ enabled: false }`. Re-enabling clears a halt. */
+    setGuard(partial) {
+      Object.assign(guard.config, partial);
+      if (guard.config.enabled) {
+        guard.halted = null;
+        if (guard.phase === "halted") guard.phase = "watching";
+      }
+      return guard.config;
+    },
+  };
+  const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
+  const zoneChanger = () => Object.values(mods).map((m) => m.rs).find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
+  const guardDanger = () => {
+    const cfg = guard.config;
+    const cb = stores.combat.getState();
+    const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state === "alive");
+    if (!mobs.length) return null;
+    const p = stores.character.getState().characterProfile;
+    const cs = stores.companions.getState();
+    const classes = Object.fromEntries((stores.staticData.getState().classes ?? []).map((c) => [c.id, c.name]));
+    const members = [{ name: p.name, hp: p.curHp, maxHp: p.maxHp }];
+    for (const c of cs.companions ?? []) {
+      if (c.companionType !== 0 && c.companionType !== 2) continue;
+      members.push({ name: c.name, hp: c.curHp, maxHp: c.maxHp, mana: c.curMana, maxMana: c.maxMana, cls: classes[cs.botCombatDataMap?.[c.id]?.class] });
+    }
+    const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
+    for (const mob of mobs) {
+      if (mob.level >= p.level + cfg.levelGap) return `level: ${mob.name} L${mob.level} against leader L${p.level}`;
+      const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
+      if (maxHit * cfg.hitsToKill >= weakest) return `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`;
+    }
+    for (const m of members) {
+      if (m.hp > 0) guard.knownDown.delete(m.name);
+      else if (!guard.knownDown.has(m.name)) {
+        guard.knownDown.add(m.name);
+        return `down: ${m.name} died`;
+      }
+    }
+    const hurt = members.some((m) => m.maxHp && (m.hp / m.maxHp) * 100 < cfg.healerHpPct && m.hp > 0);
+    const dry = members.find((m) => m.cls === "Cleric" && m.maxMana && (m.mana / m.maxMana) * 100 < cfg.healerManaPct);
+    if (hurt && dry) return `healer: ${dry.name} has ${dry.mana}/${dry.maxMana} mana`;
+    return null;
+  };
+  const guardLeave = async (reason) => {
+    const cb = stores.combat.getState();
+    const hourAgo = Date.now() - 3600000;
+    guard.trips = guard.trips.filter((t) => t.t > hourAgo);
+    if (guard.trips.length >= guard.config.maxTripsPerHour) {
+      guard.phase = "halted";
+      guard.halted = `${guard.trips.length} escapes in the last hour, last reason: ${reason}`;
+      cb.setIsRunning(false);
+      guardNote(`halted, AutoLevel stopped: ${guard.halted}`);
+      return;
+    }
+    guard.phase = "leaving";
+    guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
+    guardNote(`leaving: ${reason}`);
+    const limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
+    cb.setIsRunning(false);
+    try {
+      const zones = stores.staticData.getState().zones;
+      const target = guard.config.retreatZone ? zones.find((z) => z.shortName === guard.config.retreatZone) : zones.find((z) => z.zoneidnumber === cb.currentZone);
+      const change = zoneChanger();
+      if (!target || !change) throw new Error("zone change function or target zone not found");
+      await change(target);
+      // The zone-loading flag shows the change started. Give up waiting after 30 s.
+      const t0 = Date.now();
+      while (!stores.combat.getState().isZoneLoading && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
+      while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 4000));
+      const now = stores.combat.getState();
+      now.setMinCon(limits.minCon);
+      now.setMaxLevelDiff(limits.maxLevelDiff);
+      now.setMaxCon(limits.maxCon);
+      for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
+        stores.combat.getState().startAutoLevel();
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      guardNote(stores.combat.getState().isRunning ? "back in the zone, AutoLevel running" : "back in the zone, AutoLevel did NOT restart");
+    } catch (e) {
+      guardNote(`leaving failed: ${e.message}`);
+    } finally {
+      if (guard.phase === "leaving") guard.phase = "watching";
+    }
+  };
+  guard.timerId = setInterval(() => {
+    if (!guard.config.enabled || guard.phase !== "watching" || stores.combat.getState().isZoneLoading) return;
+    const reason = guardDanger();
+    if (reason) guardLeave(reason);
+  }, 1000);
+
   const iq = {
     version: 1,
     mods,
@@ -208,6 +329,8 @@
     events,
     seqs,
     session,
+    guard,
+    ...guardApi,
     samplerId,
     unsubChat,
     get zoneSpawns() {
