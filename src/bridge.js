@@ -186,6 +186,36 @@
     }
   }, 1000);
 
+  // ---- Chores -------------------------------------------------------------------------------
+  // Things the game asks the player to do that need no standing still. They run in the page, so
+  // they happen whether or not a script is attached.
+  const chores = { autoBuySpells: true, ...window.iq?.chores };
+  let buying = false;
+  let lastSpellBuy = 0;
+  const choreNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "chore", text: `[chore] ${text}` });
+  /**
+   * Buy and scribe every missing merchant spell for the player and the same-account companions in
+   * the party. It sends the request the macro buttons Buy Spells and Buy Companion Spells send
+   * (ScribeAvailableSpells). Returns one line per scope with the server's reply.
+   */
+  const buyMissingSpells = async (scopes = ["self", "companions"]) => {
+    if (buying) return ["a purchase is already running"];
+    const opId = Number(Object.entries(opName).find(([, n]) => n === "ScribeAvailableSpells")?.[0]);
+    if (!opId) throw new Error("opcode table not loaded");
+    buying = true;
+    const lines = [];
+    try {
+      const id = stores.character.getState().characterProfile.id;
+      for (const scope of scopes) {
+        const r = await socket.sendCorrelatedJsonRequest(opId, opId, { characterId: id, scope, syncOnly: false });
+        lines.push(`${scope}: ${r.error || r.message || (r.success ? "ok" : "no confirmation")}`);
+      }
+    } finally {
+      buying = false;
+    }
+    return lines;
+  };
+
   // Read-only subscription; never replaces a client callback.
   let lastChatId = stores.chat.getState().nextId - 1;
   const unsubChat = stores.chat.subscribe((state) => {
@@ -193,6 +223,13 @@
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
       events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text });
+      // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.
+      if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
+        lastSpellBuy = Date.now();
+        buyMissingSpells()
+          .then((lines) => choreNote(`bought spells: ${lines.join(" | ")}`))
+          .catch((e) => choreNote(`spell purchase failed: ${e.message}`));
+      }
     }
     if (events.length > EVENT_MAX) events.splice(0, EVENT_MAX / 5);
   });
@@ -356,6 +393,11 @@
     seqs,
     session,
     guard,
+    chores,
+    buyMissingSpells,
+    setChores(partial) {
+      return Object.assign(chores, partial);
+    },
     ...guardApi,
     samplerId,
     unsubChat,

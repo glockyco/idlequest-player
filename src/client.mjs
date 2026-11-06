@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 
 const here = new URL(".", import.meta.url);
 
-const METHODS = ["status", "roster", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard"];
+const METHODS = ["status", "roster", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
@@ -114,12 +114,13 @@ export async function attach(tab) {
     },
 
     /**
-     * Buy and scribe every missing merchant spell for the player and for every party member
-     * (macro page 2: Buy Spells, Buy Companion Spells). Spends the player's carried money, lowest
-     * level spells first. Safe while AutoLevel runs. Returns the game's summary lines.
+     * Buy and scribe every missing merchant spell for the player and the same-account companions in
+     * the party, with the request the macro buttons send. No clicks and safe while AutoLevel runs.
+     * The page also does this by itself when the game reminds the player (see `chores`). Returns
+     * the server's reply per scope.
      */
     async buySpells() {
-      const lines = await handle.macroPress(["Buy Spells", "Buy Companion Spells"], /Bought and scribed|not enough|cannot afford|no spells|full/);
+      const lines = await tab.evaluate(() => window.iq.buyMissingSpells());
       return { lines };
     },
 

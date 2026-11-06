@@ -83,6 +83,14 @@ restarts with `safeLimits` instead, and a quiet hour restores the earlier limits
 the phase and recent escapes, `setGuard({...})` changes the settings and `testGuard()` forces one
 escape without touching a setting. Each escape is a `guard` line in the event log.
 
+## In-page chores
+
+`window.iq.chores.autoBuySpells` defaults to `true`. When the game adds its missing merchant-spell
+reminder, the page sends the same `ScribeAvailableSpells` requests as the Buy Spells and Buy
+Companion Spells macros, for the active character and its party companions. It needs no attached
+script. Use the SDK's `setChores({ autoBuySpells: false })` to disable it, or `buySpells()` to run
+the requests manually. Chore results are recorded as `chore` event lines.
+
 ## Party tactics
 
 - Default bot tactics are keyed `bot:<characterId>:<bot>` in the party spells store. A bare bot name

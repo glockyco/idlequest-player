@@ -36,6 +36,14 @@ await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });
 await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, always restart
 ```
 
+Merchant spells are bought automatically when the game reports that spells are missing. This runs
+inside the page while AutoLevel is active. To trigger it manually or disable it:
+
+```js
+await iq.buySpells();
+await tab.evaluate(() => window.iq.setChores({ autoBuySpells: false }));
+```
+
 Hunting grounds: `scoutZones` saves each zone's spawn list once, and `tools/zones.mjs` ranks zones
 for any level by target density and by how many targets have a much stronger monster beside them.
 
