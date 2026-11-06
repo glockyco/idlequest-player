@@ -52,6 +52,8 @@ let pathLen = 0; // distance covered outside combat, from position packets
 const cellOf = [];
 let covered = 0;
 let xpSum = 0; // XP gained over covered seconds only, so label filters and gaps do not distort it
+let coinSum = 0; // copper picked up over covered seconds
+let coinSeen = false;
 const coveredSec = new Set();
 let stopped = 0; // seconds where AutoLevel was not running
 for (let i = 1; i < samples.length; i++) {
@@ -65,6 +67,10 @@ for (let i = 1; i < samples.length; i++) {
   covered += dt;
   for (let s = Math.floor(a.t / 1000) + 1; s <= Math.floor(b.t / 1000); s++) coveredSec.add(s);
   if (a.xp != null && b.xp != null) xpSum += b.xp - a.xp;
+  if (a.cp != null && b.cp != null) {
+    coinSeen = true;
+    if (b.cp > a.cp) coinSum += b.cp - a.cp;
+  }
   if (!b.run) stopped += dt;
   // Position comes from the client's own position packets (null until the first one arrives).
   const moved = (b.pst != null && b.pst !== "idle") || (a.x != null && b.x != null && Math.hypot(b.x - a.x, b.y - a.y) > MOVE_EPS);
@@ -130,6 +136,8 @@ const result = {
   config: { zone: samples.at(-1).zone, minCon: samples.at(-1).minCon, maxCon: samples.at(-1).maxCon, aggr: samples.at(-1).aggr },
   outcome: {
     xpPerHour: Math.round((xpGained / mins) * 60),
+    // Gross coin picked up (purchases are not subtracted), in platinum per hour. Null before samples carried coin.
+    platPerHour: coinSeen ? +(coinSum / 1000 / (mins / 60)).toFixed(1) : null,
     killsPerMin: +(kills.length / mins).toFixed(2),
     xpPerKill: kills.length ? Math.round(mean(kills.map((k) => k.xp))) : 0,
     // XP per minute if every idle second were removed: the ceiling for pure efficiency work.
@@ -153,7 +161,7 @@ if (args.includes("--json")) {
   const r = result;
   console.log(`Window ${r.window.from} .. ${r.window.to}  (${r.window.coveredMin} min covered, AutoLevel stopped ${r.window.stoppedSec}s)`);
   console.log(`Level ${r.levels[0]} -> ${r.levels[1]}   zone ${r.config.zone}  con ${r.config.minCon}..${r.config.maxCon}  companion aggression ${r.config.aggr}`);
-  console.log(`\nOutcome   XP/h ${r.outcome.xpPerHour}   kills/min ${r.outcome.killsPerMin}   XP/kill ${r.outcome.xpPerKill}   XP/h with zero downtime ${r.outcome.xpPerHourIfNoDowntime}`);
+  console.log(`\nOutcome   XP/h ${r.outcome.xpPerHour}   kills/min ${r.outcome.killsPerMin}   XP/kill ${r.outcome.xpPerKill}   XP/h with zero downtime ${r.outcome.xpPerHourIfNoDowntime}   coin gained ${r.outcome.platPerHour ?? "n/a"} pp/h`);
   console.log("\nWhere the time goes");
   for (const [k, v] of Object.entries(cells)) console.log(`  ${k.padEnd(11)} ${sec(v).padStart(6)}  ${pct(v).padStart(6)}`);
   console.log(`  of the move time, ${sec(moveNotFull)} (${((100 * moveNotFull) / Math.max(cells.move, 1)).toFixed(0)}%) overlapped with someone still below full; path ${r.movement.pathUnits} units, ${r.movement.unitsPerKill} per kill, ${r.movement.unitsPerSecWhileMoving} units/s while moving`);
