@@ -47,6 +47,15 @@ await iq.pausedAutoLevel(() => iq.scoutZones(["Toxxulia Forest", "Crushbone"], "
 bun tools/zones.mjs runs/zones --level 5
 ```
 
+Where does an item drop? `tools/drops.mjs` joins the developer's public content snapshot (loot
+tables, spawn groups, spawn points). Clone it once, then ask. Chances are approximate.
+
+```sh
+git clone --depth 1 https://github.com/brynnb/idlequest-content ~/src/github.com/brynnb/idlequest-content   # about 1 GB
+bun tools/drops.mjs item "Crushbone Belt"        # NPC, zone, drop chance, spawn chance, respawn, rare
+bun tools/drops.mjs npc "orc centurion"          # what an NPC can drop
+```
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's
