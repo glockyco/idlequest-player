@@ -27,6 +27,30 @@ const iq = await attach(tab);
 console.log(await iq.status());
 ```
 
+## Measuring efficiency
+
+The bridge records one sample per second (level, XP, position, combat state, every party member's
+HP and mana, the active experiment label) and every chat line with the game's own timestamp.
+
+```js
+await iq.setLabel("B-some-change");   // tag the samples that follow
+await iq.exportRun("runs/my-run");    // append new rows to runs/my-run/*.jsonl, resumable
+```
+
+```sh
+bun tools/analyze.mjs runs/my-run --label B-some-change
+```
+
+The analyzer puts every second outside combat into exactly one cell: moving, recovering (standing
+still while someone is below full HP or mana) or ready-idle, and names the party member that fills
+last. Compare configurations by label, with similar level and enemy mix, and never on one block.
+
+- Check that a setting took effect in the event log before trusting a comparison. A tactic written
+  under the wrong key is stored and silently ignored.
+- Read position from the client's position packets. The character profile's `x`/`y` only updates on
+  zone entry.
+- Validate any new indicator against the game's messages before building on it.
+
 ## Rules for contributors
 
 - Never assign to `socket.onJson` or another callback slot on the game's objects. The client's own

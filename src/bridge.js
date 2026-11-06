@@ -85,7 +85,12 @@
   const log = { seq: 0, max: 4000, entries: [] };
   const opName = {};
   const noisy = new Set(["Heartbeat"]);
+  let lastPos = window.iq?.lastPos ?? null;
+  let label = window.iq?.label ?? "";
+  let zoneSpawns = window.iq?.zoneSpawns ?? null; // last ZoneSpawns packet: where every spawn of the zone stands
   const record = (dir, op, data) => {
+    if (dir === "out" && opName[op] === "PlayerPositionUpdate") lastPos = { x: data.x, y: data.y, z: data.z, st: data.movementState };
+    if (dir === "in" && opName[op] === "GetZoneSpawnsResponse") zoneSpawns = { t: Date.now(), spawns: data.spawns ?? [] };
     const name = opName[op] ?? String(op);
     if (noisy.has(name)) return;
     log.entries.push({ seq: ++log.seq, t: Date.now(), dir, op, name, data });
@@ -115,6 +120,72 @@
     socket[fn] = (op, replyOp, payload, ...rest) => (record("out", op, payload), orig(op, replyOp, payload, ...rest));
   }
 
+  // ---- Recorder -----------------------------------------------------------------------------
+  // Everything the analysis needs, with sequence numbers so a reader can drain incrementally and
+  // resume after its own restart. Buffers live in the page and survive reinstalls.
+  //   samples: one row per second of play state (see `sample()`)
+  //   events:  every chat/combat line the client shows, with the client's own timestamp
+  const samples = window.iq?.samples ?? [];
+  const events = window.iq?.events ?? [];
+  const seqs = window.iq?.seqs ?? { sample: 0, event: 0 };
+  const SAMPLE_MAX = 90000; // 25 h at 1 Hz
+  const EVENT_MAX = 60000;
+  if (window.iq?.samplerId) clearInterval(window.iq.samplerId);
+  if (window.iq?.unsubChat) window.iq.unsubChat();
+
+  const sample = () => {
+    const p = stores.character.getState().characterProfile;
+    if (!p?.id) return null;
+    const cb = stores.combat.getState();
+    const comps = stores.companions.getState().companions ?? [];
+    return {
+      seq: ++seqs.sample,
+      t: Date.now(),
+      lvl: p.level,
+      xp: p.experienceProgress?.current ?? null, // absolute XP, continuous across levels
+      zone: cb.currentZone,
+      // The profile's x/y is only set on zone entry. The client's own position packets are the truth.
+      x: lastPos?.x ?? null,
+      y: lastPos?.y ?? null,
+      z: lastPos?.z ?? null,
+      pst: lastPos?.st ?? null,
+      combat: !!stores.skills.getState().inCombat,
+      label,
+      tgtId: cb.activeCombatTargetSpawnInstanceId ?? null,
+      autoAtk: !!cb.isAutoAttacking,
+      run: !!cb.isRunning,
+      mode: cb.automatedCombatMode,
+      sit: !!cb.isPlayerSitting,
+      target: cb.targetNPC?.name ?? null,
+      minCon: cb.minCon,
+      maxCon: cb.maxCon,
+      aggr: cb.companionAggression,
+      // Party members as [name, hp, maxHp, mana, maxMana]; the player first.
+      party: [["me", p.curHp, p.maxHp, p.mana, p.maxMana], ...comps.map((c) => [c.name, c.curHp, c.maxHp, c.curMana, c.maxMana])],
+    };
+  };
+  const samplerId = setInterval(() => {
+    try {
+      const s = sample();
+      if (!s) return;
+      samples.push(s);
+      if (samples.length > SAMPLE_MAX) samples.splice(0, SAMPLE_MAX / 5);
+    } catch {
+      /* store not ready */
+    }
+  }, 1000);
+
+  // Read-only subscription; never replaces a client callback.
+  let lastChatId = stores.chat.getState().nextId - 1;
+  const unsubChat = stores.chat.subscribe((state) => {
+    for (const m of state.messages) {
+      if (m.id <= lastChatId) continue;
+      lastChatId = m.id;
+      events.push({ seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text });
+    }
+    if (events.length > EVENT_MAX) events.splice(0, EVENT_MAX / 5);
+  });
+
   const iq = {
     version: 1,
     mods,
@@ -122,6 +193,48 @@
     socket,
     log,
     kills,
+    samples,
+    events,
+    seqs,
+    samplerId,
+    unsubChat,
+    get zoneSpawns() {
+      return zoneSpawns;
+    },
+    /**
+     * Raw hunting-ground data for the current zone: every spawn the client received on entry
+     * (`GetZoneSpawnsResponse`) plus the zone's NPC definitions for class and merchant flags.
+     * Metrics are computed offline by `tools/zones.mjs`, so one visit serves every level.
+     */
+    zoneSnapshot() {
+      const cb = stores.combat.getState();
+      const sd = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone);
+      return {
+        zone: sd?.longName ?? String(cb.currentZone),
+        shortName: sd?.shortName,
+        safe: sd ? { x: sd.safeX, y: sd.safeY } : null,
+        takenAt: zoneSpawns?.t ?? null,
+        spawns: (zoneSpawns?.spawns ?? []).map((s) => ({ npcId: s.npcId, name: s.name, level: s.level, x: Math.round(s.x), y: Math.round(s.y), aggro: s.aggroRadius, grid: s.pathgridId })),
+        defs: (cb.currentZoneNPCs ?? []).map((n) => ({ id: n.id, cls: n.class, merchant: n.merchantId, quest: n.isquest, body: n.bodytype })),
+      };
+    },
+    /**
+     * Set a party tactic (cast, melee, heal, nuke, dot, ...) for a default bot such as "cleric".
+     * The game keys bot tactics as `bot:<characterId>:<bot>`; a bare bot name is stored but never read.
+     */
+    setTactic(bot, key, value) {
+      const id = stores.character.getState().characterProfile.id;
+      stores.partySpells.getState().setTactic(`bot:${id}:${bot}`, key, value);
+      return stores.partySpells.getState().overridesByCompanion[`bot:${id}:${bot}`];
+    },
+    /** Tag every following sample, so configurations can be compared with `analyze.mjs --label`. */
+    setLabel(l) {
+      label = String(l);
+      return label;
+    },
+    get label() {
+      return label;
+    },
     setOpcodeNames(table) {
       for (const [name, op] of Object.entries(table)) opName[op] = name;
     },
@@ -186,6 +299,14 @@
         await new Promise((r) => setTimeout(r, 1200));
       }
       return stores.companions.getState().companions.map((c) => ({ name: c.name, level: c.level }));
+    },
+
+    /** Recorder rows with seq greater than the given cursors, for incremental export. */
+    drain(sampleSeq = 0, eventSeq = 0) {
+      return {
+        samples: samples.filter((x) => x.seq > sampleSeq),
+        events: events.filter((x) => x.seq > eventSeq),
+      };
     },
 
     /** Compact snapshot of what the client currently knows. */

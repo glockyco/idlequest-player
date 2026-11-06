@@ -4,3 +4,6 @@ node_modules/
 # Local credentials or session material.
 *.secret
 .env
+
+# Recorded play sessions (large, regenerable from the live game).
+runs/
