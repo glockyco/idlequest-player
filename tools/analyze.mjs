@@ -90,6 +90,26 @@ const kills = events.filter((e) => coveredSec.has(Math.floor(e.t / 1000))).flatM
 const xpGained = xpSum;
 const mins = covered / 60000;
 
+// ---- Time to kill ----------------------------------------------------------------------------
+// Combat stretch starts: the first sample of each run of `combat` samples (a gap ends the run).
+const combatStarts = [];
+for (let i = 0; i < samples.length; i++) {
+  const prevCombat = i > 0 && samples[i].t - samples[i - 1].t <= GAP_MS && samples[i - 1].combat;
+  if (samples[i].combat && !prevCombat) combatStarts.push(samples[i].t);
+}
+const ttk = [];
+{
+  let prevKill = 0;
+  let k = 0;
+  for (const kill of kills) {
+    while (k + 1 < combatStarts.length && combatStarts[k + 1] <= kill.t) k++;
+    const start = Math.max(combatStarts[k] ?? kill.t, prevKill);
+    const d = (kill.t - start) / 1000;
+    // Kills outside any observed fight, or more than 3 minutes long, are not a normal pull.
+    if (combatStarts.length && d >= 0 && d < 180) ttk.push(d);
+    prevKill = kill.t;
+  }
+}
 // ---- Recovery: which member is last to fill --------------------------------------------------
 const limiter = {};
 const recoverRuns = [];
@@ -128,6 +148,7 @@ for (let i = 0; i < cellOf.length; i++) {
 const pct = (x) => `${((100 * x) / covered).toFixed(1)}%`;
 const sec = (x) => `${(x / 1000).toFixed(0)}s`;
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 0;
 const top = (o, n) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
 
 const result = {
@@ -140,6 +161,8 @@ const result = {
     platPerHour: coinSeen ? +(coinSum / 1000 / (mins / 60)).toFixed(1) : null,
     killsPerMin: +(kills.length / mins).toFixed(2),
     xpPerKill: kills.length ? Math.round(mean(kills.map((k) => k.xp))) : 0,
+    // Seconds from the start of the combat stretch (or the previous kill in it) to each kill.
+    ttkSec: ttk.length ? { mean: +mean(ttk).toFixed(1), median: +median(ttk).toFixed(1), p90: +[...ttk].sort((x, y) => x - y)[Math.floor(ttk.length * 0.9)].toFixed(1) } : null,
     // XP per minute if every idle second were removed: the ceiling for pure efficiency work.
     xpPerHourIfNoDowntime: cells.combat ? Math.round(((xpGained / (cells.combat / 60000)) * 60) / 1) : null,
   },
@@ -162,6 +185,7 @@ if (args.includes("--json")) {
   console.log(`Window ${r.window.from} .. ${r.window.to}  (${r.window.coveredMin} min covered, AutoLevel stopped ${r.window.stoppedSec}s)`);
   console.log(`Level ${r.levels[0]} -> ${r.levels[1]}   zone ${r.config.zone}  con ${r.config.minCon}..${r.config.maxCon}  companion aggression ${r.config.aggr}`);
   console.log(`\nOutcome   XP/h ${r.outcome.xpPerHour}   kills/min ${r.outcome.killsPerMin}   XP/kill ${r.outcome.xpPerKill}   XP/h with zero downtime ${r.outcome.xpPerHourIfNoDowntime}   coin gained ${r.outcome.platPerHour ?? "n/a"} pp/h`);
+  if (r.outcome.ttkSec) console.log(`Time to kill (s)   mean ${r.outcome.ttkSec.mean}   median ${r.outcome.ttkSec.median}   p90 ${r.outcome.ttkSec.p90}`);
   console.log("\nWhere the time goes");
   for (const [k, v] of Object.entries(cells)) console.log(`  ${k.padEnd(11)} ${sec(v).padStart(6)}  ${pct(v).padStart(6)}`);
   console.log(`  of the move time, ${sec(moveNotFull)} (${((100 * moveNotFull) / Math.max(cells.move, 1)).toFixed(0)}%) overlapped with someone still below full; path ${r.movement.pathUnits} units, ${r.movement.unitsPerKill} per kill, ${r.movement.unitsPerSecWhileMoving} units/s while moving`);
