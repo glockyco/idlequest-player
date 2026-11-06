@@ -77,9 +77,11 @@ mob is engaged it checks four things: a mob `levelGap` or more levels above the 
 biggest hit times `hitsToKill` reaches the lowest max HP in the party, a party member newly dead,
 and a Cleric under `healerManaPct` mana while someone is under `healerHpPct` HP. On a trigger it
 stops AutoLevel, changes zone to the current zone (or `retreatZone`), and starts AutoLevel again
-with the same limits. After `maxTripsPerHour` escapes it stops AutoLevel and halts. `guardStatus()`
-shows the phase and recent escapes and `setGuard({...})` changes the settings. Each escape is a
-`guard` line in the event log.
+with the same limits. It never leaves AutoLevel stopped. After `escalateAfter` escapes in an hour it
+restarts with `safeLimits` instead, and a quiet hour restores the earlier limits. With
+`fallbackZone` set it moves there after two more escapes at the safe limits. `guardStatus()` shows
+the phase and recent escapes, `setGuard({...})` changes the settings and `testGuard()` forces one
+escape without touching a setting. Each escape is a `guard` line in the event log.
 
 ## Party tactics
 

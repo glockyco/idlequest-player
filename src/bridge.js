@@ -209,32 +209,36 @@
   const guardPrev = window.iq?.guard;
   if (guardPrev?.timerId) clearInterval(guardPrev.timerId);
   const guard = {
-    config: guardPrev?.config ?? { enabled: true, levelGap: 8, hitsToKill: 3, healerManaPct: 10, healerHpPct: 50, maxTripsPerHour: 6, retreatZone: null },
-    phase: "watching", // watching | leaving | halted
+    config: {
+      enabled: true,
+      levelGap: 8,
+      hitsToKill: 3,
+      healerManaPct: 10,
+      healerHpPct: 50,
+      escalateAfter: 3, // escapes in an hour before the limits are tightened
+      safeLimits: { minCon: 4, maxCon: 15, maxLevelDiff: 2 },
+      retreatZone: null, // short name to leave to, or null to re-enter the current zone
+      fallbackZone: null, // short name to move to when escapes continue at the safe limits
+      ...guardPrev?.config,
+    },
+    phase: "watching", // watching | leaving
+    preferred: guardPrev?.preferred ?? null, // limits to return to after a quiet hour, once tightened
     trips: guardPrev?.trips ?? [],
     knownDown: new Set(),
-    halted: null,
     timerId: null,
-    enable() {
-      guard.config.enabled = true;
-      guard.halted = null;
-      guard.phase = "watching";
-    },
-    disable() {
-      guard.config.enabled = false;
-    },
   };
   const guardApi = {
-    /** The guard's settings, phase, why it halted (if it did) and the escapes of the last hour. */
-    guardStatus: () => ({ config: guard.config, phase: guard.phase, halted: guard.halted, trips: guard.trips }),
-    /** Change guard settings, e.g. `{ levelGap: 6 }` or `{ enabled: false }`. Re-enabling clears a halt. */
+    /** The guard's settings, its phase and the escapes of the last hour. */
+    guardStatus: () => ({ config: guard.config, phase: guard.phase, trips: guard.trips }),
+    /** Change guard settings, e.g. `{ levelGap: 6 }`, `{ fallbackZone: "lfaydark" }` or `{ enabled: false }`. */
     setGuard(partial) {
       Object.assign(guard.config, partial);
-      if (guard.config.enabled) {
-        guard.halted = null;
-        if (guard.phase === "halted") guard.phase = "watching";
-      }
       return guard.config;
+    },
+    /** Make the guard leave once, as if `reason` had fired, to test the escape. No setting changes. */
+    testGuard(reason = "test") {
+      guard.force = `test: ${reason}`;
+      return true;
     },
   };
   const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
@@ -270,52 +274,74 @@
     if (hurt && dry) return `healer: ${dry.name} has ${dry.mana}/${dry.maxMana} mana`;
     return null;
   };
+  // The game's limit setters overwrite each other (see docs/client-internals.md), so the cap goes
+  // last: it sets the highest con itself, and the pair stays consistent.
+  const applyLimits = (cb, l) => {
+    cb.setMaxCon(l.maxCon);
+    cb.setMinCon(l.minCon);
+    cb.setMaxLevelDiff(l.maxLevelDiff);
+  };
   const guardLeave = async (reason) => {
     const cb = stores.combat.getState();
-    const hourAgo = Date.now() - 3600000;
-    guard.trips = guard.trips.filter((t) => t.t > hourAgo);
-    if (guard.trips.length >= guard.config.maxTripsPerHour) {
-      guard.phase = "halted";
-      guard.halted = `${guard.trips.length} escapes in the last hour, last reason: ${reason}`;
-      cb.setIsRunning(false);
-      guardNote(`halted, AutoLevel stopped: ${guard.halted}`);
-      return;
+    const cfg = guard.config;
+    guard.trips = guard.trips.filter((t) => t.t > Date.now() - 3600000);
+    let limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
+    let target = cfg.retreatZone;
+    // Repeated escapes mean this spot or these limits are too hard for the party. Get more careful
+    // and keep playing. First tighten the limits, then move to another zone if one is configured.
+    const looser = limits.maxLevelDiff > cfg.safeLimits.maxLevelDiff || limits.minCon > cfg.safeLimits.minCon;
+    if (guard.trips.length >= cfg.escalateAfter && looser) {
+      guard.preferred ??= { ...limits };
+      limits = { ...cfg.safeLimits };
+      guardNote(`${guard.trips.length} escapes in the last hour, tightening AutoLevel to con ${limits.minCon}..${limits.maxCon}, cap ${limits.maxLevelDiff}`);
+    } else if (guard.trips.length >= cfg.escalateAfter + 2 && cfg.fallbackZone) {
+      target = cfg.fallbackZone;
+      guardNote(`${guard.trips.length} escapes in the last hour even at the safe limits, moving to ${target}`);
     }
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
     guardNote(`leaving: ${reason}`);
-    const limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     cb.setIsRunning(false);
     try {
       const zones = stores.staticData.getState().zones;
-      const target = guard.config.retreatZone ? zones.find((z) => z.shortName === guard.config.retreatZone) : zones.find((z) => z.zoneidnumber === cb.currentZone);
+      const dest = target ? zones.find((z) => z.shortName === target) : zones.find((z) => z.zoneidnumber === cb.currentZone);
       const change = zoneChanger();
-      if (!target || !change) throw new Error("zone change function or target zone not found");
-      await change(target);
-      // The zone-loading flag shows the change started. Give up waiting after 30 s.
+      if (!dest || !change) throw new Error("zone change function or target zone not found");
+      await change(dest);
+      // The zone-loading flag shows the change started. Give up waiting after 60 s.
       const t0 = Date.now();
       while (!stores.combat.getState().isZoneLoading && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
       while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
       await new Promise((r) => setTimeout(r, 4000));
-      const now = stores.combat.getState();
-      now.setMinCon(limits.minCon);
-      now.setMaxLevelDiff(limits.maxLevelDiff);
-      now.setMaxCon(limits.maxCon);
-      for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
-        stores.combat.getState().startAutoLevel();
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-      guardNote(stores.combat.getState().isRunning ? "back in the zone, AutoLevel running" : "back in the zone, AutoLevel did NOT restart");
     } catch (e) {
-      guardNote(`leaving failed: ${e.message}`);
-    } finally {
-      if (guard.phase === "leaving") guard.phase = "watching";
+      guardNote(`zone change failed: ${e.message}`);
     }
+    // Whatever happened above, AutoLevel must be running again.
+    applyLimits(stores.combat.getState(), limits);
+    for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
+      stores.combat.getState().startAutoLevel();
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    guardNote(stores.combat.getState().isRunning ? "AutoLevel running again" : "AutoLevel did NOT restart");
+    guard.phase = "watching";
   };
   guard.timerId = setInterval(() => {
-    if (!guard.config.enabled || guard.phase !== "watching" || stores.combat.getState().isZoneLoading) return;
-    const reason = guardDanger();
-    if (reason) guardLeave(reason);
+    const cbNow = stores.combat.getState();
+    if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading) return;
+    // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
+    const reason = guard.force ?? guardDanger();
+    guard.force = null;
+    if (reason) {
+      guardLeave(reason);
+      return;
+    }
+    // A quiet hour after the limits were tightened: go back to the limits that were in use before.
+    guard.trips = guard.trips.filter((t) => t.t > Date.now() - 3600000);
+    if (guard.preferred && guard.trips.length === 0 && !Object.keys(cbNow.engagedMobs ?? {}).length) {
+      applyLimits(cbNow, guard.preferred);
+      guardNote(`no escapes for an hour, AutoLevel back to con ${guard.preferred.minCon}..${guard.preferred.maxCon}, cap ${guard.preferred.maxLevelDiff}`);
+      guard.preferred = null;
+    }
   }, 1000);
 
   const iq = {
