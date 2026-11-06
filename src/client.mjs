@@ -105,6 +105,26 @@ export async function attach(tab) {
     },
 
     /**
+     * Run `fn` with AutoLevel paused, then restart it with the same con and level limits, even if
+     * `fn` throws. Use it for anything that needs the party standing still (travel, memorizing,
+     * shopping, experiments) so a pause can never be left in place by accident. If AutoLevel was
+     * not running, `fn` runs as is and nothing is restarted.
+     */
+    async pausedAutoLevel(fn) {
+      const was = (await handle.status()).autoLevel;
+      const limits = await tab.evaluate(() => {
+        const s = window.iq.stores.combat.getState();
+        return { minCon: s.minCon, maxCon: s.maxCon, maxLevelDiff: s.maxLevelDiff };
+      });
+      if (was.running) await handle.stopAutoLevel();
+      try {
+        return await fn();
+      } finally {
+        if (was.running) await handle.startAutoLevel(limits);
+      }
+    },
+
+    /**
      * Travel through the Travel window (the same path a player uses) and wait for the zone to load.
      * AutoLevel must be stopped first. Returns the status once the zone has loaded.
      */
