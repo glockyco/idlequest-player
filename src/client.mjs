@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 
 const here = new URL(".", import.meta.url);
 
-const METHODS = ["status", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets"];
+const METHODS = ["status", "roster", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
@@ -52,8 +52,24 @@ export async function attach(tab) {
       return { samples: samples.length, events: events.length };
     },
 
+    /** Close windows that hide the right-hand buttons: Done/Close buttons, merchant, and the combat macro bar. */
+    async clearWindows() {
+      for (let i = 0; i < 4; i++) {
+        const n = await tab.evaluate(() => {
+          const s = window.iq.stores.combat.getState();
+          if (s.isCombatSkillMacrosOpen) s.setCombatSkillMacrosOpen(false);
+          const d = [...document.querySelectorAll("button")].filter((b) => /^(done|close)$/i.test(b.textContent.trim()));
+          d.forEach((b) => b.click());
+          return d.length;
+        });
+        if (!n) return;
+        await sleep(600);
+      }
+    },
+
     /** Pause AutoLevel and wait until combat automation has stopped. The AutoLevel button toggles. */
     async stopAutoLevel() {
+      await handle.clearWindows();
       const a0 = (await handle.status()).autoLevel;
       if (a0.running || a0.autoAttack) await tab.click('role/button[name="AutoLevel" exact]');
       for (let i = 0; i < 40; i++) {
@@ -69,6 +85,7 @@ export async function attach(tab) {
      * 2 green, 4 blue, 10 white, 15 yellow, 13 red. `maxLevelDiff` caps enemy level above yours (0 = no cap).
      */
     async startAutoLevel({ minCon, maxCon, maxLevelDiff } = {}) {
+      await handle.clearWindows();
       await tab.evaluate(
         (a, b, c) => {
           const s = window.iq.stores.combat.getState();
@@ -92,6 +109,7 @@ export async function attach(tab) {
      * AutoLevel must be stopped first. Returns the status once the zone has loaded.
      */
     async travelTo(zoneName, timeoutMs = 120000) {
+      await handle.clearWindows();
       await tab.click('role/button[name="Travel" exact]');
       await sleep(1200);
       await tab.type("placeholder/Search travel destinations", zoneName);

@@ -309,6 +309,25 @@
       };
     },
 
+    /**
+     * Every character in the party, the player first: class, level, HP and mana, equipped items and
+     * armor class. Companions come from the client's party store; the player from the profile.
+     * Items are `{slot, name}` for equipped slots (0-22) only. Pets are listed separately.
+     */
+    roster() {
+      const cs = stores.companions.getState();
+      const classes = Object.fromEntries((stores.staticData.getState().classes ?? []).map((c) => [c.id, c.name]));
+      const p = stores.character.getState().characterProfile ?? {};
+      const equipped = (rows) => (rows ?? []).filter((i) => i.bag === 0 && i.slot >= 0 && i.slot <= 22).map((i) => ({ slot: i.slot, name: i.itemDetails?.Name ?? i.itemDetails?.name ?? i.itemid }));
+      const me = { name: p.name, class: typeof p.class === "object" ? p.class?.name : classes[p.class], level: p.level, hp: [p.curHp, p.maxHp], mana: [p.mana, p.maxMana], ac: p.ac, items: equipped(p.inventory) };
+      const members = (cs.companions ?? []).map((c) => {
+        const stats = cs.botComputedStats?.[c.id] ?? {};
+        const isPet = c.companionType !== 0 && c.companionType !== 2 ? true : false;
+        return { id: c.id, name: c.name, level: c.level, type: c.companionType, pet: isPet, hp: [c.curHp, c.maxHp], mana: [c.curMana, c.maxMana], ac: stats.ac, items: equipped(cs.botInventories?.[c.id]) };
+      });
+      return { me, party: members.filter((m) => !m.pet), pets: members.filter((m) => m.pet) };
+    },
+
     /** Compact snapshot of what the client currently knows. */
     status() {
       const sc = stores.screen.getState();
