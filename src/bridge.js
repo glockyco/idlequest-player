@@ -162,6 +162,8 @@
       aggr: cb.companionAggression,
       // Party members as [name, hp, maxHp, mana, maxMana]; the player first.
       party: [["me", p.curHp, p.maxHp, p.mana, p.maxMana], ...comps.map((c) => [c.name, c.curHp, c.maxHp, c.curMana, c.maxMana])],
+      // Levels in the same order as `party`, so level-ups cannot hide inside a comparison block.
+      lv: [p.level, ...comps.map((c) => c.level)],
     };
   };
   const samplerId = setInterval(() => {

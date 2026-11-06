@@ -67,6 +67,46 @@ export async function attach(tab) {
       }
     },
 
+    /**
+     * Buy and scribe every missing merchant spell for the player and for every party member
+     * (macro page 2: Buy Spells, Buy Companion Spells). Spends the player's carried money, lowest
+     * level spells first. Safe while AutoLevel runs. Returns the game's summary lines.
+     */
+    async buySpells() {
+      await handle.clearWindows();
+      const click = (label) =>
+        tab.evaluate((l) => {
+          const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === l || x.getAttribute("aria-label") === l);
+          if (!b) return false;
+          b.click();
+          return true;
+        }, label);
+      // The macro bar and the chat both have pager buttons. The macro pager sits left of x=1200.
+      // A DOM click does not turn the page, so click at the button's centre.
+      const macroPage = async (label) => {
+        const r = await tab.evaluate((l) => {
+          const b = [...document.querySelectorAll("button")].filter((x) => x.getAttribute("aria-label") === l && x.getBoundingClientRect().x < 1200).pop();
+          if (!b) return null;
+          const q = b.getBoundingClientRect();
+          return { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+        }, label);
+        if (!r) return false;
+        await tab.clickAt(r.x, r.y);
+        return true;
+      };
+      const since = await tab.evaluate(() => window.iq.seqs.event);
+      if (!(await click("Buy Spells"))) await macroPage("Next page");
+      await sleep(700);
+      for (const label of ["Buy Spells", "Buy Companion Spells"]) {
+        if (!(await click(label))) throw new Error(`macro button "${label}" not found`);
+        await sleep(6000);
+      }
+      await macroPage("Previous page");
+      // Combat chatter can push the summaries out of the chat tail, so read the event log.
+      const lines = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s && /Bought and scribed|not enough|cannot afford|no spells|full/i.test(e.text)).map((e) => e.text), since);
+      return { lines };
+    },
+
     /** Pause AutoLevel and wait until combat automation has stopped. The AutoLevel button toggles. */
     async stopAutoLevel() {
       await handle.clearWindows();
