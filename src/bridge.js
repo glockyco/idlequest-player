@@ -126,7 +126,7 @@
       const cb = stores.combat.getState();
       const p = stores.character.getState().characterProfile ?? {};
       const sd = stores.staticData.getState();
-      const zone = cb.currentZone != null ? (sd.zones.find((z) => z.zoneidnumber === cb.currentZone || z.id === cb.currentZone) ?? null) : null;
+      const zone = cb.currentZone != null ? (sd.zones.find((z) => z.zoneidnumber === cb.currentZone) ?? null) : null;
       return {
         screen: sc.currentScreen,
         connected: socket.isConnected,
