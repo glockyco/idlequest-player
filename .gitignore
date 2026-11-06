@@ -1,0 +1,6 @@
+# Downloaded copies of the game client used for reverse engineering.
+.re/
+node_modules/
+# Local credentials or session material.
+*.secret
+.env
