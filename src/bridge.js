@@ -128,6 +128,12 @@
   const samples = window.iq?.samples ?? [];
   const events = window.iq?.events ?? [];
   const seqs = window.iq?.seqs ?? { sample: 0, event: 0 };
+  // Changes whenever the page reloads, because the buffers and the sequence numbers restart then.
+  const session = window.iq?.session ?? Date.now();
+  // Rows kept by an older install of this bridge carry no session. Give them one that sorts before
+  // this install's, so an exporter whose file holds rows from an earlier page still collects them.
+  for (const r of samples) r.ses ??= session - 1;
+  for (const r of events) r.ses ??= session - 1;
   const SAMPLE_MAX = 90000; // 25 h at 1 Hz
   const EVENT_MAX = 60000;
   if (window.iq?.samplerId) clearInterval(window.iq.samplerId);
@@ -139,6 +145,7 @@
     const cb = stores.combat.getState();
     const comps = stores.companions.getState().companions ?? [];
     return {
+      ses: session,
       seq: ++seqs.sample,
       t: Date.now(),
       lvl: p.level,
@@ -185,7 +192,7 @@
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
-      events.push({ seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text });
+      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text });
     }
     if (events.length > EVENT_MAX) events.splice(0, EVENT_MAX / 5);
   });
@@ -200,6 +207,7 @@
     samples,
     events,
     seqs,
+    session,
     samplerId,
     unsubChat,
     get zoneSpawns() {
@@ -311,11 +319,13 @@
       return stores.companions.getState().companions.map((c) => ({ name: c.name, level: c.level }));
     },
 
-    /** Recorder rows with seq greater than the given cursors, for incremental export. */
-    drain(sampleSeq = 0, eventSeq = 0) {
+    /** Recorder rows after the given { ses, seq } cursors, for incremental export. */
+    drain(sampleCursor = { ses: 0, seq: 0 }, eventCursor = { ses: 0, seq: 0 }) {
+      // Sequence numbers restart when the page reloads, so a cursor is a (session, seq) pair.
+      const after = (x, c) => (x.ses ?? 0) > c.ses || ((x.ses ?? 0) === c.ses && x.seq > c.seq);
       return {
-        samples: samples.filter((x) => x.seq > sampleSeq),
-        events: events.filter((x) => x.seq > eventSeq),
+        samples: samples.filter((x) => after(x, sampleCursor)),
+        events: events.filter((x) => after(x, eventCursor)),
       };
     },
 

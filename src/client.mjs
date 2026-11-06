@@ -8,13 +8,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
 const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
 
-/** Last `seq` value in a JSONL file, or 0 if the file is missing or empty. */
-async function lastSeq(path) {
+/**
+ * Last (session, seq) pair in a JSONL file, or zeros if the file is missing or empty. The page
+ * numbers rows from 1 again after every reload, so `seq` alone cannot say what was exported.
+ * It is a cursor into one file, so each buffer keeps its own.
+ */
+async function lastCursor(path) {
   try {
     const lines = (await readFile(path, "utf8")).trimEnd().split("\n");
-    return lines.at(-1) ? JSON.parse(lines.at(-1)).seq : 0;
+    const row = lines.at(-1) ? JSON.parse(lines.at(-1)) : null;
+    return { ses: row?.ses ?? 0, seq: row?.seq ?? 0 };
   } catch {
-    return 0;
+    return { ses: 0, seq: 0 };
   }
 }
 
@@ -45,8 +50,8 @@ export async function attach(tab) {
       await mkdir(dir, { recursive: true });
       const sPath = `${dir}/samples.jsonl`;
       const ePath = `${dir}/events.jsonl`;
-      const [sSeq, eSeq] = await Promise.all([lastSeq(sPath), lastSeq(ePath)]);
-      const { samples, events } = await tab.evaluate((a, b) => window.iq.drain(a, b), sSeq, eSeq);
+      const [s, e] = await Promise.all([lastCursor(sPath), lastCursor(ePath)]);
+      const { samples, events } = await tab.evaluate((a, b) => window.iq.drain(a, b), s, e);
       if (samples.length) await appendFile(sPath, samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
       if (events.length) await appendFile(ePath, events.map((r) => JSON.stringify(r)).join("\n") + "\n");
       return { samples: samples.length, events: events.length };
