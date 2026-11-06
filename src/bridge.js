@@ -219,13 +219,19 @@
       };
     },
     /**
-     * Set a party tactic (cast, melee, heal, nuke, dot, ...) for a default bot such as "cleric".
-     * The game keys bot tactics as `bot:<characterId>:<bot>`; a bare bot name is stored but never read.
+     * Set a party tactic (cast, melee, range, heal, cure, healPets, rez, manaRecovery, nuke, dot,
+     * debuff, cc, root, fear) for one party member.
+     * `who` is a default bot ("cleric", "warrior", "rogue") or the name of an account character in
+     * the party. The game keys these as `bot:<playerId>:<bot>` and `character:<characterId>`; a
+     * bare name is stored but never read. Returns the member's overrides after the change.
      */
-    setTactic(bot, key, value) {
-      const id = stores.character.getState().characterProfile.id;
-      stores.partySpells.getState().setTactic(`bot:${id}:${bot}`, key, value);
-      return stores.partySpells.getState().overridesByCompanion[`bot:${id}:${bot}`];
+    setTactic(who, key, value) {
+      const playerId = stores.character.getState().characterProfile.id;
+      const comps = stores.companions.getState().companions ?? [];
+      const byName = comps.find((c) => c.characterId && c.name.toLowerCase() === String(who).toLowerCase());
+      const k = byName ? `character:${byName.characterId}` : /^\d+$/.test(String(who)) ? `character:${who}` : `bot:${playerId}:${who}`;
+      stores.partySpells.getState().setTactic(k, key, value);
+      return { key: k, overrides: stores.partySpells.getState().overridesByCompanion[k] };
     },
     /** Tag every following sample, so configurations can be compared with `analyze.mjs --label`. */
     setLabel(l) {

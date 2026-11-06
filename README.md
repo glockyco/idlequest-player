@@ -18,13 +18,33 @@ Protocol and client internals: [docs/client-internals.md](docs/client-internals.
 ## Setup
 
 1. Open https://idlequest.net/play in Chrome and sign in.
-2. Attach a tab object that has `evaluate(expression)`, for example one from omp's `browser` tool
-   with the relay enabled, then:
+2. Attach a tab object that has `evaluate`, `click` and `type`, for example one from omp's `browser`
+   tool with the relay enabled, then:
 
 ```js
 import { attach } from "./src/client.mjs";
 const iq = await attach(tab);
 console.log(await iq.status());
+```
+
+## Common tasks
+
+```js
+const party = await iq.roster();                    // every character: class, level, HP, mana, gear
+await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also "cleric", "warrior", "rogue")
+await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });
+await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, always restart
+```
+
+Hunting grounds: `scoutZones` saves each zone's spawn list once, and `tools/zones.mjs` ranks zones
+for any level by target density and by how many targets have a much stronger monster beside them.
+
+```js
+await iq.pausedAutoLevel(() => iq.scoutZones(["Toxxulia Forest", "Crushbone"], "runs/zones"));
+```
+
+```sh
+bun tools/zones.mjs runs/zones --level 5
 ```
 
 ## Measuring efficiency
@@ -60,6 +80,12 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
   cookies, localStorage or IndexedDB, so a lost session means signing in again.
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
   Regenerate `data/opcodes.json` with `tools/extract-opcodes.ts` after a client release.
+- Run anything that needs the party standing still inside `pausedAutoLevel`. A pause left in place
+  leaves every character idle.
+- `tab.evaluate` calls time out after 30 seconds. Start long work in the page, keep its progress on
+  `window`, and poll it with short calls.
+- Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions
+  that a player cannot use.
 
 ## Diary
 
