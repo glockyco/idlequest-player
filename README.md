@@ -56,6 +56,24 @@ bun tools/drops.mjs item "Crushbone Belt"        # NPC, zone, drop chance, spawn
 bun tools/drops.mjs npc "orc centurion"          # what an NPC can drop
 ```
 
+Scouting without stopping AutoLevel: `tools/zone-snapshots.mjs` builds the same zone files offline
+from the content snapshot (one most-likely NPC per spawn point). It matched live scouts to within
+about 5% for Blackburrow, the Qeynos Aqueduct and Greater Faydark, and is 40% high for Toxxulia,
+so check a zone live before committing to it. `tools/zones.mjs` skips zones the game does not have
+(`data/idlequest-zones.json`, from the wiki, with each zone's XP multiplier).
+
+```sh
+bun tools/zone-snapshots.mjs runs/zones-content "."          # all zones, about 10 seconds
+bun tools/zones.mjs runs/zones-content --level 15
+```
+
+Gear: `tools/gear.mjs` lists the best usable item per slot for a class and level and where it drops.
+The score is a rough stat value with the weights documented in the file, not a simulation.
+
+```sh
+bun tools/gear.mjs magician --level 20 --slot head --top 3
+```
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's

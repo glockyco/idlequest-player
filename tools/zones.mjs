@@ -24,7 +24,7 @@ const opt = (n, d) => {
 };
 const level = opt("level", NaN);
 if (!dir || Number.isNaN(level)) {
-  console.error("usage: bun tools/zones.mjs <snapshot dir> --level N [--lo -2] [--hi 3] [--strong 4] [--json]");
+  console.error("usage: bun tools/zones.mjs <snapshot dir> --level N [--lo -2] [--hi 3] [--strong 4] [--all] [--json]");
   process.exit(2);
 }
 const lo = opt("lo", -2);
@@ -33,10 +33,15 @@ const strongGap = opt("strong", 4);
 const LINK = 70;
 const ARRIVAL = 150;
 
+// Zones IdleQuest has, with their XP multipliers (from the wiki). Snapshots of other zones are skipped.
+const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
+const gameZones = new Map(Object.entries(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(([k, v]) => [norm(k), v]));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const rows = [];
 for (const f of (await readdir(dir)).filter((f) => f.endsWith(".json"))) {
   const z = JSON.parse(await readFile(`${dir}/${f}`, "utf8"));
+  const zem = gameZones.get(norm(z.zone));
+  if (zem === undefined && !args.includes("--all")) continue; // not a zone IdleQuest has
   const defs = new Map(z.defs.map((d) => [d.id, d]));
   const mobs = z.spawns.filter((s) => {
     const d = defs.get(s.npcId);
@@ -60,6 +65,7 @@ for (const f of (await readdir(dir)).filter((f) => f.endsWith(".json"))) {
   }
   rows.push({
     zone: z.zone,
+    zem: zem,
     cand: cand.length,
     nn: cand.length > 1 ? Math.round(nn / cand.length) : null,
     near300: cand.length ? +(near / cand.length).toFixed(1) : 0,
@@ -74,8 +80,8 @@ rows.sort((a, b) => (a.cand < 10) - (b.cand < 10) || (a.nn ?? 1e9) - (b.nn ?? 1e
 if (args.includes("--json")) console.log(JSON.stringify(rows, null, 2));
 else {
   console.log(`Level ${level}, candidates ${level + lo}..${level + hi}, strong >= ${level + strongGap}\n`);
-  console.log("zone".padEnd(32) + "cand".padStart(5) + "nn".padStart(6) + "near300".padStart(9) + "exposed".padStart(9) + "arrival".padStart(9) + "  levels");
+  console.log("zone".padEnd(32) + "zem".padStart(5) + "cand".padStart(5) + "nn".padStart(6) + "near300".padStart(9) + "exposed".padStart(9) + "arrival".padStart(9) + "  levels");
   for (const r of rows) {
-    console.log(r.zone.padEnd(32) + String(r.cand).padStart(5) + String(r.nn ?? "-").padStart(6) + String(r.near300).padStart(9) + String(r.exposed ?? "-").padStart(9) + String(r.arrival ?? "-").padStart(9) + "  " + JSON.stringify(r.levels));
+    console.log(r.zone.padEnd(32) + String(r.zem ?? "-").padStart(5) + String(r.cand).padStart(5) + String(r.nn ?? "-").padStart(6) + String(r.near300).padStart(9) + String(r.exposed ?? "-").padStart(9) + String(r.arrival ?? "-").padStart(9) + "  " + JSON.stringify(r.levels));
   }
 }
