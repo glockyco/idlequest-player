@@ -68,11 +68,11 @@ export async function attach(tab) {
     },
 
     /**
-     * Buy and scribe every missing merchant spell for the player and for every party member
-     * (macro page 2: Buy Spells, Buy Companion Spells). Spends the player's carried money, lowest
-     * level spells first. Safe while AutoLevel runs. Returns the game's summary lines.
+     * Press buttons on macro bar page 2 (Buy Spells, Buy Companion Spells, Auto Sell, ...) and
+     * return the game's reply lines that match `pattern`. Combat chatter can push replies out of
+     * the chat tail, so they are read from the event log.
      */
-    async buySpells() {
+    async macroPress(labels, pattern, waitMs = 6000) {
       await handle.clearWindows();
       const click = (label) =>
         tab.evaluate((l) => {
@@ -95,16 +95,39 @@ export async function attach(tab) {
         return true;
       };
       const since = await tab.evaluate(() => window.iq.seqs.event);
-      if (!(await click("Buy Spells"))) await macroPage("Next page");
+      if (!(await click(labels[0]))) await macroPage("Next page");
       await sleep(700);
-      for (const label of ["Buy Spells", "Buy Companion Spells"]) {
-        if (!(await click(label))) throw new Error(`macro button "${label}" not found`);
-        await sleep(6000);
+      try {
+        for (const label of labels) {
+          if (!(await click(label))) throw new Error(`macro button "${label}" not found`);
+          await sleep(waitMs);
+        }
+      } finally {
+        await macroPage("Previous page");
       }
-      await macroPage("Previous page");
-      // Combat chatter can push the summaries out of the chat tail, so read the event log.
-      const lines = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s && /Bought and scribed|not enough|cannot afford|no spells|full/i.test(e.text)).map((e) => e.text), since);
+      return tab.evaluate((s, p) => window.iq.events.filter((e) => e.seq > s && new RegExp(p, "i").test(e.text)).map((e) => e.text), since, pattern.source);
+    },
+
+    /**
+     * Buy and scribe every missing merchant spell for the player and for every party member
+     * (macro page 2: Buy Spells, Buy Companion Spells). Spends the player's carried money, lowest
+     * level spells first. Safe while AutoLevel runs. Returns the game's summary lines.
+     */
+    async buySpells() {
+      const lines = await handle.macroPress(["Buy Spells", "Buy Companion Spells"], /Bought and scribed|not enough|cannot afford|no spells|full/);
       return { lines };
+    },
+
+    /**
+     * Sell eligible carried items through the game's Auto Sell (macro page 2). It respects the
+     * game's protections (No Sell bags, valuable gear, quest items) and takes a 20% courier fee.
+     * Returns the carried coin before and after, in copper, and the game's reply lines.
+     */
+    async autoSell() {
+      const coin = () => tab.evaluate(() => { const p = window.iq.stores.character.getState().characterProfile; return (p.platinum || 0) * 1000 + (p.gold || 0) * 100 + (p.silver || 0) * 10 + (p.copper || 0); });
+      const before = await coin();
+      const lines = await handle.macroPress(["Auto Sell"], /sold|sell|courier|nothing|no items|eligible/, 8000);
+      return { beforeCopper: before, afterCopper: await coin(), lines };
     },
 
     /** Pause AutoLevel and wait until combat automation has stopped. The AutoLevel button toggles. */
