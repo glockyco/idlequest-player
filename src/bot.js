@@ -28,6 +28,8 @@
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
     stallMin: 10, // AutoLevel running without XP this long raises an alert
+    stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
+    routeStuckSec: 45, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
     upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
     nukeGems: 2, // direct-damage spells to keep memorized
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
@@ -230,6 +232,8 @@
         alert("death", text, who === "You" || names.has(who));
       } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
       else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
+      else if (/^No usable route\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
+      else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = null;
       else if (e.type === "guard" && /tightening|moving to|did NOT restart|failed/.test(text)) alert("guard", text, true);
     }
   };
@@ -282,7 +286,28 @@
       state.stallAlerted = false;
       return;
     }
-    if (!state.stallAlerted && now() - state.xpSeen.t > config.stallMin * 60000) {
+    const idleMin = (now() - state.xpSeen.t) / 60000;
+    const inCombat = !!i.stores.skills?.getState?.().inCombat;
+    const restart = (why) => {
+      state.stuckRestartAt = now();
+      state.routeRecoverAt = null;
+      cb.setIsRunning(false);
+      setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 1500);
+      alert("stuckRestart", `${why}; restarted AutoLevel`, false);
+    };
+    if (inCombat || now() < state.pauseUntil) return;
+    // The game's route recovery ("No usable route. Recovering near ...") usually finds a new target
+    // within a second, but can also leave AutoLevel on and idle for good. Stopping and starting it
+    // picks a new target.
+    if (state.routeRecoverAt && now() - state.routeRecoverAt > config.routeStuckSec * 1000) {
+      restart(`route recovery found no target in ${config.routeStuckSec}s`);
+      return;
+    }
+    // Any other hang: running, out of combat and no XP for a few minutes.
+    if (config.stuckRestartMin > 0 && idleMin > config.stuckRestartMin && now() - (state.stuckRestartAt ?? 0) > config.stuckRestartMin * 60000) {
+      restart(`${Math.round(idleMin)} minutes out of combat without XP`);
+    }
+    if (!state.stallAlerted && idleMin > config.stallMin) {
       state.stallAlerted = true;
       alert("xpStall", `AutoLevel has run ${config.stallMin} minutes without gaining XP`, true);
     }

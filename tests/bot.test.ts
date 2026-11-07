@@ -1,5 +1,5 @@
 // Runs src/bot.js against a fake game page. Run with `bun test`.
-import { expect, test } from "bun:test";
+import { expect, test, vi } from "bun:test";
 
 interface PageEvent {
   ses: number;
@@ -15,7 +15,7 @@ interface Alert {
 }
 interface Bot {
   timerId: Timer;
-  config: { upkeep: boolean; partyIds: number[] };
+  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
 }
@@ -30,6 +30,7 @@ const store = (state: object) => ({ getState: () => state });
 
 async function install(partyIds: number[] = []) {
   const recruited: number[] = [];
+  const autoLevel = { stops: 0, starts: 0 };
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
   // bot.js reads the page's globals, so the test provides them on globalThis.
@@ -54,7 +55,14 @@ async function install(partyIds: number[] = []) {
         requestAccountCharacterAvailability: () => {},
         controlAccountCharacter: (id: number) => recruited.push(id),
       }),
-      combat: store({ isRunning: true, isZoneLoading: false, currentZone: 58, noAutoSellBagInstanceIds: [] }),
+      combat: store({
+        isRunning: true,
+        isZoneLoading: false,
+        currentZone: 58,
+        noAutoSellBagInstanceIds: [],
+        setIsRunning: (on: boolean) => { if (!on) autoLevel.stops++; },
+        startAutoLevel: () => autoLevel.starts++,
+      }),
       screen: store({ currentScreen: "game" }),
       staticData: store({ zones: [] }),
       skills: store({ inCombat: false }),
@@ -69,7 +77,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited };
+  return { bot, events, say, recruited, autoLevel };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -113,3 +121,26 @@ test("account characters missing from the party are asked to rejoin", async () =
   await Bun.sleep(5200);
   expect(recruited).toEqual([11, 12]);
 }, 10000);
+
+test("a route recovery that finds no target restarts AutoLevel, one that does is left alone", async () => {
+  const hung = await install();
+  vi.useFakeTimers();
+  try {
+    hung.say("No usable route. Recovering near Burynai excavator.");
+    await hung.bot.tick();
+    vi.advanceTimersByTime(hung.bot.config.routeStuckSec * 1000 + 1000);
+    await hung.bot.tick();
+    vi.advanceTimersByTime(2000);
+    expect(hung.autoLevel).toEqual({ stops: 1, starts: 1 });
+
+    const found = await install();
+    found.say("No usable route. Recovering near Burynai excavator.");
+    found.say("You engage Burynai sapper in combat!");
+    await found.bot.tick();
+    vi.advanceTimersByTime(found.bot.config.routeStuckSec * 1000 + 1000);
+    await found.bot.tick();
+    expect(found.autoLevel).toEqual({ stops: 0, starts: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
