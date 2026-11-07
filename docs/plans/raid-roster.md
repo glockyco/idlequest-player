@@ -22,13 +22,13 @@ Which characters the raid goal needs, how to split them into leveling groups, an
 
 Sources: the `npc_types`, `npc_spells` and `spells_new` rows for the Raid Resolve boss IDs in `C/data/`, and the Resolve list in `.re/js/main.pretty.js:22711-22757`.
 
-Only Cazic-Thule of these is in the client's raid target catalog (`MB`, `.re/js/main.pretty.js:25529-27778`), which otherwise lists Classic and Kunark targets from Lord Nagafen to Veeshan's Peak. The other goal bosses are in the Raid Resolve list (`Ed`, `.re/js/main.pretty.js:22714-22726`), and all but Vyemm and Kerafyrm are in the daily summon list (`.re/js/OK.pretty.js:4651-5003`). How raid mode offers a target outside the catalog is open.
+Raid mode fights the NPC above level 50 that the leader targets in the current zone (`Vd`, `.re/js/main.pretty.js:50654-50656`), with AutoLevel off, so the raid target catalog (`MB`, `.re/js/main.pretty.js:25529-27778`) offers nothing and is never read. A boss comes from its own spawn, from the server's daily boss list, or from a casino potion. The daily list gives two free resets per account every rolling 24 hours, and its private copy lasts 24 hours with free resumes and retries (`.re/js/engine.pretty.js:414980`). The casino table (`.re/js/OK.pretty.js:4663-5008`) has Yelinak, Vulak`Aerr, the Avatar of War, Tunare and the four Warders, but not Vyemm, Cazic-Thule or Kerafyrm. Which bosses the daily list offers comes from the server.
 
 These are level-60 fights. Level 46 starts raids, and the client caps raid-buff scaling at level 60 (`.re/js/main.pretty.js:22686-22687`). On the first qualifying boss engaged in a fight, Raid Resolve (`encounterAid`, `.re/js/main.pretty.js:22693-22735`) doubles max HP and heals to full for Warriors, Paladins and Shadow Knights, and doubles max mana and refills to full for Clerics. It does not stack across multiple bosses in the same fight, and rune pools (`runePoolsGranted`, `.re/js/main.pretty.js:72050-72065`) are granted once per raid session rather than once per fight.
 
 ## How big a raid
 
-Planning ranges, not measured requirements. They assume learned level-60 spells and pets, real tank gear and every support line present. The client also carries a budget per target and leader level (`IB.budgetsByLeaderLevel`, `.re/js/main.pretty.js:25085-25528`) and a cost per class, but no client code reads either: nothing reads `.cost`, and the catalog only fills a `Map` that is thrown away (`.re/js/main.pretty.js:50646`). They do not size the raid. Whether the server caps raid size is open.
+Planning ranges, not measured requirements. They assume learned level-60 spells and pets, real tank gear and every support line present. The client also carries a budget per target and leader level (`IB.budgetsByLeaderLevel`, `.re/js/main.pretty.js:25085-25528`) and a cost per class, but no client code reads either: nothing reads `.cost`, and the catalog only fills a `Map` that is thrown away (`.re/js/main.pretty.js:50646`). They do not size the raid. The client has no member limit, recruits cost nothing, and raid time costs platinum per hour for the whole account at a price set by its highest-level character (`.re/js/engine.pretty.js:8944-8947`), so more recruits do not raise the price. Whether the server caps raid size is open.
 
 | Targets | Characters | Tanks / Clerics |
 | --- | ---: | --- |
@@ -68,21 +68,21 @@ Six groups of six, built in this order. Each group levels on its own, and the la
 | 3 | Magician, Shadow Knight, Cleric, Bard, Rogue, Wizard | A third tank, Wizard nukes, a second Bard and Rogue, a third Cleric and Magician. |
 | 4 | Magician, Warrior, Cleric, Shaman, Monk, Ranger | Ranger buffs, the first Monk, a second Warrior and Shaman, a fourth Cleric and Magician. |
 | 5 | Magician, Warrior, Cleric, Enchanter, Rogue, Necromancer | The first Necromancer, a third Warrior, Rogue and Enchanter, a fifth Cleric and Magician. |
-| 6 | Necromancer, Warrior, Cleric, Bard, Rogue, Monk | A fourth Warrior and Rogue, a second Monk and Necromancer, a sixth Cleric and a third Bard. A melee class leads it. |
+| 6 | Necromancer, Warrior, Cleric, Bard, Rogue, Monk | A fourth Warrior and Rogue, a second Monk and Necromancer, a sixth Cleric and a third Bard. |
 
 The 36 characters are 6 tanks (4 Warriors, a Paladin and a Shadow Knight), 7 healers (6 Clerics and a Druid), 7 melee (4 Rogues, 2 Monks and a Ranger), 8 pet and nuke casters (5 Magicians, 2 Necromancers and a Wizard) and 8 support characters (3 Enchanters, 3 Bards and 2 Shamans).
 
 ### How this roster was chosen
 
 1. Support does not stack, so one provider per buff line is enough. Slots beyond the first of each support class go to what adds up across members: tank HP and mitigation, Cleric mana and damage. Raid Resolve doubles tank HP and Cleric mana once per fight, which makes those two the best scaling roles.
-2. Damage slots go to Rogues first (the strongest melee template, and bosses cannot defend against them), then Magicians (pet and nuke), then Monks (less damage than Rogues, but sturdier).
-3. Each group copies group 1's shape so it can level unattended: a tank, a Cleric, a pet class and an Enchanter, Bard or Shaman. Pets dealt 42% of group 1's damage at levels 20 to 21, and roots stalled the party until the Enchanter's and the Cleric's dispels cleared them. The bot's spell upkeep knows Magician spells only, so a Magician or a melee class leads each group ([guide](../guide.md)).
+2. Damage slots go to Rogues first (the strongest melee template, and bosses cannot defend against them), then Monks (less damage, but sturdier). The Magicians in groups 2 to 5 are the weakest choice in the table: they rest on group 1's pet share, which counts every pet in the party, and on caster templates that ignore mana.
+3. Each group copies group 1's roles so it can level unattended: a tank, a Cleric, an Enchanter, Bard or Shaman for haste, slows and dispels, and damage. Pets dealt 42% of group 1's damage at levels 20 to 21, and roots stalled the party until the Enchanter's and the Cleric's dispels cleared them. No other group shape has been measured.
 4. The order front-loads coverage. Groups 1 to 3 hold eleven of the fourteen classes, so a raid can start at 18 characters, and stopping after any group leaves a usable roster.
 5. 36 is a planning size from the Avatar of War and Vulak`Aerr range above. The raid tests at level 46 decide whether the roster grows toward the 72 slots.
 
 Choose each race by the XP factors in the [guide](../guide.md), which also describes the handover from an earlier group.
 
-Epics worth chasing after the Magician's: the Cleric's Water Sprinkler, Rogue Ragebringer, the main Warrior's Jagged Blade, the Bard's Singing Short Sword, Monk Celestial Fists and the Enchanter's Staff of the Serpent.
+Which epics are worth chasing, ranked by what they add to the account, is in [epics.md](epics.md).
 
 ## How long it takes
 
@@ -94,12 +94,14 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - Concurrent sessions (resolved): two browser sessions on the same account can stay in the game world at the same time without disconnecting each other, as long as they control different characters.
 - Kerafyrm (resolved): untargetable in the current content, so the roster is not sized for him. If that changes, Destroy's 50-unit range decides the fight (see above).
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
-- Open: the server's raid-time price at level 46 to 60, whether the server caps raid size, how raid mode offers the Velious targets that are missing from the catalog, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids, since the leader adds its class package instead of its spells.
+- Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
+- Open: the server's raid-time price at level 46 to 60, whether the server caps raid size, which bosses the daily list offers and how casino potions are obtained, whether Vyemm spawns in the Temple of Veeshan, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids, since the leader adds its class package instead of its spells.
 
 ## Revisit when
 
-- Group 1 reaches 46: open Start Raid, record the offered targets, the price and any member limit, and fight the smallest target with group 1 alone. Resize the roster and the ranges in "How big a raid" from that fight.
-- The client bundle changes: diff the raid catalog `MB`, the Resolve list `Ed`, the summon list and Kerafyrm's rows. A Velious target in the catalog or a targetable Kerafyrm changes what the roster has to beat.
+- Group 1 reaches 46: read the raid price and the daily boss list, then fight a target above level 50 with group 1 alone. Resize the roster and the ranges in "How big a raid" from that fight.
+- The client bundle changes: diff the raid-mode code, the Resolve list `Ed`, the casino table and Kerafyrm's rows. A raid member limit, a new route to a boss or a targetable Kerafyrm changes what the roster has to beat.
 - Group 2 has leveled for two hours: compare its XP per hour with group 1's at the same levels before fixing the shape of groups 3 to 6.
 - Raid fights show the limit: move groups 4 to 6 toward Clerics and Warriors when healing or tanking runs out first, and toward Rogues and Magicians when fights run long.
-- A second session is approved: level two groups at once, each led by a Magician or a melee class.
+- A second session is approved: level two groups at once.
+- The bot's spell upkeep covers every class: choose each group's leader by what the slot is worth, since a raid leader adds its class package and a leveling leader casts only memorized spells.

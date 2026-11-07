@@ -12,7 +12,7 @@ The raid list ends with Kerafyrm, so the unit that matters is the raid roster, n
 - The raid shares one set of permanent support and drops duplicates of the same buff, so one Bard, Shaman, Enchanter, Druid and Necromancer serve the whole raid. Duplicate classes earn their place through damage, healing or tanking, not buffs.
 - Kill XP is split by character level, so a group levels best when its members are at the same level. A low character in a high group gets a small share and levels slowly, so that only makes sense for a short errand, not as a way to catch up.
 - Each leveling group still has to hunt on its own: a tank, a healer, damage, and slow or crowd control if possible.
-- One session plays one party at a time until a second session is shown to work, so groups level one after another. Finish group 1's levels that matter for raids before starting the next group, or level the next group while group 1 waits for raid resets.
+- A second session can play a second party at the same time ([raid roster](plans/raid-roster.md#resolved-and-open-questions)). Ask before starting one. Without it, groups level one after another: finish group 1's levels that matter for raids before starting the next group, or level the next group while group 1 waits for raid resets.
 
 The current roster, the raid sizes per boss, the proposed groups 2 to 6 and the open questions are in [plans/raid-roster.md](plans/raid-roster.md).
 
