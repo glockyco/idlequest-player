@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 
 const here = new URL(".", import.meta.url);
 
-const METHODS = ["status", "roster", "inventory", "chatTail", "scribeAndMemorize", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
+const METHODS = ["status", "roster", "inventory", "chatTail", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
@@ -191,6 +191,16 @@ export async function attach(tab) {
       } finally {
         if (was.running) await handle.startAutoLevel(limits);
       }
+    },
+
+    /**
+     * Scribe carried spell scrolls and memorize the named spells into gems 0..n-1, for example
+     * after a level-up. Waits up to 90 s for the current fight to end, because memorizing needs the
+     * player sitting. Run it inside `pausedAutoLevel`.
+     */
+    async scribeAndMemorize(names = []) {
+      for (let i = 0; i < 90 && (await handle.status()).inCombat; i++) await sleep(1000);
+      return tab.evaluate((n) => window.iq.scribeAndMemorize(n), names);
     },
 
     /**

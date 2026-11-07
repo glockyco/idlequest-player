@@ -469,13 +469,20 @@
 
     /**
      * Scribe every spell scroll in the inventory, then memorize the named spells into gems 0..n-1.
-     * The client only allows this while sitting with the spellbook open, so both are set here.
+     * The client only allows this while sitting with the spellbook open, and sitting does not hold
+     * while a fight is still ending. Call it out of combat; it waits at most 20 s for a fight to end
+     * so it stays inside one page call. A spell already in another gem is skipped by the client.
      */
     async scribeAndMemorize(memorize = []) {
-      const combat = stores.combat.getState();
-      combat.setPlayerSitting(true);
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < 20 && stores.skills.getState().inCombat; i++) await wait(1000);
+      if (stores.skills.getState().inCombat) throw new Error("still in combat after 20 s; stop AutoLevel first");
+      for (let i = 0; i < 5 && !stores.combat.getState().isPlayerSitting; i++) {
+        stores.combat.getState().setPlayerSitting(true);
+        await wait(600);
+      }
       if (!stores.combat.getState().isSpellbookOpen) stores.combat.getState().toggleSpellbook();
-      await new Promise((r) => setTimeout(r, 1000));
+      await wait(800);
       const p = stores.character.getState().characterProfile;
       const scribed = [];
       for (const it of p.inventory.filter((i) => (i.itemDetails?.Name ?? "").startsWith("Spell:"))) {
