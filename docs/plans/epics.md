@@ -145,7 +145,7 @@ Only a few pieces justify moving the rotation. The rest fit the planned rows or 
 | 24 to 27 | None. Pick up the Lost Scroll on each Dalnir visit | Enchanter E8 |
 | 22 to 33 | None. Keep soldunga in every row | Marfen's doll (Bard), Gimblox's ring (Cleric, from 27), Power of Fire (Magician) |
 | 26 to 27 | Visit Baenar (southkarana) and Marfen (soldunga) before the Unrest pass | The same pass then hands Serra the doll as well as collecting Magician page 2 |
-| 31 to 35 | None. Kaesora stays in the rotation | Power of Water 100% and the spectral librarian |
+| 31 to 35 | Kaesora as an errand, not a rotation zone | Most of its in-band mobs are immune to melee. Power of Water drops at 100% from enraged, famished and gorged raveners, and the spectral librarian (Enchanter) needs its own errand |
 | 34 to 40 | Add kithicor | Enraged dread wolf L40 drops Magician page 1 at 64.7% with spawn 100% on 67 points (P99 says night only, not checked). `tools/zones.mjs` ranks Kithicor first at level 36 and second at 39 among the 20 scouted zones |
 | 33 to 38 | Test dreadlands as an alternative to crystal or paw | Mountain giants L33 to 40 drop Hill Giant Toes at 36 to 40% with spawn 95 to 100%. The crude stock count is 191 at band 31 to 33 and 224 at 34 to 36, among the highest of all zones (`inf`) |
 | 36 to 41 | Use gukbottom for errands, with a short stay for XP | Bloodthirsty ghouls L40 to 42 drop Magician page 3 at 91%. Basalt and granite gargoyles drop Gargoyle Eye at 58 to 69%. The Enchanter's scribe and robe camps sit in the same area |
@@ -163,7 +163,7 @@ Rates that the plan lacks:
 | Power of Wind | a_gypsy_dancer L24 or L25, mistmoore | Drop 100%. The two ids share one point at 50% each, so one dancer per 1,720 s | Errand, 28 to 30 | 20 to 35 inf |
 | Power of Fire | lava elemental L35 (soldunga) | Drop 28%, spawn 25%, 1 point, 640 s | Rotation zone, 29 to 33 | See below |
 | Power of Fire | blazing elemental L25 (soldunga) | Drop 2%, spawn 100% on 3 points, 640 s | Rotation zone, 22 to 33 | Expected about 50 kills |
-| Power of Water | ravener L32 to 36 (kaesora) | Drop 100% on seven ids, one point each, 640 s | Rotation, 31 to 35 | In the rotation |
+| Power of Water | ravener L32 to 36 (kaesora) | Drop 100% on seven ids, one point each, 640 s | Errand, 31 to 35 | One kill |
 | Power of Earth | faerie or fairy guard L24 to 26 (lfaydark) | Drop 11.6 to 16.5%, spawn 50 to 100% on 6 points, 640 s | Errand, 24 to 30 | 10 to 20 inf |
 | Page 1 | enraged dread wolf L40 (kithicor) | Drop 64.7%, spawn 100% on 67 points, 400 s | Rotation if kithicor is added, 34 and up | In the rotation |
 | Page 2 | tentacle terror L29 to 33 (unrest) | Drop 90%, spawn 25 to 34% on 2 points, 640 s | Unrest pass, 26 to 27 | In the pass |

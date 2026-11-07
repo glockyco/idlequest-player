@@ -52,7 +52,7 @@ Collect all three different pages, then trade them together.
 |---|---|---|---|---|
 | a gypsy dancer, levels 24-25 | `mistmoore` | Power of Wind (28037) | No known item gate. Group at camp level, solo later. | NPCs 59144, 59084 in `N/b`, `e`. Item `I/4`. `L`, `S`, `P99` lines 140-141. |
 | blazing elemental, level 25, or lava elemental, level 35 | `soldunga` | Power of Fire (28036) | No known item gate. Group while leveling, solo later. Prefer the lower-level target if practical. | NPCs 31006, 31143 in `N/5`, `2`. Item `I/6`. `L`, `S`, `P99` lines 143-146. |
-| famished ravener, level 36, hungered ravener, level 35, or gorged ravener, levels 32-35 | `kaesora` | Power of Water (28039) | No known item gate. Group while leveling, solo later. | NPCs 88029, 88094, 88038, 88083, 88069 in `N/9`, `3`, `1`. Item `I/e`. `L`, `S`, `P99` lines 148-151. |
+| enraged, famished or gorged ravener (100%), or hungered ravener (35%), levels 32-36 | `kaesora` | Power of Water (28039) | No known item gate. Group while leveling, solo later. | NPCs 88029, 88094, 88038, 88083, 88069 in `N/9`, `3`, `1`. Item `I/e`. `L`, `S`, `P99` lines 148-151. |
 | a faerie guard, levels 24-26, or a fairy guard, level 25 | `lfaydark` | Power of Earth (28038) | No known item gate. Group at camp level, solo later. | NPCs 57053, 57101, 57051, 57123 in `N/8`, `d`, `9`, `c`. Item `I/e`. `L`, `S`, `P99` lines 153-154. |
 | Walnan | `butcher` | Powers of Fire 28036 + Wind 28037 + Earth 28038 + Water 28039 give Power of the Elements (28031) | None in script. Solo turn-in. | NPC 68087, `N/8`. Result `I/7`. `Q/butcher/Walnan`. |
 

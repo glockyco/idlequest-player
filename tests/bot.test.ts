@@ -22,6 +22,7 @@ interface Bot {
   upkeep(reason: string): Promise<string>;
   fastTick(): void;
   surplus(): { name: string }[];
+  errand(opts: { zone: string; keep: string; item: string; minutes?: number; minCon?: number } | null): Promise<string>;
 }
 interface FakeGlobals {
   localStorage: { getItem(): null; setItem(): void };
@@ -65,9 +66,15 @@ async function install(partyIds: number[] = []) {
     isAutoAttackEnabled: true,
     targetNPC: null as { spawnInstanceId: number; name: string } | null,
   };
-  // The game runtime: the target approach of AutoLevel's current pull and the Auto Attack button.
+  // The game runtime: the alive enemies, AutoLevel's skip list, the target approach of its
+  // current pull and the Auto Attack button.
+  const targets: { spawnInstanceId: number; name: string }[] = [];
   const runtime = {
-    combatScene: { getAliveCombatTargetList: () => [] },
+    combatScene: { getAliveCombatTargetList: () => targets },
+    deferred: [] as number[],
+    deferAutoLevelSpawn: (id: number) => {
+      runtime.deferred.push(id);
+    },
     combatApproach: { attempt: null as { phase: string; spawnInstanceId: number } | null },
     presses: 0,
     attackSelectedTarget: () => {
@@ -81,6 +88,8 @@ async function install(partyIds: number[] = []) {
   ];
   const kills: { t: number; xp: number; enemy: string }[] = [];
   const moves: string[] = [];
+  // Item rows in the bags, by name.
+  const bag: { name: string }[] = [];
   // The spellbook and the party, which the upkeep test fills in.
   const book = {
     scribedSpells: [] as { spellId: number; spell: { name: string } }[],
@@ -123,6 +132,7 @@ async function install(partyIds: number[] = []) {
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
+    inventory: () => bag,
     stores: {
       character: store({ characterProfile: me }),
       companions: store(party),
@@ -143,7 +153,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, effects, skills, tactics, book, party, dismissed };
+  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -308,6 +318,49 @@ test("rotation moves on from an empty zone and from one whose XP rate fell", asy
     for (let k = 0; k < 4; k++) ambushed.guard.trips.push({ t: Date.now(), reason: "level: an ice giant L47", zone: 73 });
     await ambushed.bot.tick();
     expect(ambushed.moves).toEqual(["paw"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an errand pulls only its enemies, holds rotation until the item drops, then rotates on", async () => {
+  vi.useFakeTimers();
+  try {
+    const found = await install();
+    found.bot.config.rotation = ["guktop", "permafrost"];
+    found.combat.currentZone = 65;
+    found.targets.push({ spawnInstanceId: 1, name: "a_gorged_ravener" }, { spawnInstanceId: 2, name: "a skeletal guardian" });
+    await found.bot.errand({ zone: "permafrost", keep: "gorged|hungered|famished", item: "Power of Water", minCon: 2 });
+    expect(found.moves).toEqual(["permafrost"]);
+    expect(found.combat.minCon).toBe(2);
+    found.bot.fastTick();
+    expect(found.runtime.deferred).toEqual([2]);
+
+    // An empty zone would rotate or wake a script, but the errand waits for respawns.
+    for (let k = 0; k < 3; k++) found.say("No available enemies found in this zone.");
+    await found.bot.tick();
+    vi.advanceTimersByTime(25 * 60000);
+    await found.bot.tick();
+    expect(found.moves).toEqual(["permafrost"]);
+    expect(found.bot.state.alerts.map((a) => a.kind)).not.toContain("noEnemies");
+
+    found.bag.push({ name: "Power of Water" });
+    await found.bot.tick();
+    expect(found.moves).toEqual(["permafrost", "guktop"]);
+    expect(found.combat.minCon).toBe(4);
+    expect(found.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
+    found.runtime.deferred.length = 0;
+    found.bot.fastTick();
+    expect(found.runtime.deferred).toEqual([]);
+
+    const late = await install();
+    late.bot.config.rotation = ["guktop", "permafrost"];
+    late.combat.currentZone = 65;
+    await late.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 30 });
+    vi.advanceTimersByTime(31 * 60000);
+    await late.bot.tick();
+    expect(late.moves).toEqual(["permafrost", "guktop"]);
+    expect(late.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(true);
   } finally {
     vi.useRealTimers();
   }

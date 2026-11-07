@@ -430,6 +430,28 @@ export async function attach(tab) {
     resumeBot: () => tab.evaluate(() => window.iqBot.resume()),
 
     /**
+     * Start a bot errand: hunt only enemies whose names match `keep` in `zone` until an item named
+     * `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep: "enraged ravener|gorged
+     * ravener", item: "Power of Water" }`. Resolves once the party hunts there, because the move
+     * can outlast one page evaluation. `errand(null)` ends a running errand.
+     */
+    async errand(opts) {
+      await tab.evaluate((json) => {
+        window.__iqErrand = { pending: true };
+        window.iqBot.errand(JSON.parse(json)).then(
+          (result) => (window.__iqErrand = { result }),
+          (e) => (window.__iqErrand = { error: String(e?.message ?? e) }),
+        );
+      }, JSON.stringify(opts));
+      for (;;) {
+        await sleep(2000);
+        const r = await tab.evaluate(() => window.__iqErrand);
+        if (r?.error) throw new Error(r.error);
+        if (r && !r.pending) return r.result;
+      }
+    },
+
+    /**
      * Wait while the page plays and return when the bot raises an alert that needs attention, or
      * after `minutes`. Polls the report every `pollSeconds` and, with `exportDir`, appends run data
      * on the way. Pass the returned `alertSeq` as `sinceSeq` to the next call. One call replaces

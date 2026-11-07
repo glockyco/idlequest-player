@@ -36,7 +36,7 @@ Every candidate zone holds only 12 to 45 minutes of in-band kills at 3 kills a m
 | 24 | soldunga, guktop, dalnir | Dalnir drops the Warrior's next weapons (Charred Tulwar 25%, Tower Guard's Blade 5%). Kly wanderers at 30 to 35. |
 | 25-27 | paw, soldunga, dalnir | Splitpaw pays most per hour but needs 20 minutes away between visits. Add crystal at 27. One Unrest pass at 26-27 for Torn Page 2 (tentacle terrors, 90%). |
 | 28-30 | soldunga, paw, crystal | Droga alone is the unattended fallback, about 15% slower. Mistmoore's gypsy dancer drops Power of Wind (100%, one spawn per 29 minutes): an errand in this band. |
-| 31-33 | soldunga, paw, dalnir | The model ranks Crystal Caverns and Frozen Shadow near 2.0M and Kaesora near 1.0M, where 63-79% of the in-band mobs are immune to melee. Get Power of Water from Kaesora's gorged, hungered or famished raveners (32 to 36) as an errand. |
+| 31-33 | soldunga, paw, dalnir | The model ranks Crystal Caverns and Frozen Shadow near 2.0M and Kaesora near 1.0M, where 63-79% of the in-band mobs are immune to melee. Get Power of Water from Kaesora's enraged, famished or gorged raveners (32 to 36, 100%) with `iq.errand`. |
 | 34-37 | soldunga, paw, droga | Solusek's Eye runs out of in-band spawns from 36, then Splitpaw leads. Lava elementals (35) in Solusek's Eye drop Power of Fire. |
 
 The kill rate decides how long the higher levels take: in-band HP doubles from about 690 at level 20 to 1,400-1,560 at 32, and XP per HP is about the same everywhere. Read kills per minute and "Damage by source" at each band start.

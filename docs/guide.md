@@ -83,7 +83,7 @@ Some trade-offs we have met or expect:
 - A crowded zone can still be the best choice. Another zone that pays a tenth less but has no competition can win, and so can a wider target range in the same zone. Crowds come and go with the time of day.
 - A rare worth farming: estimate the expected hours to get it from drop chance, spawn chance and respawn time, the XP given up meanwhile, and what it saves afterwards. A weapon that speeds every kill for twenty levels can be worth hours of slower XP. Spawn Camp follows a rare spawn, but a death there gets no automatic restart.
 - A harder zone: XP per kill grows with the square of the enemy's level, so a zone above the band can pay more if the party holds. Try it while someone watches, with the guard on, and fall back when it escapes or someone dies.
-- An epic or quest errand close to the current zone is cheapest done on the way.
+- An epic or quest errand close to the current zone is cheapest done on the way. Run it with `iq.errand({ zone, keep, item })`: the bot pulls only enemies whose names match `keep`, holds the rotation until the item is in the bags or 40 minutes pass, and then rotates on. Pass `minCon: 2` for green enemies.
 - For unattended hours, the zone with the steadiest rate and the fewest escapes usually beats the one with the best peak.
 
 Whatever the choice, label the block, compare it with the one before, and record the reasoning and the result in the diary, so the next decision starts from evidence.

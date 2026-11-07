@@ -96,6 +96,7 @@
     petChecked: {}, // owner character id -> owner level at which its pet was last replaced or kept
     memory: [], // [t, used MB] every five minutes
     memoryAlertAt: 0,
+    errand: null, // { zone, keep, item, minutes, minCon, limits, arrived, since, until } while an errand runs
   };
   const state = prev?.state ?? fresh;
   for (const [k, v] of Object.entries(fresh)) if (!(k in state)) state[k] = v;
@@ -388,14 +389,21 @@
 
   // AutoLevel picks the nearest enemy that passes its con and level filters and is not on the
   // client's skip list (`deferAutoLevelSpawn`, which the client uses for spawns it cannot reach).
-  // Keeping enemies named by `avoidNames` on that list makes AutoLevel pull the others; each entry
-  // lasts a little over two ticks and is renewed while the setting is on.
+  // Keeping enemies named by `avoidNames` on that list makes AutoLevel pull the others, and an
+  // errand keeps every enemy on it except those its `keep` pattern names. Each entry lasts a
+  // little over two ticks and is renewed while the setting or the errand lasts.
   const avoidTargets = (i) => {
-    if (!config.avoidNames) return;
+    const keep = state.errand?.keep;
+    if (!config.avoidNames && !keep) return;
     const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
-    const re = new RegExp(config.avoidNames.replace(/[ _]/g, "[ _]"), "i");
-    for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) if (re.test(t.name ?? "")) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+    const pattern = (s) => new RegExp(s.replace(/[ _]/g, "[ _]"), "i");
+    const avoid = config.avoidNames ? pattern(config.avoidNames) : null;
+    const wanted = keep ? pattern(keep) : null;
+    for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) {
+      const name = t.name ?? "";
+      if (avoid?.test(name) || (wanted && !wanted.test(name))) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+    }
   };
 
   // The client turns Auto Attack off when every enemy left in a fight is mezzed, so the player
@@ -552,6 +560,9 @@
   // con. Otherwise the zone does not fit the party, so wake an attached script to choose another.
   const watchNoEnemies = async (i) => {
     state.noEnemies = state.noEnemies.filter((t) => t > now() - 300000);
+    // During an errand an empty zone means the wanted enemies are dead, and the errand's deadline
+    // decides how long to wait for them.
+    if (state.errand) state.noEnemies = [];
     if (state.noEnemies.length < 3) return;
     const cb = i.stores.combat.getState();
     const g = i.guard;
@@ -635,19 +646,19 @@
     }
   };
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
+  const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
   const nextZone = (i) => {
     const list = config.rotation ?? [];
     if (!list.length) return null;
-    const here = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
+    const here = zoneShort(i);
     const k = list.indexOf(here);
     return list[(k + 1) % list.length] === here ? null : list[(k + 1) % list.length];
   };
-  const rotate = async (i, why) => {
-    const dest = nextZone(i);
+  const moveTo = async (i, dest, why) => {
     if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
     const cb = i.stores.combat.getState();
     const limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
-    log(`rotating to ${dest}: ${why}`);
+    log(`moving to ${dest}: ${why}`);
     cb.setIsRunning(false);
     try {
       const name = await i.changeZone(dest);
@@ -663,6 +674,8 @@
       return false;
     }
   };
+  // A running errand holds the rotation.
+  const rotate = async (i, why) => !state.errand && moveTo(i, nextZone(i), why);
   const watchRate = async (i) => {
     if (!(config.rotation ?? []).length) return;
     const cb = i.stores.combat.getState();
@@ -679,6 +692,31 @@
     state.zoneBestRate = Math.max(state.zoneBestRate ?? 0, rate);
     if (now() - state.zoneSince < config.rotateMinStayMin * 60000 || rate >= config.rotateBelowShare * state.zoneBestRate) return;
     await rotate(i, `the last 10 minutes earned ${Math.round((100 * rate) / Math.max(1, state.zoneBestRate))}% of this visit's best`);
+  };
+
+  // ---- Errands ------------------------------------------------------------------------------
+  // An errand hunts named enemies for a drop, such as an epic piece. The party moves to the
+  // errand's zone, AutoLevel pulls only enemies whose names match `keep`, and rotation waits. The
+  // errand ends when the item is in the bags, at its deadline, when the party is no longer in the
+  // zone, or after `rotateEscapes` guard escapes there. Then the minimum con it changed comes
+  // back and the bot rotates on.
+  const hasItem = (i, name) => (i.inventory?.() ?? []).some((r) => r.name === name);
+  const endErrand = async (i, why, failed) => {
+    const e = state.errand;
+    state.errand = null;
+    if (e.minCon != null) i.stores.combat.getState().setMinCon(e.limits.minCon);
+    alert("errand", `${e.item} in ${e.zone}: ${why}`, failed);
+    await rotate(i, `errand ended: ${why}`);
+  };
+  const watchErrand = async (i) => {
+    const e = state.errand;
+    if (!e?.arrived) return;
+    const cb = i.stores.combat.getState();
+    if (hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
+    if (now() > e.until) return endErrand(i, `no ${e.item} after ${e.minutes} minutes`, true);
+    if (i.guard?.phase !== "leaving" && zoneShort(i) !== e.zone) return endErrand(i, `the party left ${e.zone}`, true);
+    const escapes = (i.guard?.trips ?? []).filter((t) => t.zone === cb.currentZone && t.t >= e.since);
+    if (config.rotateEscapes > 0 && escapes.length >= config.rotateEscapes) return endErrand(i, `${escapes.length} guard escapes`, true);
   };
 
   // ---- Spells and pets after level-ups -----------------------------------------------------
@@ -837,6 +875,7 @@
       await watchCursor(i);
       watchLoot(i);
       watchCrowding(i);
+      await watchErrand(i);
       await watchNoEnemies(i);
       await watchRate(i);
       keepParty(i);
@@ -890,6 +929,35 @@
     spellPlan: () => spellPlan(iq()),
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
     upkeep: (reason = "manual") => runUpkeep(iq(), reason),
+
+    /**
+     * Hunt only enemies whose names match `keep` (a regular expression) in `zone` until an item
+     * named `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep:
+     * "gorged|hungered|famished", item: "Power of Water" }`. `minCon` lowers AutoLevel's con
+     * filter for weaker enemies and `minutes` caps the hunt. `errand(null)` ends a running one.
+     */
+    async errand(opts) {
+      const i = iq();
+      if (opts === null) {
+        if (state.errand) await endErrand(i, "stopped", false);
+        return "no errand";
+      }
+      const { zone, keep, item, minutes = 40, minCon = null } = opts;
+      if (state.errand) throw new Error(`the errand for ${state.errand.item} is still running`);
+      if (!zone || !keep || !item) throw new Error("an errand needs zone, keep and item");
+      new RegExp(keep);
+      if (hasItem(i, item)) return `already carrying ${item}`;
+      const cb = i.stores.combat.getState();
+      state.errand = { zone, keep, item, minutes, minCon, limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
+      log(`errand: ${item} from enemies matching ${keep} in ${zone}, up to ${minutes} min`);
+      if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand for ${item}`))) {
+        state.errand = null;
+        throw new Error(`could not move to ${zone}`);
+      }
+      if (minCon != null) i.stores.combat.getState().setMinCon(minCon);
+      Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
+      return `hunting ${keep} in ${zone} for ${item}`;
+    },
 
     /**
      * Change settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`. They persist in this
