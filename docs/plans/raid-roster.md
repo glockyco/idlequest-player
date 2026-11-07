@@ -57,9 +57,9 @@ Epics the roster makes worth chasing, after the Magician's: the Cleric's Water S
 
 ## How long it takes
 
-Level 14's live XP values fit `1000 × (L-1)³` cumulative. The high levels are unknown: the wiki says requirements rise unevenly, and classic EQ adds hell-level multipliers from 30. With that classic curve, a character needs about 128M XP to reach 46 and 616M to reach 60.
+Every level from 14 to 21 has followed `1000 × (L-1)³` cumulative XP, so level L costs about 3,000 × L² XP. Kill XP grows with the square of the enemy's level (120 × level² × zone multiplier, shared by level), so a party that keeps fighting enemies of its own level at a steady kill rate needs about the same time for every level. At level 21 that is about 47 minutes (1.26M XP at about 1.6M XP per character per hour in Guk).
 
-At group 1's current rate of about 0.9-1.1M XP per character per hour, a character takes about 115-140 hours from 15 to 46 and about 560-680 hours to 60, if the rate holds. Higher levels may pay more per hour, which nothing here measures. Groups level one after another unless two sessions of one account can play at once, so the roster's hours add up group by group.
+If both rules hold to 60, a character needs about 20 more hours of play to reach 46 and about 30 to reach 60. Two things would break this: the extra "hell level" costs classic EverQuest adds from level 30, which the wiki hints at ("requirements rise unevenly"), and kill rates that fall when the enemies get tougher. Check the curve at each level from 30 on. Groups level one after another unless two sessions of one account can play at once, so the roster's hours add up group by group.
 
 ## Open questions
 
