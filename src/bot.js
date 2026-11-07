@@ -24,7 +24,7 @@
     targetFreeSlots: 16, // and stop once this many are free
     keepCopies: 1, // copies (or stacks) of each item that are never sold as surplus
     autoBank: true, // when bags run low, first send ingredients and spell scrolls to the tradeskill bank
-    junkMaxCopper: 1000, // then sell single items whose merchant price is at most this (1000 = 1 platinum)
+    junkMaxCopper: 8000, // then sell single items whose merchant price is at most this (1000 = 1 platinum)
     keepItemIds: [10015], // never sold: Malachite, the Magician pet reagent
     // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
