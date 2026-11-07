@@ -97,6 +97,7 @@ divided by delay, the comparison the IdleQuest wiki gives.
 
 ```sh
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
+bun tools/gear.mjs --party runs/roster.json --level 30   # whole-party upgrade plan (merchant, in-rotation, high-gain drops)
 ```
 
 ## Predicting XP per hour

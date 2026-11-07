@@ -197,7 +197,7 @@
 
   const sellSurplus = async (i) => {
     let space = i.bagSpace();
-    if (space.cursor || space.free >= config.minFreeSlots) return;
+    if (now() < state.pauseUntil || space.cursor || space.free >= config.minFreeSlots) return;
     // Banking loses nothing, so it goes first, at most every ten minutes because the courier is slow.
     if (config.autoBank && now() - (state.bankAt ?? 0) > 600000) {
       state.bankAt = now();

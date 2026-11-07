@@ -1,6 +1,7 @@
 // Best gear for a class at a level, and where it drops or who sells it.
 //
 //   bun tools/gear.mjs <class> --level N [--race dwarf] [--slot head] [--mob-max N] [--top 3] [--data dir]
+//   bun tools/gear.mjs --party [roster.json] --level N [--mob-max N] [--top 3]
 //   class: warrior cleric paladin ranger shadowknight druid monk bard rogue shaman necromancer wizard magician enchanter
 //   race: human barbarian erudite woodelf highelf darkelf halfelf dwarf troll ogre halfling gnome iksar vahshir
 //
@@ -28,8 +29,14 @@ const opt = (n, d) => {
   const i = args.indexOf(`--${n}`);
   return i >= 0 ? args[i + 1] : d;
 };
-const pos = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
-const cls = (pos[0] ?? "").toLowerCase();
+const has = (n) => args.includes(`--${n}`);
+const pos = args.filter((a, i) => !a.startsWith("--") && (i === 0 || !args[i - 1]?.startsWith("--") || args[i - 1] === "--party"));
+const partyMode = has("party");
+const partyFile = (() => {
+  const i = args.indexOf("--party");
+  return i >= 0 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : null;
+})();
+const cls = partyMode ? "warrior" : (pos[0] ?? "").toLowerCase();
 const level = Number(opt("level", NaN));
 const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
 const RACE = { human: 1, barbarian: 2, erudite: 4, woodelf: 8, highelf: 16, darkelf: 32, halfelf: 64, dwarf: 128, troll: 256, ogre: 512, halfling: 1024, gnome: 2048, iksar: 4096, vahshir: 8192 };
@@ -38,8 +45,8 @@ if (race && !RACE[race]) {
   console.error(`unknown race ${race}; one of ${Object.keys(RACE).join(" ")}`);
   process.exit(2);
 }
-if (!BIT[cls] || Number.isNaN(level)) {
-  console.error("usage: bun tools/gear.mjs <class> --level N [--slot name] [--mob-max N] [--top N] [--data dir]");
+if ((!partyMode && !BIT[cls]) || Number.isNaN(level)) {
+  console.error("usage: bun tools/gear.mjs <class> --level N [--slot name] [--mob-max N] [--top N]\n       bun tools/gear.mjs --party [roster.json] --level N");
   process.exit(2);
 }
 const root = opt("data", process.env.IQ_CONTENT ?? `${homedir()}/src/github.com/brynnb/idlequest-content`);
@@ -48,24 +55,34 @@ const top = Number(opt("top", 3));
 const slotFilter = opt("slot", null)?.toLowerCase();
 
 const SLOTS = { charm: 0, ear: 1, head: 2, face: 3, neck: 5, shoulders: 6, arms: 7, back: 8, wrist: 9, range: 11, hands: 12, primary: 13, secondary: 14, finger: 15, chest: 17, legs: 18, feet: 19, waist: 20 };
+const SLOT_BY_NUM = { 0: "charm", 1: "ear", 2: "head", 3: "face", 4: "ear", 5: "neck", 6: "shoulders", 7: "arms", 8: "back", 9: "wrist", 10: "wrist", 11: "range", 12: "hands", 13: "primary", 14: "secondary", 15: "finger", 16: "finger", 17: "chest", 18: "legs", 19: "feet", 20: "waist" };
 const slotName = (bits) => Object.entries(SLOTS).filter(([, b]) => bits & (1 << b)).map(([n]) => n);
-const group = ["wizard", "magician", "enchanter", "necromancer"].includes(cls) ? "caster" : ["cleric", "druid", "shaman"].includes(cls) ? "priest" : ["paladin", "ranger", "shadowknight", "bard"].includes(cls) ? "hybrid" : "melee";
+const groupOf = (c) => (["wizard", "magician", "enchanter", "necromancer"].includes(c) ? "caster" : ["cleric", "druid", "shaman"].includes(c) ? "priest" : ["paladin", "ranger", "shadowknight", "bard"].includes(c) ? "hybrid" : "melee");
 const mpi = (80 * level) / 425; // mana per Int or Wis point below 200
 // Base weapon damage cap per hand by level (wiki, "Level caps change weapon rankings").
 const CAPS = { melee: [10, 14, 30, 60, 100], priest: [9, 12, 20, 26, 40], caster: [6, 10, 12, 18, 20] };
-const capGroup = group === "hybrid" ? "melee" : group;
-const damageCap = CAPS[capGroup][level < 10 ? 0 : level < 20 ? 1 : level < 30 ? 2 : level < 40 ? 3 : 4];
-const W = {
-  caster: { mana: 1, hp: 0.4, ac: 1, int: mpi, wis: mpi * 0.3 },
-  priest: { mana: 1, hp: 0.5, ac: 1, wis: mpi, int: mpi * 0.3 },
-  melee: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3 },
-  hybrid: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3, mana: 0.5, wis: mpi * 0.3, int: mpi * 0.3 },
-}[group];
-const score = (i) =>
-  (W.mana ?? 0) * (i.mana ?? 0) + (W.hp ?? 0) * (i.hp ?? 0) + (W.ac ?? 0) * (i.ac ?? 0) + (W.int ?? 0) * (i.aint ?? 0) + (W.wis ?? 0) * (i.awis ?? 0) +
-  (W.str ?? 0) * (i.astr ?? 0) + (W.sta ?? 0) * (i.asta ?? 0) + (W.dex ?? 0) * (i.adex ?? 0) + (W.agi ?? 0) * (i.aagi ?? 0) + (W.atk ?? 0) * (i.attack ?? 0) +
-  0.3 * ((i.mr ?? 0) + (i.fr ?? 0) + (i.cr ?? 0) + (i.dr ?? 0) + (i.pr ?? 0)) + 3 * (i.haste ?? 0) + 8 * ((i.regen ?? 0) + (i.manaregen ?? 0));
-
+const capFor = (c, lvl = level) => {
+  const g = groupOf(c);
+  return CAPS[g === "hybrid" ? "melee" : g][lvl < 10 ? 0 : lvl < 20 ? 1 : lvl < 30 ? 2 : lvl < 40 ? 3 : 4];
+};
+const weightsFor = (c) =>
+  ({
+    caster: { mana: 1, hp: 0.4, ac: 1, int: mpi, wis: mpi * 0.3 },
+    priest: { mana: 1, hp: 0.5, ac: 1, wis: mpi, int: mpi * 0.3 },
+    melee: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3 },
+    hybrid: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3, mana: 0.5, wis: mpi * 0.3, int: mpi * 0.3 },
+  })[groupOf(c)];
+const scoreFor = (i, c) => {
+  const W = weightsFor(c);
+  return (
+    (W.mana ?? 0) * (i.mana ?? 0) + (W.hp ?? 0) * (i.hp ?? 0) + (W.ac ?? 0) * (i.ac ?? 0) + (W.int ?? 0) * (i.aint ?? 0) + (W.wis ?? 0) * (i.awis ?? 0) +
+    (W.str ?? 0) * (i.astr ?? 0) + (W.sta ?? 0) * (i.asta ?? 0) + (W.dex ?? 0) * (i.adex ?? 0) + (W.agi ?? 0) * (i.aagi ?? 0) + (W.atk ?? 0) * (i.attack ?? 0) +
+    0.3 * ((i.mr ?? 0) + (i.fr ?? 0) + (i.cr ?? 0) + (i.dr ?? 0) + (i.pr ?? 0)) + 3 * (i.haste ?? 0) + 8 * ((i.regen ?? 0) + (i.manaregen ?? 0))
+  );
+};
+const group = groupOf(cls);
+const damageCap = capFor(cls);
+const score = (i) => scoreFor(i, cls);
 async function* rows(table) {
   const dir = `${root}/data/${table}`;
   for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
@@ -77,15 +94,21 @@ for await (const z of rows("zone")) if (gameZones.has(norm(z.long_name))) zoneNa
 
 // ---- Candidate items ---------------------------------------------------------------------------
 const cands = new Map(); // id -> item with slot names and score
+const allItems = new Map();
 for await (const i of rows("items")) {
-  if (!(i.classes & BIT[cls]) || (race && !(i.races & RACE[race])) || (i.reqlevel ?? 0) > level || !i.slots || i.augtype || i.bagslots) continue;
+  if (!i.slots || i.augtype || i.bagslots) continue;
   const slots = slotName(i.slots);
   if (!slots.length) continue;
+  allItems.set(i.id, { raw: i, id: i.id, name: i.Name, slots, req: i.reqlevel ?? 0, classes: i.classes ?? 0, races: i.races ?? 0, ac: i.ac, hp: i.hp, mana: i.mana, int: i.aint, wis: i.awis, dmg: i.damage, delay: i.delay, twoHand: [1, 4, 35].includes(i.itemtype), nodrop: i.nodrop, price: i.price });
+  if (partyMode) {
+    if ((i.reqlevel ?? 0) <= level) cands.set(i.id, allItems.get(i.id));
+    continue;
+  }
+  if (!(i.classes & BIT[cls]) || (race && !(i.races & RACE[race])) || (i.reqlevel ?? 0) > level) continue;
   const sc = score(i);
   if (sc <= 0 && !((slots.includes("primary") || slots.includes("secondary")) && i.damage)) continue;
-  // Item types 1, 4 and 35 are two-handed slash, blunt and pierce.
   const ratio = i.damage && i.delay ? Math.min(i.damage, damageCap) / i.delay : 0;
-  cands.set(i.id, { id: i.id, name: i.Name, slots, score: sc, req: i.reqlevel ?? 0, ac: i.ac, hp: i.hp, mana: i.mana, int: i.aint, wis: i.awis, dmg: i.damage, delay: i.delay, ratio, twoHand: [1, 4, 35].includes(i.itemtype), nodrop: i.nodrop, price: i.price });
+  cands.set(i.id, { ...allItems.get(i.id), score: sc, ratio });
 }
 
 // ---- Sources: item -> lootdrop -> loottable -> NPC -> spawns -> zone -------------------------
@@ -148,11 +171,94 @@ for (const [id, m] of merchantNpcs) {
   for (const zone of zones) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone) });
 }
 
+const obtainable = (i) => sources.has(i.id) || sellers.has(i.id);
+if (partyMode) {
+  const DEFAULT_PARTY = [
+    { name: "Domeyafun", class: "magician", race: "erudite", items: [] },
+    { name: "Tagujazolu", class: "warrior", race: "dwarf", items: [] },
+    { name: "Ewbanaqoa", class: "cleric", race: "dwarf", items: [] },
+    { name: "Ugfeu", class: "bard", race: "halfelf", items: [] },
+    { name: "Qigaa", class: "shaman", race: "barbarian", items: [] },
+    { name: "Edroun", class: "enchanter", race: "gnome", items: [] },
+  ];
+  let members = DEFAULT_PARTY;
+  if (partyFile) {
+    const r = JSON.parse(await readFile(partyFile, "utf8"));
+    const raceByName = new Map(DEFAULT_PARTY.map((m) => [m.name, m.race]));
+    const list = [r.me, ...(r.party ?? [])].filter(Boolean);
+    members = list.map((m) => ({ name: m.name, class: m.class.toLowerCase(), race: raceByName.get(m.name) ?? "human", items: m.items ?? [] }));
+  }
+  const byName = new Map();
+  for (const it of allItems.values()) if (!byName.has(it.name)) byName.set(it.name, it);
+  const ROTATION_ZONES = new Set(
+    [
+      level <= 30 && ["The Estate of Unrest", "Solusek's Eye", "Lair of the Splitpaw"],
+      level >= 28 && level <= 36 && ["Solusek's Eye", "The Crypt of Dalnir", "The Crystal Caverns", "Kaesora"],
+      level >= 34 && level <= 42 && ["The Crystal Caverns", "The Tower of Frozen Shadow", "Kaesora", "The City of Mist"],
+      level >= 40 && ["Velketor's Labyrinth", "Chardok", "Old Sebilis"],
+    ]
+      .filter(Boolean)
+      .flat(),
+  );
+  console.log(`Whole-party upgrade plan at level ${level} (drops from mobs up to level ${mobMax})`);
+  console.log(`In-rotation zones: ${[...ROTATION_ZONES].join(", ")}\n`);
+  for (const m of members) {
+    const cBit = BIT[m.class];
+    const rBit = RACE[m.race];
+    const cap = capFor(m.class, level);
+    const eqBySlot = new Map();
+    for (const eq of m.items) {
+      const sName = SLOT_BY_NUM[eq.slot];
+      const found = byName.get(eq.name);
+      if (!sName || !found) continue;
+      const val = sName === "primary" || sName === "secondary" ? (found.dmg && found.delay ? Math.min(found.dmg, cap) / found.delay : 0) : scoreFor(found.raw, m.class);
+      const prev = eqBySlot.get(sName);
+      if (!prev || val < prev.val) eqBySlot.set(sName, { name: eq.name, val, twoHand: found.twoHand });
+    }
+    const canDW = ["warrior", "bard", "rogue", "monk", "ranger"].includes(m.class);
+    const mh = eqBySlot.get("primary") ?? { name: "empty", val: 0, twoHand: false };
+    const oh = eqBySlot.get("secondary") ?? { name: "empty", val: 0 };
+    const dwTotal = mh.val + (canDW && !mh.twoHand ? 0.35 * oh.val : 0);
+    console.log(`=== ${m.name} (${m.class}, ${m.race}) ===`);
+    const merch = [];
+    const inRot = [];
+    const outRot = [];
+    for (const [slot] of Object.entries(SLOTS)) {
+      if (slotFilter && slot !== slotFilter) continue;
+      if (slot === "secondary" && mh.twoHand) continue;
+      const hand = slot === "primary" || slot === "secondary";
+      const cur = eqBySlot.get(slot) ?? { name: "empty", val: 0 };
+      const elig = [...cands.values()]
+        .filter((i) => i.slots.includes(slot) && (i.classes & cBit) && (i.races & rBit) && !(slot === "secondary" && i.twoHand) && obtainable(i))
+        .map((i) => ({ ...i, val: hand ? (i.dmg && i.delay ? Math.min(i.dmg, cap) / i.delay : 0) : scoreFor(i.raw, m.class) }))
+        .filter((i) => (slot === "primary" && i.twoHand && canDW ? i.val > dwTotal + 0.03 : i.val > cur.val + (hand ? 0.02 : 4)))
+        .sort((a, b) => b.val - a.val);
+      const bestMerch = elig.find((i) => sellers.has(i.id));
+      if (bestMerch) {
+        const s = sellers.get(bestMerch.id)[0];
+        merch.push(`  [${slot}] ${bestMerch.name} (${hand ? `${bestMerch.dmg}/${bestMerch.delay}=${bestMerch.val.toFixed(2)}` : `+${Math.round(bestMerch.val - cur.val)} score`} vs ${cur.name}): ${s.npc} in ${s.zone} (${((bestMerch.price ?? 0) / 1000).toFixed(1)} pp)`);
+      }
+      const bestRot = elig.find((i) => (sources.get(i.id) ?? []).some((s) => ROTATION_ZONES.has(s.zone) && s.drop * s.spawn >= 0.01));
+      if (bestRot) {
+        const s = (sources.get(bestRot.id) ?? []).filter((x) => ROTATION_ZONES.has(x.zone)).sort((a, b) => b.drop * b.spawn - a.drop * a.spawn)[0];
+        inRot.push(`  [${slot}] ${bestRot.name} (${hand ? `${bestRot.dmg}/${bestRot.delay}=${bestRot.val.toFixed(2)}` : `+${Math.round(bestRot.val - cur.val)} score`} vs ${cur.name}): ${s.npc} L${s.level} in ${s.zone} (${(s.drop * 100).toFixed(0)}% drop x ${(s.spawn * 100).toFixed(0)}% spawn)`);
+      }
+      const bestOut = elig.find((i) => !ROTATION_ZONES.has((sources.get(i.id) ?? [])[0]?.zone) && (sources.get(i.id) ?? []).some((s) => s.drop * s.spawn >= 0.08) && i.val > cur.val + (hand ? 0.08 : 20));
+      if (bestOut) {
+        const s = (sources.get(bestOut.id) ?? []).sort((a, b) => b.drop * b.spawn - a.drop * a.spawn)[0];
+        outRot.push(`  [${slot}] ${bestOut.name} (${hand ? `${bestOut.dmg}/${bestOut.delay}=${bestOut.val.toFixed(2)}` : `+${Math.round(bestOut.val - cur.val)} score`} vs ${cur.name}): ${s.npc} L${s.level} in ${s.zone} (${(s.drop * 100).toFixed(0)}% drop x ${(s.spawn * 100).toFixed(0)}% spawn)`);
+      }
+    }
+    if (merch.length) console.log("  Merchant upgrades:\n" + merch.slice(0, 6).join("\n"));
+    if (inRot.length) console.log("  In-rotation drops:\n" + inRot.slice(0, 6).join("\n"));
+    if (outRot.length) console.log("  High-gain side drops:\n" + outRot.slice(0, 4).join("\n"));
+  }
+  process.exit(0);
+}
 // ---- Report: top items per slot ---------------------------------------------------------------
 console.log(`${cls} (${group})${race ? `, ${race}` : ""}, level ${level}, drops from mobs up to level ${mobMax}\n`);
 const bySlot = new Map();
 for (const it of cands.values()) for (const s of it.slots) (bySlot.get(s) ?? bySlot.set(s, []).get(s)).push(it);
-const obtainable = (i) => sources.has(i.id) || sellers.has(i.id);
 for (const [slot] of Object.entries(SLOTS)) {
   if (slotFilter && slot !== slotFilter) continue;
   // In the hands a weapon's capped damage over delay decides ordinary swings; a shield or other
