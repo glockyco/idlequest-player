@@ -396,13 +396,6 @@
     if (!rt?.deferAutoLevelSpawn) return;
     const re = new RegExp(config.avoidNames.replace(/[ _]/g, "[ _]"), "i");
     for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) if (re.test(t.name ?? "")) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
-    const cb = i.stores.combat.getState();
-    const tgt = cb.targetNPC;
-    if (cb.isRunning && !i.stores.skills?.getState?.().inCombat && tgt?.spawnInstanceId && re.test(tgt.name ?? "")) {
-      rt.deferAutoLevelSpawn(tgt.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
-      cb.setIsRunning(false);
-      setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 500);
-    }
   };
 
   // The client turns Auto Attack off when every enemy left in a fight is mezzed, so the player
