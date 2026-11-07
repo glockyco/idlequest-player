@@ -417,7 +417,17 @@
   // level below, clamped to 10-100% (docs/client-internals.md). The cure tactic goes back to its
   // previous value as soon as the root is gone, a fight starts, AutoLevel stops, or the expected
   // time has passed three times over.
-  const DISPELS = { 48: "Cancel Magic", 727: "Alenia's Disenchanting Melody" };
+  // Spellbook level-dispel spells (spa 27): [name, levelModifier]. Bard songs are not cast by the
+  // out-of-combat readiness pass (BQ.pretty.js Nz).
+  const DISPELS = {
+    289: ["Taper Enchantment", 1],
+    48: ["Cancel Magic", 1],
+    24: ["Strip Enchantment", 1],
+    49: ["Nullify Magic", 4],
+    25: ["Pillage Enchantment", 4],
+    1526: ["Annul Magic", 9],
+    1697: ["Recant Magic", 9],
+  };
   const effectsModule = (i) => Object.values(i.mods ?? {}).find((m) => typeof m?.l?.getEffects === "function" && typeof m.cm === "function");
   const partyRoots = (i) => {
     const fx = effectsModule(i);
@@ -432,17 +442,36 @@
     }
     return out;
   };
-  const dispelChance = (level, rootCaster) => {
-    const d = level - rootCaster;
+  const dispelChance = (level, rootCaster, mod = 1) => {
+    const d = level + mod - 1 - rootCaster;
     return Math.min(100, Math.max(10, 32 + (d > 0 ? 7 * d : 2 * d))) / 100;
   };
   const dispellers = (i) => {
     const cs = i.stores.companions.getState();
-    return (cs.companions ?? [])
-      .filter((c) => c.companionType === 2)
-      .map((c) => ({ c, d: cs.botCombatDataMap?.[c.id] }))
-      .filter(({ d }) => d && d.curHp > 0 && (d.scribedSpellIds ?? []).some((s) => DISPELS[s]))
-      .map(({ c, d }) => ({ name: c.name, key: `character:${c.characterId}`, level: d.level ?? c.level }));
+    const ps = i.stores.partySpells?.getState?.();
+    const out = [];
+    for (const c of cs.companions ?? []) {
+      if (c.companionType !== 2) continue;
+      const d = cs.botCombatDataMap?.[c.id];
+      if (!d || !(d.curHp > 0)) continue;
+      const known = (d.scribedSpellIds ?? []).filter((s) => DISPELS[s]);
+      if (!known.length) continue;
+      const mod = Math.max(...known.map((s) => DISPELS[s][1]));
+      // BQ.pretty.js sorts dispels by mana/chance, which picks Taper Enchantment (5 mana, mod 1)
+      // over Nullify Magic (50 mana, mod 4) unless weaker dispels are excluded.
+      const weaker = known.filter((s) => DISPELS[s][1] < mod);
+      const key = `character:${c.characterId}`;
+      if (weaker.length && typeof ps?.setCastingPreferences === "function") {
+        const cur = ps.castingPreferences?.[key];
+        const prev = cur?.excludedSpellIds ?? [];
+        const mez = d.class === 14 || d.class === 8;
+        if (weaker.some((s) => !prev.includes(s)) || (mez && cur?.mez === false)) {
+          ps.setCastingPreferences(key, { mez, excludedSpellIds: [...new Set([...prev, ...weaker])] });
+        }
+      }
+      out.push({ name: c.name, key, level: d.level ?? c.level, mod });
+    }
+    return out.sort((a, b) => b.level + b.mod - (a.level + a.mod));
   };
   const dispelRoots = (i, cb) => {
     if (!config.dispelRoots || typeof i.setTactic !== "function") return;
@@ -470,7 +499,7 @@
     // The client locks a target while one dispeller casts on it (BQ.pretty.js Rn), so at most two
     // casters alternate on one rooted target during a 9 s recast cycle.
     const active = casters.slice(0, 2);
-    const miss = active.reduce((m, c) => m * (1 - dispelChance(c.level, root.casterLevel)), 1);
+    const miss = active.reduce((m, c) => m * (1 - dispelChance(c.level, root.casterLevel, c.mod)), 1);
     const expected = config.dispelCycleSec / (1 - miss) + config.dispelOverheadSec;
     const left = (root.endsAt - now()) / 1000;
     if (left - expected < config.dispelMinSavedSec) return;
