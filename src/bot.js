@@ -30,6 +30,7 @@
     stallMin: 10, // AutoLevel running without XP this long raises an alert
     stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
     routeStuckSec: 45, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
+    readyStuckSec: 30, // "Waiting for party to be ready" this long with everyone full: restart AutoLevel
     upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
     nukeGems: 2, // direct-damage spells to keep memorized
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
@@ -233,7 +234,8 @@
       } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
       else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
       else if (/^No usable route\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
-      else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = null;
+      else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
+      else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
       else if (e.type === "guard" && /tightening|moving to|did NOT restart|failed/.test(text)) alert("guard", text, true);
     }
   };
@@ -278,6 +280,12 @@
     }
   };
 
+  const partyFull = (i) => {
+    const p = i.stores.character.getState().characterProfile ?? {};
+    const full = (hp, maxHp, mana, maxMana) => hp >= maxHp && (!(maxMana > 0) || mana >= maxMana);
+    return full(p.curHp, p.maxHp, p.mana, p.maxMana) && (i.stores.companions.getState().companions ?? []).every((c) => c.isDead || full(c.curHp, c.maxHp, c.curMana, c.maxMana));
+  };
+
   const watchXp = (i, cb) => {
     const xp = i.stores.character.getState().characterProfile?.experienceProgress?.current;
     if (xp == null) return;
@@ -290,7 +298,7 @@
     const inCombat = !!i.stores.skills?.getState?.().inCombat;
     const restart = (why) => {
       state.stuckRestartAt = now();
-      state.routeRecoverAt = null;
+      state.routeRecoverAt = state.readyWaitAt = null;
       cb.setIsRunning(false);
       setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 1500);
       alert("stuckRestart", `${why}; restarted AutoLevel`, false);
@@ -301,6 +309,12 @@
     // picks a new target.
     if (state.routeRecoverAt && now() - state.routeRecoverAt > config.routeStuckSec * 1000) {
       restart(`route recovery found no target in ${config.routeStuckSec}s`);
+      return;
+    }
+    // AutoLevel waits for full HP and mana before each pull. Waiting on with everyone full is the
+    // same kind of hang.
+    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && partyFull(i)) {
+      restart(`waited ${Math.round((now() - state.readyWaitAt) / 1000)}s for a party that was already full`);
       return;
     }
     // Any other hang: running, out of combat and no XP for a few minutes.

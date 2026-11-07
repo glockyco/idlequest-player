@@ -15,7 +15,7 @@ interface Alert {
 }
 interface Bot {
   timerId: Timer;
-  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number };
+  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
 }
@@ -30,6 +30,9 @@ const store = (state: object) => ({ getState: () => state });
 
 async function install(partyIds: number[] = []) {
   const recruited: number[] = [];
+  // The active character and one companion, at full HP and mana unless a test changes them.
+  const me = { id: 1, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 }, curHp: 300, maxHp: 300, mana: 200, maxMana: 200 };
+  const tank = { name: "Tagujazolu", companionType: 2, characterId: 10, curHp: 500, maxHp: 500, curMana: 0, maxMana: 0 };
   const autoLevel = { stops: 0, starts: 0 };
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
@@ -49,9 +52,9 @@ async function install(partyIds: number[] = []) {
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
     stores: {
-      character: store({ characterProfile: { id: 1, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 } } }),
+      character: store({ characterProfile: me }),
       companions: store({
-        companions: [{ name: "Tagujazolu", companionType: 2, characterId: 10 }],
+        companions: [tank],
         requestAccountCharacterAvailability: () => {},
         controlAccountCharacter: (id: number) => recruited.push(id),
       }),
@@ -77,7 +80,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel };
+  return { bot, events, say, recruited, autoLevel, me, tank };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -140,6 +143,30 @@ test("a route recovery that finds no target restarts AutoLevel, one that does is
     vi.advanceTimersByTime(found.bot.config.routeStuckSec * 1000 + 1000);
     await found.bot.tick();
     expect(found.autoLevel).toEqual({ stops: 0, starts: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a readiness wait with everyone full restarts AutoLevel, one for a hurt member does not", async () => {
+  vi.useFakeTimers();
+  try {
+    const hurt = await install();
+    hurt.tank.curHp = 250;
+    hurt.say("Waiting for party to be ready.");
+    await hurt.bot.tick();
+    vi.advanceTimersByTime(hurt.bot.config.readyStuckSec * 1000 + 1000);
+    await hurt.bot.tick();
+    vi.advanceTimersByTime(2000);
+    expect(hurt.autoLevel).toEqual({ stops: 0, starts: 0 });
+
+    const full = await install();
+    full.say("Waiting for party to be ready.");
+    await full.bot.tick();
+    vi.advanceTimersByTime(full.bot.config.readyStuckSec * 1000 + 1000);
+    await full.bot.tick();
+    vi.advanceTimersByTime(2000);
+    expect(full.autoLevel).toEqual({ stops: 1, starts: 1 });
   } finally {
     vi.useRealTimers();
   }
