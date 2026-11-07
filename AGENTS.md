@@ -12,16 +12,16 @@ These rules are for agents that play the account with this repository. [README.m
 ## Session start
 
 1. Start the session in this repository so these instructions load.
-2. Reattach to the game tab without navigating it, because navigation logs the game out:
+2. Adopt the game tab without navigating it, because navigation logs the game out:
 
    ```js
-   const tab = await browser.open({ name: "iq", app: { relay: true } }); // never pass a url
+   const tab = await browser.open({ name: "iq", app: { relay: true, target: "idlequest.net/play" } }); // never pass a url
    const { attach } = await import("/Users/glockyco/src/github.com/glockyco/idlequest-player/src/client.mjs");
    const iq = await attach(tab);
    await iq.botReport();
    ```
 
-3. If the tab shows the login form, stop and ask for a sign-in.
+3. If the tab shows the login form, stop and ask for a sign-in. If the tab cannot be reached, for example after its renderer crashed, the bot is gone with the page and `watch` fails instead of alerting. Do not reload the tab yourself: stop and ask for a reload and a sign-in.
 
 ## Unattended loop
 
