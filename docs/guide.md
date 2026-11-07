@@ -9,10 +9,12 @@ IdleQuest recreates classic EverQuest through Velious, so classic guides such as
 The raid list ends with Kerafyrm, so the unit that matters is the raid roster, not a single party. Leveling groups are how the roster gets built, and their make-up follows from what the raid needs:
 
 - Raid tanking and healing scale with numbers. Raid Resolve doubles the HP of Warriors, Paladins and Shadow Knights and the mana of Clerics once per fight, so the roster wants several of each.
-- A class's permanent party buffs come from one provider, and a second provider of the same buff adds nothing (<https://idlequest.net/wiki/companions#permanent-party-support>). The roster wants each buff class at least once, and beyond that the classes whose damage, healing or crowd control adds up.
+- The raid shares one set of permanent support and drops duplicates of the same buff, so one Bard, Shaman, Enchanter, Druid and Necromancer serve the whole raid. Duplicate classes earn their place through damage, healing or tanking, not buffs.
 - Kill XP is split by character level, so a group levels best when its members are at the same level. A low character in a high group gets a small share and levels slowly, so that only makes sense for a short errand, not as a way to catch up.
 - Each leveling group still has to hunt on its own: a tank, a healer, damage, and slow or crowd control if possible.
 - One session plays one party at a time until a second session is shown to work, so groups level one after another. Finish group 1's levels that matter for raids before starting the next group, or level the next group while group 1 waits for raid resets.
+
+The current roster, the raid sizes per boss, the proposed groups 2 to 6 and the open questions are in [plans/raid-roster.md](plans/raid-roster.md).
 
 ## Build a leveling group
 
