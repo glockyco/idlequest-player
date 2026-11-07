@@ -187,9 +187,12 @@
       return;
     }
     const names = characterNames(i);
-    for (const e of evs) {
-      if (!after(e)) continue;
-      state.eventCursor = { ses: e.ses ?? 0, seq: e.seq };
+    // Take the new lines first: alerts below append the bot's own lines to the same array, and
+    // reading those back would match the same patterns again without end.
+    const fresh = evs.filter(after);
+    if (fresh.length) state.eventCursor = { ses: fresh.at(-1).ses ?? 0, seq: fresh.at(-1).seq };
+    for (const e of fresh) {
+      if (e.type === "bot") continue;
       const text = e.text ?? "";
       let m;
       if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) alert("levelUp", text, true);

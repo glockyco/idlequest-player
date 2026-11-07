@@ -123,6 +123,8 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
 
 ## Rules for contributors
 
+- Run `bun test` after changing `src/bot.js`. It runs the bot against a fake page, because a loop
+  in the page freezes and then crashes the game tab, and the sign-in it costs needs a person.
 - Never assign to `socket.onJson` or another callback slot on the game's objects. The client's own
   packet dispatch lives there, and replacing it leaves the world stuck on the loading screen.
   Tee traffic by wrapping instance methods, as `src/bridge.js` does.
