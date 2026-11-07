@@ -42,7 +42,7 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/2026-11-
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel. Find it in the event log. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client reconnects by itself, and if the login form shows, stop and ask for a sign-in. |
 | `guard` | Repeated escapes tightened the limits or moved the party. Review the hunting ground. |
-| `crowded` | Other players are clearing the same spawns. Move to the next zone for the party's level in the plan. |
+| `crowded` | Spawns are contested. Weigh the options in [docs/guide.md](docs/guide.md#deciding-where-to-hunt-and-what-to-do), such as staying, a wider target range, another zone or an errand. Then measure the choice and record it with the reason. |
 
 ## Inventory and the game UI
 
