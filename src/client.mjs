@@ -83,6 +83,36 @@ export async function attach(tab) {
     },
 
     /**
+     * Give a carried item to an account character in the party, equipped when `equip` is true,
+     * for example an instrument for the Bard. Picks the item up through the inventory window, as a
+     * player does, then sends the client's held-item transfer. Returns the game's reply and checks
+     * the cursor is empty afterwards. `itemName` must be in a bag.
+     */
+    async giveItem(itemName, characterName, equip = true) {
+      const item = (await handle.inventory()).find((r) => r.name === itemName && r.loc === "bag");
+      if (!item) throw new Error(`no ${itemName} in the bags`);
+      const target = (await handle.roster()).party.find((m) => m.name === characterName);
+      const characterId = Number(String(target?.id ?? "").replace("character-", ""));
+      if (!characterId) throw new Error(`${characterName} is not an account character in the party`);
+      await handle.clearWindows();
+      await tab.click('role/button[name="Persona" exact]');
+      await tab.waitForSelector(`testid/general-inventory-slot-${item.bag - 1}`, { timeout: 5000 });
+      await tab.click(`testid/general-inventory-slot-${item.bag - 1}`, { button: "right" });
+      await tab.waitForSelector(`testid/container-inventory-slot-${item.bag}-${item.slot}`, { timeout: 5000 });
+      await tab.click(`testid/container-inventory-slot-${item.bag}-${item.slot}`);
+      for (let i = 0; i < 10 && (await handle.bagSpace()).cursor !== itemName; i++) await sleep(300);
+      const since = await tab.evaluate(() => window.iq.seqs.event);
+      const ok = await tab.evaluate((id, e) => window.iq.stores.companions.getState().transferHeldItem(id, e), characterId, equip);
+      await sleep(1500);
+      await tab.click(`testid/general-inventory-slot-${item.bag - 1}`, { button: "right" }).catch(() => {});
+      await handle.clearWindows();
+      const cursor = (await handle.bagSpace()).cursor;
+      if (cursor) throw new Error(`${cursor} is still on the cursor; place it before continuing`);
+      const lines = await tab.evaluate((s) => window.iq.events.filter((x) => x.seq > s && /equips|transfer|^You give/i.test(x.text)).map((x) => x.text), since);
+      return { ok, lines };
+    },
+
+    /**
      * Press buttons on macro bar page 2 (Buy Spells, Buy Companion Spells, Auto Sell, ...) and
      * return the game's reply lines that match `pattern`. Combat chatter can push replies out of
      * the chat tail, so they are read from the event log.
