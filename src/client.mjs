@@ -290,35 +290,39 @@ export async function attach(tab) {
 
     /**
      * Travel through the Travel window (the same path a player uses) and wait for the zone to load.
-     * AutoLevel must be stopped first. Active combat resolves before the window opens.
+     * AutoLevel must be stopped first. The window only opens out of combat, and the game's
+     * auto-loot after the last kill closes it again, so this waits until the fight is over and the
+     * chat has had no loot line for a few seconds, and opens the window again if it closes.
      */
     async travelTo(zoneName, timeoutMs = 120000) {
       const deadline = Date.now() + timeoutMs;
+      const quiet = () => tab.evaluate(() => {
+        const last = window.iq.events.findLast?.((e) => e.type === "LOOT" || /^You loot|corpse/i.test(e.text ?? ""));
+        return !window.iq.status().inCombat && (!last || Date.now() - last.t > 4000);
+      });
       await handle.clearWindows();
-      for (;;) {
-        const s = await handle.status();
-        if (s.inCombat) {
-          if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out waiting for combat to end`);
+      let lastError = new Error("combat or looting did not end");
+      while (Date.now() < deadline) {
+        if (!(await quiet())) {
           await sleep(1000);
           continue;
         }
-
-        const waitMs = Math.min(5000, deadline - Date.now());
-        if (waitMs <= 0) throw new Error(`travel to ${zoneName} timed out waiting for the Travel window`);
-        await tab.click('role/button[name="Travel" exact]');
         try {
-          await tab.waitForSelector("placeholder/Search travel destinations", { timeout: waitMs });
+          await tab.click('role/button[name="Travel" exact]');
+          await tab.waitForSelector("placeholder/Search travel destinations", { timeout: 5000 });
+          await tab.fill("placeholder/Search travel destinations", zoneName);
+          await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: 5000 });
+          await tab.click(`role/button[name="${zoneName}" exact]`);
+          lastError = null;
           break;
         } catch (error) {
-          if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out waiting for the Travel window`, { cause: error });
-          if (!(await handle.status()).inCombat) throw new Error(`Travel window did not open for ${zoneName}`, { cause: error });
+          // Loot or a new fight closed the window, or the zone is not in the list.
+          lastError = error;
+          await handle.clearWindows();
+          await sleep(1500);
         }
       }
-      await tab.fill("placeholder/Search travel destinations", zoneName);
-      const resultWaitMs = Math.min(10000, deadline - Date.now());
-      if (resultWaitMs <= 0) throw new Error(`travel to ${zoneName} timed out waiting for zone results`);
-      await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: resultWaitMs });
-      await tab.click(`role/button[name="${zoneName}" exact]`);
+      if (lastError) throw new Error(`travel to ${zoneName} failed: ${lastError.message}`, { cause: lastError });
       for (;;) {
         await sleep(2000);
         const s = await handle.status();
