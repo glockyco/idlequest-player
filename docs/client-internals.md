@@ -84,7 +84,10 @@ mob is engaged it checks four things: a mob `levelGap` or more levels above the 
 biggest hit times `hitsToKill` reaches the lowest max HP in the party, a party member newly dead,
 and a Cleric under `healerManaPct` mana while someone is under `healerHpPct` HP. On a trigger it
 stops AutoLevel, re-enters the current zone (or changes to `retreatZone` if set), and starts
-AutoLevel again with the same limits, about nine seconds later. After `escalateAfter` escapes in an
+AutoLevel again with the same limits, about nine seconds later. Before it leaves it defers every
+mob of that fight with the client's `deferAutoLevelSpawn` for `avoidMin` minutes, the skip list the
+client uses for spawns it cannot reach, because AutoLevel picks the nearest target and would
+otherwise pull the same camp again right after re-entering. After `escalateAfter` escapes in an
 hour, an escape caused by a mob inside AutoLevel's own level range lowers the level cap by one (not
 below `minLevelDiff`), because those pulls are too hard, and a quiet hour restores the earlier
 limits. Escapes from wanderers above the cap change nothing, because lower limits would not keep

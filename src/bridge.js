@@ -257,6 +257,7 @@
       escalateAfter: 3, // escapes in an hour before the guard gets more careful
       minLevelDiff: 1, // tightening lowers the level cap one step per escape, not below this
       retreatZone: null, // short name to leave to, or null to re-enter the current zone
+      avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
       ...guardPrev?.config,
     },
     phase: "watching", // watching | leaving
@@ -284,6 +285,8 @@
   };
   const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
   const zoneChanger = () => Object.values(mods).map((m) => m.rs).find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
+  // The combat runtime singleton: the chunk export whose instance has the live combat scene.
+  const runtime = () => Object.values(mods).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
   const guardDanger = () => {
     const cfg = guard.config;
     const cb = stores.combat.getState();
@@ -343,6 +346,16 @@
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
     guardNote(`leaving: ${reason}`);
+    // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
+    // the same dangerous mob would join again, every few seconds. The client skips spawns it has
+    // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
+    // survive the zone change. Defer every mob of this fight.
+    const skip = Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId).filter((id) => id != null);
+    const rt = runtime();
+    if (rt?.deferAutoLevelSpawn && skip.length && cfg.avoidMin > 0) {
+      for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
+      guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
+    }
     cb.setIsRunning(false);
     try {
       const zones = stores.staticData.getState().zones;
