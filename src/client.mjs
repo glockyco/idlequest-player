@@ -225,8 +225,8 @@ export async function attach(tab) {
      * `fn` throws. Use it for anything that needs the party standing still (travel, memorizing,
      * shopping, experiments) so a pause can never be left in place by accident. If AutoLevel was
      * not running, `fn` runs as is and nothing is restarted. While `fn` runs, the bot's pause is
-     * renewed every few minutes. If this script dies, the renewals stop and the bot resumes play
-     * within about ten minutes.
+     * renewed every 30 seconds. If this script dies, the renewals stop and the bot resumes play
+     * within two minutes.
      */
     async pausedAutoLevel(fn) {
       const was = (await handle.status()).autoLevel;
@@ -234,10 +234,10 @@ export async function attach(tab) {
         const s = window.iq.stores.combat.getState();
         return { minCon: s.minCon, maxCon: s.maxCon, maxLevelDiff: s.maxLevelDiff };
       });
-      await handle.pauseBot(10, "pausedAutoLevel");
-      const renew = setInterval(() => handle.pauseBot(10, "pausedAutoLevel").catch(() => {}), 240000);
+      await handle.pauseBot(1.5, "pausedAutoLevel");
+      const renew = setInterval(() => handle.pauseBot(1.5, "pausedAutoLevel").catch(() => {}), 30000);
       try {
-        if (was.running) await handle.stopAutoLevel(10);
+        if (was.running) await handle.stopAutoLevel(1.5);
         return await fn();
       } finally {
         clearInterval(renew);
