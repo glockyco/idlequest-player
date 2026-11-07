@@ -22,11 +22,13 @@ Which characters the raid goal needs, how to split them into leveling groups, an
 
 Sources: the `npc_types`, `npc_spells` and `spells_new` rows for the Raid Resolve boss IDs in `C/data/`, and the Resolve list in `.re/js/main.pretty.js:22711-22757`.
 
+Only Cazic-Thule of these is in the client's raid target catalog (`MB`, `.re/js/main.pretty.js:25529-27778`), which otherwise lists Classic and Kunark targets from Lord Nagafen to Veeshan's Peak. The other goal bosses are in the Raid Resolve list (`Ed`, `.re/js/main.pretty.js:22714-22726`), and all but Vyemm and Kerafyrm are in the daily summon list (`.re/js/OK.pretty.js:4651-5003`). How raid mode offers a target outside the catalog is open.
+
 These are level-60 fights. Level 46 starts raids, and the client caps raid-buff scaling at level 60 (`.re/js/main.pretty.js:22686-22687`). On the first qualifying boss engaged in a fight, Raid Resolve (`encounterAid`, `.re/js/main.pretty.js:22693-22735`) doubles max HP and heals to full for Warriors, Paladins and Shadow Knights, and doubles max mana and refills to full for Clerics. It does not stack across multiple bosses in the same fight, and rune pools (`runePoolsGranted`, `.re/js/main.pretty.js:72050-72065`) are granted once per raid session rather than once per fight.
 
 ## How big a raid
 
-Planning ranges, not measured requirements. They assume learned level-60 spells and pets, real tank gear and every unique support line present.
+Planning ranges, not measured requirements. They assume learned level-60 spells and pets, real tank gear and every support line present. The client also carries a budget per target and leader level (`IB.budgetsByLeaderLevel`, `.re/js/main.pretty.js:25085-25528`) and a cost per class, but no client code reads either: nothing reads `.cost`, and the catalog only fills a `Map` that is thrown away (`.re/js/main.pretty.js:50646`). They do not size the raid. Whether the server caps raid size is open.
 
 | Targets | Characters | Tanks / Clerics |
 | --- | ---: | --- |
@@ -34,50 +36,70 @@ Planning ranges, not measured requirements. They assume learned level-60 spells 
 | Cazic-Thule, Yelinak | 18-24 | 3-4 / 5-6 |
 | Vyemm, Tunare | 24-36 | 4-6 / 6-8 |
 | Avatar of War, Vulak`Aerr | 30-42 | 5-7 / 8-10 |
-| Awakened Kerafyrm | 36 (ranged/caster focus) | 5-6 / 8-10 |
 
 ### Kerafyrm and Destroy (`.re/js/BQ.pretty.js` and `C/data/`)
 
 - Death Touch is blocked: the client explicitly filters out NPC casts of Death Touch (`24660` and `982`) via `i5 = [982, 3087, 7477, 24660, 24661, ...]` (`.re/js/BQ.pretty.js:26563-26567`).
 - Destroy (`spell 1948`) is a 50-unit caster AE: Kerafyrm (`128089` and `128095`, `npc_spells_id: 489`) has a single spell entry, `Destroy` (`1948`, `recast_delay: 1800` in `npc_spells_entries`, `recast_time: 0` in `spells_new`). It deals `100,000` unresistable (`resisttype: 0`) damage to all raid members and pets within `aoerange: 50` with line of sight (`.re/js/BQ.pretty.js:4803-4900, 26428-26545`).
 - Mitigation versus range: Divine Aura only covers the active player actor in raid mode (`.re/js/BQ.pretty.js:4535`), resists do not apply to `resisttype: 0`, and rune pools plus Raid Resolve tank HP are far below `100,000`. Actors standing outside 50 units (caster nukes and ranged attacks have 100 to 200 range) are outside `Destroy`'s `aoerange`.
-- Roster decision: do not commit to leveling characters beyond the 36-character (6-group) raid before testing Kerafyrm at level 60, because adding more melee or tanks inside 50 units does not counter `Destroy`.
+- Kerafyrm does not size the roster. All three of his rows are `untargetable: 1`, his scripts in `C/effective/quests/sleeper/` and `C/effective/quests/skyshrine/` are empty files, and he is in neither the daily summon list nor the raid catalog.
 
-The raid shares one set of permanent support (`n8`, `.re/js/main.pretty.js:66202-66259`). Having at least one member of each class unlocks that class's full `effectTotals` and `damageAbsorbPackages` across the entire raid: Cleric (`Aegolism` and `Symbol`), Druid (`Protection of the Glades`, `Circle` resists and `Thorns`), Paladin (`Brell's` HP), Ranger (`Call of the Predator` ATK), Shaman (`Focus` and `Turgur's` slow), Enchanter (`VoG` haste, `KEI` mana regen and `Tash`), Bard (songs), Magician (`O'Keils` damage shield), and Wizard (`+700` `Spellshield` rune pool, `Ir = 700` at `.re/js/main.pretty.js:66113`). Duplicate buffs from the same family do not stack, so slots beyond the first copy of each support class go to what scales independently in raids and what makes each 6-person group level fast from 1 to 46.
+Recruited characters fight as `guildCharacter` members built from a server snapshot of their level, stats, skills, AAs, gear and scribed spells (`yQ`, `.re/js/main.pretty.js:64332-64375`). Their raid-wide buffs come from the spells they have scribed (`QQ`, `.re/js/main.pretty.js:65539-65616`), and a second copy of a buff, or a weaker spell of the same family, does not stack (`.re/js/main.pretty.js:20210-20235`). One provider per buff line is therefore enough, as long as it has the spell scribed. The leader is the exception. It joins as `kind: "player"` (`Yt`, `.re/js/main.pretty.js:54123-54163`), and `n8` adds the generated package of its class instead of its spells (`.re/js/main.pretty.js:66202-66259`). A Wizard leader gives every member a 700-point Spellshield rune (`Ir`, `.re/js/main.pretty.js:66113,66234-66236`).
 
-### What scales in IdleQuest raids (`.re/js/main.pretty.js:27780-34945, 64069-66112`)
+### What scales
 
-- Warriors (`5,200` base HP, `10,400` with Raid Resolve, `0.54x` boss damage taken, `Defensive` discipline `0.5x`), Paladins (`0.64x`, `Lay on Hands` `4,400`) and Shadow Knights (`0.65x`, `Harm Touch`, `Leechcurse`): main tanks, rampage tanks and add off-tanks.
-- Clerics (`3,350` base mana, `6,700` with Raid Resolve): `Complete Heal` heals `7,500` HP for `400` mana (`10 s` cast), and the Cleric epic (`Water Sprinkler`) gives 0-mana combat resurrections.
-- Rogues (`80-116` base melee DPS, `Duelist` `1.5x` discipline): highest sustained melee DPS. In IdleQuest's raid engine (`.re/js/main.pretty.js:65715`), bosses have `canDefend: false` against Rogues (no parries, ripostes, dodges or blocks) on top of `backstabAttacks`.
-- Monks (`66-94` base melee DPS, `0.78x` damage taken, `24%` avoidance, `Inner Flame` `2.0x` and `Hundred Fists` `1.35x` disciplines): second-highest zero-mana melee DPS and much sturdier than Rogues.
-- Magicians (`62-90` pet DPS plus `1,120` `Shock of Steel` nuke every `3.8 s`): top combined pet+nuke DPS in raids, and the water pet carries group leveling from level 4 to 46.
-- Necromancers (`115` passive DoT DPS, `40-64` pet DPS, `720` lifetap, and `Covetous/Sedulous Subversion` mana transfer to healers in Raid Utilities).
+The level-60 class templates (`NB.classes`, `.re/js/main.pretty.js:27780-34944`) give the numbers below. The client calls its class data a generated first pass that needs hand-tuning before live raid combat (`.re/js/main.pretty.js:43143-43147`), and recruits fight with their own combat profiles, so read the numbers as relative strengths.
+
+- Warriors take 0.54 of boss damage with 12% avoidance, and Defensive Discipline has a 0.45 mitigation multiplier. Paladins take 0.64 and have Lay on Hands. Shadow Knights take 0.65 and have Harm Touch and Leechcurse. Raid Resolve doubles the HP of all three once per fight.
+- Clerics have 3,350 mana, which Raid Resolve doubles once per fight, and Complete Heal restores 7,500 HP for 400 mana.
+- Rogues deal 80 to 116 melee DPS, and Duelist Discipline multiplies it by 1.5. Raid melee sets `canDefend: false` for Rogue attacks, so bosses never parry, riposte, dodge or block them (`o61`, `.re/js/main.pretty.js:65693-65723`).
+- Monks deal 66 to 94 melee DPS, take 0.78 of boss damage with 24% avoidance, and Inner Flame doubles their melee damage for 12 seconds.
+- Magicians add a pet with 62 to 90 DPS and Shock of Steel for 1,120 every 3.8 seconds.
+- Necromancers add 115 DPS over time, a pet with 40 to 64 DPS and a 720-point lifetap.
 
 ## Roster and leveling groups
 
-Every leveling group includes a tank, a Cleric, a Magician pet carry, and haste plus mana regen or slow (`Enchanter`, `Bard` or `Shaman`), so Groups 2 to 6 level at the same speed as Group 1 instead of stalling without haste, clarity or crowd control. Groups 1 to 3 (18 characters) unlock every raid buff package including Wizard `Spellshield`, Paladin `Brell's` and Druid `Protection of the Glades`:
+Six groups of six, built in this order. Each group levels on its own, and the last column says what it adds to the raid.
 
 | Order | Leveling group | What it adds to the raid |
 | ---: | --- | --- |
-| 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | Unique support core (WAR, CLR, BRD, SHM, ENC, MAG). Level 30-31 now. |
-| 2 | Magician, Paladin, Cleric, Enchanter, Rogue, Druid | Unlocks Paladin (`Brell's` HP) and Druid (`PotG`/resists/DS) packages, Tank #2, Cleric #2, Rogue #1, Mag #2, with full ENC haste/clarity/mez/Nullify for leveling. |
-| 3 | Magician, Shadow Knight, Cleric, Bard, Rogue, Wizard | Unlocks Shadow Knight, Wizard (`+700` `Spellshield` rune pool and Lures), Tank #3, Cleric #3, Rogue #2, Mag #3, and Bard #2 (Selo's/mana song for leveling and backup raid Bard). Completes the 18-character core. |
-| 4 | Magician, Warrior, Cleric, Shaman, Monk, Ranger | Unlocks Ranger (`Call of the Predator` ATK) and Monk #1, Tank #4 (2nd Warrior), Cleric #4, Mag #4, with SHM slow/haste/regen for leveling. |
-| 5 | Magician, Warrior, Cleric, Enchanter, Rogue, Necromancer | Unlocks Necromancer (`115` DoT DPS, pet and `Subversion` mana battery), Tank #5 (3rd Warrior), Cleric #5, Rogue #3, Mag #5, with ENC haste/clarity/mez. |
-| 6 | Necromancer, Warrior, Cleric, Bard, Rogue, Monk | Completes the 36-character raid: Tank #6 (4th Warrior), Cleric #6, Rogue #4, Monk #2, Necromancer #2, Bard #3. |
+| 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | Exists. Cleric, Bard, Shaman and Enchanter buffs, slows and crowd control. |
+| 2 | Magician, Paladin, Cleric, Enchanter, Rogue, Druid | A second tank with Lay on Hands, Druid buffs and heals, the first Rogue, a second Cleric, Magician and Enchanter. |
+| 3 | Magician, Shadow Knight, Cleric, Bard, Rogue, Wizard | A third tank, Wizard nukes, a second Bard and Rogue, a third Cleric and Magician. |
+| 4 | Magician, Warrior, Cleric, Shaman, Monk, Ranger | Ranger buffs, the first Monk, a second Warrior and Shaman, a fourth Cleric and Magician. |
+| 5 | Magician, Warrior, Cleric, Enchanter, Rogue, Necromancer | The first Necromancer, a third Warrior, Rogue and Enchanter, a fifth Cleric and Magician. |
+| 6 | Necromancer, Warrior, Cleric, Bard, Rogue, Monk | A fourth Warrior and Rogue, a second Monk and Necromancer, a sixth Cleric and a third Bard. A melee class leads it. |
 
-Totals across the 36-character raid: **6 Tanks** (4 Warriors, 1 Paladin, 1 Shadow Knight), **7 Healers** (6 Clerics, 1 Druid), **7 Melee DPS** (4 Rogues, 2 Monks, 1 Ranger), **8 Caster/Pet DPS** (5 Magicians, 2 Necromancers, 1 Wizard), and **8 Support** (3 Enchanters, 3 Bards, 2 Shamans).
+The 36 characters are 6 tanks (4 Warriors, a Paladin and a Shadow Knight), 7 healers (6 Clerics and a Druid), 7 melee (4 Rogues, 2 Monks and a Ranger), 8 pet and nuke casters (5 Magicians, 2 Necromancers and a Wizard) and 8 support characters (3 Enchanters, 3 Bards and 2 Shamans).
 
-For race choices, Halfling lowers the XP cost of Warriors, Clerics, Druids and Rogues. Human or Iksar suits Monks, and Erudite or Gnome suits casters. Every new group gets twinked at level 1 from Group 1 via `Manage Money` and `giveItem` (8 Backpacks per character, Coldain Velium / high-ratio 1H weapons, and platinum for spells).
+### How this roster was chosen
 
-Epics worth chasing across the roster: the Magician's Orb of Mastery (goal requirement), the Cleric's Water Sprinkler (0-mana resurrection click), Rogue Ragebringer, the main Warrior's Jagged Blade, the Bard's Singing Short Sword, Monk Celestial Fists, and the Enchanter's Staff of the Serpent.
+1. Support does not stack, so one provider per buff line is enough. Slots beyond the first of each support class go to what adds up across members: tank HP and mitigation, Cleric mana and damage. Raid Resolve doubles tank HP and Cleric mana once per fight, which makes those two the best scaling roles.
+2. Damage slots go to Rogues first (the strongest melee template, and bosses cannot defend against them), then Magicians (pet and nuke), then Monks (less damage than Rogues, but sturdier).
+3. Each group copies group 1's shape so it can level unattended: a tank, a Cleric, a pet class and an Enchanter, Bard or Shaman. Pets dealt 42% of group 1's damage at levels 20 to 21, and roots stalled the party until the Enchanter's and the Cleric's dispels cleared them. The bot's spell upkeep knows Magician spells only, so a Magician or a melee class leads each group ([guide](../guide.md)).
+4. The order front-loads coverage. Groups 1 to 3 hold eleven of the fourteen classes, so a raid can start at 18 characters, and stopping after any group leaves a usable roster.
+5. 36 is a planning size from the Avatar of War and Vulak`Aerr range above. The raid tests at level 46 decide whether the roster grows toward the 72 slots.
+
+Choose each race by the XP factors in the [guide](../guide.md), which also describes the handover from an earlier group.
+
+Epics worth chasing after the Magician's: the Cleric's Water Sprinkler, Rogue Ragebringer, the main Warrior's Jagged Blade, the Bard's Singing Short Sword, Monk Celestial Fists and the Enchanter's Staff of the Serpent.
+
 ## How long it takes
-Every level from 14 to 29 followed `1000 * (L-1)^3` cumulative XP (`3,000 * L^2` per level). At level 30 the cumulative requirement steps up by `1.1x` (`levelEnd(30) = 29,700,000 = 1.1 * 1000 * 30^3`, requiring `5,311,000` XP for level 30, about 2 hours at 2.65M XP/h in Unrest). Level 31 confirmed that non-transition levels within the `1.1x` band return to normal steps (`levelEnd(31) = 32,770,100 = 1.1 * 1000 * 31^3`, requiring `3,070,100` XP, about 1.15 hours).
+
+Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0 up to level 29 and 1.1 at 30 and 31, so level 30 cost 5,311,000 XP and level 31 cost 3,070,100. If the steps follow EQEmu's table, `m` becomes 1.2 at 35, 1.3 at 40 and 1.4 at 45 and rises at every level from 51 to 59, so those levels cost more than the levels around them. Level 46 then starts at 127,575,000 XP and level 60 at 616,137,000 for a factor of 1.00. Check the step at 35. From 21 to 31 the party's XP per hour grew more slowly than the square of the level, so group 1 needs roughly 25 more hours of play to reach 46 and 65 to 95 more from there to 60. A new group needs roughly 40 hours to reach 46.
 
 ## Resolved and open questions
 
 - Character-slot limit (resolved): 9 pages of 8 slots give 72 character slots on the account.
 - Concurrent sessions (resolved): two browser sessions on the same account can stay in the game world at the same time without disconnecting each other, as long as they control different characters.
-- Kerafyrm's Destroy (resolved in code): `spell 1948` is a 50-unit caster AE (`100,000` unresistable damage), while single-target Death Touch (`982`, `24660`) is blocked by the client. Range (>50 units) and the client's handling of `recast_delay: 1800`, not extra tanks beyond 36, decide the fight.
-- Open: the server's raid-time price at level 46 to 60, whether the server enforces a raid-size cap, and how Awakened Kerafyrm (`128089` in Sleeper's Tomb versus `114583` in Skyshrine, which has `npc_spells_id: 0`) is spawned or summoned in IdleQuest.
+- Kerafyrm (resolved): untargetable in the current content, so the roster is not sized for him. If that changes, Destroy's 50-unit range decides the fight (see above).
+- Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
+- Open: the server's raid-time price at level 46 to 60, whether the server caps raid size, how raid mode offers the Velious targets that are missing from the catalog, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids, since the leader adds its class package instead of its spells.
+
+## Revisit when
+
+- Group 1 reaches 46: open Start Raid, record the offered targets, the price and any member limit, and fight the smallest target with group 1 alone. Resize the roster and the ranges in "How big a raid" from that fight.
+- The client bundle changes: diff the raid catalog `MB`, the Resolve list `Ed`, the summon list and Kerafyrm's rows. A Velious target in the catalog or a targetable Kerafyrm changes what the roster has to beat.
+- Group 2 has leveled for two hours: compare its XP per hour with group 1's at the same levels before fixing the shape of groups 3 to 6.
+- Raid fights show the limit: move groups 4 to 6 toward Clerics and Warriors when healing or tanking runs out first, and toward Rogues and Magicians when fights run long.
+- A second session is approved: level two groups at once, each led by a Magician or a melee class.

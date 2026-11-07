@@ -14,12 +14,12 @@ Consequences:
 
 ## Levers, ranked
 
-Time is the scarce resource. Each level takes about 47 minutes, so a lever is worth what it saves over the remaining levels, and a change worth a few percent is not worth the time to test it. Re-check the top levers at every second level.
+Time is the scarce resource. A level took about 70 minutes at 31, and the step levels take longer ([how long it takes](raid-roster.md#how-long-it-takes)), so a lever is worth what it saves over the remaining levels, and a change worth a few percent is not worth the time to test it. Re-check the top levers at every second level.
 
 | Rank | Lever | Expected effect | Status |
 | ---: | --- | --- | --- |
 | 1 | Zone and target band for the current level, alternating zones as reachable spawns run out. | Large: 1.0M XP/h in Kurn's Tower at 18, 1.6M in Guk at 21, 1.95M in Permafrost at 22. | The bot rotates between the zones in its `rotation` setting. Choose them per level band from `tools/zones.mjs` and measured rates. |
-| 2 | A second session playing a second group. | Doubles account XP per hour if the server allows it. | Blocked: needs a sign-in in a second window. |
+| 2 | A second session playing a second group. | Doubles account XP per hour. | Two sessions on the account stay in the world together ([raid roster](raid-roster.md#resolved-and-open-questions)). Needs a second group. Ask before starting one. |
 | 3 | Keep the game tab visible. | Possibly 3-4 times: kills took 46-54 s at night against 13-15 s by day in Crushbone. | Unproven. Samples record visibility; compare `analyze.mjs --vis 1` and `--vis 0` once a hidden stretch exists. |
 | 4 | Keep the party from standing still: hung route recoveries, readiness waits, cures that fail, root casters. | Up to a tenth of the time each. | The bot restarts hung waits; cures are off for the support casters; `avoidNames` skips root casters. |
 | 5 | Damage where it lands. Pets dealt 42% of the party's damage at 20-21, the Bard 15%, the Warrior 12.5%. | A better weapon helps by its owner's share only. | Pet tiers come at 24, 29 and 34 by themselves. Weapon and gear priorities are in the upgrades research. |
@@ -75,5 +75,5 @@ Measure during normal play: label the blocks and compare them with `analyze.mjs`
 ## Bot roadmap
 
 1. Done: AutoLevel keeper with pause deadlines, restarts after hung route recoveries and readiness waits, bag cleanup with Auto Bank, cursor watch, party rejoin, spells and pets after level-ups, zone rotation, target skipping, alerts and `watch`.
-2. Next: choose the rotation zones from this plan by level, so a level band change needs no agent.
-3. Then: hand weapons and gear to the party member who gains most, and never sell an item that is an upgrade for someone.
+2. Done: `BAND_ROTATIONS` sets the rotation at each level-up, so a band change needs no agent.
+3. Next: hand weapons and gear to the party member who gains most, and never sell an item that is an upgrade for someone.
