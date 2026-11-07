@@ -34,7 +34,7 @@
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
     stallMin: 10, // AutoLevel running without XP this long raises an alert
     stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
-    routeStuckSec: 45, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
+    routeStuckSec: 8, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
     readyStuckSec: 30, // "Waiting for party to be ready" this long with everyone full: restart AutoLevel
     upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
     nukeGems: 2, // direct-damage spells to keep memorized
@@ -42,6 +42,9 @@
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
     crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes raises an alert
+    // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
+    // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
+    avoidNames: "",
   };
   let saved = {};
   try {
@@ -358,6 +361,18 @@
     }
   };
 
+  // AutoLevel picks the nearest enemy that passes its con and level filters and is not on the
+  // client's skip list (`deferAutoLevelSpawn`, which the client uses for spawns it cannot reach).
+  // Keeping enemies named by `avoidNames` on that list makes AutoLevel pull the others; each entry
+  // lasts a little over two ticks and is renewed while the setting is on.
+  const avoidTargets = (i) => {
+    if (!config.avoidNames) return;
+    const rt = Object.values(i.mods ?? {}).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
+    if (!rt?.deferAutoLevelSpawn) return;
+    const re = new RegExp(config.avoidNames, "i");
+    for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) if (re.test(t.name ?? "")) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+  };
+
   const watchConnection = (i) => {
     const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
     if (ok) {
@@ -573,6 +588,7 @@
       watchNoEnemies(i);
       keepParty(i);
       watchXp(i, cb);
+      avoidTargets(i);
       keepAutoLevel(i, cb);
       watchMemory();
       await upkeepIfDue(i);
