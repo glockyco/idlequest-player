@@ -15,7 +15,7 @@ interface Alert {
 }
 interface Bot {
   timerId: Timer;
-  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number };
+  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
   surplus(): { name: string }[];
@@ -53,6 +53,12 @@ async function install(partyIds: number[] = []) {
     setMaxCon: (v: number) => { combat.maxCon = v; },
     setMaxLevelDiff: (v: number) => { combat.maxLevelDiff = v; },
   };
+  const zones = [
+    { shortName: "guktop", longName: "The City of Guk", zoneidnumber: 65 },
+    { shortName: "permafrost", longName: "The Permafrost Caverns", zoneidnumber: 73 },
+  ];
+  const kills: { t: number; xp: number; enemy: string }[] = [];
+  const moves: string[] = [];
   // bot.js reads the page's globals, so the test provides them on globalThis.
   const g = globalThis as unknown as FakeGlobals;
   g.localStorage = { getItem: () => null, setItem: () => {} };
@@ -63,7 +69,13 @@ async function install(partyIds: number[] = []) {
     seqs,
     session: 1,
     samples: [],
-    kills: [],
+    kills,
+    // Zone changes the bot asked for, by short name; the fake moves the party at once.
+    changeZone: async (shortName: string) => {
+      moves.push(shortName);
+      combat.currentZone = zones.find((z) => z.shortName === shortName)?.zoneidnumber ?? combat.currentZone;
+      return shortName;
+    },
     mods: {},
     guard,
     socket: { isConnected: true },
@@ -77,7 +89,7 @@ async function install(partyIds: number[] = []) {
       }),
       combat: store(combat),
       screen: store({ currentScreen: "game" }),
-      staticData: store({ zones: [] }),
+      staticData: store({ zones }),
       skills: store({ inCombat: false }),
       spellbook: store({ scribedSpells: [], memorizedSpells: [] }),
     },
@@ -90,7 +102,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard };
+  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -220,4 +232,34 @@ test("an empty zone first undoes the guard's tightening, then a raised minimum c
   for (let k = 0; k < 3; k++) unfit.say(empty);
   await unfit.bot.tick();
   expect(unfit.bot.state.alerts.filter((a) => a.kind === "noEnemies").map((a) => a.wake)).toEqual([true]);
+});
+
+test("rotation moves on from an empty zone and from one whose XP rate fell", async () => {
+  vi.useFakeTimers();
+  try {
+    const empty = await install();
+    empty.bot.config.rotation = ["guktop", "permafrost"];
+    empty.combat.currentZone = 65;
+    await empty.bot.tick();
+    for (let k = 0; k < 3; k++) empty.say("No available enemies found in this zone.");
+    await empty.bot.tick();
+    expect(empty.moves).toEqual(["permafrost"]);
+    expect(empty.bot.state.alerts.map((a) => a.kind)).not.toContain("noEnemies");
+
+    const dry = await install();
+    dry.bot.config.rotation = ["guktop", "permafrost"];
+    dry.combat.currentZone = 65;
+    await dry.bot.tick(); // arrival
+    for (let m = 0; m < 10; m++) {
+      vi.advanceTimersByTime(60000);
+      dry.kills.push({ t: Date.now(), xp: 10000, enemy: "a froglok" });
+    }
+    await dry.bot.tick(); // ten minutes in: this visit's best ten minutes
+    expect(dry.moves).toEqual([]);
+    vi.advanceTimersByTime(11 * 60000); // nothing killed since
+    await dry.bot.tick();
+    expect(dry.moves).toEqual(["permafrost"]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

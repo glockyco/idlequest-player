@@ -45,6 +45,9 @@
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
     avoidNames: "",
+    rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
+    rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
+    rotateMinStayMin: 20, // and only after this many minutes in the zone
   };
   let saved = {};
   try {
@@ -401,7 +404,7 @@
   // filters (spawns it failed to reach are skipped for five minutes), and the game then switches
   // AutoLevel off. Undo what can be undone here: limits the guard tightened, then a raised minimum
   // con. Otherwise the zone does not fit the party, so wake an attached script to choose another.
-  const watchNoEnemies = (i) => {
+  const watchNoEnemies = async (i) => {
     state.noEnemies = state.noEnemies.filter((t) => t > now() - 300000);
     if (state.noEnemies.length < 3) return;
     const cb = i.stores.combat.getState();
@@ -417,6 +420,8 @@
     } else if (cb.minCon > 4) {
       cb.setMinCon(4);
       log(`no enemies at minimum con ${cb.minCon}; lowered it to blue (4)`);
+    } else if (await rotate(i, "no available enemies")) {
+      // moved on
     } else if (now() - state.noEnemiesAlertAt > 900000) {
       state.noEnemiesAlertAt = now();
       const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
@@ -438,11 +443,62 @@
   };
 
   const watchZone = (i, cb) => {
-    if (state.zone !== null && state.zone !== cb.currentZone) {
-      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
-      alert("zone", `now in ${z?.longName ?? cb.currentZone}`);
+    if (state.zone !== cb.currentZone) {
+      if (state.zone !== null) {
+        const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
+        alert("zone", `now in ${z?.longName ?? cb.currentZone}`);
+      }
+      state.zoneSince = now();
+      state.zoneBestRate = 0;
+    } else if (state.zoneSince == null) {
+      // An install that carries an older state starts the visit clock here.
+      state.zoneSince = now();
+      state.zoneBestRate = 0;
     }
     state.zone = cb.currentZone;
+  };
+
+  // ---- Zone rotation ------------------------------------------------------------------------
+  // AutoLevel only pulls enemies it can reach, and spawns return after about ten minutes, so a
+  // party can empty the reachable part of a zone: in Permafrost at level 19 the XP rate fell from
+  // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
+  // next one when "No available enemies" persists, or when the last 10 minutes earned less than
+  // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
+  const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
+  const nextZone = (i) => {
+    const list = config.rotation ?? [];
+    if (!list.length) return null;
+    const here = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
+    const k = list.indexOf(here);
+    return list[(k + 1) % list.length] === here ? null : list[(k + 1) % list.length];
+  };
+  const rotate = async (i, why) => {
+    const dest = nextZone(i);
+    if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
+    const cb = i.stores.combat.getState();
+    const limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
+    log(`rotating to ${dest}: ${why}`);
+    cb.setIsRunning(false);
+    try {
+      const name = await i.changeZone(dest);
+      const c = i.stores.combat.getState();
+      c.setMaxCon(limits.maxCon);
+      c.setMinCon(limits.minCon);
+      c.setMaxLevelDiff(limits.maxLevelDiff);
+      c.startAutoLevel();
+      alert("rotate", `moved to ${name}: ${why}`);
+      return true;
+    } catch (e) {
+      alert("rotate", `move to ${dest} failed: ${e?.message ?? e}`, true);
+      return false;
+    }
+  };
+  const watchRate = async (i) => {
+    if (!(config.rotation ?? []).length || now() - (state.zoneSince ?? now()) < 600000) return;
+    const rate = xpLast10(i);
+    state.zoneBestRate = Math.max(state.zoneBestRate ?? 0, rate);
+    if (now() - state.zoneSince < config.rotateMinStayMin * 60000 || rate >= config.rotateBelowShare * state.zoneBestRate) return;
+    await rotate(i, `the last 10 minutes earned ${Math.round((100 * rate) / Math.max(1, state.zoneBestRate))}% of this visit's best`);
   };
 
   // ---- Spells and pets after level-ups -----------------------------------------------------
@@ -585,7 +641,8 @@
       await watchCursor(i);
       watchLoot(i);
       watchCrowding(i);
-      watchNoEnemies(i);
+      await watchNoEnemies(i);
+      await watchRate(i);
       keepParty(i);
       watchXp(i, cb);
       avoidTargets(i);

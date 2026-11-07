@@ -42,7 +42,8 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/2026-11-
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel. Find it in the event log. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client reconnects by itself, and if the login form shows, stop and ask for a sign-in. |
 | `guard` | Our own pulls triggered repeated escapes and the guard lowered the level cap, or an escape failed to restart AutoLevel. Escapes from wanderers alone do not alert: judge the zone by its measured XP per hour, which `analyze.mjs` reports with the escapes and their cost. |
-| `noEnemies` | Nothing in the zone passes AutoLevel's limits even after the bot restored guard-tightened limits and a blue minimum con, usually because the party outleveled the zone or emptied what it can reach. Respawns take minutes, so move to another zone for the level band and come back later. |
+| `noEnemies` | Nothing in the zone passes AutoLevel's limits even after the bot restored guard-tightened limits and a blue minimum con, and `rotation` names no other zone. Usually the party outleveled the zone or emptied what it can reach. Set `rotation` to two or three zones measured for the level band. |
+| `rotate` | The bot moved to the next zone in `rotation`, because the current one ran out of reachable enemies or its last 10 minutes earned under 60% of the visit's best. Only a failed move wakes a script. At each new level band, check that the zones in `rotation` still fit, from `tools/zones.mjs` and the measured rate per zone. |
 | `crowded` | Spawns are contested. Weigh the options in [docs/guide.md](docs/guide.md#deciding-where-to-hunt-and-what-to-do), such as staying, a wider target range, another zone or an errand. Then measure the choice and record it with the reason. |
 
 ## Inventory and the game UI

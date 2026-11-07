@@ -325,6 +325,25 @@
     cb.setMinCon(l.minCon);
     cb.setMaxLevelDiff(l.maxLevelDiff);
   };
+  /**
+   * Change zone with the request the Travel window sends, and wait until the new zone has loaded.
+   * `shortName` null re-enters the current zone at its safe spot, which drops every engaged mob.
+   * Stop AutoLevel first. Gives up waiting for the load after 60 s.
+   */
+  const changeZone = async (shortName) => {
+    const cb = stores.combat.getState();
+    const zones = stores.staticData.getState().zones;
+    const dest = shortName ? zones.find((z) => z.shortName === shortName) : zones.find((z) => z.zoneidnumber === cb.currentZone);
+    const change = zoneChanger();
+    if (!dest || !change) throw new Error(`zone change function or zone ${shortName ?? cb.currentZone} not found`);
+    await change(dest);
+    // The zone-loading flag shows the change started.
+    const t0 = Date.now();
+    while (!stores.combat.getState().isZoneLoading && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
+    while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 4000));
+    return dest.longName;
+  };
   const guardLeave = async (reason, mob) => {
     const cb = stores.combat.getState();
     const cfg = guard.config;
@@ -358,16 +377,7 @@
     }
     cb.setIsRunning(false);
     try {
-      const zones = stores.staticData.getState().zones;
-      const dest = target ? zones.find((z) => z.shortName === target) : zones.find((z) => z.zoneidnumber === cb.currentZone);
-      const change = zoneChanger();
-      if (!dest || !change) throw new Error("zone change function or target zone not found");
-      await change(dest);
-      // The zone-loading flag shows the change started. Give up waiting after 60 s.
-      const t0 = Date.now();
-      while (!stores.combat.getState().isZoneLoading && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
-      while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
-      await new Promise((r) => setTimeout(r, 4000));
+      await changeZone(target ?? null);
     } catch (e) {
       guardNote(`zone change failed: ${e.message}`);
     }
@@ -417,6 +427,7 @@
       return Object.assign(chores, partial);
     },
     ...guardApi,
+    changeZone,
     samplerId,
     unsubChat,
     get zoneSpawns() {
