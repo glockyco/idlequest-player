@@ -1,6 +1,13 @@
 import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const here = new URL(".", import.meta.url);
+/**
+ * A relative run or zone directory names a place in this repository, whatever the calling
+ * script's working directory is, so exports always land in `runs/`.
+ */
+const repoPath = (p) => (isAbsolute(p) ? p : fileURLToPath(new URL(p, new URL("..", here))));
 
 const METHODS = ["status", "roster", "inventory", "bagSpace", "chatTail", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
 
@@ -44,11 +51,12 @@ export async function attach(tab) {
     kills: () => tab.evaluate(() => window.iq.kills),
 
     /**
-     * Append new recorder rows to `<dir>/samples.jsonl` and `<dir>/events.jsonl`.
-     * Resumes from the last sequence number already on disk, so it is safe to call repeatedly
-     * and after a restart of the calling script.
+     * Append new recorder rows to `<dir>/samples.jsonl` and `<dir>/events.jsonl`. A relative `dir`
+     * is resolved against the repository. Resumes from the last sequence number already on disk,
+     * so it is safe to call repeatedly and after a restart of the calling script.
      */
-    async exportRun(dir) {
+    async exportRun(runDir) {
+      const dir = repoPath(runDir);
       await mkdir(dir, { recursive: true });
       const sPath = `${dir}/samples.jsonl`;
       const ePath = `${dir}/events.jsonl`;
@@ -293,11 +301,13 @@ export async function attach(tab) {
     },
 
     /**
-     * Visit each zone through the Travel window and save its raw spawn data to `<outDir>/<zone>.json`
-     * (see `zoneSnapshot` in the bridge). Zones already saved are skipped. Does not fight.
-     * AutoLevel must be stopped. Analyze the result with `tools/zones.mjs`.
+     * Visit each zone through the Travel window and save its raw spawn data to `<zoneDir>/<zone>.json`
+     * (see `zoneSnapshot` in the bridge). A relative `zoneDir` is resolved against the repository.
+     * Zones already saved are skipped. Does not fight. AutoLevel must be stopped. Analyze the
+     * result with `tools/zones.mjs`.
      */
-    async scoutZones(zoneNames, outDir) {
+    async scoutZones(zoneNames, zoneDir) {
+      const outDir = repoPath(zoneDir);
       await mkdir(outDir, { recursive: true });
       const out = [];
       for (const name of zoneNames) {
