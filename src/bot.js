@@ -44,7 +44,7 @@
     dispelOverheadSec: 6, // the extra pass and mana refill a dispel costs the readiness wait
     dispelMinSavedSec: 10, // turn dispels on only when they are expected to save this much
     upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
-    nukeGems: 2, // direct-damage spells to keep memorized
+    nukeGems: 1, // direct-damage spells to keep memorized (recast <= recovery on every Magician nuke)
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
@@ -452,7 +452,7 @@
     const run = state.dispel;
     if (run) {
       const gone = !roots.some((r) => r.app === run.app);
-      const stop = gone ? "gone" : fighting ? "a fight started" : !cb.isRunning ? "AutoLevel stopped" : now() - run.at > run.giveUpMs ? "no dispel landed in time" : null;
+      const stop = gone ? "gone" : fighting ? "a fight started" : !cb.isRunning ? "AutoLevel stopped" : run.endsAt - now() <= config.dispelOverheadSec * 1000 ? "nearly expired" : null;
       if (!stop) return;
       for (const w of run.who) i.setTactic(w.name, "cure", w.prev ?? false);
       state.dispel = null;
@@ -467,15 +467,18 @@
     if (state.dispelSkip.some((s) => s.app === root.app && s.until > now())) return;
     const casters = dispellers(i);
     if (!casters.length) return;
-    const miss = casters.reduce((m, c) => m * (1 - dispelChance(c.level, root.casterLevel)), 1);
+    // The client locks a target while one dispeller casts on it (BQ.pretty.js Rn), so at most two
+    // casters alternate on one rooted target during a 9 s recast cycle.
+    const active = casters.slice(0, 2);
+    const miss = active.reduce((m, c) => m * (1 - dispelChance(c.level, root.casterLevel)), 1);
     const expected = config.dispelCycleSec / (1 - miss) + config.dispelOverheadSec;
     const left = (root.endsAt - now()) / 1000;
     if (left - expected < config.dispelMinSavedSec) return;
     const overrides = i.stores.partySpells?.getState?.().overridesByCompanion ?? {};
-    const who = casters.map((c) => ({ name: c.name, prev: overrides[c.key]?.cure }));
+    const who = active.map((c) => ({ name: c.name, prev: overrides[c.key]?.cure }));
     for (const w of who) i.setTactic(w.name, "cure", true);
-    state.dispel = { app: root.app, target: root.id, at: now(), endsAt: root.endsAt, giveUpMs: Math.min(left, 3 * expected) * 1000, who };
-    alert("dispel", `${root.id} rooted (spell ${root.spellId}, caster level ${root.casterLevel}) with ${Math.round(left)}s left between fights; cures on for ${casters.map((c) => c.name).join(", ")}, expected ${Math.round(expected)}s`);
+    state.dispel = { app: root.app, target: root.id, at: now(), endsAt: root.endsAt, who };
+    alert("dispel", `${root.id} rooted (spell ${root.spellId}, caster level ${root.casterLevel}) with ${Math.round(left)}s left between fights; cures on for ${active.map((c) => c.name).join(", ")}, expected ${Math.round(expected)}s`);
   };
 
   const watchConnection = (i) => {

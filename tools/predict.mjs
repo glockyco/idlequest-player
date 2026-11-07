@@ -4,8 +4,8 @@
 //
 //   bun tools/predict.mjs --level 25 [--top 15]          ranked table of zones
 //   bun tools/predict.mjs --level 25 --zone permafrost   per-NPC breakdown of one zone (regex on short or long name)
-//   bun tools/predict.mjs --check                        model vs the two measured runs
-//
+//   bun tools/predict.mjs --level 29 --spells [--zone unrest]  compare nuke/tactic policies
+//   bun tools/predict.mjs --check                        model vs the measured runs
 // Model, per zone:
 //   1. Candidates. Every spawn point (spawn2 version 0) holds one NPC of its spawn group, drawn by
 //      spawnentry chance. An NPC is a candidate when its level is in [P+min-diff, P+max-diff] and not
@@ -410,6 +410,7 @@ const fmtX = (v) => (v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : (v / 1e3).toFixed(0
 const CASES = [
   { label: "Permafrost Caverns, leader 24-25", zone: "^permafrost$", level: 24, stay: 50, measured: { khMin: 2.91, xph: 2304068, killMean: 13, killMedian: 11.8, combat: 0.646, xpKill: 13217 }, partyLevels: [24, 25, 24, 24, 23, 24] },
   { label: "City of Guk, leader 21", zone: "^guktop$", level: 21, stay: 45, measured: { khMin: 3.19, xph: 1640000, killMedian: 10.3 }, partyLevels: [21, 22, 21, 21, 20, 21] },
+  { label: "Estate of Unrest, leader 29", zone: "^unrest$", level: 29, stay: 45, measured: { khMin: 1.92, xph: 2753334, killMean: 14.8, killMedian: 13.0, xpKill: 15051 }, partyLevels: [29, 30, 29, 29, 28, 29] },
 ];
 // The runs used AutoLevel's blue-to-red con range, so the con rule alone sets the lower bound.
 const checkCfg = (k) => ({ ...cfgFromFlags(k.level), minDiff: -99, maxDiff: 5, stay: num("stay", k.stay), partyLevels: list("party-levels", k.partyLevels) });
@@ -455,6 +456,94 @@ function fit(zones) {
   console.log(`best fit: --dps ${best.dps} --mana-per-sec ${best.manaPerSec} --overhead ${best.overhead} (squared log error ${best.err.toFixed(4)})`);
 }
 
+// ---------------------------------------------------------------- spell & tactic evaluation (--spells)
+// Magician direct-damage nukes from spells_new: [id, minLevel, name, maxDmg, mana, cycleSec, resist].
+// Every Magician nuke in spells_new has recast_time (2.25 s) <= recovery_time (2.5 s), so the best
+// nuke is already off cooldown when global spell recovery ends.
+const MAG_NUKES = [
+  [93, 1, "Burst of Flame", 5, 7, 4.0, "FR"],
+  [94, 4, "Burn", 14, 15, 4.25, "FR"],
+  [324, 8, "Shock of Blades", 35, 30, 4.6, "MR"],
+  [322, 8, "Flame Bolt", 47, 40, 5.0, "FR"],
+  [334, 16, "Shock of Flame", 96, 70, 5.25, "FR"],
+  [68, 20, "Bolt of Flame", 156, 105, 5.75, "FR"],
+  [113, 24, "Shock of Spikes", 176, 110, 6.0, "MR"],
+  [120, 34, "Blaze", 295, 155, 7.1, "FR"],
+  [69, 34, "Cinder Bolt", 333, 175, 7.5, "FR"],
+  [114, 44, "Shock of Swords", 600, 250, 8.6, "MR"],
+  [70, 49, "Lava Bolt", 810, 300, 9.5, "FR"],
+  [1660, 52, "Char", 702, 260, 7.0, "FR"],
+  [1661, 54, "Scars of Sigil", 525, 175, 4.5, "FR"],
+  [1663, 57, "Shock of Steel", 825, 275, 8.5, "MR"],
+  [1664, 59, "Seeking Flame", 1024, 320, 9.5, "FR"],
+  [2540, 60, "Shock of Fiery Blades", 1294, 335, 7.85, "FR"],
+  [2118, 60, "Ancient: Shock of Sun", 1350, 285, 7.5, "FR"],
+];
+function magNukesForLevel(P, count) {
+  if (count <= 0) return [];
+  return MAG_NUKES.filter((s) => s[1] <= P)
+    .sort((a, b) => b[1] - a[1] || b[3] - a[3])
+    .slice(0, count);
+}
+function printSpells(zones, c) {
+  const P = c.level;
+  const scale = Math.pow(P / c.dpsLevel, c.dpsExp);
+  // Calibrated against the analyzer's combat mana spend (--mana-per-sec 10 at L24-29) and "Damage
+  // by source": in combat the Magician casts at ~55% of the theoretical cast+recovery cycle (target
+  // switches, fizzles and finishing blows), and spellEffectiveness(P, P, 25) (~0.78) accounts for
+  // same-level partial resists.
+  const duty = 0.55;
+  const sameLevelEff = spellEffectiveness(P, P, 25);
+  const ref2 = magNukesForLevel(c.dpsLevel, 2);
+  const refNukeDps = (ref2.reduce((s, x) => s + x[3] / x[5], 0) / ref2.length) * duty * sameLevelEff;
+  const basePartyDps = (c.dps - refNukeDps) * scale;
+  const casterManaPool = c.casterManaPool * (P / 24);
+  const healerManaPool = c.healerManaPool * (P / 24);
+  const enchManaPool = 550 * (P / 24);
+  const shmManaPool = 500 * (P / 24);
+  const top1 = magNukesForLevel(P, 1);
+  const top2 = magNukesForLevel(P, 2);
+  const nukeStats = (spells) => {
+    if (!spells.length) return { rawDps: 0, manaPerSec: 0, resist: "FR", desc: "none (melee only)" };
+    const rawDps = (spells.reduce((s, x) => s + x[3] / x[5], 0) / spells.length) * duty * sameLevelEff;
+    const manaPerSec = (spells.reduce((s, x) => s + x[4] / x[5], 0) / spells.length) * duty;
+    return { rawDps, manaPerSec, resist: spells[0][6], desc: spells.map((x) => `${x[2]} (${x[3]}d/${x[4]}m ${x[6]})`).join(" + ") };
+  };
+  const s0 = nukeStats([]);
+  const s1 = nukeStats(top1);
+  const s2 = nukeStats(top2);
+  const policies = [
+    { name: "nukeGems=1 (best nuke)", ...s1, extraDps: 0, extraRecov: () => 0 },
+    { name: "nukeGems=2 (top 2 nukes)", ...s2, extraDps: 0, extraRecov: () => 0 },
+    { name: "nukeGems=0 (no nukes)", ...s0, extraDps: 1.5, extraRecov: () => 0 },
+    { name: "nukeGems=1 + cleric nuke", ...s1, extraDps: 3.8 * scale, extraRecov: (kill, taken) => ((taken * c.healCost + kill * 11) / healerManaPool) / REGEN_PER_SEC },
+    { name: "nukeGems=1 + shaman DoT", ...s1, extraDps: 3.2 * scale, extraRecov: (kill) => ((kill * 10) / shmManaPool) / REGEN_PER_SEC },
+    { name: "nukeGems=1 + ench nuke", ...s1, extraDps: 4.0 * scale, extraRecov: (kill) => ((kill * (4 + 11)) / enchManaPool) / REGEN_PER_SEC },
+  ];
+  const ranked = [...zones.values()].map((z) => ({ z, r: evalZone(z, c) })).filter((x) => x.r.xph > 0).sort((a, b) => b.r.xph - a.r.xph);
+  const targetZones = (has("zone") ? ranked : ranked.slice(0, 3)).map((x) => x.z);
+  for (const z of targetZones) {
+    console.log(`\nSpell & tactic comparison in ${z.name} (${z.short}) at party level ${P}:`);
+    console.log(`  1-nuke gem:  ${s1.desc}`);
+    console.log(`  2-nuke gems: ${s2.desc}\n`);
+    console.log(["policy".padEnd(26), "pDPS".padStart(6), "kill".padStart(6), "recov".padStart(6), "cycle".padStart(6), "k/h cmb".padStart(8), "XP/h cmb".padStart(9), "XP/h net".padStart(9), " bottleneck"].join(" "));
+    for (const p of policies) {
+      const totalAtLevel = ( basePartyDps + p.rawDps + p.extraDps ) / scale;
+      const spellShare = Math.min(0.6, (0.18 * basePartyDps + p.rawDps + p.extraDps) / (basePartyDps + p.rawDps + p.extraDps));
+      const cfg = { ...c, dps: totalAtLevel, spellShare, nukeResist: p.resist, manaPerSec: p.manaPerSec, casterManaPool, healerManaPool };
+      const r = evalZone(z, cfg);
+      const extraR = p.extraRecov(r.kill, r.kill * 15);
+      const recov = Math.max(r.recovery, (r.kill * 4 / enchManaPool) / REGEN_PER_SEC, extraR);
+      const cycle = r.kill + recov + r.walk + c.overhead;
+      const cmbKh = 3600 / cycle;
+      const netKh = Math.min(cmbKh, r.spawnKh);
+      const domRecov = ((r.kill * p.manaPerSec) / casterManaPool) / REGEN_PER_SEC;
+      const bottleneck = extraR >= recov - 0.05 && extraR > 0 ? "comp:mana" : domRecov >= recov - 0.05 && p.manaPerSec > 0 ? "me:mana" : "healer/cc:mana";
+      console.log([p.name.padEnd(26), (totalAtLevel * scale).toFixed(1).padStart(6), r.kill.toFixed(1).padStart(6), recov.toFixed(1).padStart(6), cycle.toFixed(1).padStart(6), cmbKh.toFixed(0).padStart(8), fmtX(cmbKh * r.xpKill).padStart(9), fmtX(netKh * r.xpKill).padStart(9), " " + bottleneck].join(" "));
+    }
+  }
+}
+
 // ---------------------------------------------------------------- output
 function printTable(results, c, top) {
   console.log(`Party level ${c.level}, candidate levels ${c.level + c.minDiff} to ${c.level + c.maxDiff} and above green (${c.level + conOffset(c.level)}), dps ${c.dps} at level ${c.dpsLevel}, stay ${c.stay} min\n`);
@@ -482,9 +571,10 @@ if (!has("check") && !has("fit") && raw("level") === undefined) {
   console.error("usage: bun tools/predict.mjs --level N [--top 15] [--zone regex] [--min-diff -3] [--max-diff 5] [--dps ..] [--overhead ..] [--check]\nflags are documented in the README and at the top of tools/predict.mjs");
   process.exit(2);
 }
-const zones = await loadZones(has("check") || has("fit") ? "^(permafrost|guktop)$" : raw("zone"));
+const zones = await loadZones(has("check") || has("fit") ? "^(permafrost|guktop|unrest)$" : raw("zone"));
 if (has("fit")) fit(zones);
 else if (has("check")) printCheck(zones);
+else if (has("spells")) printSpells(zones, cfgFromFlags(num("level", NaN)));
 else {
   const c = cfgFromFlags(num("level", NaN));
   const results = [...zones.values()].map((z) => evalZone(z, c));

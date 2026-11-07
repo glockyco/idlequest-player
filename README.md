@@ -106,7 +106,8 @@ bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
 ```sh
 bun tools/predict.mjs --level 25 --top 15            # ranked table: kill, recovery and walk seconds, kills/h, XP/h, danger flags
 bun tools/predict.mjs --level 25 --zone permafrost   # per-NPC breakdown of one zone
-bun tools/predict.mjs --check                        # the model against the two measured runs, with residuals
+bun tools/predict.mjs --level 29 --spells [--zone unrest]  # compare nuke/tactic policies (0/1/2 nuke gems, companion nukes/DoTs)
+bun tools/predict.mjs --check                        # the model against the measured runs, with residuals
 ```
 
 Flags: `--min-diff` and `--max-diff` (levels relative to the leader, default -3 and 5, and never green by AutoLevel's con rule), `--dps` and `--dps-level` (party damage per second against a same-level enemy and the leader level it was measured at), `--dps-exp`, `--spell-share`, `--overhead`, `--mana-per-sec`, `--tank-hp`, `--tank-ac`, `--healer-mana-pool`, `--caster-mana-pool`, `--speed`, `--stay` (minutes in the zone, which spreads the initial stock of enemies) and `--party-levels` (a comma list, default six equal levels). The header of the file explains each step. `--fit` refits `--dps`, `--overhead` and `--mana-per-sec` to the two runs.
