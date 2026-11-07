@@ -90,11 +90,13 @@ bun tools/zone-snapshots.mjs runs/zones-content "."          # all zones, about 
 bun tools/zones.mjs runs/zones-content --level 15
 ```
 
-Gear: `tools/gear.mjs` lists the best usable item per slot for a class and level and where it drops.
-The score is a rough stat value with the weights documented in the file, not a simulation.
+Gear: `tools/gear.mjs` lists the best usable item per slot for a class, race and level, with the
+mobs that drop it and the merchants that sell it. Armor is ranked by a rough stat score with the
+weights documented in the file. Weapons are ranked by base damage capped at the level's limit,
+divided by delay, the comparison the IdleQuest wiki gives.
 
 ```sh
-bun tools/gear.mjs magician --level 20 --slot head --top 3
+bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
 ```
 
 ## Measuring efficiency
