@@ -115,8 +115,9 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
   cookies, localStorage or IndexedDB, so a lost session means signing in again.
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
   Regenerate `data/opcodes.json` with `tools/extract-opcodes.ts` after a client release.
-- Run anything that needs the party standing still inside `pausedAutoLevel`. A pause left in place
-  leaves every character idle.
+- Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
+  it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
+  before opening the Travel window. A pause left in place leaves every character idle.
 - `tab.evaluate` calls time out after 30 seconds. Start long work in the page, keep its progress on
   `window`, and poll it with short calls.
 - Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions

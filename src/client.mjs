@@ -195,16 +195,35 @@ export async function attach(tab) {
 
     /**
      * Travel through the Travel window (the same path a player uses) and wait for the zone to load.
-     * AutoLevel must be stopped first. Returns the status once the zone has loaded.
+     * AutoLevel must be stopped first. Active combat resolves before the window opens.
      */
     async travelTo(zoneName, timeoutMs = 120000) {
+      const deadline = Date.now() + timeoutMs;
       await handle.clearWindows();
-      await tab.click('role/button[name="Travel" exact]');
-      await sleep(1200);
+      for (;;) {
+        const s = await handle.status();
+        if (s.inCombat) {
+          if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out waiting for combat to end`);
+          await sleep(1000);
+          continue;
+        }
+
+        const waitMs = Math.min(5000, deadline - Date.now());
+        if (waitMs <= 0) throw new Error(`travel to ${zoneName} timed out waiting for the Travel window`);
+        await tab.click('role/button[name="Travel" exact]');
+        try {
+          await tab.waitForSelector("placeholder/Search travel destinations", { timeout: waitMs });
+          break;
+        } catch (error) {
+          if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out waiting for the Travel window`, { cause: error });
+          if (!(await handle.status()).inCombat) throw new Error(`Travel window did not open for ${zoneName}`, { cause: error });
+        }
+      }
       await tab.fill("placeholder/Search travel destinations", zoneName);
-      await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: 10000 });
+      const resultWaitMs = Math.min(10000, deadline - Date.now());
+      if (resultWaitMs <= 0) throw new Error(`travel to ${zoneName} timed out waiting for zone results`);
+      await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: resultWaitMs });
       await tab.click(`role/button[name="${zoneName}" exact]`);
-      const t0 = Date.now();
       for (;;) {
         await sleep(2000);
         const s = await handle.status();
@@ -212,7 +231,7 @@ export async function attach(tab) {
           await tab.evaluate(() => [...document.querySelectorAll("button")].find((b) => /^done$/i.test(b.textContent.trim()))?.click());
           return s;
         }
-        if (Date.now() - t0 > timeoutMs) throw new Error(`travel to ${zoneName} timed out`);
+        if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out`);
       }
     },
 
