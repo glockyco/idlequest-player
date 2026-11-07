@@ -84,32 +84,43 @@ export async function attach(tab) {
 
     /**
      * Give a carried item to an account character in the party, equipped when `equip` is true,
-     * for example an instrument for the Bard. Picks the item up through the inventory window, as a
-     * player does, then sends the client's held-item transfer. Returns the game's reply and checks
-     * the cursor is empty afterwards. `itemName` must be in a bag.
+     * for example an instrument for the Bard. Moves the item to the cursor with the character
+     * store's slot move, sends the client's held-item transfer, and puts the item back if the
+     * transfer is rejected.
      */
     async giveItem(itemName, characterName, equip = true) {
-      const item = (await handle.inventory()).find((r) => r.name === itemName && r.loc === "bag");
+      const item = (await handle.inventory()).find((r) => r.name === itemName && (r.loc === "bag" || (r.bag === 0 && r.slot >= 22 && r.slot <= 29)));
       if (!item) throw new Error(`no ${itemName} in the bags`);
       const target = (await handle.roster()).party.find((m) => m.name === characterName);
       const characterId = Number(String(target?.id ?? "").replace("character-", ""));
       if (!characterId) throw new Error(`${characterName} is not an account character in the party`);
-      await handle.clearWindows();
-      await tab.click('role/button[name="Persona" exact]');
-      await tab.waitForSelector(`testid/general-inventory-slot-${item.bag - 1}`, { timeout: 5000 });
-      await tab.click(`testid/general-inventory-slot-${item.bag - 1}`, { button: "right" });
-      await tab.waitForSelector(`testid/container-inventory-slot-${item.bag}-${item.slot}`, { timeout: 5000 });
-      await tab.click(`testid/container-inventory-slot-${item.bag}-${item.slot}`);
-      for (let i = 0; i < 10 && (await handle.bagSpace()).cursor !== itemName; i++) await sleep(300);
-      const since = await tab.evaluate(() => window.iq.seqs.event);
-      const ok = await tab.evaluate((id, e) => window.iq.stores.companions.getState().transferHeldItem(id, e), characterId, equip);
-      await sleep(1500);
-      await tab.click(`testid/general-inventory-slot-${item.bag - 1}`, { button: "right" }).catch(() => {});
-      await handle.clearWindows();
-      const cursor = (await handle.bagSpace()).cursor;
-      if (cursor) throw new Error(`${cursor} is still on the cursor; place it before continuing`);
-      const lines = await tab.evaluate((s) => window.iq.events.filter((x) => x.seq > s && /equips|transfer|^You give/i.test(x.text)).map((x) => x.text), since);
-      return { ok, lines };
+      return tab.evaluate(
+        async (from, id, e, expectedName) => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const ch = () => window.iq.stores.character.getState();
+          const since = window.iq.seqs.event;
+          ch().moveItemToSlot(from, { bag: 0, slot: 30 });
+          await sleep(900);
+          if (window.iq.bagSpace().cursor !== expectedName) {
+            throw new Error(`cursor holds ${window.iq.bagSpace().cursor ?? "nothing"} instead of ${expectedName}`);
+          }
+          const ok = await window.iq.stores.companions.getState().transferHeldItem(id, e);
+          await sleep(900);
+          if (window.iq.bagSpace().cursor) {
+            ch().moveItemToSlot({ bag: 0, slot: 30 }, from);
+            await sleep(700);
+          }
+          if (window.iq.bagSpace().cursor) {
+            throw new Error(`${window.iq.bagSpace().cursor} is still on the cursor; place it before continuing`);
+          }
+          const lines = window.iq.events.filter((x) => x.seq > since && /equips|transfer|give|cannot|space/i.test(x.text)).map((x) => x.text);
+          return { ok, lines };
+        },
+        { bag: item.bag, slot: item.slot },
+        characterId,
+        equip,
+        itemName,
+      );
     },
 
     /**
