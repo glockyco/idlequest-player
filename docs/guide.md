@@ -96,6 +96,8 @@ Whatever the choice, label the block, compare it with the one before, and record
 
 ## Gear and items
 
+- Before farming or buying a weapon, check `analyze.mjs`'s "Damage by source" lines: a weapon upgrade speeds kills only by its owner's share of the damage. Pets dealt over 40% of group 1's damage at level 20, which is why the pet tier matters more than any weapon then.
+- Check weapons yourself: Auto-Upgrade's weapon choices do not follow damage over delay, and it left the tank with a slower weapon than the Cleric's. Compare weapons with `tools/gear.mjs`, which uses the level's damage cap, and give a better one with `iq.giveItem`.
 - Auto-Upgrade Companions equips loot that suits a companion, but it checks race: the Dwarves and the Gnome cannot wear Legionnaire's Bracers.
 - Bard instruments work only while equipped. Give one with `iq.giveItem(name, "Ugfeu")`. One copy of each instrument type is enough.
 - Beneficial click effects never expire in IdleQuest, so a click item is a permanent buff.

@@ -199,6 +199,25 @@ const escapes = [];
   }
 }
 
+// ---- Damage by source: who and what kills the enemies -----------------------------------------
+// Party members and pets are the names the samples list; the player's own lines start "You" or
+// "Your". Melee lines end "for N damage", spells "for N points of damage".
+const ours = new Set(samples.flatMap((s) => (s.party ?? []).map((m) => m[0])));
+const damage = {};
+{
+  const add = (who, kind, n) => ((damage[who] ??= {})[kind] = (damage[who][kind] ?? 0) + n);
+  for (const e of events) {
+    if (!coveredSec.has(Math.floor(e.t / 1000))) continue;
+    let m;
+    if ((m = /^Your (.+?) hit .+? for (\d+) points? of damage/.exec(e.text))) add("me", m[1], +m[2]);
+    else if ((m = /^You \w+ .+? for (\d+) (?:points? of )?damage/.exec(e.text))) add("me", "melee", +m[1]);
+    else if ((m = /^(\w+)'s damage shield hit .+? for (\d+)/.exec(e.text))) { if (ours.has(m[1])) add(m[1], "damage shield", +m[2]); }
+    else if ((m = /^(\w+)'s (.+?) hit .+? for (\d+) points? of damage/.exec(e.text))) { if (ours.has(m[1])) add(m[1], m[2], +m[3]); }
+    else if ((m = /^(\w+) \w+ .+? for (\d+) (?:points? of )?damage/.exec(e.text))) { if (ours.has(m[1])) add(m[1], "melee", +m[2]); }
+  }
+}
+const damageTotal = Object.values(damage).reduce((s, o) => s + Object.values(o).reduce((a, b) => a + b, 0), 0);
+
 const pct = (x) => `${((100 * x) / covered).toFixed(1)}%`;
 const sec = (x) => `${(x / 1000).toFixed(0)}s`;
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -232,6 +251,13 @@ const result = {
   // The seconds from leaving to AutoLevel running again. The abandoned fight and the walk back
   // from the zone-in are not counted here, but show in kills per minute.
   escapes: { count: escapes.length, meanSec: +mean(escapes.map((e) => e.secs)).toFixed(1), totalSec: Math.round(escapes.reduce((s, e) => s + e.secs, 0)), byTrigger: escapes.reduce((o, e) => ((o[e.why] = (o[e.why] ?? 0) + 1), o), {}) },
+  // Share of the party's logged damage per member or pet, with its parts (melee, each spell, damage shield).
+  damage: Object.fromEntries(
+    Object.entries(damage)
+      .map(([who, parts]) => [who, Object.values(parts).reduce((a, b) => a + b, 0), parts])
+      .sort((a, b) => b[1] - a[1])
+      .map(([who, n, parts]) => [who, { share: damageTotal ? +(n / damageTotal).toFixed(3) : 0, total: n, parts }]),
+  ),
   byEnemy: Object.fromEntries(
     top(
       kills.reduce((o, k) => ((o[k.enemy] = (o[k.enemy] ?? 0) + 1), o), {}),
@@ -262,6 +288,8 @@ if (args.includes("--json")) {
   if (casts.length) console.log(`  cure and dispel casts: ${casts.map(([k, n]) => `${k} ${n}`).join(", ")}; ${bp.cureSuccesses} removed an effect`);
   const es = r.escapes;
   console.log(`\nGuard escapes ${es.count}, mean ${es.meanSec}s until AutoLevel ran again, total ${es.totalSec}s${es.count ? ` (${Object.entries(es.byTrigger).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}`);
+  console.log(`\nDamage by source (${damageTotal} logged)`);
+  for (const [who, d] of Object.entries(r.damage)) console.log(`  ${who.padEnd(12)} ${(100 * d.share).toFixed(1).padStart(5)}%  ${Object.entries(d.parts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ")}`);
   console.log("\nBy enemy");
   for (const [k, v] of Object.entries(r.byEnemy)) console.log(`  ${k.padEnd(28)} ${String(v.kills).padStart(4)} kills  ${String(v.avgXp).padStart(5)} XP`);
 }
