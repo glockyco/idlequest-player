@@ -28,6 +28,10 @@
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
     stallMin: 10, // AutoLevel running without XP this long raises an alert
+    upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
+    nukeGems: 2, // direct-damage spells to keep memorized
+    petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
+    memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
   };
   let saved = {};
   try {
@@ -37,7 +41,7 @@
   }
   const config = { ...DEFAULTS, ...saved };
 
-  const state = prev?.state ?? {
+  const fresh = {
     alerts: [], // { seq, t, kind, wake, text }; `wake` marks what an attached script should act on
     alertSeq: 0,
     actions: [], // { t, text }
@@ -56,7 +60,17 @@
     lootAlertAt: 0,
     zone: null,
     lastError: null,
+    upkeepDue: false, // set by level-ups, spell purchases and every install
+    upkeepAfter: 0, // not before this time, so purchases after a level-up are scribed first
+    upkeepRunning: false,
+    petChecked: {}, // owner character id -> owner level at which its pet was last replaced or kept
+    memory: [], // [t, used MB] every five minutes
+    memoryAlertAt: 0,
   };
+  const state = prev?.state ?? fresh;
+  for (const [k, v] of Object.entries(fresh)) if (!(k in state)) state[k] = v;
+  // A new install may bring new spell rules, so look at gems and pets once.
+  state.upkeepDue = true;
 
   const now = () => Date.now();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -195,8 +209,17 @@
       if (e.type === "bot") continue;
       const text = e.text ?? "";
       let m;
-      if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) alert("levelUp", text, true);
-      else if ((m = /^(.+?) has reached level (\d+)/.exec(text))) alert("memberLevelUp", text);
+      if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) {
+        alert("levelUp", text, true);
+        // The game reminds about missing merchant spells right after a level-up and the chore buys
+        // them, so give that a minute before choosing gems.
+        state.upkeepDue = true;
+        state.upkeepAfter = now() + 60000;
+      } else if ((m = /^(.+?) has reached level (\d+)/.exec(text))) {
+        alert("memberLevelUp", text);
+        state.upkeepDue = true;
+        state.upkeepAfter = Math.max(state.upkeepAfter, now() + 60000);
+      } else if (e.type === "chore" && /bought spells/.test(text)) state.upkeepDue = true;
       else if ((m = /^(.+?) has been slain!/.exec(text)) || /^You have been slain/.test(text)) {
         const who = m?.[1] ?? "You";
         alert("death", text, who === "You" || names.has(who));
@@ -281,6 +304,131 @@
     state.zone = cb.currentZone;
   };
 
+  // ---- Spells and pets after level-ups -----------------------------------------------------
+  // The active character casts only memorized spells, and a living pet is kept when its owner
+  // levels (wiki: AutoLevel, Companions). So after a level-up or a spell purchase the bot puts the
+  // best learned summon, direct-damage spells and pet heal into the first gems, and replaces a pet
+  // that an older summon or tier made.
+  //
+  // The client's spellbook entries carry no effect data, so the Magician roles come from the
+  // content snapshot's spells_new: [spell id, Magician level, damage cap]. Summons are the water
+  // pet line (effect 33). Nukes are single-target direct damage (effect 0, negative base, no
+  // duration, target type 1 or 5) without the summoned-only spells. Pet heals are effect 0 with a
+  // positive base on the pet target (14).
+  const ROLES = {
+    summon: [[315, 4, 0], [398, 8, 0], [402, 12, 0], [336, 16, 0], [497, 20, 0], [570, 24, 0], [574, 29, 0], [621, 34, 0], [625, 39, 0], [629, 44, 0], [633, 49, 0], [1672, 54, 0], [1676, 60, 0]],
+    nuke: [[93, 1, 5], [94, 4, 14], [324, 8, 35], [322, 8, 47], [334, 16, 96], [68, 20, 156], [113, 24, 176], [120, 34, 295], [69, 34, 333], [114, 44, 600], [70, 49, 810], [1660, 52, 702], [1661, 54, 525], [1663, 57, 825], [1664, 59, 1024], [2540, 60, 1294], [2118, 60, 1350]],
+    petHeal: [[1504, 8, 50], [1505, 20, 0], [3584, 34, 175], [2536, 52, 611], [2896, 60, 873]],
+  };
+  const isSummon = (id) => ROLES.summon.some(([s]) => s === id);
+  const spellPlan = (i) => {
+    const book = new Map((i.stores.spellbook.getState().scribedSpells ?? []).map((x) => [x.spellId, x.spell?.name]));
+    const best = (role, n) =>
+      ROLES[role]
+        .filter(([id]) => book.has(id))
+        .sort((a, b) => b[1] - a[1] || b[2] - a[2])
+        .slice(0, n)
+        .map(([id, level]) => ({ id, name: book.get(id), level }));
+    return [...best("summon", 1), ...best("nuke", config.nukeGems), ...best("petHeal", 1)];
+  };
+
+  const runUpkeep = async (i, reason) => {
+    if (state.upkeepRunning) return "already running";
+    state.upkeepRunning = true;
+    const cb = () => i.stores.combat.getState();
+    const sb = () => i.stores.spellbook.getState();
+    const me = i.stores.character.getState().characterProfile;
+    const done = [];
+    let stopped = false;
+    try {
+      const plan = spellPlan(i);
+      const gems = new Map((sb().memorizedSpells ?? []).map((m) => [m.gemSlot, m.spellId]));
+      const changes = plan.map((p, gem) => ({ ...p, gem })).filter((p) => gems.get(p.gem) !== p.id);
+      const oldSummon = gems.get(0);
+      const newSummon = plan[0] && isSummon(plan[0].id) ? plan[0].id : null;
+      const pets = (i.stores.companions.getState().companions ?? []).filter((c) => c.companionType === 1);
+      const comps = i.stores.companions.getState().companions ?? [];
+      const ownerLevel = (ownerId) => (ownerId === me.id ? me.level : comps.find((c) => c.characterId === ownerId)?.level);
+      // Our own pet goes when gem 0 gets another summon. A companion's pet goes when it is far below
+      // its owner, once per owner level, so a pet with no better tier is not replaced in a loop.
+      const replace = pets.filter((pet) => {
+        const owner = pet.petOwnerCharacterId;
+        if (owner === me.id) return newSummon && oldSummon !== newSummon && changes.some((c) => c.gem === 0);
+        const lvl = ownerLevel(owner);
+        return lvl && lvl - pet.level >= config.petGap && state.petChecked[owner] !== lvl;
+      });
+      if (!changes.length && !replace.length) return "nothing to change";
+
+      // Stand still out of combat, as the client requires for memorizing.
+      state.pauseUntil = Math.max(state.pauseUntil, now() + 5 * 60000);
+      state.pauseReason = `upkeep (${reason})`;
+      if (cb().isRunning) {
+        cb().setIsRunning(false);
+        stopped = true;
+      }
+      for (let k = 0; k < 90 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
+      if (i.stores.skills.getState().inCombat) throw new Error("still in combat after 90 s");
+
+      if (changes.length) {
+        for (let k = 0; k < 5 && !cb().isPlayerSitting; k++) {
+          cb().setPlayerSitting(true);
+          await sleep(600);
+        }
+        if (!cb().isSpellbookOpen) cb().toggleSpellbook();
+        await sleep(800);
+        for (const c of changes) {
+          // The client refuses a spell that sits in another gem, so free that gem first.
+          const elsewhere = (sb().memorizedSpells ?? []).find((m) => m.spellId === c.id && m.gemSlot !== c.gem);
+          if (elsewhere) await sb().unmemorizeSpell(elsewhere.gemSlot);
+          const ok = await sb().memorizeSpell(c.id, c.gem);
+          done.push(`gem ${c.gem} ${c.name}${ok ? "" : " FAILED"}`);
+          await sleep(400);
+        }
+        if (cb().isSpellbookOpen) cb().toggleSpellbook();
+        cb().setPlayerSitting(false);
+      }
+      for (const pet of replace) {
+        i.stores.companions.getState().dismissPet(pet.id);
+        if (pet.petOwnerCharacterId !== me.id) state.petChecked[pet.petOwnerCharacterId] = ownerLevel(pet.petOwnerCharacterId);
+        done.push(`replaced pet ${pet.name} L${pet.level}`);
+        await sleep(1000);
+      }
+      return done.join(", ");
+    } finally {
+      if (stopped || state.pauseReason?.startsWith("upkeep")) {
+        state.pauseUntil = 0;
+        state.pauseReason = null;
+      }
+      if (stopped) cb().startAutoLevel();
+      state.upkeepRunning = false;
+      if (done.length) alert("upkeep", `${reason}: ${done.join(", ")}`);
+    }
+  };
+
+  const upkeepIfDue = async (i) => {
+    if (!config.upkeep || !state.upkeepDue || now() < state.upkeepAfter || now() < state.pauseUntil) return;
+    state.upkeepDue = false;
+    const r = await runUpkeep(i, "level or spells changed");
+    if (r !== "nothing to change") log(`upkeep: ${r}`);
+  };
+
+  // ---- Page memory -------------------------------------------------------------------------
+  // The game tab's renderer has crashed after many hours, so keep a memory trend for evidence.
+  const watchMemory = () => {
+    const m = performance.memory;
+    if (!m) return;
+    const t = now();
+    if (!state.memory.length || t - state.memory.at(-1)[0] >= 300000) {
+      state.memory.push([t, Math.round(m.usedJSHeapSize / 1048576)]);
+      if (state.memory.length > 300) state.memory.splice(0, 50);
+    }
+    const share = m.usedJSHeapSize / m.jsHeapSizeLimit;
+    if (share > config.memoryAlertShare && t - state.memoryAlertAt > 3600000) {
+      state.memoryAlertAt = t;
+      alert("memory", `page JS heap at ${Math.round(m.usedJSHeapSize / 1048576)} of ${Math.round(m.jsHeapSizeLimit / 1048576)} MB`, true);
+    }
+  };
+
   let ticking = false;
   const tick = async () => {
     if (!config.enabled || ticking) return;
@@ -297,6 +445,8 @@
       watchLoot(i);
       watchXp(i, cb);
       keepAutoLevel(i, cb);
+      watchMemory();
+      await upkeepIfDue(i);
       await sellSurplus(i);
       state.lastError = null;
     } catch (e) {
@@ -314,6 +464,10 @@
     timerId: setInterval(tick, config.tickSec * 1000),
     tick,
     surplus: () => surplus(iq()),
+    /** The gems the upkeep would set: best summon, direct-damage spells and pet heal, in gem order. */
+    spellPlan: () => spellPlan(iq()),
+    /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
+    upkeep: (reason = "manual") => runUpkeep(iq(), reason),
 
     /**
      * Change settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`. They persist in this
@@ -382,6 +536,8 @@
         // Share of the last 30 minutes the tab was visible. Hidden tabs get throttled timers.
         visible30m: withVis.length ? Math.round((100 * withVis.filter((s) => s.vis === 1).length) / withVis.length) / 100 : null,
         bags: i.bagSpace(),
+        // JS heap in MB now and its limit, plus one value every five minutes for the last hour.
+        memoryMB: performance.memory ? { used: Math.round(performance.memory.usedJSHeapSize / 1048576), limit: Math.round(performance.memory.jsHeapSizeLimit / 1048576), trend: state.memory.slice(-12).map(([, mb]) => mb) } : null,
         autoLevel: { running: cb.isRunning, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff },
         alertSeq: state.alertSeq,
         alerts: [...newer.filter((a) => a.wake), ...newer.filter((a) => !a.wake).slice(-8)].sort((a, b) => a.seq - b.seq).map((a) => ({ ...a, t: new Date(a.t).toISOString() })),
