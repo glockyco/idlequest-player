@@ -43,28 +43,37 @@ Planning ranges, not measured requirements. They assume learned level-60 spells 
 - Mitigation versus range: Divine Aura only covers the active player actor in raid mode (`.re/js/BQ.pretty.js:4535`), resists do not apply to `resisttype: 0`, and rune pools plus Raid Resolve tank HP are far below `100,000`. Actors standing outside 50 units (caster nukes and ranged attacks have 100 to 200 range) are outside `Destroy`'s `aoerange`.
 - Roster decision: do not commit to leveling characters beyond the 36-character (6-group) raid before testing Kerafyrm at level 60, because adding more melee or tanks inside 50 units does not counter `Destroy`.
 
-The raid shares one set of permanent support and suppresses duplicates of the same spell or family (`.re/js/main.pretty.js:20210-20235,65539-65616`). One Bard, Shaman, Enchanter, Druid and Necromancer cover their lines for the whole raid. Tanks, Clerics and damage are what scale: Raid Resolve doubles tank HP and Cleric mana once per fight, and each Cleric casts independently. A second Bard adds only songs the first does not sing.
+The raid shares one set of permanent support (`n8`, `.re/js/main.pretty.js:66202-66259`). Having at least one member of each class unlocks that class's full `effectTotals` and `damageAbsorbPackages` across the entire raid: Cleric (`Aegolism` and `Symbol`), Druid (`Protection of the Glades`, `Circle` resists and `Thorns`), Paladin (`Brell's` HP), Ranger (`Call of the Predator` ATK), Shaman (`Focus` and `Turgur's` slow), Enchanter (`VoG` haste, `KEI` mana regen and `Tash`), Bard (songs), Magician (`O'Keils` damage shield), and Wizard (`+700` `Spellshield` rune pool, `Ir = 700` at `.re/js/main.pretty.js:66113`). Duplicate buffs from the same family do not stack, so slots beyond the first copy of each support class go to what scales independently in raids and what makes each 6-person group level fast from 1 to 46.
+
+### What scales in IdleQuest raids (`.re/js/main.pretty.js:27780-34945, 64069-66112`)
+
+- Warriors (`5,200` base HP, `10,400` with Raid Resolve, `0.54x` boss damage taken, `Defensive` discipline `0.5x`), Paladins (`0.64x`, `Lay on Hands` `4,400`) and Shadow Knights (`0.65x`, `Harm Touch`, `Leechcurse`): main tanks, rampage tanks and add off-tanks.
+- Clerics (`3,350` base mana, `6,700` with Raid Resolve): `Complete Heal` heals `7,500` HP for `400` mana (`10 s` cast), and the Cleric epic (`Water Sprinkler`) gives 0-mana combat resurrections.
+- Rogues (`80-116` base melee DPS, `Duelist` `1.5x` discipline): highest sustained melee DPS. In IdleQuest's raid engine (`.re/js/main.pretty.js:65715`), bosses have `canDefend: false` against Rogues (no parries, ripostes, dodges or blocks) on top of `backstabAttacks`.
+- Monks (`66-94` base melee DPS, `0.78x` damage taken, `24%` avoidance, `Inner Flame` `2.0x` and `Hundred Fists` `1.35x` disciplines): second-highest zero-mana melee DPS and much sturdier than Rogues.
+- Magicians (`62-90` pet DPS plus `1,120` `Shock of Steel` nuke every `3.8 s`): top combined pet+nuke DPS in raids, and the water pet carries group leveling from level 4 to 46.
+- Necromancers (`115` passive DoT DPS, `40-64` pet DPS, `720` lifetap, and `Covetous/Sedulous Subversion` mana transfer to healers in Raid Utilities).
 
 ## Roster and leveling groups
 
-An 18-character core for the Warders and the first named targets, then a 36-character working raid:
+Every leveling group includes a tank, a Cleric, a Magician pet carry, and haste plus mana regen or slow (`Enchanter`, `Bard` or `Shaman`), so Groups 2 to 6 level at the same speed as Group 1 instead of stalling without haste, clarity or crowd control. Groups 1 to 3 (18 characters) unlock every raid buff package including Wizard `Spellshield`, Paladin `Brell's` and Druid `Protection of the Glades`:
 
-| Order | Leveling group | What it adds |
+| Order | Leveling group | What it adds to the raid |
 | ---: | --- | --- |
-| 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | The unique support core. Exists. |
-| 2 | Warrior, Cleric, Cleric, Rogue, Monk, Druid | Second tank, two Cleric mana pools, melee damage, the Druid's lines. |
-| 3 | Warrior, Cleric, Cleric, Rogue, Magician, Necromancer | Completes the core: three tanks, five Clerics, pet damage, mana transfer. |
-| 4 | Paladin, Cleric, Rogue, Rogue, Monk, Magician | Fourth tank and more damage. |
-| 5 | Shadow Knight, Cleric, Rogue, Rogue, Monk, Wizard | Fifth tank and a second spell damage channel. |
-| 6 | Warrior, Cleric, Rogue, Rogue, Monk, Magician | Sixth tank and the last damage tranche. |
+| 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | Unique support core (WAR, CLR, BRD, SHM, ENC, MAG). Level 30-31 now. |
+| 2 | Magician, Paladin, Cleric, Enchanter, Rogue, Druid | Unlocks Paladin (`Brell's` HP) and Druid (`PotG`/resists/DS) packages, Tank #2, Cleric #2, Rogue #1, Mag #2, with full ENC haste/clarity/mez/Nullify for leveling. |
+| 3 | Magician, Shadow Knight, Cleric, Bard, Rogue, Wizard | Unlocks Shadow Knight, Wizard (`+700` `Spellshield` rune pool and Lures), Tank #3, Cleric #3, Rogue #2, Mag #3, and Bard #2 (Selo's/mana song for leveling and backup raid Bard). Completes the 18-character core. |
+| 4 | Magician, Warrior, Cleric, Shaman, Monk, Ranger | Unlocks Ranger (`Call of the Predator` ATK) and Monk #1, Tank #4 (2nd Warrior), Cleric #4, Mag #4, with SHM slow/haste/regen for leveling. |
+| 5 | Magician, Warrior, Cleric, Enchanter, Rogue, Necromancer | Unlocks Necromancer (`115` DoT DPS, pet and `Subversion` mana battery), Tank #5 (3rd Warrior), Cleric #5, Rogue #3, Mag #5, with ENC haste/clarity/mez. |
+| 6 | Necromancer, Warrior, Cleric, Bard, Rogue, Monk | Completes the 36-character raid: Tank #6 (4th Warrior), Cleric #6, Rogue #4, Monk #2, Necromancer #2, Bard #3. |
 
-Groups 2 and 3 have no slow or crowd control, so they need safer pulls than group 1. If a group cannot level well, repartition within this roster before adding classes it does not need. For the race, Halfling lowers the XP cost of Warriors, Clerics, Druids and Rogues. Human or another neutral race suits Monks, knights and casters.
+Totals across the 36-character raid: **6 Tanks** (4 Warriors, 1 Paladin, 1 Shadow Knight), **7 Healers** (6 Clerics, 1 Druid), **7 Melee DPS** (4 Rogues, 2 Monks, 1 Ranger), **8 Caster/Pet DPS** (5 Magicians, 2 Necromancers, 1 Wizard), and **8 Support** (3 Enchanters, 3 Bards, 2 Shamans).
 
-Epics the roster makes worth chasing, after the Magician's: the Cleric's Water Sprinkler (resurrection click), Rogue Ragebringer, the main Warrior's Jagged Blade, the Bard's Singing Short Sword, Monk Celestial Fists, and the Enchanter's Staff of the Serpent.
+For race choices, Halfling lowers the XP cost of Warriors, Clerics, Druids and Rogues. Human or Iksar suits Monks, and Erudite or Gnome suits casters. Every new group gets twinked at level 1 from Group 1 via `Manage Money` and `giveItem` (8 Backpacks per character, Coldain Velium / high-ratio 1H weapons, and platinum for spells).
 
+Epics worth chasing across the roster: the Magician's Orb of Mastery (goal requirement), the Cleric's Water Sprinkler (0-mana resurrection click), Rogue Ragebringer, the main Warrior's Jagged Blade, the Bard's Singing Short Sword, Monk Celestial Fists, and the Enchanter's Staff of the Serpent.
 ## How long it takes
-
-Every level from 14 to 29 followed `1000 * (L-1)^3` cumulative XP (`3,000 * L^2` per level). At level 30 the cumulative requirement steps up by `1.1x` (`levelEnd(30) = 29,700,000 = 1.1 * 1000 * 30^3`, requiring `5,311,000` XP for level 30, about 2 hours at 2.65M XP/h in Unrest). Because the multiplier applies to cumulative XP at the tier boundary, non-transition levels within the same multiplier band return to normal steps.
+Every level from 14 to 29 followed `1000 * (L-1)^3` cumulative XP (`3,000 * L^2` per level). At level 30 the cumulative requirement steps up by `1.1x` (`levelEnd(30) = 29,700,000 = 1.1 * 1000 * 30^3`, requiring `5,311,000` XP for level 30, about 2 hours at 2.65M XP/h in Unrest). Level 31 confirmed that non-transition levels within the `1.1x` band return to normal steps (`levelEnd(31) = 32,770,100 = 1.1 * 1000 * 31^3`, requiring `3,070,100` XP, about 1.15 hours).
 
 ## Resolved and open questions
 
