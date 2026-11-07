@@ -22,8 +22,13 @@
     defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
     minFreeSlots: 8, // start selling surplus copies below this many free bag slots
     targetFreeSlots: 16, // and stop once this many are free
-    keepCopies: 1, // copies (or stacks) of each item that are never sold
+    keepCopies: 1, // copies (or stacks) of each item that are never sold as surplus
+    autoBank: true, // when bags run low, first send ingredients and spell scrolls to the tradeskill bank
+    junkMaxCopper: 1000, // then sell single items whose merchant price is at most this (1000 = 1 platinum)
     keepItemIds: [10015], // never sold: Malachite, the Magician pet reagent
+    // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
+    keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
+    keepItemTypes: [14, 15], // never sold as cheap single items: food and drink
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
@@ -113,6 +118,13 @@
     sellAtFn ??= findClientFn("Sale confirmation was interrupted");
     return sellAtFn(bag, slot);
   };
+  // The call behind the Auto Bank macro: it sends crafting ingredients and spell scrolls to the
+  // tradeskill bank by courier. Nothing is sold or destroyed.
+  let autoBankFn = null;
+  const autoBank = () => {
+    autoBankFn ??= findClientFn("No eligible ingredients or spell scrolls found");
+    return autoBankFn();
+  };
 
   const characterNames = (i) => {
     const p = i.stores.character.getState().characterProfile ?? {};
@@ -121,12 +133,14 @@
   };
 
   /**
-   * Carried items that can go without losing anything: every copy or stack of an item beyond
-   * `keepCopies`, largest stacks kept, most-duplicated items first. Skips containers, NO DROP and
-   * NO RENT items, items without a merchant price, `keepItemIds`, equipped items, the cursor and
-   * bags marked No Sell. Copies inside No Sell bags count as kept copies.
+   * Carried items that can be sold, cheapest loss first. Skips containers, NO DROP and NO RENT
+   * items, items without a merchant price, `keepItemIds`, equipped items, the cursor and bags
+   * marked No Sell, whose copies count as kept.
+   * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
+   * with `cheap`, single items whose merchant price is at most `junkMaxCopper`, lowest total value
+   * first. Dearer single items are left for hand-downs or a person to review.
    */
-  const surplus = (i) => {
+  const surplus = (i, cheap = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const noSell = new Set(i.stores.combat.getState().noAutoSellBagInstanceIds ?? []);
     const general = new Map(inv.filter((r) => r.bag === 0 && r.slot >= 22 && r.slot <= 29).map((r) => [r.slot, r]));
@@ -145,25 +159,39 @@
       if (!groups.has(r.itemid)) groups.set(r.itemid, []);
       groups.get(r.itemid).push(r);
     }
-    const out = [];
+    const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
+    const keepName = new RegExp(config.keepNamePattern, "i");
+    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "");
+    const extra = [];
+    const single = [];
     for (const [id, rows] of groups) {
       rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
       const keep = Math.max(0, config.keepCopies - (kept.get(id) ?? 0));
-      for (const r of rows.slice(keep)) {
-        out.push({ bag: r.bag, slot: r.slot, id, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies: rows.length });
-      }
+      for (const r of rows.slice(keep)) extra.push(row(r, rows.length));
+      if (cheap) for (const r of rows.slice(0, keep)) if (cheapOk(r)) single.push(row(r, rows.length));
     }
-    return out.sort((a, b) => b.copies - a.copies || a.price - b.price);
+    extra.sort((a, b) => b.copies - a.copies || a.price - b.price);
+    single.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
+    return [...extra, ...single];
   };
 
   const sellSurplus = async (i) => {
-    const space = i.bagSpace();
+    let space = i.bagSpace();
     if (space.cursor || space.free >= config.minFreeSlots) return;
+    // Banking loses nothing, so it goes first, at most every ten minutes because the courier is slow.
+    if (config.autoBank && now() - (state.bankAt ?? 0) > 600000) {
+      state.bankAt = now();
+      const r = await autoBank().catch((e) => ({ success: false, message: String(e?.message ?? e) }));
+      const after = i.bagSpace().free;
+      if (r?.success || after > space.free) log(`auto bank: ${r?.message ?? "done"}; ${after} slots free`);
+      space = i.bagSpace();
+      if (space.free >= config.minFreeSlots) return;
+    }
     let free = space.free;
     let sold = 0;
     let copper = 0;
     const names = [];
-    for (const s of surplus(i)) {
+    for (const s of surplus(i, true)) {
       if (free >= config.targetFreeSlots || sold >= config.sellPerTick) break;
       // The client sells whatever sits at (bag, slot) when the call runs, so check it is still ours.
       const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === s.bag && r.slot === s.slot);
@@ -533,7 +561,8 @@
     state,
     timerId: setInterval(tick, config.tickSec * 1000),
     tick,
-    surplus: () => surplus(iq()),
+    /** What the next cleanup would sell, in order: extra copies, then cheap single items. */
+    surplus: () => surplus(iq(), true),
     /** The gems the upkeep would set: best summon, direct-damage spells and pet heal, in gem order. */
     spellPlan: () => spellPlan(iq()),
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */

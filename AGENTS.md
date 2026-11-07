@@ -6,7 +6,7 @@ These rules are for agents that play the account with this repository. [README.m
 
 - The account progresses only while AutoLevel runs in the connected game tab. End every turn with AutoLevel running unless a stop condition of the goal holds.
 - Play runs unattended, so a game decision never waits for an answer here. Do not call the ask tool or open a Plannotator review for one, because a blocked session cannot react while the party keeps running into the problem. Take the reversible choice that keeps XP coming, act on it, and list it under "Decisions to review" in the diary entry with the reason. Stop and ask only for a stop condition of the goal, such as a login form, a character about to be deleted or a warning about automation.
-- The bot in `src/bot.js` does the routine work inside the page and keeps running while no agent is attached. It restarts AutoLevel when it stays off without a pause, sells surplus copies before the bags fill, puts a forgotten cursor item away and raises alerts. Extend the bot instead of repeating routine work by hand.
+- The bot in `src/bot.js` does the routine work inside the page and keeps running while no agent is attached. It restarts AutoLevel when it stays off without a pause or hangs, clears bag space before the bags fill, puts a forgotten cursor item away and raises alerts. Extend the bot instead of repeating routine work by hand.
 - Stop AutoLevel only with `stopAutoLevel` or `pausedAutoLevel`. Both pause the bot with a deadline, so a forgotten stop ends by itself. Renew the pause with `pauseBot(minutes, reason)` for longer work.
 
 ## Session start
@@ -38,7 +38,7 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/2026-11-
 | `death` | Read the chat around it. If the guard did not leave, tighten the AutoLevel limits or change zone, and record the decision. |
 | `lootFull` | Check `iq.bagSpace()` and `iqBot.surplus()` in the page, then free space or raise `minFreeSlots`. Items left on a corpse are gone after 7.5 minutes. |
 | `cursor` | An item sits on the cursor. The bot puts it away after three minutes. If it cannot, free a general slot or place the item by hand until `bagSpace().cursor` is null. |
-| `xpStall` | AutoLevel runs without XP. Look for a readiness loop ("Waiting for party to be ready"), a pending cure or no targets in the con range, then change limits or zone. |
+| `xpStall` | AutoLevel ran ten minutes without XP although the bot restarts it after a hung route recovery, a readiness wait with everyone full, or three idle minutes out of combat (`stuckRestart` notes). Look for a pending cure, a mana loop or no targets in the con range, then change limits or zone. |
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel. Find it in the event log. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client reconnects by itself, and if the login form shows, stop and ask for a sign-in. |
 | `guard` | Repeated escapes tightened the limits or moved the party. Review the hunting ground. |
@@ -49,7 +49,7 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/2026-11-
 - Bag 0 slots 22-29 are the general slots and slot 30 is the cursor. Bag N is the container in general slot N-1. A bag held on the cursor takes all its slots out of play and blocks looting.
 - Left-click picks an item up onto the cursor and right-click opens a bag. After any UI work, check that `iq.bagSpace().cursor` is null and close windows with `iq.clearWindows()`.
 - Selling needs no merchant. The bot uses the client's own sale call, and the Sell Item button sells the cursor item.
-- The game's cleanup keeps every duplicate of protected items such as valuable gear and quest keep-list items, so its Auto Sell cannot clear them. The bot keeps one copy or stack of each item and sells the rest when space runs low. Add item ids that must never be sold to `keepItemIds` with `iq.setBot`.
+- When fewer than `minFreeSlots` bag slots are free, the bot first runs the game's Auto Bank, which sends crafting ingredients and spell scrolls to the tradeskill bank. Then it sells every copy beyond one of each item, then single items priced at most `junkMaxCopper`, cheapest first. It never sells `keepItemIds`, NO DROP items, items in No Sell bags, food and drink, or spell research pieces (`keepNamePattern`). Dearer single items stay for hand-downs or a person to review. `iqBot.surplus()` lists what it would sell next.
 
 ## Experiments and records
 

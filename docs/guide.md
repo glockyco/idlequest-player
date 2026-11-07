@@ -99,7 +99,7 @@ Whatever the choice, label the block, compare it with the one before, and record
 - Auto-Upgrade Companions equips loot that suits a companion, but it checks race: the Dwarves and the Gnome cannot wear Legionnaire's Bracers.
 - Bard instruments work only while equipped. Give one with `iq.giveItem(name, "Ugfeu")`. One copy of each instrument type is enough.
 - Beneficial click effects never expire in IdleQuest, so a click item is a permanent buff.
-- Keep Valuable Gear keeps every duplicate, so the bags fill with copies. The bot sells everything beyond one copy of each item when fewer than eight slots are free.
+- Keep Valuable Gear keeps every duplicate, and most loot is single copies of cheap weapons, so the game's Auto Sell frees little. When fewer than eight slots are free the bot banks ingredients with Auto Bank, then sells extra copies and cheap single items (see the inventory rules in `AGENTS.md`).
 
 ## Mistakes to avoid
 

@@ -12,8 +12,8 @@ have to reimplement the combat engine, so this project drives the real client in
 - `src/bridge.js` is evaluated inside the game page. It finds the client's state stores and its
   server socket and exposes them as `window.iq`.
 - `src/bot.js` runs inside the page next to the bridge as `window.iqBot`. It keeps AutoLevel
-  running, sells surplus copies before the bags fill and raises alerts, with or without a script
-  attached.
+  running, banks ingredients and sells cheap loot before the bags fill and raises alerts, with or
+  without a script attached.
 - `src/client.mjs` injects both into a browser tab and calls them from a script.
 
 Agents that play the account follow [AGENTS.md](AGENTS.md).

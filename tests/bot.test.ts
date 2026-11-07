@@ -18,6 +18,7 @@ interface Bot {
   config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
+  surplus(): { name: string }[];
 }
 interface FakeGlobals {
   localStorage: { getItem(): null; setItem(): void };
@@ -170,4 +171,23 @@ test("a readiness wait with everyone full restarts AutoLevel, one for a hurt mem
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("cleanup sells extra copies first, then cheap singles, and keeps food, research pieces and dear items", async () => {
+  const { bot, me } = await install();
+  const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });
+  Object.assign(me, {
+    inventory: [
+      item(0, 1, "Rusty Mace", 100),
+      item(1, 2, "Legionnaire's Bracer", 320),
+      item(2, 2, "Legionnaire's Bracer", 320),
+      item(3, 3, "Ration", 25, { itemtype: 14 }),
+      item(4, 4, "Words of Tyranny", 200),
+      item(5, 5, "Solist's Icy Wand", 10000),
+      item(6, 10015, "Malachite", 50),
+      item(7, 6, "Bone Chips", 15, { nodrop: 0 }),
+    ],
+  });
+  const names = bot.surplus().map((s) => s.name);
+  expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer"]);
 });
