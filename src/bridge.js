@@ -173,6 +173,8 @@
       lv: [p.level, ...comps.map((c) => c.level)],
       // Carried coin in copper (1 platinum = 1000), so income per hour can be measured.
       cp: (p.platinum ?? 0) * 1000 + (p.gold ?? 0) * 100 + (p.silver ?? 0) * 10 + (p.copper ?? 0),
+      // 1 while the tab is visible. Browsers throttle timers in hidden tabs, and the client simulates combat.
+      vis: document.visibilityState === "visible" ? 1 : 0,
     };
   };
   const samplerId = setInterval(() => {

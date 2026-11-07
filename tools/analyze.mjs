@@ -1,6 +1,10 @@
 // Efficiency analysis of a recorded run.
 //
-//   bun tools/analyze.mjs <run dir> [--last 30m] [--since <ms epoch>] [--until <ms epoch>] [--json]
+//   bun tools/analyze.mjs <run dir> [--last 30m] [--since <ms epoch>] [--until <ms epoch>] [--label name] [--vis 0|1] [--json]
+//
+// `--vis 1` keeps only seconds while the game tab was visible, `--vis 0` only hidden ones. Browsers
+// throttle timers in hidden tabs, and the client simulates combat, so compare both before blaming a
+// zone or a setting for a change in speed.
 //
 // Input is `samples.jsonl` and `events.jsonl` written by `exportRun` (src/client.mjs).
 //
@@ -19,7 +23,7 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 if (!dir) {
-  console.error("usage: bun tools/analyze.mjs <run dir> [--last 30m] [--since ms] [--until ms] [--label name] [--json]");
+  console.error("usage: bun tools/analyze.mjs <run dir> [--last 30m] [--since ms] [--until ms] [--label name] [--vis 0|1] [--json]");
   process.exit(2);
 }
 
@@ -35,6 +39,7 @@ const end = opt("until") ? Number(opt("until")) : samples.at(-1)?.t;
 const start = opt("since") ? Number(opt("since")) : opt("last") ? end - parseDuration(opt("last")) : samples[0]?.t;
 samples = samples.filter((s) => s.t >= start && s.t <= end);
 if (opt("label")) samples = samples.filter((s) => s.label === opt("label"));
+if (opt("vis") != null) samples = samples.filter((s) => s.vis === Number(opt("vis")));
 events = events.filter((e) => e.t >= start - 2000 && e.t <= end + 2000);
 if (samples.length < 2) {
   console.error("not enough samples in the selected window");
