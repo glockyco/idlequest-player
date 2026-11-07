@@ -11,7 +11,12 @@ have to reimplement the combat engine, so this project drives the real client in
 
 - `src/bridge.js` is evaluated inside the game page. It finds the client's state stores and its
   server socket and exposes them as `window.iq`.
-- `src/client.mjs` injects the bridge into a browser tab and calls it from a script.
+- `src/bot.js` runs inside the page next to the bridge as `window.iqBot`. It keeps AutoLevel
+  running, sells surplus copies before the bags fill and raises alerts, with or without a script
+  attached.
+- `src/client.mjs` injects both into a browser tab and calls them from a script.
+
+Agents that play the account follow [AGENTS.md](AGENTS.md).
 
 Protocol and client internals: [docs/client-internals.md](docs/client-internals.md).
 
@@ -42,6 +47,16 @@ inside the page while AutoLevel is active. To trigger it manually or disable it:
 ```js
 await iq.buySpells();
 await tab.evaluate(() => window.iq.setChores({ autoBuySpells: false }));
+```
+
+Unattended play: the bot checks every 15 seconds. `watch` waits until it raises an alert that
+needs attention, or until the time is up, and returns a compact report. To play by hand, pause the
+bot first, because it starts AutoLevel again two minutes after it stops.
+
+```js
+const r = await iq.watch({ minutes: 50, sinceSeq: 0, exportDir: "runs/my-run" });
+await iq.pauseBot(30, "playing by hand");   // AutoLevel may stay off for 30 minutes
+await iq.setBot({ minFreeSlots: 10, keepItemIds: [10015, 13077] });  // settings persist in the browser
 ```
 
 Hunting grounds: `scoutZones` saves each zone's spawn list once, and `tools/zones.mjs` ranks zones
@@ -117,7 +132,8 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
   Regenerate `data/opcodes.json` with `tools/extract-opcodes.ts` after a client release.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
-  before opening the Travel window. A pause left in place leaves every character idle.
+  before opening the Travel window. The bot's pause is renewed while the work runs. If the script
+  dies, the pause runs out and the bot starts AutoLevel again.
 - `tab.evaluate` calls time out after 30 seconds. Start long work in the page, keep its progress on
   `window`, and poll it with short calls.
 - Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions

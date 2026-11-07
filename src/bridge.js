@@ -456,10 +456,34 @@
       return log.entries.filter((e) => e.seq > sinceSeq && (!re || re.test(e.name)));
     },
 
-    /** Inventory rows: bag, slot, item id, name and quantity. Slots 3000+ are the quest give window. */
+    /**
+     * Inventory rows: bag, slot, item id, name, quantity and where the row is. Bag 0 holds the
+     * equipment (slots 0-21), the eight general slots (22-29) and the cursor (30). Bag N is the
+     * container in general slot N-1. Slots 3000+ are the quest give window.
+     */
     inventory() {
       const p = stores.character.getState().characterProfile;
-      return (p.inventory ?? []).map((i) => ({ bag: i.bag, slot: i.slot, id: i.itemid, name: i.itemDetails?.Name ?? i.itemDetails?.name, quantity: i.quantity, instanceId: i.itemInstanceId }));
+      const where = (i) => (i.bag > 0 ? "bag" : i.slot <= 21 ? "equipped" : i.slot <= 29 ? "general" : i.slot === 30 ? "cursor" : "other");
+      return (p.inventory ?? []).map((i) => ({ bag: i.bag, slot: i.slot, loc: where(i), id: i.itemid, name: i.itemDetails?.Name ?? i.itemDetails?.name, quantity: i.quantity, instanceId: i.itemInstanceId }));
+    },
+
+    /**
+     * Room for loot: free slots in the bags plus empty general slots, the total, and the name of
+     * the item on the cursor, if any. A loose item in a general slot adds no room, a bag on the
+     * cursor takes its slots out of the count, and looting and cleanup need a free cursor.
+     */
+    bagSpace() {
+      const inv = stores.character.getState().characterProfile?.inventory ?? [];
+      let capacity = 0;
+      let free = 0;
+      for (let slot = 22; slot <= 29; slot++) {
+        const r = inv.find((i) => i.bag === 0 && i.slot === slot);
+        const size = r ? r.itemDetails?.bagslots || 0 : 1;
+        capacity += size;
+        free += r ? size - inv.filter((i) => i.bag === slot + 1).length : 1;
+      }
+      const cursor = inv.find((i) => i.bag === 0 && i.slot === 30);
+      return { free, capacity, cursor: cursor ? (cursor.itemDetails?.Name ?? cursor.itemDetails?.name ?? cursor.itemid) : null };
     },
 
     /** Last chat lines the client shows. */
@@ -577,6 +601,7 @@
           : null,
         autoLevel: { running: cb.isRunning, mode: cb.automatedCombatMode, autoAttack: cb.isAutoAttackEnabled },
         inCombat: stores.skills.getState().inCombat,
+        bags: p.id ? iq.bagSpace() : null,
       };
     },
   };

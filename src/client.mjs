@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 
 const here = new URL(".", import.meta.url);
 
-const METHODS = ["status", "roster", "inventory", "chatTail", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
+const METHODS = ["status", "roster", "inventory", "bagSpace", "chatTail", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
@@ -24,17 +24,19 @@ async function lastCursor(path) {
 }
 
 /**
- * Inject the bridge into a browser tab and return a handle with one async method per bridge call.
- * `tab` needs `evaluate(expression | function, ...args)`, `click`, `clickAt`, `fill`, `type` and
- * `waitForSelector` for page evaluation and the game's UI controls.
+ * Inject the bridge and the supervisor bot into a browser tab and return a handle with one async
+ * method per bridge call. `tab` needs `evaluate(expression | function, ...args)`, `click`,
+ * `clickAt`, `fill`, `type` and `waitForSelector` for page evaluation and the game's UI controls.
  */
 export async function attach(tab) {
-  const [bridge, opcodes] = await Promise.all([
+  const [bridge, bot, opcodes] = await Promise.all([
     readFile(new URL("bridge.js", here), "utf8"),
+    readFile(new URL("bot.js", here), "utf8"),
     readFile(new URL("../data/opcodes.json", here), "utf8").then(JSON.parse),
   ]);
   await tab.evaluate(bridge);
   await tab.evaluate((table) => window.iq.setOpcodeNames(table), opcodes);
+  await tab.evaluate(bot);
 
   const handle = {
     tab,
@@ -136,8 +138,14 @@ export async function attach(tab) {
       return { beforeCopper: before, afterCopper: await coin(), lines };
     },
 
-    /** Pause AutoLevel and wait until combat automation has stopped. The AutoLevel button toggles. */
-    async stopAutoLevel() {
+    /**
+     * Stop AutoLevel and wait until combat automation has stopped. The AutoLevel button toggles.
+     * The bot is paused first so it does not start AutoLevel again. The pause lasts `pauseMinutes`
+     * (the bot's default when omitted) and then ends by itself, so a forgotten stop cannot leave the
+     * party idle. Renew it with `pauseBot` for longer work.
+     */
+    async stopAutoLevel(pauseMinutes) {
+      await handle.pauseBot(pauseMinutes, "stopAutoLevel");
       await handle.clearWindows();
       const a0 = (await handle.status()).autoLevel;
       if (a0.running || a0.autoAttack) await tab.click('role/button[name="AutoLevel" exact]');
@@ -170,6 +178,7 @@ export async function attach(tab) {
       await tab.waitForSelector('role/button[name="Start" exact]', { timeout: 10000 });
       await tab.click('role/button[name="Start" exact]');
       await sleep(2000);
+      await handle.resumeBot();
       return (await handle.status()).autoLevel;
     },
 
@@ -177,7 +186,9 @@ export async function attach(tab) {
      * Run `fn` with AutoLevel paused, then restart it with the same con and level limits, even if
      * `fn` throws. Use it for anything that needs the party standing still (travel, memorizing,
      * shopping, experiments) so a pause can never be left in place by accident. If AutoLevel was
-     * not running, `fn` runs as is and nothing is restarted.
+     * not running, `fn` runs as is and nothing is restarted. While `fn` runs, the bot's pause is
+     * renewed every few minutes. If this script dies, the renewals stop and the bot resumes play
+     * within about ten minutes.
      */
     async pausedAutoLevel(fn) {
       const was = (await handle.status()).autoLevel;
@@ -185,13 +196,19 @@ export async function attach(tab) {
         const s = window.iq.stores.combat.getState();
         return { minCon: s.minCon, maxCon: s.maxCon, maxLevelDiff: s.maxLevelDiff };
       });
-      if (was.running) await handle.stopAutoLevel();
+      await handle.pauseBot(10, "pausedAutoLevel");
+      const renew = setInterval(() => handle.pauseBot(10, "pausedAutoLevel").catch(() => {}), 240000);
       try {
+        if (was.running) await handle.stopAutoLevel(10);
         return await fn();
       } finally {
+        clearInterval(renew);
         if (was.running) await handle.startAutoLevel(limits);
       }
     },
+
+    /** The bot's compact report: level, XP/hour, bag space, AutoLevel, recent actions and alerts after `sinceSeq`. */
+    botReport: (sinceSeq = 0) => tab.evaluate((s) => window.iqBot.report(s), sinceSeq),
 
     /**
      * Scribe carried spell scrolls and memorize the named spells into gems 0..n-1, for example
@@ -201,6 +218,36 @@ export async function attach(tab) {
     async scribeAndMemorize(names = []) {
       for (let i = 0; i < 90 && (await handle.status()).inCombat; i++) await sleep(1000);
       return tab.evaluate((n) => window.iq.scribeAndMemorize(n), names);
+    },
+
+    /**
+     * Change bot settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`; `null` restores a
+     * default. They persist in the browser. Sent as JSON because tab arguments drop null values.
+     */
+    setBot: (partial) => tab.evaluate((json) => window.iqBot.set(JSON.parse(json)), JSON.stringify(partial)),
+
+    /** Let AutoLevel stay off for `minutes` (the bot's default when omitted). The pause ends by itself. */
+    pauseBot: (minutes, reason = "") => tab.evaluate((m, r) => window.iqBot.pause(m ?? undefined, r), minutes ?? null, reason),
+
+    /** End the bot's pause now. */
+    resumeBot: () => tab.evaluate(() => window.iqBot.resume()),
+
+    /**
+     * Wait while the page plays and return when the bot raises an alert that needs attention, or
+     * after `minutes`. Polls the report every `pollSeconds` and, with `exportDir`, appends run data
+     * on the way. Pass the returned `alertSeq` as `sinceSeq` to the next call. One call replaces
+     * dozens of status checks, which is what keeps unattended play cheap to supervise.
+     */
+    async watch({ minutes = 50, pollSeconds = 60, sinceSeq, exportDir } = {}) {
+      const until = Date.now() + minutes * 60000;
+      const seq = sinceSeq ?? (await handle.botReport()).alertSeq;
+      for (;;) {
+        const r = await handle.botReport(seq);
+        if (exportDir) await handle.exportRun(exportDir);
+        const woke = r.alerts.some((a) => a.wake);
+        if (woke || Date.now() >= until) return { ...r, woke };
+        await sleep(Math.min(pollSeconds * 1000, until - Date.now()));
+      }
     },
 
     /**

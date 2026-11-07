@@ -1,0 +1,394 @@
+// In-page supervisor for unattended play.
+//
+// AutoLevel fights, loots and rests by itself. The supervisor does the routine work it leaves to a
+// person: it starts AutoLevel again when it stays off without a pause, sells surplus copies before
+// the bags fill, and keeps a short report with alerts, so an attached script can check in with one
+// call instead of many. It runs on a timer inside the page and keeps working while no script is
+// attached, for example while an agent waits for an answer.
+//
+// Evaluate after src/bridge.js. It reads `window.iq` on every tick, so reinstalling the bridge does
+// not stop it. Evaluating this file again replaces the timer and keeps the settings, the alerts,
+// the action log and any pause.
+(() => {
+  const prev = window.iqBot;
+  if (prev?.timerId) clearInterval(prev.timerId);
+
+  // Settings changed with `set` are saved in localStorage and override these defaults.
+  const KEY = "iqBot.config";
+  const DEFAULTS = {
+    enabled: true,
+    tickSec: 15,
+    restartAfterSec: 120, // AutoLevel off this long while not paused: start it again
+    defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
+    minFreeSlots: 8, // start selling surplus copies below this many free bag slots
+    targetFreeSlots: 16, // and stop once this many are free
+    keepCopies: 1, // copies (or stacks) of each item that are never sold
+    keepItemIds: [10015], // never sold: Malachite, the Magician pet reagent
+    sellPerTick: 8,
+    cursorAlertSec: 60, // an item held on the cursor this long raises an alert
+    cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
+    stallMin: 10, // AutoLevel running without XP this long raises an alert
+  };
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {};
+  } catch {
+    saved = {};
+  }
+  const config = { ...DEFAULTS, ...saved };
+
+  const state = prev?.state ?? {
+    alerts: [], // { seq, t, kind, wake, text }; `wake` marks what an attached script should act on
+    alertSeq: 0,
+    actions: [], // { t, text }
+    pauseUntil: 0,
+    pauseReason: null,
+    offSince: null,
+    restarts: [],
+    eventCursor: null, // { ses, seq } of the last chat event looked at
+    cursorSince: null,
+    cursorAlerted: false,
+    offlineSince: null,
+    offlineAlerted: false,
+    xpSeen: null, // { xp, t } when XP last changed
+    stallAlerted: false,
+    lootFails: [], // times of "could not loot" messages
+    lootAlertAt: 0,
+    zone: null,
+    lastError: null,
+  };
+
+  const now = () => Date.now();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const iq = () => window.iq;
+
+  const log = (text) => {
+    state.actions.push({ t: now(), text });
+    if (state.actions.length > 200) state.actions.splice(0, 50);
+    const i = iq();
+    if (i?.events && i.seqs) i.events.push({ ses: i.session, seq: ++i.seqs.event, t: now(), type: "bot", text: `[bot] ${text}` });
+  };
+  const alert = (kind, text, wake = false) => {
+    state.alerts.push({ seq: ++state.alertSeq, t: now(), kind, wake, text });
+    if (state.alerts.length > 300) state.alerts.splice(0, 100);
+    log(`${wake ? "alert" : "note"} ${kind}: ${text}`);
+  };
+
+  // Client functions are found by text they contain, because the release build renames exports.
+  const findClientFn = (needle) => {
+    for (const m of Object.values(iq().mods)) {
+      for (const v of Object.values(m)) {
+        if (typeof v === "function" && Function.prototype.toString.call(v).includes(needle)) return v;
+      }
+    }
+    throw new Error(`client function containing "${needle}" not found`);
+  };
+
+  // The client's own sale call: it sends ShopPlayerSell for the item at (bag, slot), the request the
+  // Sell Item button sends for the cursor and a merchant window sends for a selected item.
+  let sellAtFn = null;
+  const sellAt = (bag, slot) => {
+    sellAtFn ??= findClientFn("Sale confirmation was interrupted");
+    return sellAtFn(bag, slot);
+  };
+
+  const characterNames = (i) => {
+    const p = i.stores.character.getState().characterProfile ?? {};
+    const comps = i.stores.companions.getState().companions ?? [];
+    return new Set([p.name, ...comps.filter((c) => c.companionType === 0 || c.companionType === 2).map((c) => c.name)]);
+  };
+
+  /**
+   * Carried items that can go without losing anything: every copy or stack of an item beyond
+   * `keepCopies`, largest stacks kept, most-duplicated items first. Skips containers, NO DROP and
+   * NO RENT items, items without a merchant price, `keepItemIds`, equipped items, the cursor and
+   * bags marked No Sell. Copies inside No Sell bags count as kept copies.
+   */
+  const surplus = (i) => {
+    const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
+    const noSell = new Set(i.stores.combat.getState().noAutoSellBagInstanceIds ?? []);
+    const general = new Map(inv.filter((r) => r.bag === 0 && r.slot >= 22 && r.slot <= 29).map((r) => [r.slot, r]));
+    const kept = new Map();
+    const groups = new Map();
+    for (const r of inv) {
+      const loose = r.bag === 0 && r.slot >= 22 && r.slot <= 29;
+      if (!loose && !(r.bag >= 23 && r.bag <= 30)) continue;
+      const d = r.itemDetails;
+      if (!d || (d.bagslots || 0) > 0) continue;
+      if (!loose && noSell.has(general.get(r.bag - 1)?.itemInstanceId)) {
+        kept.set(r.itemid, (kept.get(r.itemid) ?? 0) + 1);
+        continue;
+      }
+      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid)) continue;
+      if (!groups.has(r.itemid)) groups.set(r.itemid, []);
+      groups.get(r.itemid).push(r);
+    }
+    const out = [];
+    for (const [id, rows] of groups) {
+      rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
+      const keep = Math.max(0, config.keepCopies - (kept.get(id) ?? 0));
+      for (const r of rows.slice(keep)) {
+        out.push({ bag: r.bag, slot: r.slot, id, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies: rows.length });
+      }
+    }
+    return out.sort((a, b) => b.copies - a.copies || a.price - b.price);
+  };
+
+  const sellSurplus = async (i) => {
+    const space = i.bagSpace();
+    if (space.cursor || space.free >= config.minFreeSlots) return;
+    let free = space.free;
+    let sold = 0;
+    let copper = 0;
+    const names = [];
+    for (const s of surplus(i)) {
+      if (free >= config.targetFreeSlots || sold >= config.sellPerTick) break;
+      // The client sells whatever sits at (bag, slot) when the call runs, so check it is still ours.
+      const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === s.bag && r.slot === s.slot);
+      if (row?.itemInstanceId !== s.instanceId) break;
+      const r = await sellAt(s.bag, s.slot);
+      if (!r?.success) {
+        log(`sale of ${s.name} at ${s.bag}/${s.slot} stopped: ${r?.message ?? "no reply"}`);
+        break;
+      }
+      sold++;
+      free++;
+      copper += r.data?.copperTotal ?? 0;
+      names.push(s.quantity > 1 ? `${s.quantity} ${s.name}` : s.name);
+      await sleep(400);
+    }
+    if (sold) log(`sold ${sold} surplus item(s) for ${copper} copper (${names.join(", ")}); ${i.bagSpace().free} slots free`);
+  };
+
+  const keepAutoLevel = (i, cb) => {
+    if (cb.isRunning) {
+      state.offSince = null;
+      return;
+    }
+    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected) return;
+    state.offSince ??= now();
+    if (now() - state.offSince < config.restartAfterSec * 1000) return;
+    cb.startAutoLevel();
+    state.offSince = now(); // give the start a full interval before trying again
+    state.restarts = state.restarts.filter((t) => t > now() - 3600000);
+    state.restarts.push(now());
+    const repeated = state.restarts.length >= 3;
+    alert("autoLevelRestarted", `AutoLevel was off for ${config.restartAfterSec}s without a pause; started it again${repeated ? ` (${state.restarts.length} times this hour)` : ""}`, repeated);
+  };
+
+  const scanEvents = (i) => {
+    const evs = i.events ?? [];
+    const c = state.eventCursor;
+    const after = (e) => !c || (e.ses ?? 0) > c.ses || ((e.ses ?? 0) === c.ses && e.seq > c.seq);
+    // The first scan after an install only sets the cursor, so old lines raise no alerts.
+    if (!c) {
+      const last = evs.at(-1);
+      state.eventCursor = last ? { ses: last.ses ?? 0, seq: last.seq } : { ses: 0, seq: 0 };
+      return;
+    }
+    const names = characterNames(i);
+    for (const e of evs) {
+      if (!after(e)) continue;
+      state.eventCursor = { ses: e.ses ?? 0, seq: e.seq };
+      const text = e.text ?? "";
+      let m;
+      if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) alert("levelUp", text, true);
+      else if ((m = /^(.+?) has reached level (\d+)/.exec(text))) alert("memberLevelUp", text);
+      else if ((m = /^(.+?) has been slain!/.exec(text)) || /^You have been slain/.test(text)) {
+        const who = m?.[1] ?? "You";
+        alert("death", text, who === "You" || names.has(who));
+      } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
+      else if (e.type === "guard" && /tightening|moving to|did NOT restart|failed/.test(text)) alert("guard", text, true);
+    }
+  };
+
+  const watchLoot = (i) => {
+    state.lootFails = state.lootFails.filter((t) => t > now() - 600000);
+    if (state.lootFails.length && now() - state.lootAlertAt > 1800000) {
+      state.lootAlertAt = now();
+      const sp = i.bagSpace();
+      alert("lootFull", `${state.lootFails.length} item(s) left on corpses in 10 minutes; ${sp.free} bag slots free${sp.cursor ? `, cursor holds ${sp.cursor}` : ""}`, true);
+    }
+  };
+
+  // The client's auto-place call, which puts the cursor item into the first place that fits.
+  let autoPlaceFn = null;
+  const autoPlace = () => {
+    autoPlaceFn ??= findClientFn("Auto-placing");
+    return autoPlaceFn();
+  };
+
+  const watchCursor = async (i) => {
+    const held = i.bagSpace().cursor;
+    if (!held) {
+      state.cursorSince = null;
+      state.cursorAlerted = false;
+      state.cursorPlaced = false;
+      return;
+    }
+    state.cursorSince ??= now();
+    const heldSec = (now() - state.cursorSince) / 1000;
+    if (!state.cursorAlerted && heldSec > config.cursorAlertSec) {
+      state.cursorAlerted = true;
+      alert("cursor", `${held} has been on the cursor for over ${config.cursorAlertSec}s; looting and cleanup need a free cursor`, true);
+    }
+    // A person may be holding it on purpose, so wait longer before putting it away, and try once.
+    if (!state.cursorPlaced && config.cursorPlaceSec > 0 && heldSec > config.cursorPlaceSec) {
+      state.cursorPlaced = true;
+      const r = await autoPlace();
+      await sleep(1500);
+      const still = i.bagSpace().cursor;
+      log(`auto-placed cursor item ${held}: ${r?.message ?? "no reply"}${still ? `; cursor still holds ${still}` : ""}`);
+    }
+  };
+
+  const watchXp = (i, cb) => {
+    const xp = i.stores.character.getState().characterProfile?.experienceProgress?.current;
+    if (xp == null) return;
+    if (!state.xpSeen || state.xpSeen.xp !== xp || !cb.isRunning) {
+      state.xpSeen = { xp, t: now() };
+      state.stallAlerted = false;
+      return;
+    }
+    if (!state.stallAlerted && now() - state.xpSeen.t > config.stallMin * 60000) {
+      state.stallAlerted = true;
+      alert("xpStall", `AutoLevel has run ${config.stallMin} minutes without gaining XP`, true);
+    }
+  };
+
+  const watchConnection = (i) => {
+    const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
+    if (ok) {
+      state.offlineSince = null;
+      state.offlineAlerted = false;
+      return;
+    }
+    state.offlineSince ??= now();
+    if (!state.offlineAlerted && now() - state.offlineSince > 60000) {
+      state.offlineAlerted = true;
+      alert("offline", `not in the game world for over a minute (screen ${i.stores.screen.getState().currentScreen}, connected ${i.socket.isConnected})`, true);
+    }
+  };
+
+  const watchZone = (i, cb) => {
+    if (state.zone !== null && state.zone !== cb.currentZone) {
+      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
+      alert("zone", `now in ${z?.longName ?? cb.currentZone}`);
+    }
+    state.zone = cb.currentZone;
+  };
+
+  let ticking = false;
+  const tick = async () => {
+    if (!config.enabled || ticking) return;
+    ticking = true;
+    try {
+      const i = iq();
+      if (!i?.stores || typeof i.bagSpace !== "function") return;
+      watchConnection(i);
+      const cb = i.stores.combat.getState();
+      if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
+      scanEvents(i);
+      watchZone(i, cb);
+      await watchCursor(i);
+      watchLoot(i);
+      watchXp(i, cb);
+      keepAutoLevel(i, cb);
+      await sellSurplus(i);
+      state.lastError = null;
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      if (state.lastError !== msg) log(`tick failed: ${msg}`);
+      state.lastError = msg;
+    } finally {
+      ticking = false;
+    }
+  };
+
+  const bot = {
+    config,
+    state,
+    timerId: setInterval(tick, config.tickSec * 1000),
+    tick,
+    surplus: () => surplus(iq()),
+
+    /**
+     * Change settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`. They persist in this
+     * browser. `null` restores a setting's default.
+     */
+    set(partial) {
+      for (const [k, v] of Object.entries(partial)) {
+        if (v === null) {
+          delete saved[k];
+          config[k] = DEFAULTS[k];
+        } else {
+          saved[k] = v;
+          config[k] = v;
+        }
+      }
+      localStorage.setItem(KEY, JSON.stringify(saved));
+      if ("tickSec" in partial) {
+        clearInterval(bot.timerId);
+        bot.timerId = setInterval(tick, config.tickSec * 1000);
+      }
+      return config;
+    },
+
+    /** Let AutoLevel stay off for `minutes`. A pause always ends by itself; renew it to extend it. */
+    pause(minutes = config.defaultPauseMin, reason = "") {
+      state.pauseUntil = now() + minutes * 60000;
+      state.pauseReason = reason || null;
+      log(`pause for ${minutes} min${reason ? `: ${reason}` : ""}`);
+      return new Date(state.pauseUntil).toISOString();
+    },
+
+    /** End a pause now. AutoLevel starts again within `restartAfterSec` if it is off. */
+    resume() {
+      if (state.pauseUntil) log("pause ended");
+      state.pauseUntil = 0;
+      state.pauseReason = null;
+      return true;
+    },
+
+    /**
+     * Compact state for an attached script: level, XP rate over the last 30 minutes, kills, bag
+     * space, AutoLevel limits, recent actions, and alerts after `sinceSeq`. Alerts with `wake` are
+     * listed in full; the others are trimmed to the latest eight.
+     */
+    report(sinceSeq = 0) {
+      const i = iq();
+      const p = i.stores.character.getState().characterProfile ?? {};
+      const cb = i.stores.combat.getState();
+      const t = now();
+      const lastHalfHour = (i.samples ?? []).filter((s) => s.t >= t - 1800000 && s.xp != null);
+      const first = lastHalfHour[0];
+      const last = lastHalfHour.at(-1);
+      const xpPerHour = first && last && last.t - first.t > 300000 ? Math.round(((last.xp - first.xp) / (last.t - first.t)) * 3600000) : null;
+      const withVis = lastHalfHour.filter((s) => s.vis != null);
+      const newer = state.alerts.filter((a) => a.seq > sinceSeq);
+      const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone);
+      return {
+        t: new Date(t).toISOString(),
+        enabled: config.enabled,
+        paused: state.pauseUntil > t ? { until: new Date(state.pauseUntil).toISOString(), reason: state.pauseReason } : null,
+        zone: zone?.longName ?? cb.currentZone,
+        level: p.level,
+        levelPct: p.experienceProgress ? p.experienceProgress.progressBasisPoints / 100 : null,
+        xpPerHour,
+        kills30m: (i.kills ?? []).filter((k) => k.t >= t - 1800000).length,
+        // Share of the last 30 minutes the tab was visible. Hidden tabs get throttled timers.
+        visible30m: withVis.length ? Math.round((100 * withVis.filter((s) => s.vis === 1).length) / withVis.length) / 100 : null,
+        bags: i.bagSpace(),
+        autoLevel: { running: cb.isRunning, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff },
+        alertSeq: state.alertSeq,
+        alerts: [...newer.filter((a) => a.wake), ...newer.filter((a) => !a.wake).slice(-8)].sort((a, b) => a.seq - b.seq).map((a) => ({ ...a, t: new Date(a.t).toISOString() })),
+        recent: state.actions.slice(-5).map((a) => `${new Date(a.t).toISOString().slice(11, 19)} ${a.text}`),
+      };
+    },
+  };
+
+  window.iqBot = bot;
+  if (window.iq) window.iq.bot = bot;
+  log(`installed (tick ${config.tickSec}s, restart after ${config.restartAfterSec}s, sell below ${config.minFreeSlots} free slots)`);
+  return { installed: true, config };
+})();
