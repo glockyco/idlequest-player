@@ -639,6 +639,12 @@
     const done = [];
     let stopped = false;
     try {
+      // A level-up unlocks merchant spells, and the game's reminder that buys them comes only every
+      // ten minutes, so buy first: the new pet tier would otherwise wait up to ten minutes.
+      if (typeof i.buyMissingSpells === "function") {
+        const bought = await i.buyMissingSpells().catch((e) => [`failed: ${e?.message ?? e}`]);
+        if (bought.some((l) => /Bought/.test(l))) done.push(`spells: ${bought.join(" | ")}`);
+      }
       const plan = spellPlan(i);
       const gems = new Map((sb().memorizedSpells ?? []).map((m) => [m.gemSlot, m.spellId]));
       const changes = plan.map((p, gem) => ({ ...p, gem })).filter((p) => gems.get(p.gem) !== p.id);
@@ -686,6 +692,13 @@
         cb().setPlayerSitting(false);
       }
       for (const pet of replace) {
+        // Keep our pet when the new summon did not reach gem 0: the old pet beats none at all.
+        if (pet.petOwnerCharacterId === me.id && !(sb().memorizedSpells ?? []).some((m) => m.gemSlot === 0 && m.spellId === newSummon)) {
+          done.push(`kept pet ${pet.name}: ${plan[0].name} is not memorized`);
+          state.upkeepDue = true;
+          state.upkeepAfter = now() + 30000;
+          continue;
+        }
         i.stores.companions.getState().dismissPet(pet.id);
         if (pet.petOwnerCharacterId !== me.id) state.petChecked[pet.petOwnerCharacterId] = ownerLevel(pet.petOwnerCharacterId);
         done.push(`replaced pet ${pet.name} L${pet.level}`);

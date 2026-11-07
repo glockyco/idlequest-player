@@ -19,6 +19,7 @@ interface Bot {
   config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
+  upkeep(reason: string): Promise<string>;
   fastTick(): void;
   surplus(): { name: string }[];
 }
@@ -80,6 +81,20 @@ async function install(partyIds: number[] = []) {
   ];
   const kills: { t: number; xp: number; enemy: string }[] = [];
   const moves: string[] = [];
+  // The spellbook and the party, which the upkeep test fills in.
+  const book = {
+    scribedSpells: [] as { spellId: number; spell: { name: string } }[],
+    memorizedSpells: [] as { gemSlot: number; spellId: number }[],
+    memorizeSpell: async (_id: number, _gem: number) => true,
+  };
+  const dismissed: string[] = [];
+  const party = {
+    companions: [tank, ench] as object[],
+    botCombatDataMap: { "character-20": { level: 22, curHp: 200, scribedSpellIds: [48] } },
+    requestAccountCharacterAvailability: () => {},
+    controlAccountCharacter: (id: number) => recruited.push(id),
+    dismissPet: (id: string) => dismissed.push(id),
+  };
   // bot.js reads the page's globals, so the test provides them on globalThis.
   const g = globalThis as unknown as FakeGlobals;
   g.localStorage = { getItem: () => null, setItem: () => {} };
@@ -110,17 +125,12 @@ async function install(partyIds: number[] = []) {
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
     stores: {
       character: store({ characterProfile: me }),
-      companions: store({
-        companions: [tank, ench],
-        botCombatDataMap: { "character-20": { level: 22, curHp: 200, scribedSpellIds: [48] } },
-        requestAccountCharacterAvailability: () => {},
-        controlAccountCharacter: (id: number) => recruited.push(id),
-      }),
+      companions: store(party),
       combat: store(combat),
       screen: store({ currentScreen: "game" }),
       staticData: store({ zones }),
       skills: store(skills),
-      spellbook: store({ scribedSpells: [], memorizedSpells: [] }),
+      spellbook: store(book),
       partySpells: store({ overridesByCompanion: { "character:20": { cure: false } } }),
     },
   };
@@ -133,7 +143,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, effects, skills, tactics };
+  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, effects, skills, tactics, book, party, dismissed };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -361,6 +371,31 @@ test("a root that outlasts a fight is dispelled only when that saves time, and c
     bot.fastTick();
     expect(tactics.slice(-2)).toEqual([["Edroun", "cure", true], ["Edroun", "cure", false]]);
     expect(bot.state.alerts.filter((a) => a.kind === "dispel").length).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("upkeep keeps our pet when the new summon could not be memorized", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bot, combat, book, party, dismissed } = await install();
+    // Lesser Summoning: Water in gem 0 and Summoning: Water newly learned; memorizing fails, as it
+    // does when the character cannot sit.
+    book.scribedSpells = [{ spellId: 497, spell: { name: "Lesser Summoning: Water" } }, { spellId: 570, spell: { name: "Summoning: Water" } }];
+    book.memorizedSpells = [{ gemSlot: 0, spellId: 497 }];
+    book.memorizeSpell = async () => false;
+    Object.assign(combat, { isPlayerSitting: true, isSpellbookOpen: true, setPlayerSitting: () => {}, toggleSpellbook: () => {} });
+    party.companions.push({ id: "pet-1", name: "Zonobtik", companionType: 1, petOwnerCharacterId: 1, level: 20 });
+
+    const run = bot.upkeep("test");
+    for (let k = 0; k < 40; k++) {
+      vi.advanceTimersByTime(500);
+      for (let j = 0; j < 5; j++) await Promise.resolve();
+    }
+    const result = await run;
+    expect(dismissed).toEqual([]);
+    expect(result).toContain("kept pet Zonobtik");
   } finally {
     vi.useRealTimers();
   }
