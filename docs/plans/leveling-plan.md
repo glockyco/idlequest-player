@@ -26,19 +26,20 @@ Time is the scarce resource. Each level takes about 47 minutes, so a lever is wo
 | 6 | Epic steps while leveling. | Saves dedicated trips later. | From 29, prefer zones that drop Magician epic pieces when their rate is close. |
 | 7 | Platinum. | Matters from 46 (raid time, AA). | About 300 pp an hour from loot; the bot sells cheap single items. |
 
-## Zone candidates
+## Zone rotation by level
 
-Candidates come from the content snapshot (`tools/zones.mjs`, enemies from level −2 to +3 of the party, fewest strong neighbours) and from classic group routes. None is measured yet except Crushbone. Scout a zone live before moving, because the snapshot overstated Toxxulia by 40%, and stacked dungeon floors make 2D density and danger counts unreliable.
+Every candidate zone holds only 12 to 45 minutes of in-band kills at 3 kills a minute, and a level needs 100 to 135 kills, so the bot rotates between two or three zones (`rotation`). Permafrost ran dry after 40 minutes at level 19, which matches its modeled stock. Set the band's row when the leader enters it. Rows from 24 up come from the content snapshot (spawn points with an in-band mob, respawn times, mobs 8 or more levels above the leader near the camp) and are not measured yet. Measured rates: Kurn's Tower 1.0M XP/h per character at 18, Guk 1.6M at 21, Permafrost 1.8M to 1.95M at 22 to 23.
 
-| Party level | First candidates (multiplier) | Notes |
+| Party level | Rotation (short names) | Notes |
 | --- | --- | --- |
-| 14-15 | Crushbone (1.19) | Current camp. 31 targets in band, few strong neighbours. |
-| 16-18 | Kurn's Tower (1.28), Najena (1.19), the Warrens (1.28) | Kurn has the densest band at 16 and no strong neighbours at 18. Najena holds Magician epic pages. |
-| 20-23 | Permafrost Caverns (1.44), Kerra Isle (1.0), Runnyeye (1.28) | Permafrost's entrance goblins at the highest multiplier. Keep the giants and deep floors out of the route. |
-| 24-26 | Mines of Droga (0.96), Estate of Unrest (1.13), Solusek's Eye (1.19) | Droga has hundreds of level-29 targets. Unrest and Solusek's Eye carry epic work. |
-| 28-33 | Droga, Crypt of Dalnir (1.01), Mines of Nurga (0.96), Splitpaw (1.28), Crystal Caverns (1.22) | Splitpaw and Crystal Caverns pay more per kill if the party holds. |
-| 35-46 | Ruins of Old Guk (0.86), Kedge Keep (1.39), the Hole (1.28), City of Mist (0.94), Karnor's Castle (0.94) | Kedge and the Hole combine high multipliers with Magician epic steps. |
-| 46-60 | Chardok, Sebilis, Velketor's Labyrinth (all 0.94), the Hole | Choose by measured rate: the multipliers are equal. |
+| 22-23 | permafrost, soldunga, guktop | Permafrost's stock falls from 79 points at 22 to 35 at 24. Solusek's Eye has level-30 casters near the camp, exactly 8 above a level-22 leader. |
+| 24 | soldunga, guktop, dalnir | Dalnir drops the Warrior's next weapons (Charred Tulwar 25%, Tower Guard's Blade 5%). Kly wanderers at 30 to 35. |
+| 25-27 | paw, soldunga, dalnir | Splitpaw pays most per hour but needs 20 minutes away between visits. Add crystal at 27. One Unrest pass at 26-27 for Torn Page 2 (tentacle terrors, 90%). |
+| 28-30 | soldunga, paw, crystal | Droga alone is the unattended fallback, about 15% slower. Mistmoore's gypsy dancer drops Power of Wind (100%, one spawn per 29 minutes): an errand in this band. |
+| 31-33 | crystal, soldunga, kaesora, paw | Most of Kaesora's in-band mobs may be immune to non-magical melee: read "Damage by source" there first. Its raveners (levels 32 to 36) drop Power of Water at 100%. |
+| 34-35 | frozenshadow, kaesora, crystal | Frozen Shadow has the only large stock and many root, fear and charm casters. |
+
+The kill rate decides how long the higher levels take: in-band HP doubles from about 690 at level 20 to 1,400-1,560 at 32, and XP per HP is about the same everywhere. Read kills per minute and "Damage by source" at each band start.
 
 ## Spell and pet unlocks for Domeyafun
 
