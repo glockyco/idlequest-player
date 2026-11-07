@@ -55,6 +55,7 @@
     rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
     rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
+    rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
   };
   let saved = {};
   try {
@@ -595,7 +596,17 @@
     }
   };
   const watchRate = async (i) => {
-    if (!(config.rotation ?? []).length || now() - (state.zoneSince ?? now()) < 600000) return;
+    if (!(config.rotation ?? []).length) return;
+    const cb = i.stores.combat.getState();
+    if (config.rotateEscapes > 0) {
+      const since = Math.max(state.zoneSince ?? 0, now() - 600000);
+      const escapes = (i.guard?.trips ?? []).filter((t) => t.zone === cb.currentZone && t.t >= since);
+      if (escapes.length >= config.rotateEscapes) {
+        await rotate(i, `${escapes.length} guard escapes in 10 minutes`);
+        return;
+      }
+    }
+    if (now() - (state.zoneSince ?? now()) < 600000) return;
     const rate = xpLast10(i);
     state.zoneBestRate = Math.max(state.zoneBestRate ?? 0, rate);
     if (now() - state.zoneSince < config.rotateMinStayMin * 60000 || rate >= config.rotateBelowShare * state.zoneBestRate) return;

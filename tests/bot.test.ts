@@ -48,7 +48,7 @@ async function install(partyIds: number[] = []) {
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
   // AutoLevel's limits and the guard's tightening memory, which some tests change.
-  const guard: { phase: string; preferred: { minCon: number; maxCon: number; maxLevelDiff: number } | null } = { phase: "watching", preferred: null };
+  const guard: { phase: string; preferred: { minCon: number; maxCon: number; maxLevelDiff: number } | null; trips: { t: number; reason: string; zone: number }[] } = { phase: "watching", preferred: null, trips: [] };
   const combat = {
     isRunning: true,
     isZoneLoading: false,
@@ -300,6 +300,14 @@ test("rotation moves on from an empty zone and from one whose XP rate fell", asy
     vi.advanceTimersByTime(11 * 60000); // nothing killed since
     await dry.bot.tick();
     expect(dry.moves).toEqual(["permafrost"]);
+
+    const ambushed = await install();
+    ambushed.bot.config.rotation = ["permafrost", "paw"];
+    ambushed.combat.currentZone = 73;
+    await ambushed.bot.tick();
+    for (let k = 0; k < 4; k++) ambushed.guard.trips.push({ t: Date.now(), reason: "level: an ice giant L47", zone: 73 });
+    await ambushed.bot.tick();
+    expect(ambushed.moves).toEqual(["paw"]);
   } finally {
     vi.useRealTimers();
   }

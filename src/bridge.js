@@ -337,11 +337,9 @@
     const change = zoneChanger();
     if (!dest || !change) throw new Error(`zone change function or zone ${shortName ?? cb.currentZone} not found`);
     await change(dest);
-    // The zone-loading flag shows the change started.
     const t0 = Date.now();
-    while (!stores.combat.getState().isZoneLoading && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
     while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 2000));
     return dest.longName;
   };
   const guardLeave = async (reason, mob) => {
@@ -369,8 +367,18 @@
     // the same dangerous mob would join again, every few seconds. The client skips spawns it has
     // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
     // survive the zone change. Defer every mob of this fight.
-    const skip = Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId).filter((id) => id != null);
     const rt = runtime();
+    const skip = [
+      ...new Set(
+        [
+          ...Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId),
+          cb.activeCombatTargetSpawnInstanceId,
+          cb.targetNPC?.spawnInstanceId,
+          rt?.combatApproach?.attempt?.spawnInstanceId,
+          rt?.automatedCombatFocusSpawnInstanceId,
+        ].filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
     if (rt?.deferAutoLevelSpawn && skip.length && cfg.avoidMin > 0) {
       for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
       guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
