@@ -426,15 +426,21 @@
     /**
      * Set a party tactic (cast, melee, range, heal, cure, healPets, rez, manaRecovery, nuke, dot,
      * debuff, cc, root, fear) for one party member.
-     * `who` is a default bot ("cleric", "warrior", "rogue") or the name of an account character in
-     * the party. The game keys these as `bot:<playerId>:<bot>` and `character:<characterId>`; a
-     * bare name is stored but never read. Returns the member's overrides after the change.
+     * `who` is the active character (its name or id), a default bot ("cleric", "warrior", "rogue")
+     * or the name of an account character in the party. The active character's tactics live in
+     * their own store, keyed by character id. Party members are keyed `bot:<playerId>:<bot>` and
+     * `character:<characterId>` in the party spells store, and a bare name there is stored but
+     * never read. Returns the member's overrides after the change.
      */
     setTactic(who, key, value) {
-      const playerId = stores.character.getState().characterProfile.id;
+      const me = stores.character.getState().characterProfile;
+      if (String(who).toLowerCase() === String(me.name).toLowerCase() || String(who) === String(me.id)) {
+        stores.partyTactics.getState().setTactic(me.id, key, value);
+        return { key: String(me.id), overrides: stores.partyTactics.getState().overridesByCharacterId[me.id] };
+      }
       const comps = stores.companions.getState().companions ?? [];
       const byName = comps.find((c) => c.characterId && c.name.toLowerCase() === String(who).toLowerCase());
-      const k = byName ? `character:${byName.characterId}` : /^\d+$/.test(String(who)) ? `character:${who}` : `bot:${playerId}:${who}`;
+      const k = byName ? `character:${byName.characterId}` : /^\d+$/.test(String(who)) ? `character:${who}` : `bot:${me.id}:${who}`;
       stores.partySpells.getState().setTactic(k, key, value);
       return { key: k, overrides: stores.partySpells.getState().overridesByCompanion[k] };
     },

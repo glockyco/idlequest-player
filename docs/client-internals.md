@@ -93,7 +93,11 @@ the requests manually. Chore results are recorded as `chore` event lines.
 
 ## Party tactics
 
-- Default bot tactics are keyed `bot:<characterId>:<bot>` in the party spells store. A bare bot name
-  is stored and never read.
+- Party members' tactics are in the party spells store (`overridesByCompanion`), keyed
+  `bot:<characterId>:<bot>` for default bots and `character:<characterId>` for account characters.
+  A bare bot name is stored and never read.
+- The active character's own tactics are in a separate store (`overridesByCharacterId`, with
+  `meleeByCharacterId`), keyed by the plain character id. An entry for the active character in the
+  party spells store is ignored. `iq.setTactic` picks the right store.
 - A level 1 recruit gets about half the XP share of a level 5 leader on the same kill, because shares
   are level-weighted.

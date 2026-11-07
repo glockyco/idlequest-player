@@ -36,7 +36,7 @@ console.log(await iq.status());
 
 ```js
 const party = await iq.roster();                    // every character: class, level, HP, mana, gear
-await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also "cleric", "warrior", "rogue")
+await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also the active character, or "cleric", "warrior", "rogue")
 await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });
 await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, always restart
 ```
