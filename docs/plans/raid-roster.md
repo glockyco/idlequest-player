@@ -22,7 +22,7 @@ Which characters the raid goal needs, how to split them into leveling groups, an
 
 Sources: the `npc_types`, `npc_spells` and `spells_new` rows for the Raid Resolve boss IDs in `C/data/`, and the Resolve list in `.re/js/main.pretty.js:22711-22757`.
 
-These are level-60 fights. Level 46 starts raids, but a raid of level-46 characters is not a raid of level-60 ones. Kerafyrm needs a mechanics check before any headcount can be called enough: one Destroy kills anyone without a way to avoid or survive it.
+These are level-60 fights. Level 46 starts raids, and the client caps raid-buff scaling at level 60 (`.re/js/main.pretty.js:22686-22687`). On the first qualifying boss engaged in a fight, Raid Resolve (`encounterAid`, `.re/js/main.pretty.js:22693-22735`) doubles max HP and heals to full for Warriors, Paladins and Shadow Knights, and doubles max mana and refills to full for Clerics. It does not stack across multiple bosses in the same fight, and rune pools (`runePoolsGranted`, `.re/js/main.pretty.js:72050-72065`) are granted once per raid session rather than once per fight.
 
 ## How big a raid
 
@@ -34,7 +34,14 @@ Planning ranges, not measured requirements. They assume learned level-60 spells 
 | Cazic-Thule, Yelinak | 18-24 | 3-4 / 5-6 |
 | Vyemm, Tunare | 24-36 | 4-6 / 6-8 |
 | Avatar of War, Vulak`Aerr | 30-42 | 5-7 / 8-10 |
-| Awakened Kerafyrm | 54-72 or more | 8-12 / 14-20 |
+| Awakened Kerafyrm | 36 (ranged/caster focus) | 5-6 / 8-10 |
+
+### Kerafyrm and Destroy (`.re/js/BQ.pretty.js` and `C/data/`)
+
+- Death Touch is blocked: the client explicitly filters out NPC casts of Death Touch (`24660` and `982`) via `i5 = [982, 3087, 7477, 24660, 24661, ...]` (`.re/js/BQ.pretty.js:26563-26567`).
+- Destroy (`spell 1948`) is a 50-unit caster AE: Kerafyrm (`128089` and `128095`, `npc_spells_id: 489`) has a single spell entry, `Destroy` (`1948`, `recast_delay: 1800` in `npc_spells_entries`, `recast_time: 0` in `spells_new`). It deals `100,000` unresistable (`resisttype: 0`) damage to all raid members and pets within `aoerange: 50` with line of sight (`.re/js/BQ.pretty.js:4803-4900, 26428-26545`).
+- Mitigation versus range: Divine Aura only covers the active player actor in raid mode (`.re/js/BQ.pretty.js:4535`), resists do not apply to `resisttype: 0`, and rune pools plus Raid Resolve tank HP are far below `100,000`. Actors standing outside 50 units (caster nukes and ranged attacks have 100 to 200 range) are outside `Destroy`'s `aoerange`.
+- Roster decision: do not commit to leveling characters beyond the 36-character (6-group) raid before testing Kerafyrm at level 60, because adding more melee or tanks inside 50 units does not counter `Destroy`.
 
 The raid shares one set of permanent support and suppresses duplicates of the same spell or family (`.re/js/main.pretty.js:20210-20235,65539-65616`). One Bard, Shaman, Enchanter, Druid and Necromancer cover their lines for the whole raid. Tanks, Clerics and damage are what scale: Raid Resolve doubles tank HP and Cleric mana once per fight, and each Cleric casts independently. A second Bard adds only songs the first does not sing.
 
@@ -57,15 +64,11 @@ Epics the roster makes worth chasing, after the Magician's: the Cleric's Water S
 
 ## How long it takes
 
-Every level from 14 to 21 has followed `1000 × (L-1)³` cumulative XP, so level L costs about 3,000 × L² XP. Kill XP grows with the square of the enemy's level (120 × level² × zone multiplier, shared by level), so a party that keeps fighting enemies of its own level at a steady kill rate needs about the same time for every level. At level 21 that is about 47 minutes (1.26M XP at about 1.6M XP per character per hour in Guk).
+Every level from 14 to 29 followed `1000 * (L-1)^3` cumulative XP (`3,000 * L^2` per level). At level 30 the cumulative requirement steps up by `1.1x` (`levelEnd(30) = 29,700,000 = 1.1 * 1000 * 30^3`, requiring `5,311,000` XP for level 30, about 2 hours at 2.65M XP/h in Unrest). Because the multiplier applies to cumulative XP at the tier boundary, non-transition levels within the same multiplier band return to normal steps.
 
-If both rules hold to 60, a character needs about 20 more hours of play to reach 46 and about 30 to reach 60. Two things would break this: the extra "hell level" costs classic EverQuest adds from level 30, which the wiki hints at ("requirements rise unevenly"), and kill rates that fall when the enemies get tougher. Check the curve at each level from 30 on. Groups level one after another unless two sessions of one account can play at once, so the roster's hours add up group by group.
+## Resolved and open questions
 
-## Open questions
-
-- The account's character limit. The selector shows at least 72 positions and grows with the count, which is not a cap.
-- The raid size limit. The client adds recruits without a numeric cap. The server may still have one.
-- Whether two sessions of this account can play at once. This decides whether groups can level in parallel.
-- The raid time price at higher levels. It was 2,000 pp an hour at level 7, and the server computes it.
-- The XP curve above level 30, and the XP per hour high-level zones pay.
-- How Kerafyrm's Destroy is timed and whether anything survives it.
+- Character-slot limit (resolved): 9 pages of 8 slots give 72 character slots on the account.
+- Concurrent sessions (resolved): two browser sessions on the same account can stay in the game world at the same time without disconnecting each other, as long as they control different characters.
+- Kerafyrm's Destroy (resolved in code): `spell 1948` is a 50-unit caster AE (`100,000` unresistable damage), while single-target Death Touch (`982`, `24660`) is blocked by the client. Range (>50 units) and the client's handling of `recast_delay: 1800`, not extra tanks beyond 36, decide the fight.
+- Open: the server's raid-time price at level 46 to 60, whether the server enforces a raid-size cap, and how Awakened Kerafyrm (`128089` in Sleeper's Tomb versus `114583` in Skyshrine, which has `npc_spells_id: 0`) is spawned or summoned in IdleQuest.
