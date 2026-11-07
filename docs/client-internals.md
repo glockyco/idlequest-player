@@ -126,3 +126,71 @@ the requests manually. Chore results are recorded as `chore` event lines.
   party spells store is ignored. `iq.setTactic` picks the right store.
 - A level 1 recruit gets about half the XP share of a level 5 leader on the same kill, because shares
   are level-weighted.
+
+## Macro bar, account sharing and options
+
+### Built-in macro bar actions
+
+The macro action map (`engine.pretty.js:403130-403250`) defines 24 player actions across the default
+pages:
+
+| Slot | Button | Store / handler | What it does |
+|---:|---|---|---|
+| 1 | Path To... / Merchant List | `stores.combat.toggleMerchantList()` | Opens in-zone NPC navigation (Merchants, Bankers, Guildmasters, Quest NPCs) |
+| 2 | Enemy Targets | `stores.combat.openCombatTargetList()` | Opens the live enemy list. Clicking a row walks to and pulls that spawn |
+| 3 | Stuck | `stores.chat.sendMessage("/stuck")` | Teleports out of geometry traps |
+| 4 | Bind Soul | Bind handler | Binds the character's respawn point |
+| 5 | Loot Closest | `stores.chat.sendMessage("/lootclosest")` | Opens the nearest unlooted corpse |
+| 6 | Tradeskill Bank | `stores.combat.openTradeskills()` | Opens the account-shared ingredient bank and recipe crafter |
+| 7 | Buy Spells | `ScribeAvailableSpells` (`"self"`) | Buys and scribes missing merchant spells for the active character |
+| 8 | Buy Companion Spells | `ScribeAvailableSpells` (`"companions"`) | Buys and scribes missing merchant spells for grouped account companions |
+| 9 | Spell Bank | `stores.combat.openSpellBank()` | Opens the account-shared spell scroll bank |
+| 10 | Delete Clutter | Declutter handler | Destroys unprotected low-value NO DROP items and banks research ingredients instead |
+| 11 | Auto Sell | `ShopPlayerSell` bulk runner | Sells unprotected sellable bag items with a 20% courier fee when away from a merchant |
+| 12 | Auto Bank | Ingredient/scroll banker | Moves tradeskill ingredients and spell scrolls into the shared account banks |
+| 13-14 | Fish / Forage | Skill handlers | Uses Fishing or Foraging |
+| 15-17 | Casino / Pizza / Guild | Panel openers | Opens the Casino, Pizza or Guild pane |
+| 18 | Farm Items | `stores.combat.setIsFarmingDisplayOpen(true)` | Recommends zones and filters AutoLevel targets for 16 material and research categories (`WizardRunes`, `NecroWords`, `EnchPages`, `MageParts`, `Alchemy`, `HighQualityOre`, `Velium`, etc.) |
+| 19 | Manage Money | `stores.combat.openManageMoney()` | Lists carried and bank coin for every character on the account and pulls any character's coin to the active character |
+| 20 | Inventory Search | `stores.combat.openInventorySearch()` | Searches carried bags, equipped slots (`slot:legs`, etc.), personal banks and shared banks across all account characters, and transfers matching items to the active character |
+| 21 | Alt Adv | `stores.combat.openAbilities("advancement")` | Opens the Alternate Advancement window |
+| 22-24 | Bug / Feature / Edit Name | Panel openers | Opens player report or character rename |
+
+### Account-wide sharing rules
+
+- **Held-item transfer (`transferHeldItem(characterId, equip)`, `main.pretty.js:53376`):** checks
+  `stores.roster.getState().characters.some(c => c.id === characterId)`. The recipient does not need
+  to be in the current party: items and bags can be given or equipped onto offline characters or
+  characters in a second party. `equip: true` replaces the weakest eligible occupied slot and puts
+  the old item into the recipient's inventory (which fails with `"That character has no inventory
+  space for the replaced item"` if the recipient has no free slot). `equip: false` fills an empty
+  equipment slot or places the item (including empty or populated bags) into a free inventory slot.
+- **Manage Money (`engine.pretty.js:419664-419899`):** queries `{ action: "read" }` for all
+  characters on the account (`carried`, `bank`, `totalCopper`) and `{ action: "transfer",
+  sourceCharacterId, revision, operationId }` to pull all carried and bank coin from another
+  character into the active character's wallet. Exposed in the SDK as `iq.manageMoney({ transferFrom
+  })`.
+- **Inventory Search (`engine.pretty.js:419315-419660`):** queries `{ action: "search", query }`
+  across all account characters and shared banks, and `{ action: "transfer", sourceCharacterId,
+  itemInstanceId, ... }` (or shared-bank withdraw) to pull an item directly to the active character.
+- **Shared Tradeskill and Spell Banks (`engine.pretty.js:423167`):** both banks are shared across
+  all characters on the account. Banked spell scrolls automatically teach missing spells every 5
+  seconds to the active character first, then to grouped same-account companions in recruitment
+  order.
+
+### Key Options and AutoLevel settings (`stores.combat`)
+
+| State field | Setter | Default | Effect |
+|---|---|---:|---|
+| `autoUpgradeCompanionsEnabled` | `toggleAutoUpgradeCompanions()` | `false` | Hands down newly looted upgrades to grouped same-account companions |
+| `autoUpgradeEnabled` | `toggleAutoUpgrade()` | `true` | Equips newly looted upgrades on the active character |
+| `keepEpicQuestItemsEnabled` | `toggleKeepEpicQuestItems()` | `true` | Protects epic and Velious quest items from Auto Sell and Declutter |
+| `keepValuableGearEnabled` | `toggleKeepValuableGear()` | `false` | Protects valuable equipment from Auto Sell |
+| `autoBankIngredientsEnabled` | `toggleAutoBankIngredients()` | `true` | Automatically banks tradeskill ingredients during cleanup |
+| `autoSpellBankEnabled` | `toggleAutoSpellBank()` | `true` | Automatically banks unneeded spell scrolls during cleanup |
+| `autoLevelMerchantTravelEnabled` | `toggleAutoLevelMerchantTravel()` | `false` | Walks to a merchant to sell and restock bags/supplies when full |
+| `autoBuyBagsEnabled` | `toggleAutoBuyBags()` | `true` | Buys bags for empty top-level slots during a merchant maintenance trip |
+| `autoBuySuppliesEnabled` | `toggleAutoBuySupplies()` | `true` | Restocks food, drink, pet reagents and ammo during a merchant trip |
+| `autoLevelRezEnabled` / `autoLevelRezPercent` | `setAutoLevelRezEnabled(v)` / `setAutoLevelRezPercent(50\|90\|96)` | `false` / `50` | Casts Resurrection on dead party members between fights |
+| `companionCoinSplitEnabled` | `toggleCompanionCoinSplit()` | `false` | Splits looted coin among party companions instead of keeping it on the leader |
+| `noAutoSellBagInstanceIds` / `noDeclutterBagInstanceIds` | `toggleNoAutoSellBag(id)` / `toggleNoDeclutterBag(id)` | `[]` | Per-bag protection from Auto Sell, Auto Bank and Declutter |

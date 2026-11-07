@@ -83,17 +83,22 @@ export async function attach(tab) {
     },
 
     /**
-     * Give a carried item to an account character in the party, equipped when `equip` is true,
-     * for example an instrument for the Bard. Moves the item to the cursor with the character
-     * store's slot move, sends the client's held-item transfer, and puts the item back if the
-     * transfer is rejected.
+     * Give a carried item to any character on the account (in the party or offline), equipped when
+     * `equip` is true. Moves the item to the cursor with the character store's slot move, sends
+     * the client's held-item transfer, and puts the item back if the transfer is rejected.
      */
     async giveItem(itemName, characterName, equip = true) {
       const item = (await handle.inventory()).find((r) => r.name === itemName && (r.loc === "bag" || (r.bag === 0 && r.slot >= 22 && r.slot <= 29)));
       if (!item) throw new Error(`no ${itemName} in the bags`);
       const target = (await handle.roster()).party.find((m) => m.name === characterName);
-      const characterId = Number(String(target?.id ?? "").replace("character-", ""));
-      if (!characterId) throw new Error(`${characterName} is not an account character in the party`);
+      let characterId = Number(String(target?.id ?? "").replace("character-", ""));
+      if (!characterId) {
+        characterId = await tab.evaluate((name) => {
+          const c = (window.iq.stores.roster?.getState?.().characters ?? []).find((x) => x.name?.toLowerCase() === name.toLowerCase());
+          return Number(c?.id || 0);
+        }, characterName);
+      }
+      if (!characterId) throw new Error(`${characterName} is not a character on this account`);
       return tab.evaluate(
         async (from, id, e, expectedName) => {
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -121,6 +126,59 @@ export async function attach(tab) {
         equip,
         itemName,
       );
+    },
+
+    /**
+     * Read account-wide coin balances through the Manage Money panel, and optionally pull carried
+     * and bank coin from `transferFrom` (a character name, an array of names, or `"all"`) into the
+     * active character's wallet.
+     */
+    async manageMoney({ transferFrom = null } = {}) {
+      return tab.evaluate(async (from) => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cb = window.iq.stores.combat.getState();
+        cb.openManageMoney();
+        const waitReady = async () => {
+          for (let k = 0; k < 30; k++) {
+            const p = document.querySelector('[data-testid="manage-money-panel"]');
+            if (p && !p.querySelector('[aria-busy="true"]') && !p.textContent.includes("Loading balances")) return p;
+            await sleep(250);
+          }
+          return document.querySelector('[data-testid="manage-money-panel"]');
+        };
+        const readRows = (p) =>
+          p
+            ? [...p.querySelectorAll('tbody tr[data-testid^="money-row-"]')].map((tr) => {
+                const tds = [...tr.querySelectorAll("td")].map((td) => td.textContent.trim());
+                const btn = tr.querySelector("button");
+                return { character: tds[0], carried: tds[1], bank: tds[2], total: tds[3], canTransfer: Boolean(btn && !btn.disabled) };
+              })
+            : [];
+        let panel = await waitReady();
+        const before = readRows(panel);
+        const transferred = [];
+        if (from) {
+          const want = from === "all" ? null : new Set((Array.isArray(from) ? from : [from]).map((s) => String(s).toLowerCase()));
+          for (let pass = 0; pass < 20; pass++) {
+            panel = await waitReady();
+            const tr = [...(panel?.querySelectorAll('tbody tr[data-testid^="money-row-"]') ?? [])].find((row) => {
+              const name = row.querySelector("td")?.textContent?.trim()?.toLowerCase() ?? "";
+              const btn = row.querySelector("button");
+              return btn && !btn.disabled && (!want || want.has(name));
+            });
+            if (!tr) break;
+            const name = tr.querySelector("td")?.textContent?.trim() ?? "";
+            tr.querySelector("button").click();
+            await sleep(300);
+            await waitReady();
+            transferred.push(name);
+          }
+        }
+        panel = await waitReady();
+        const balances = readRows(panel);
+        cb.closeManageMoney();
+        return { before, transferred, balances, platinum: window.iq.stores.character.getState().characterProfile?.platinum ?? 0 };
+      }, transferFrom);
     },
 
     /**
