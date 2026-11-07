@@ -99,6 +99,31 @@ divided by delay, the comparison the IdleQuest wiki gives.
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
 ```
 
+## Predicting XP per hour
+
+`tools/predict.mjs` estimates XP per hour per character for every zone at a party level, from the content snapshot (clone it as above) and the client's own hit, mitigation and resist formulas. It runs in about a second.
+
+```sh
+bun tools/predict.mjs --level 25 --top 15            # ranked table: kill, recovery and walk seconds, kills/h, XP/h, danger flags
+bun tools/predict.mjs --level 25 --zone permafrost   # per-NPC breakdown of one zone
+bun tools/predict.mjs --check                        # the model against the two measured runs, with residuals
+```
+
+Flags: `--min-diff` and `--max-diff` (levels relative to the leader, default -3 and 5, and never green by AutoLevel's con rule), `--dps` and `--dps-level` (party damage per second against a same-level enemy and the leader level it was measured at), `--dps-exp`, `--spell-share`, `--overhead`, `--mana-per-sec`, `--tank-hp`, `--tank-ac`, `--healer-mana-pool`, `--caster-mana-pool`, `--speed`, `--stay` (minutes in the zone, which spreads the initial stock of enemies) and `--party-levels` (a comma list, default six equal levels). The header of the file explains each step. `--fit` refits `--dps`, `--overhead` and `--mana-per-sec` to the two runs.
+
+The model includes the spawn table with spawn chances and respawn times, enemy HP, damage, special abilities and resists, the party's hit chance and resist penalty by level difference, the tank's damage taken, recovery from mana and HP at 2.5% per 0.6 s, walking between candidate spawn points, and a spawn-rate cap per zone. It leaves out wandering and named spawns beyond their chance, enemy spells, enrage and rampage timing (a fixed extra damage instead), crowd control, pets as separate damage dealers, other players taking spawns, content flags and spawn conditions, the trip to the zone and loot. Walking is the distance to the nearest candidate point, which is shorter than the 64 units per kill measured in Permafrost, so the overhead absorbs the difference. How damage grows with the leader's level (`--dps-exp`) is not identified by two runs at levels 21 and 24, so predictions far from level 24 depend on it. Read the table as a ranking, and check a zone live before committing to it.
+
+Calibration, from the 2026-11-07 run. Permafrost at leader level 24 to 25 measured 2.91 kills per minute, 2.30M XP/h, 13,217 XP per kill, a 13 s mean kill and 64.6% of the time in combat. The City of Guk at level 21 measured 3.19 kills per minute, 1.64M XP/h and a 10.3 s median kill. The fitted values are `--dps 49` at level 24, `--overhead 2` and `--mana-per-sec 10`. `--dps-exp 0.5` is set between the 0 and 1 that bracket the best fit, and the party's pool sizes and levels come from the run's samples. Residuals, model against measured:
+
+| Quantity | Permafrost | City of Guk |
+| --- | ---: | ---: |
+| XP/h per leader | +2% | +2% |
+| Kills per minute | +7% | -10% |
+| XP per kill | -5% | |
+| Mean kill seconds | -6% | |
+| Median kill seconds | -7% | +9% |
+| Combat share of time | -2% | |
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's
