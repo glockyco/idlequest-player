@@ -254,7 +254,7 @@
       healerHpPct: 50,
       escalateAfter: 3, // escapes in an hour before the limits are tightened
       safeLimits: { minCon: 4, maxCon: 15, maxLevelDiff: 2 },
-      retreatZone: null, // short name to leave to, or null to re-enter the current zone
+      retreatZone: "steamfont", // retreat to a safe zone instead of re-entering a dangerous one
       fallbackZone: null, // short name to move to when escapes continue at the safe limits
       ...guardPrev?.config,
     },
