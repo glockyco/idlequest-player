@@ -22,6 +22,7 @@ These rules are for agents that play the account with this repository. [README.m
    ```
 
 3. If the tab shows the login form, stop and ask for a sign-in. If the tab cannot be reached, for example after its renderer crashed, the bot is gone with the page and `watch` fails instead of alerting. Do not reload the tab yourself: stop and ask for a reload and a sign-in.
+4. After a sign-in the party holds no account characters. The bot asks the characters in its `partyIds` setting to rejoin once it is attached. The setting is saved in the browser, so set it again with `iq.setBot({ partyIds: [...] })` only when the party changes.
 
 ## Unattended loop
 
@@ -41,6 +42,7 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/2026-11-
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel. Find it in the event log. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client reconnects by itself, and if the login form shows, stop and ask for a sign-in. |
 | `guard` | Repeated escapes tightened the limits or moved the party. Review the hunting ground. |
+| `crowded` | Other players are clearing the same spawns. Move to the next zone for the party's level in the plan. |
 
 ## Inventory and the game UI
 

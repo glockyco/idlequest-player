@@ -15,7 +15,7 @@ interface Alert {
 }
 interface Bot {
   timerId: Timer;
-  config: { upkeep: boolean };
+  config: { upkeep: boolean; partyIds: number[] };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
 }
@@ -28,7 +28,8 @@ interface FakeGlobals {
 
 const store = (state: object) => ({ getState: () => state });
 
-async function install() {
+async function install(partyIds: number[] = []) {
+  const recruited: number[] = [];
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
   // bot.js reads the page's globals, so the test provides them on globalThis.
@@ -48,7 +49,11 @@ async function install() {
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
     stores: {
       character: store({ characterProfile: { id: 1, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 } } }),
-      companions: store({ companions: [{ name: "Tagujazolu", companionType: 2 }] }),
+      companions: store({
+        companions: [{ name: "Tagujazolu", companionType: 2, characterId: 10 }],
+        requestAccountCharacterAvailability: () => {},
+        controlAccountCharacter: (id: number) => recruited.push(id),
+      }),
       combat: store({ isRunning: true, isZoneLoading: false, currentZone: 58, noAutoSellBagInstanceIds: [] }),
       screen: store({ currentScreen: "game" }),
       staticData: store({ zones: [] }),
@@ -61,9 +66,10 @@ async function install() {
   if (!bot) throw new Error("bot.js did not install window.iqBot");
   clearInterval(bot.timerId);
   bot.config.upkeep = false;
+  bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say };
+  return { bot, events, say, recruited };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -88,3 +94,22 @@ test("a party member's death wakes an attached script, a pet's does not", async 
     ["Kekab has been slain!", false],
   ]);
 });
+
+test("frequent waits for an enemy raise a crowded alert, a few do not", async () => {
+  const few = await install();
+  for (let k = 0; k < 5; k++) few.say("Waiting for an available enemy. AutoLevel will try again shortly.");
+  await few.bot.tick();
+  expect(few.bot.state.alerts.map((a) => a.kind)).not.toContain("crowded");
+
+  const many = await install();
+  for (let k = 0; k < 6; k++) many.say("Waiting for an available enemy. AutoLevel will try again shortly.");
+  await many.bot.tick();
+  expect(many.bot.state.alerts.filter((a) => a.kind === "crowded").map((a) => a.wake)).toEqual([true]);
+});
+
+test("account characters missing from the party are asked to rejoin", async () => {
+  const { bot, recruited } = await install([10, 11, 12]);
+  expect(bot.state.alerts.map((a) => a.kind)).toContain("rejoin");
+  await Bun.sleep(5200);
+  expect(recruited).toEqual([11, 12]);
+}, 10000);

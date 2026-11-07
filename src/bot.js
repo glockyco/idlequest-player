@@ -18,7 +18,7 @@
   const DEFAULTS = {
     enabled: true,
     tickSec: 15,
-    restartAfterSec: 120, // AutoLevel off this long while not paused: start it again
+    restartAfterSec: 60, // AutoLevel off this long while not paused: start it again (manual movement input cancels it)
     defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
     minFreeSlots: 8, // start selling surplus copies below this many free bag slots
     targetFreeSlots: 16, // and stop once this many are free
@@ -32,6 +32,8 @@
     nukeGems: 2, // direct-damage spells to keep memorized
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
+    partyIds: [], // account characters to keep in the party; a login starts with none of them
+    crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes raises an alert
   };
   let saved = {};
   try {
@@ -58,6 +60,9 @@
     stallAlerted: false,
     lootFails: [], // times of "could not loot" messages
     lootAlertAt: 0,
+    enemyWaits: [], // times of "Waiting for an available enemy"
+    crowdAlertAt: 0,
+    rejoinAt: 0,
     zone: null,
     lastError: null,
     upkeepDue: false, // set by level-ups, spell purchases and every install
@@ -224,6 +229,7 @@
         const who = m?.[1] ?? "You";
         alert("death", text, who === "You" || names.has(who));
       } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
+      else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
       else if (e.type === "guard" && /tightening|moving to|did NOT restart|failed/.test(text)) alert("guard", text, true);
     }
   };
@@ -294,6 +300,29 @@
       state.offlineAlerted = true;
       alert("offline", `not in the game world for over a minute (screen ${i.stores.screen.getState().currentScreen}, connected ${i.socket.isConnected})`, true);
     }
+  };
+
+  // Other players clearing the same spawns leave AutoLevel waiting for enemies.
+  const watchCrowding = (i) => {
+    state.enemyWaits = state.enemyWaits.filter((t) => t > now() - 600000);
+    if (state.enemyWaits.length >= config.crowdedWaits && now() - state.crowdAlertAt > 1800000) {
+      state.crowdAlertAt = now();
+      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === i.stores.combat.getState().currentZone);
+      alert("crowded", `AutoLevel waited for an available enemy ${state.enemyWaits.length} times in 10 minutes in ${z?.longName ?? "this zone"}`, true);
+    }
+  };
+
+  // After a login or reload the party holds no account characters, and AutoLevel would hunt alone.
+  const keepParty = (i) => {
+    if (!config.partyIds.length || i.stores.skills.getState().inCombat || now() - state.rejoinAt < 120000) return;
+    const cs = i.stores.companions.getState();
+    const present = new Set((cs.companions ?? []).filter((c) => c.companionType === 2).map((c) => c.characterId));
+    const missing = config.partyIds.filter((id) => !present.has(id));
+    if (!missing.length) return;
+    state.rejoinAt = now();
+    cs.requestAccountCharacterAvailability();
+    missing.forEach((id, k) => setTimeout(() => i.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
+    alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
 
   const watchZone = (i, cb) => {
@@ -443,6 +472,8 @@
       watchZone(i, cb);
       await watchCursor(i);
       watchLoot(i);
+      watchCrowding(i);
+      keepParty(i);
       watchXp(i, cb);
       keepAutoLevel(i, cb);
       watchMemory();
