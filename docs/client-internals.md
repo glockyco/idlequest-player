@@ -57,6 +57,18 @@ as `castSpellAtSelectedTarget` and `getAliveCombatTargetList`.
   (dispel `levelModifier` added to the caster's level, minus one). Against same-level or higher
   casters most attempts fail. `analyze.mjs` reports waits with cure or dispel casts separately
   ("Between pulls").
+- Roots between pulls: the readiness wait reads each member's and pet's active effects from the
+  effects registry (`l.getEffects(entityId).active`, entity ids `character:<id>` and
+  `pet:<owner>:<name>`), and `cm({effects})` classifies them. Each effect carries `spellId`,
+  `casterLevel` and `expiresAtMs`, so the remaining root time and the dispel chance are known in
+  advance. The bot uses this to turn cures on only for roots worth dispelling (`dispelRoots`).
+- Auto Attack and AutoLevel: AutoLevel's pulls (`startSpatialCombat`) do not start the fight on
+  arrival by themselves. The target approach starts it only while Auto Attack is on, and otherwise
+  stands in phase `waiting-to-attack` without a timeout. The client turns Auto Attack off when every
+  enemy left in a fight is mezzed (`adoptActiveEncounterForAutoLevel`, because
+  `canAutomaticallyFocusNpc` excludes mezzed enemies) and does not turn it back on, so after an
+  Enchanter mezzed the adds the next pull stood still until something pressed Auto Attack. The bot
+  presses it (`attackSelectedTarget`, the button's handler) when a pull waits like that.
 - Direct starts skip the gate: `castSpellAtSelectedTarget(gem)` (a manual spell cast, mode
   `manual-spell`) and `commandPetAttackSelectedTarget()` (mode `pet-command`) call
   `startCombatWithEntity` directly. The companions then assist the player's target with their own

@@ -12,12 +12,14 @@
 (() => {
   const prev = window.iqBot;
   if (prev?.timerId) clearInterval(prev.timerId);
+  if (prev?.fastTimerId) clearInterval(prev.fastTimerId);
 
   // Settings changed with `set` are saved in localStorage and override these defaults.
   const KEY = "iqBot.config";
   const DEFAULTS = {
     enabled: true,
     tickSec: 15,
+    fastTickSec: 2, // Auto Attack and root checks, which lose play time for every second they wait
     restartAfterSec: 60, // AutoLevel off this long while not paused: start it again (manual movement input cancels it)
     defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
     minFreeSlots: 8, // start selling surplus copies below this many free bag slots
@@ -36,6 +38,11 @@
     stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
     routeStuckSec: 8, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
     readyStuckSec: 30, // "Waiting for party to be ready" this long with everyone full: restart AutoLevel
+    attackWaitSec: 3, // a pull standing at its target with Auto Attack off this long: turn it on
+    dispelRoots: true, // dispel a root that holds the readiness wait when that saves time (dispelRoots)
+    dispelCycleSec: 9, // seconds between one member's dispel attempts between fights
+    dispelOverheadSec: 6, // the extra pass and mana refill a dispel costs the readiness wait
+    dispelMinSavedSec: 10, // turn dispels on only when they are expected to save this much
     upkeep: true, // after a level-up or new spells, memorize the best spells and replace older pets
     nukeGems: 2, // direct-damage spells to keep memorized
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
@@ -96,6 +103,8 @@
   const now = () => Date.now();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const iq = () => window.iq;
+  // The client's game runtime: combat scene, target approach and the Auto Attack button's handler.
+  const runtime = (i) => Object.values(i.mods ?? {}).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
 
   const log = (text) => {
     state.actions.push({ t: now(), text });
@@ -370,10 +379,102 @@
   // lasts a little over two ticks and is renewed while the setting is on.
   const avoidTargets = (i) => {
     if (!config.avoidNames) return;
-    const rt = Object.values(i.mods ?? {}).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
+    const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
     const re = new RegExp(config.avoidNames, "i");
     for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) if (re.test(t.name ?? "")) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+  };
+
+  // The client turns Auto Attack off when every enemy left in a fight is mezzed, so the player
+  // does not wake them (`adoptActiveEncounterForAutoLevel`: no enemy passes
+  // `canAutomaticallyFocusNpc`). Nothing turns it back on, and AutoLevel's next pull then stands
+  // at its target in the approach phase "waiting-to-attack", which has no timeout. Once the
+  // fight is over and a pull waits like that, press Auto Attack as a player would.
+  const keepAutoAttack = (i, cb) => {
+    const rt = runtime(i);
+    const attempt = rt?.combatApproach?.attempt;
+    if (!cb.isRunning || cb.isAutoAttackEnabled || attempt?.phase !== "waiting-to-attack") {
+      state.attackWaitAt = null;
+      return;
+    }
+    state.attackWaitAt ??= now();
+    if (now() - state.attackWaitAt < config.attackWaitSec * 1000) return;
+    state.attackWaitAt = null;
+    const target = cb.targetNPC;
+    if (target?.spawnInstanceId === attempt.spawnInstanceId && typeof rt.attackSelectedTarget === "function") rt.attackSelectedTarget();
+    else rt.setAutoAttackEnabled?.(true);
+    alert("autoAttack", `AutoLevel stood at ${target?.name?.replace(/_/g, " ") ?? "its target"} with Auto Attack off; turned it on`);
+  };
+
+  // ---- Dispelling roots that outlast a fight ---------------------------------------------------
+  // Between pulls the readiness wait stands still while a member or pet is rooted, and a pass
+  // that casts a cure or dispel holds it one pass longer, so cures stay off (docs/guide.md). A
+  // root can outlast the fight by a minute or more, though. Out of combat with AutoLevel running,
+  // the bot turns the cure tactic on for the members who know a dispel, but only when the root's
+  // remaining time exceeds the expected time to dispel it by `dispelMinSavedSec`. A dispel
+  // succeeds with 32% plus 7% per level the caster is above the root's caster, or minus 2% per
+  // level below, clamped to 10-100% (docs/client-internals.md). The cure tactic goes back to its
+  // previous value as soon as the root is gone, a fight starts, AutoLevel stops, or the expected
+  // time has passed three times over.
+  const DISPELS = { 48: "Cancel Magic", 727: "Alenia's Disenchanting Melody" };
+  const effectsModule = (i) => Object.values(i.mods ?? {}).find((m) => typeof m?.l?.getEffects === "function" && typeof m.cm === "function");
+  const partyRoots = (i) => {
+    const fx = effectsModule(i);
+    if (!fx) return [];
+    const recs = fx.l.records;
+    const ids = recs instanceof Map ? [...recs.keys()] : Object.keys(recs ?? {});
+    const out = [];
+    for (const id of ids) {
+      if (!/^(character|pet):/.test(id)) continue;
+      // Runtime roots carry `remainingTicks` (6 s each) and an `effectId` that repeats for the same spell.
+      for (const e of fx.l.getEffects(id)?.active ?? []) if (fx.cm({ effects: [e] }).isRooted) out.push({ id, app: e.applicationId ?? `${id}|${e.effectId}`, spellId: e.spellId, casterLevel: e.casterLevel ?? 0, endsAt: e.expiresAtMs ?? now() + (e.remainingTicks ?? 0) * 6000 });
+    }
+    return out;
+  };
+  const dispelChance = (level, rootCaster) => {
+    const d = level - rootCaster;
+    return Math.min(100, Math.max(10, 32 + (d > 0 ? 7 * d : 2 * d))) / 100;
+  };
+  const dispellers = (i) => {
+    const cs = i.stores.companions.getState();
+    return (cs.companions ?? [])
+      .filter((c) => c.companionType === 2)
+      .map((c) => ({ c, d: cs.botCombatDataMap?.[c.id] }))
+      .filter(({ d }) => d && d.curHp > 0 && (d.scribedSpellIds ?? []).some((s) => DISPELS[s]))
+      .map(({ c, d }) => ({ name: c.name, key: `character:${c.characterId}`, level: d.level ?? c.level }));
+  };
+  const dispelRoots = (i, cb) => {
+    if (!config.dispelRoots || typeof i.setTactic !== "function") return;
+    state.dispelSkip ??= [];
+    const fighting = i.stores.skills.getState().inCombat;
+    const roots = partyRoots(i);
+    const run = state.dispel;
+    if (run) {
+      const gone = !roots.some((r) => r.app === run.app);
+      const stop = gone ? "gone" : fighting ? "a fight started" : !cb.isRunning ? "AutoLevel stopped" : now() - run.at > run.giveUpMs ? "no dispel landed in time" : null;
+      if (!stop) return;
+      for (const w of run.who) i.setTactic(w.name, "cure", w.prev ?? false);
+      state.dispel = null;
+      const took = Math.round((now() - run.at) / 1000);
+      const left = Math.max(0, Math.round((run.endsAt - now()) / 1000));
+      if (stop !== "gone") state.dispelSkip = [...state.dispelSkip.filter((s) => s.until > now()).slice(-20), { app: run.app, until: run.endsAt }];
+      alert("dispel", stop === "gone" ? `root on ${run.target} gone after ${took}s with ${left}s of it left; cures back off` : `stopped after ${took}s (${stop}) with ${left}s of the root left; cures back off`);
+      return;
+    }
+    if (fighting || !cb.isRunning || !roots.length) return;
+    const root = roots.reduce((a, b) => (b.endsAt > a.endsAt ? b : a));
+    if (state.dispelSkip.some((s) => s.app === root.app && s.until > now())) return;
+    const casters = dispellers(i);
+    if (!casters.length) return;
+    const miss = casters.reduce((m, c) => m * (1 - dispelChance(c.level, root.casterLevel)), 1);
+    const expected = config.dispelCycleSec / (1 - miss) + config.dispelOverheadSec;
+    const left = (root.endsAt - now()) / 1000;
+    if (left - expected < config.dispelMinSavedSec) return;
+    const overrides = i.stores.partySpells?.getState?.().overridesByCompanion ?? {};
+    const who = casters.map((c) => ({ name: c.name, prev: overrides[c.key]?.cure }));
+    for (const w of who) i.setTactic(w.name, "cure", true);
+    state.dispel = { app: root.app, target: root.id, at: now(), endsAt: root.endsAt, giveUpMs: Math.min(left, 3 * expected) * 1000, who };
+    alert("dispel", `${root.id} rooted (spell ${root.spellId}, caster level ${root.casterLevel}) with ${Math.round(left)}s left between fights; cures on for ${casters.map((c) => c.name).join(", ")}, expected ${Math.round(expected)}s`);
   };
 
   const watchConnection = (i) => {
@@ -660,11 +761,33 @@
     }
   };
 
+  // Checks of the fight state that cost time for every second they wait: a pull standing with
+  // Auto Attack off and a root holding the readiness wait.
+  const fastTick = () => {
+    if (!config.enabled) return;
+    try {
+      const i = iq();
+      if (!i?.stores) return;
+      const cb = i.stores.combat.getState();
+      if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading) return;
+      keepAutoAttack(i, cb);
+      dispelRoots(i, cb);
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      if (state.lastFastError !== msg) log(`fast tick failed: ${msg}`);
+      state.lastFastError = msg;
+    }
+  };
+
   const bot = {
     config,
     state,
     timerId: setInterval(tick, config.tickSec * 1000),
+    fastTimerId: setInterval(fastTick, config.fastTickSec * 1000),
     tick,
+    fastTick,
+    /** Roots on party members and pets with their end times, and who could dispel them. */
+    roots: () => ({ roots: partyRoots(iq()), dispellers: dispellers(iq()) }),
     /** What the next cleanup would sell, in order: extra copies, then cheap single items. */
     surplus: () => surplus(iq(), true),
     /** The gems the upkeep would set: best summon, direct-damage spells and pet heal, in gem order. */
@@ -690,6 +813,10 @@
       if ("tickSec" in partial) {
         clearInterval(bot.timerId);
         bot.timerId = setInterval(tick, config.tickSec * 1000);
+      }
+      if ("fastTickSec" in partial) {
+        clearInterval(bot.fastTimerId);
+        bot.fastTimerId = setInterval(fastTick, config.fastTickSec * 1000);
       }
       return config;
     },

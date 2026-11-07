@@ -15,9 +15,11 @@ interface Alert {
 }
 interface Bot {
   timerId: Timer;
+  fastTimerId: Timer;
   config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
   state: { alerts: Alert[] };
   tick(): Promise<void>;
+  fastTick(): void;
   surplus(): { name: string }[];
 }
 interface FakeGlobals {
@@ -34,6 +36,13 @@ async function install(partyIds: number[] = []) {
   // The active character and one companion, at full HP and mana unless a test changes them.
   const me = { id: 1, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 }, curHp: 300, maxHp: 300, mana: 200, maxMana: 200 };
   const tank = { name: "Tagujazolu", companionType: 2, characterId: 10, curHp: 500, maxHp: 500, curMana: 0, maxMana: 0 };
+  // An enchanter who knows Cancel Magic, at full HP and mana.
+  const ench = { id: "character-20", name: "Edroun", companionType: 2, characterId: 20, level: 22, curHp: 200, maxHp: 200, curMana: 300, maxMana: 300 };
+  // Active effects by entity id, as the client's effects registry holds them; `root` marks a root.
+  const effects = new Map<string, { effectId: string; spellId: number; casterLevel: number; remainingTicks: number; root: boolean }[]>();
+  const skills = { inCombat: false };
+  // Tactic changes the bot made, as [who, key, value].
+  const tactics: [string, string, unknown][] = [];
   const autoLevel = { stops: 0, starts: 0 };
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
@@ -52,6 +61,18 @@ async function install(partyIds: number[] = []) {
     setMinCon: (v: number) => { combat.minCon = v; },
     setMaxCon: (v: number) => { combat.maxCon = v; },
     setMaxLevelDiff: (v: number) => { combat.maxLevelDiff = v; },
+    isAutoAttackEnabled: true,
+    targetNPC: null as { spawnInstanceId: number; name: string } | null,
+  };
+  // The game runtime: the target approach of AutoLevel's current pull and the Auto Attack button.
+  const runtime = {
+    combatScene: { getAliveCombatTargetList: () => [] },
+    combatApproach: { attempt: null as { phase: string; spawnInstanceId: number } | null },
+    presses: 0,
+    attackSelectedTarget: () => {
+      runtime.presses++;
+      combat.isAutoAttackEnabled = true;
+    },
   };
   const zones = [
     { shortName: "guktop", longName: "The City of Guk", zoneidnumber: 65 },
@@ -76,33 +97,43 @@ async function install(partyIds: number[] = []) {
       combat.currentZone = zones.find((z) => z.shortName === shortName)?.zoneidnumber ?? combat.currentZone;
       return shortName;
     },
-    mods: {},
+    mods: {
+      game: { G: { getInstance: () => runtime } },
+      effects: {
+        l: { records: effects, getEffects: (id: string) => ({ active: effects.get(id) ?? [] }) },
+        cm: ({ effects: list }: { effects: { root: boolean }[] }) => ({ isRooted: list.some((e) => e.root) }),
+      },
+    },
+    setTactic: (who: string, key: string, value: unknown) => tactics.push([who, key, value]),
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
     stores: {
       character: store({ characterProfile: me }),
       companions: store({
-        companions: [tank],
+        companions: [tank, ench],
+        botCombatDataMap: { "character-20": { level: 22, curHp: 200, scribedSpellIds: [48] } },
         requestAccountCharacterAvailability: () => {},
         controlAccountCharacter: (id: number) => recruited.push(id),
       }),
       combat: store(combat),
       screen: store({ currentScreen: "game" }),
       staticData: store({ zones }),
-      skills: store({ inCombat: false }),
+      skills: store(skills),
       spellbook: store({ scribedSpells: [], memorizedSpells: [] }),
+      partySpells: store({ overridesByCompanion: { "character:20": { cure: false } } }),
     },
   };
   eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
   const bot = g.iqBot;
   if (!bot) throw new Error("bot.js did not install window.iqBot");
   clearInterval(bot.timerId);
+  clearInterval(bot.fastTimerId);
   bot.config.upkeep = false;
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves };
+  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, effects, skills, tactics };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -259,6 +290,77 @@ test("rotation moves on from an empty zone and from one whose XP rate fell", asy
     vi.advanceTimersByTime(11 * 60000); // nothing killed since
     await dry.bot.tick();
     expect(dry.moves).toEqual(["permafrost"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a pull standing at its target with Auto Attack off gets Auto Attack, and only such a pull", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bot, combat, runtime } = await install();
+    combat.isAutoAttackEnabled = false;
+    combat.targetNPC = { spawnInstanceId: 557, name: "a_goblin_archeologist" };
+    const waitFor = async (sec: number) => {
+      bot.fastTick();
+      vi.advanceTimersByTime(sec * 1000);
+      bot.fastTick();
+    };
+
+    // Still walking to the target: the client starts the fight on arrival by itself.
+    runtime.combatApproach.attempt = { phase: "approaching", spawnInstanceId: 557 };
+    await waitFor(10);
+    // Standing at the target while AutoLevel is stopped: a player's choice.
+    runtime.combatApproach.attempt = { phase: "waiting-to-attack", spawnInstanceId: 557 };
+    combat.isRunning = false;
+    await waitFor(10);
+    expect(runtime.presses).toBe(0);
+
+    // AutoLevel running and the pull standing at its target: press once, after attackWaitSec.
+    combat.isRunning = true;
+    await waitFor(1);
+    expect(runtime.presses).toBe(0);
+    await waitFor(3);
+    expect(runtime.presses).toBe(1);
+    await waitFor(10);
+    expect(runtime.presses).toBe(1);
+    expect(bot.state.alerts.filter((a) => a.kind === "autoAttack").length).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a root that outlasts a fight is dispelled only when that saves time, and cures go back off", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bot, effects, skills, tactics } = await install();
+    // The live client's runtime root: 6-second ticks left and an id that repeats for the same spell.
+    const root = (sec: number) => effects.set("pet:1:pet", [{ effectId: "runtime:root:230:unknown:0", spellId: 230, casterLevel: 22, remainingTicks: sec / 6, root: true }]);
+
+    // 32% per attempt at equal levels: about 28 s plus the overhead to dispel, so 20 s left is not worth it.
+    root(18);
+    bot.fastTick();
+    // A long root during a fight: dispels in combat would only cost casts.
+    root(120);
+    skills.inCombat = true;
+    bot.fastTick();
+    expect(tactics).toEqual([]);
+
+    // The fight ends with 120 s of root left: cures on, then back to their previous value once it is gone.
+    skills.inCombat = false;
+    bot.fastTick();
+    expect(tactics).toEqual([["Edroun", "cure", true]]);
+    effects.delete("pet:1:pet");
+    bot.fastTick();
+    expect(tactics.at(-1)).toEqual(["Edroun", "cure", false]);
+
+    // A new pull starts before the dispel lands: cures go back off at once.
+    root(120);
+    bot.fastTick();
+    skills.inCombat = true;
+    bot.fastTick();
+    expect(tactics.slice(-2)).toEqual([["Edroun", "cure", true], ["Edroun", "cure", false]]);
+    expect(bot.state.alerts.filter((a) => a.kind === "dispel").length).toBe(4);
   } finally {
     vi.useRealTimers();
   }
