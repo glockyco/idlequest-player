@@ -56,6 +56,7 @@
     rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
+    autoBandRotation: true, // update `rotation` from BAND_ROTATIONS when the leader enters a new level band
   };
   let saved = {};
   try {
@@ -179,7 +180,8 @@
     }
     const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
     const keepName = new RegExp(config.keepNamePattern, "i");
-    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "");
+    const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
+    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "");
     const extra = [];
     const single = [];
     for (const [id, rows] of groups) {
@@ -264,7 +266,9 @@
       const text = e.text ?? "";
       let m;
       if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) {
+        const lvl = Number(m[1]);
         alert("levelUp", text, true);
+        applyBandRotation(lvl);
         // The game reminds about missing merchant spells right after a level-up and the chore buys
         // them, so give that a minute before choosing gems.
         state.upkeepDue = true;
@@ -279,7 +283,7 @@
         alert("death", text, who === "You" || names.has(who));
       } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
       else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
-      else if (/^No usable route\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
+      else if (/^(No usable route|Route blocked)\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
       else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
       else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
       else if (/^No available enemies found in this zone/.test(text)) state.noEnemies.push(e.t ?? now());
@@ -329,8 +333,16 @@
 
   const partyFull = (i) => {
     const p = i.stores.character.getState().characterProfile ?? {};
+    const cs = i.stores.companions.getState();
     const full = (hp, maxHp, mana, maxMana) => hp >= maxHp && (!(maxMana > 0) || mana >= maxMana);
-    return full(p.curHp, p.maxHp, p.mana, p.maxMana) && (i.stores.companions.getState().companions ?? []).every((c) => c.isDead || full(c.curHp, c.maxHp, c.curMana, c.maxMana));
+    return (
+      full(p.curHp, p.maxHp, p.mana, p.maxMana) &&
+      (cs.companions ?? []).every((c) => {
+        if (c.isDead) return true;
+        const d = cs.botCombatDataMap?.[c.id];
+        return full(d?.curHp ?? c.curHp, d?.maxHp ?? c.maxHp, d?.curMana ?? c.curMana, d?.maxMana ?? c.maxMana);
+      })
+    );
   };
 
   const watchXp = (i, cb) => {
@@ -360,7 +372,7 @@
     }
     // AutoLevel waits for full HP and mana before each pull. Waiting on with everyone full is the
     // same kind of hang.
-    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && partyFull(i)) {
+    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && partyFull(i) && !partyRoots(i).length) {
       restart(`waited ${Math.round((now() - state.readyWaitAt) / 1000)}s for a party that was already full`);
       return;
     }
@@ -382,8 +394,15 @@
     if (!config.avoidNames) return;
     const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
-    const re = new RegExp(config.avoidNames, "i");
+    const re = new RegExp(config.avoidNames.replace(/[ _]/g, "[ _]"), "i");
     for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) if (re.test(t.name ?? "")) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+    const cb = i.stores.combat.getState();
+    const tgt = cb.targetNPC;
+    if (cb.isRunning && !i.stores.skills?.getState?.().inCombat && tgt?.spawnInstanceId && re.test(tgt.name ?? "")) {
+      rt.deferAutoLevelSpawn(tgt.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+      cb.setIsRunning(false);
+      setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 500);
+    }
   };
 
   // The client turns Auto Attack off when every enemy left in a fight is mezzed, so the player
@@ -598,6 +617,26 @@
   // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
   // next one when "No available enemies" persists, or when the last 10 minutes earned less than
   // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
+  const BAND_ROTATIONS = [
+    [46, ["velketor", "sebilis", "chardok"]],
+    [41, ["velketor", "chardok", "sebilis"]],
+    [38, ["frozenshadow", "crystal", "citymist"]],
+    [34, ["crystal", "frozenshadow", "kaesora"]],
+    [31, ["soldunga", "crystal", "kaesora"]],
+    [28, ["unrest", "soldunga", "paw"]],
+    [26, ["permafrost", "paw", "unrest"]],
+    [22, ["permafrost", "runnyeye", "guktop"]],
+  ];
+  const applyBandRotation = (lvl) => {
+    if (!config.autoBandRotation || !(config.rotation ?? []).length) return;
+    const band = BAND_ROTATIONS.find(([min]) => lvl >= min)?.[1];
+    if (band && JSON.stringify(band) !== JSON.stringify(config.rotation)) {
+      config.rotation = [...band];
+      saved.rotation = [...band];
+      localStorage.setItem(KEY, JSON.stringify(saved));
+      log(`updated rotation for level ${lvl}: ${band.join(", ")}`);
+    }
+  };
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
   const nextZone = (i) => {
     const list = config.rotation ?? [];
@@ -731,6 +770,9 @@
           done.push(`gem ${c.gem} ${c.name}${ok ? "" : " FAILED"}`);
           await sleep(400);
         }
+        for (const m of sb().memorizedSpells ?? []) {
+          if (m.gemSlot >= plan.length) await sb().unmemorizeSpell(m.gemSlot);
+        }
         if (cb().isSpellbookOpen) cb().toggleSpellbook();
         cb().setPlayerSitting(false);
       }
@@ -826,6 +868,7 @@
       if (!i?.stores) return;
       const cb = i.stores.combat.getState();
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading) return;
+      avoidTargets(i);
       keepAutoAttack(i, cb);
       dispelRoots(i, cb);
     } catch (e) {
