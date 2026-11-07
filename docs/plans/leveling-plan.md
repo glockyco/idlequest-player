@@ -14,15 +14,17 @@ Consequences:
 
 ## Levers, ranked
 
-| Rank | Lever | Status |
-| ---: | --- | --- |
-| 1 | Keep the game running and looting. AutoLevel off or full bags cost hours of progress while nobody watched. | Done: the in-page bot keeps AutoLevel on, sells surplus copies and raises alerts. |
-| 2 | Keep the game tab visible. In Crushbone, kills took a median 46-54 s from 03:00 to 06:00 UTC and 13-15 s in the late-evening and morning blocks, and XP per hour moved between about 205k and 560k. Browsers throttle timers in hidden tabs, and the client simulates combat. | Unproven. Samples record visibility now. Compare with `analyze.mjs --vis 1` and `--vis 0`. If it holds, give the game its own browser window and keep the display awake while unattended. |
-| 3 | Memorize the best spells and replace pets after each unlock. A living pet is kept after level-ups, and the active character casts only memorized spells. | Done once at 14: Domeyafun's pet went from level 9 to 13, his nuke from 5 to 35 damage, Edroun's pet from level 5 to 12. To automate in the bot. |
-| 4 | Harder targets and the zone multiplier, chosen by measured XP per hour with the guard on. | Next: see the zone table and experiments. |
-| 5 | Gear from loot. Auto-Upgrade and Auto-Upgrade Companions are on. Equip instruments by hand: they work only when equipped. | Next: equip a Minotaur Horn on Ugfeu, buy the missing instrument families. |
-| 6 | Platinum. Raid time and each AA rank cost about 2,000 pp, so income matters from level 46. | Later: the bot sells surplus without the courier fee. Compare loot value per kill when choosing zones. |
-| 7 | Epic steps while leveling. Najena, Solusek's Eye, Unrest, Mistmoore and Kedge hold Magician epic items and steps of other roster epics. | Later: prefer these zones when their XP per hour is close. |
+Time is the scarce resource. Each level takes about 47 minutes, so a lever is worth what it saves over the remaining levels, and a change worth a few percent is not worth the time to test it. Re-check the top levers at every second level.
+
+| Rank | Lever | Expected effect | Status |
+| ---: | --- | --- | --- |
+| 1 | Zone and target band for the current level, alternating zones as reachable spawns run out. | Large: 1.0M XP/h in Kurn's Tower at 18, 1.6M in Guk at 21, 1.95M in Permafrost at 22. | The bot rotates between the zones in its `rotation` setting. Choose them per level band from `tools/zones.mjs` and measured rates. |
+| 2 | A second session playing a second group. | Doubles account XP per hour if the server allows it. | Blocked: needs a sign-in in a second window. |
+| 3 | Keep the game tab visible. | Possibly 3-4 times: kills took 46-54 s at night against 13-15 s by day in Crushbone. | Unproven. Samples record visibility; compare `analyze.mjs --vis 1` and `--vis 0` once a hidden stretch exists. |
+| 4 | Keep the party from standing still: hung route recoveries, readiness waits, cures that fail, root casters. | Up to a tenth of the time each. | The bot restarts hung waits; cures are off for the support casters; `avoidNames` skips root casters. |
+| 5 | Damage where it lands. Pets dealt 42% of the party's damage at 20-21, the Bard 15%, the Warrior 12.5%. | A better weapon helps by its owner's share only. | Pet tiers come at 24, 29 and 34 by themselves. Weapon and gear priorities are in the upgrades research. |
+| 6 | Epic steps while leveling. | Saves dedicated trips later. | From 29, prefer zones that drop Magician epic pieces when their rate is close. |
+| 7 | Platinum. | Matters from 46 (raid time, AA). | About 300 pp an hour from loot; the bot sells cheap single items. |
 
 ## Zone candidates
 
@@ -65,21 +67,12 @@ Each Magician summon uses one Malachite. Keep a stack, and buy more from Hanlore
 - Clicky buffs never expire in IdleQuest, so one click item gives a permanent effect. The haste items the snapshot supports drop from level 38 to 47 enemies.
 - Skip camps the snapshot cannot support: Sporali Gloves and Journeyman's Boots have zero spawn weight, and Manastone has no spawning source.
 
-## Experiments
+## Measuring
 
-Each runs as labelled blocks of 10 to 15 minutes in the order A, B, A, B at one level and zone, with the setting checked in the event log. A level-up ends a block.
-
-| Order | Labels | Question |
-| ---: | --- | --- |
-| 1 | `E-vis-front`, `E-vis-back` | Does a hidden tab slow combat? Compare kill time and XP per hour. |
-| 2 | `E-nuke-on`, `E-nuke-off` for Domeyafun | Do the new nukes speed kills more than their mana slows recovery? |
-| 3 | `E-con13`, `E-con15` | Do yellow targets pay more per hour than they cost in recovery and risk? |
-| 4 | `E-zone-crush`, `E-zone-kurn` at 16 | Is Kurn's Tower faster than Crushbone, counting travel? |
-| 5 | `E-tactics-roles`, `E-tactics-damage` | Does keeping support casters off nukes still pay with their current spells? |
+Measure during normal play: label the blocks and compare them with `analyze.mjs`. Two 10-minute blocks with the same setting differ by up to 15%, so a dedicated A/B test is worth its time only when the expected effect is larger than that and a decision depends on it. Prefer reading the cause from the analyzer (between-pull waits, recovery limiter, damage by source, escapes) over comparing XP per hour.
 
 ## Bot roadmap
 
-1. Done: AutoLevel keeper with pause deadlines, surplus sale, cursor watch, alerts, `watch` for cheap supervision.
-2. Next: at each level-up, memorize the best summon and nukes and replace an older pet, out of combat.
-3. Then: move to the next zone from this table when the level band is reached and a live scout passed, with the guard's retreat as the fallback.
-4. Then: equip hand-down gear and instruments, track platinum per hour, and bound paid death restarts.
+1. Done: AutoLevel keeper with pause deadlines, restarts after hung route recoveries and readiness waits, bag cleanup with Auto Bank, cursor watch, party rejoin, spells and pets after level-ups, zone rotation, target skipping, alerts and `watch`.
+2. Next: choose the rotation zones from this plan by level, so a level band change needs no agent.
+3. Then: hand weapons and gear to the party member who gains most, and never sell an item that is an upgrade for someone.
