@@ -167,7 +167,7 @@ export async function attach(tab) {
         maxLevelDiff ?? null,
       );
       await tab.click('role/button[name="AutoLevel" exact]');
-      await sleep(1500);
+      await tab.waitForSelector('role/button[name="Start" exact]', { timeout: 10000 });
       await tab.click('role/button[name="Start" exact]');
       await sleep(2000);
       return (await handle.status()).autoLevel;
@@ -201,8 +201,8 @@ export async function attach(tab) {
       await handle.clearWindows();
       await tab.click('role/button[name="Travel" exact]');
       await sleep(1200);
-      await tab.type("placeholder/Search travel destinations", zoneName);
-      await sleep(800);
+      await tab.fill("placeholder/Search travel destinations", zoneName);
+      await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: 10000 });
       await tab.click(`role/button[name="${zoneName}" exact]`);
       const t0 = Date.now();
       for (;;) {
