@@ -37,6 +37,22 @@ async function install(partyIds: number[] = []) {
   const autoLevel = { stops: 0, starts: 0 };
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
+  // AutoLevel's limits and the guard's tightening memory, which some tests change.
+  const guard: { phase: string; preferred: { minCon: number; maxCon: number; maxLevelDiff: number } | null } = { phase: "watching", preferred: null };
+  const combat = {
+    isRunning: true,
+    isZoneLoading: false,
+    currentZone: 58,
+    noAutoSellBagInstanceIds: [],
+    minCon: 4,
+    maxCon: 13,
+    maxLevelDiff: 5,
+    setIsRunning: (on: boolean) => { if (!on) autoLevel.stops++; },
+    startAutoLevel: () => autoLevel.starts++,
+    setMinCon: (v: number) => { combat.minCon = v; },
+    setMaxCon: (v: number) => { combat.maxCon = v; },
+    setMaxLevelDiff: (v: number) => { combat.maxLevelDiff = v; },
+  };
   // bot.js reads the page's globals, so the test provides them on globalThis.
   const g = globalThis as unknown as FakeGlobals;
   g.localStorage = { getItem: () => null, setItem: () => {} };
@@ -49,7 +65,7 @@ async function install(partyIds: number[] = []) {
     samples: [],
     kills: [],
     mods: {},
-    guard: { phase: "watching" },
+    guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
     stores: {
@@ -59,14 +75,7 @@ async function install(partyIds: number[] = []) {
         requestAccountCharacterAvailability: () => {},
         controlAccountCharacter: (id: number) => recruited.push(id),
       }),
-      combat: store({
-        isRunning: true,
-        isZoneLoading: false,
-        currentZone: 58,
-        noAutoSellBagInstanceIds: [],
-        setIsRunning: (on: boolean) => { if (!on) autoLevel.stops++; },
-        startAutoLevel: () => autoLevel.starts++,
-      }),
+      combat: store(combat),
       screen: store({ currentScreen: "game" }),
       staticData: store({ zones: [] }),
       skills: store({ inCombat: false }),
@@ -81,7 +90,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank };
+  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -190,4 +199,25 @@ test("cleanup sells extra copies first, then cheap singles, and keeps food, rese
   });
   const names = bot.surplus().map((s) => s.name);
   expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer"]);
+});
+
+test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
+  const empty = "No available enemies found in this zone.";
+  const tightened = await install();
+  tightened.guard.preferred = { minCon: 4, maxCon: 13, maxLevelDiff: 5 };
+  Object.assign(tightened.combat, { minCon: 4, maxCon: 15, maxLevelDiff: 2 });
+  for (let k = 0; k < 3; k++) tightened.say(empty);
+  await tightened.bot.tick();
+  expect([tightened.combat.minCon, tightened.combat.maxCon, tightened.combat.maxLevelDiff, tightened.guard.preferred]).toEqual([4, 13, 5, null]);
+
+  const picky = await install();
+  picky.combat.minCon = 10;
+  for (let k = 0; k < 3; k++) picky.say(empty);
+  await picky.bot.tick();
+  expect(picky.combat.minCon).toBe(4);
+
+  const unfit = await install();
+  for (let k = 0; k < 3; k++) unfit.say(empty);
+  await unfit.bot.tick();
+  expect(unfit.bot.state.alerts.filter((a) => a.kind === "noEnemies").map((a) => a.wake)).toEqual([true]);
 });

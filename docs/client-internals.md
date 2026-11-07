@@ -83,12 +83,15 @@ as `castSpellAtSelectedTarget` and `getAliveCombatTargetList`.
 mob is engaged it checks four things: a mob `levelGap` or more levels above the leader, a mob whose
 biggest hit times `hitsToKill` reaches the lowest max HP in the party, a party member newly dead,
 and a Cleric under `healerManaPct` mana while someone is under `healerHpPct` HP. On a trigger it
-stops AutoLevel, changes zone to the current zone (or `retreatZone`), and starts AutoLevel again
-with the same limits. It never leaves AutoLevel stopped. After `escalateAfter` escapes in an hour it
-restarts with `safeLimits` instead, and a quiet hour restores the earlier limits. With
-`fallbackZone` set it moves there after two more escapes at the safe limits. `guardStatus()` shows
-the phase and recent escapes, `setGuard({...})` changes the settings and `testGuard()` forces one
-escape without touching a setting. Each escape is a `guard` line in the event log.
+stops AutoLevel, re-enters the current zone (or changes to `retreatZone` if set), and starts
+AutoLevel again with the same limits, about nine seconds later. After `escalateAfter` escapes in an
+hour, an escape caused by a mob inside AutoLevel's own level range lowers the level cap by one (not
+below `minLevelDiff`), because those pulls are too hard, and a quiet hour restores the earlier
+limits. Escapes from wanderers above the cap change nothing, because lower limits would not keep
+them away. Whether a zone still pays with its escapes is for the measured XP per hour to decide:
+`analyze.mjs` counts escapes and the seconds they cost. `guardStatus()` shows the phase and recent
+escapes, `setGuard({...})` changes the settings and `testGuard()` forces one escape without
+touching a setting. Each escape is a `guard` line in the event log.
 
 ## In-page chores
 

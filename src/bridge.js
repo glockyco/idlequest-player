@@ -254,10 +254,9 @@
       hitsToKill: 3,
       healerManaPct: 10,
       healerHpPct: 50,
-      escalateAfter: 3, // escapes in an hour before the limits are tightened
-      safeLimits: { minCon: 4, maxCon: 15, maxLevelDiff: 2 },
-      retreatZone: "steamfont", // retreat to a safe zone instead of re-entering a dangerous one
-      fallbackZone: null, // short name to move to when escapes continue at the safe limits
+      escalateAfter: 3, // escapes in an hour before the guard gets more careful
+      minLevelDiff: 1, // tightening lowers the level cap one step per escape, not below this
+      retreatZone: null, // short name to leave to, or null to re-enter the current zone
       ...guardPrev?.config,
     },
     phase: "watching", // watching | leaving
@@ -266,10 +265,13 @@
     knownDown: new Set(),
     timerId: null,
   };
+  // Settings an older install carried over that this one no longer reads.
+  delete guard.config.safeLimits;
+  delete guard.config.fallbackZone;
   const guardApi = {
     /** The guard's settings, its phase and the escapes of the last hour. */
     guardStatus: () => ({ config: guard.config, phase: guard.phase, trips: guard.trips }),
-    /** Change guard settings, e.g. `{ levelGap: 6 }`, `{ fallbackZone: "lfaydark" }` or `{ enabled: false }`. */
+    /** Change guard settings, e.g. `{ levelGap: 6 }`, `{ retreatZone: "lfaydark" }` or `{ enabled: false }`. */
     setGuard(partial) {
       Object.assign(guard.config, partial);
       return guard.config;
@@ -297,20 +299,20 @@
     }
     const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
     for (const mob of mobs) {
-      if (mob.level >= p.level + cfg.levelGap) return `level: ${mob.name} L${mob.level} against leader L${p.level}`;
+      if (mob.level >= p.level + cfg.levelGap) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
-      if (maxHit * cfg.hitsToKill >= weakest) return `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`;
+      if (maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
     }
     for (const m of members) {
       if (m.hp > 0) guard.knownDown.delete(m.name);
       else if (!guard.knownDown.has(m.name)) {
         guard.knownDown.add(m.name);
-        return `down: ${m.name} died`;
+        return { reason: `down: ${m.name} died`, mob: mobs[0] };
       }
     }
     const hurt = members.some((m) => m.maxHp && (m.hp / m.maxHp) * 100 < cfg.healerHpPct && m.hp > 0);
     const dry = members.find((m) => m.cls === "Cleric" && m.maxMana && (m.mana / m.maxMana) * 100 < cfg.healerManaPct);
-    if (hurt && dry) return `healer: ${dry.name} has ${dry.mana}/${dry.maxMana} mana`;
+    if (hurt && dry) return { reason: `healer: ${dry.name} has ${dry.mana}/${dry.maxMana} mana`, mob: mobs[0] };
     return null;
   };
   // The game's limit setters overwrite each other (see docs/client-internals.md), so the cap goes
@@ -320,22 +322,23 @@
     cb.setMinCon(l.minCon);
     cb.setMaxLevelDiff(l.maxLevelDiff);
   };
-  const guardLeave = async (reason) => {
+  const guardLeave = async (reason, mob) => {
     const cb = stores.combat.getState();
     const cfg = guard.config;
+    const leader = stores.character.getState().characterProfile.level;
     guard.trips = guard.trips.filter((t) => t.t > Date.now() - 3600000);
     let limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
-    let target = cfg.retreatZone;
-    // Repeated escapes mean this spot or these limits are too hard for the party. Get more careful
-    // and keep playing. First tighten the limits, then move to another zone if one is configured.
-    const looser = limits.maxLevelDiff > cfg.safeLimits.maxLevelDiff || limits.minCon > cfg.safeLimits.minCon;
-    if (guard.trips.length >= cfg.escalateAfter && looser) {
+    const target = cfg.retreatZone;
+    // A mob inside AutoLevel's own level range means our pulls are too hard, and a lower cap
+    // helps. A wanderer far above the cap joins whatever we pull, and lower limits would not keep
+    // it away, so escaping is all the guard does about those. Whether the zone still pays is for
+    // the measured XP per hour to decide (`analyze.mjs` counts escapes and their cost), not the
+    // guard. Absolute "safe" limits do not work across levels: they can leave nothing to fight.
+    const ownPull = mob && mob.level <= leader + limits.maxLevelDiff;
+    if (ownPull && guard.trips.length >= cfg.escalateAfter && limits.maxLevelDiff > cfg.minLevelDiff) {
       guard.preferred ??= { ...limits };
-      limits = { ...cfg.safeLimits };
-      guardNote(`${guard.trips.length} escapes in the last hour, tightening AutoLevel to con ${limits.minCon}..${limits.maxCon}, cap ${limits.maxLevelDiff}`);
-    } else if (guard.trips.length >= cfg.escalateAfter + 2 && cfg.fallbackZone) {
-      target = cfg.fallbackZone;
-      guardNote(`${guard.trips.length} escapes in the last hour even at the safe limits, moving to ${target}`);
+      limits = { ...limits, maxLevelDiff: limits.maxLevelDiff - 1 };
+      guardNote(`${guard.trips.length} escapes in the last hour, lowering the AutoLevel cap to ${limits.maxLevelDiff}`);
     }
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
@@ -368,10 +371,10 @@
     const cbNow = stores.combat.getState();
     if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading) return;
     // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
-    const reason = guard.force ?? guardDanger();
+    const danger = guard.force ? { reason: guard.force } : guardDanger();
     guard.force = null;
-    if (reason) {
-      guardLeave(reason);
+    if (danger) {
+      guardLeave(danger.reason, danger.mob);
       return;
     }
     // A quiet hour after the limits were tightened: go back to the limits that were in use before.

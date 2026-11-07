@@ -70,6 +70,8 @@
     lootAlertAt: 0,
     enemyWaits: [], // times of "Waiting for an available enemy"
     crowdAlertAt: 0,
+    noEnemies: [], // times of "No available enemies found in this zone"
+    noEnemiesAlertAt: 0,
     rejoinAt: 0,
     zone: null,
     lastError: null,
@@ -264,7 +266,8 @@
       else if (/^No usable route\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
       else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
       else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
-      else if (e.type === "guard" && /tightening|moving to|did NOT restart|failed/.test(text)) alert("guard", text, true);
+      else if (/^No available enemies found in this zone/.test(text)) state.noEnemies.push(e.t ?? now());
+      else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, true);
     }
   };
 
@@ -376,6 +379,33 @@
       state.crowdAlertAt = now();
       const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === i.stores.combat.getState().currentZone);
       alert("crowded", `AutoLevel waited for an available enemy ${state.enemyWaits.length} times in 10 minutes in ${z?.longName ?? "this zone"}`, true);
+    }
+  };
+
+  // "No available enemies found in this zone" means nothing passes AutoLevel's con and level
+  // filters (spawns it failed to reach are skipped for five minutes), and the game then switches
+  // AutoLevel off. Undo what can be undone here: limits the guard tightened, then a raised minimum
+  // con. Otherwise the zone does not fit the party, so wake an attached script to choose another.
+  const watchNoEnemies = (i) => {
+    state.noEnemies = state.noEnemies.filter((t) => t > now() - 300000);
+    if (state.noEnemies.length < 3) return;
+    const cb = i.stores.combat.getState();
+    const g = i.guard;
+    state.noEnemies = [];
+    if (g?.preferred) {
+      const p = g.preferred;
+      g.preferred = null;
+      cb.setMaxCon(p.maxCon);
+      cb.setMinCon(p.minCon);
+      cb.setMaxLevelDiff(p.maxLevelDiff);
+      log(`no enemies at the guard's tightened limits; back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff}`);
+    } else if (cb.minCon > 4) {
+      cb.setMinCon(4);
+      log(`no enemies at minimum con ${cb.minCon}; lowered it to blue (4)`);
+    } else if (now() - state.noEnemiesAlertAt > 900000) {
+      state.noEnemiesAlertAt = now();
+      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
+      alert("noEnemies", `no enemies within con ${cb.minCon}..${cb.maxCon}, cap ${cb.maxLevelDiff} in ${z?.longName ?? "this zone"} at level ${i.stores.character.getState().characterProfile?.level}`, true);
     }
   };
 
@@ -540,6 +570,7 @@
       await watchCursor(i);
       watchLoot(i);
       watchCrowding(i);
+      watchNoEnemies(i);
       keepParty(i);
       watchXp(i, cb);
       keepAutoLevel(i, cb);

@@ -184,6 +184,21 @@ for (const p of pulls) pullGroups[Object.keys(p.casts).length ? "cure" : p.root 
 const cureCasts = {};
 for (const p of pulls) for (const [k, n] of Object.entries(p.casts)) cureCasts[k] = (cureCasts[k] ?? 0) + n;
 
+// ---- Guard escapes: each one abandons the fight and re-enters the zone --------------------------
+const escapes = [];
+{
+  let open = null;
+  for (const e of events) {
+    if (e.type !== "guard" || !coveredSec.has(Math.floor(e.t / 1000))) continue;
+    const m = /^\[guard\] leaving: (\w+)/.exec(e.text);
+    if (m) open = { t: e.t, why: m[1] };
+    else if (open && /AutoLevel (running again|did NOT restart)/.test(e.text)) {
+      escapes.push({ ...open, secs: (e.t - open.t) / 1000 });
+      open = null;
+    }
+  }
+}
+
 const pct = (x) => `${((100 * x) / covered).toFixed(1)}%`;
 const sec = (x) => `${(x / 1000).toFixed(0)}s`;
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -214,6 +229,9 @@ const result = {
     cureCasts,
     cureSuccesses: pulls.reduce((s, p) => s + p.cured, 0),
   },
+  // The seconds from leaving to AutoLevel running again. The abandoned fight and the walk back
+  // from the zone-in are not counted here, but show in kills per minute.
+  escapes: { count: escapes.length, meanSec: +mean(escapes.map((e) => e.secs)).toFixed(1), totalSec: Math.round(escapes.reduce((s, e) => s + e.secs, 0)), byTrigger: escapes.reduce((o, e) => ((o[e.why] = (o[e.why] ?? 0) + 1), o), {}) },
   byEnemy: Object.fromEntries(
     top(
       kills.reduce((o, k) => ((o[k.enemy] = (o[k.enemy] ?? 0) + 1), o), {}),
@@ -242,6 +260,8 @@ if (args.includes("--json")) {
   for (const k of ["plain", "root", "cure"]) console.log(`  ${k.padEnd(6)} ${String(bp[k].waits).padStart(4)} waits  mean ${String(bp[k].meanSec).padStart(5)}s  total ${bp[k].totalSec}s`);
   const casts = Object.entries(bp.cureCasts);
   if (casts.length) console.log(`  cure and dispel casts: ${casts.map(([k, n]) => `${k} ${n}`).join(", ")}; ${bp.cureSuccesses} removed an effect`);
+  const es = r.escapes;
+  console.log(`\nGuard escapes ${es.count}, mean ${es.meanSec}s until AutoLevel ran again, total ${es.totalSec}s${es.count ? ` (${Object.entries(es.byTrigger).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}`);
   console.log("\nBy enemy");
   for (const [k, v] of Object.entries(r.byEnemy)) console.log(`  ${k.padEnd(28)} ${String(v.kills).padStart(4)} kills  ${String(v.avgXp).padStart(5)} XP`);
 }
