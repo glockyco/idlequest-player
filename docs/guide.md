@@ -41,7 +41,7 @@ These settings worked for group 1. Treat them as a starting point and change the
 
 1. Options, General: Auto-Upgrade and Auto-Upgrade Companions on, Keep Epic Quest Items, Keep Valuable Gear and Keep Pet Reagents on. Check that Death XP Loss is off.
 2. Tactics: turn off nukes and DoTs for the support casters (Cleric, Shaman, Enchanter). That made group 1 about 40% faster at level 6, because the whole party waits for their mana between fights.
-3. Turn off cures for a caster whose cures loop between fights. The Enchanter cast Cancel Magic on the tank over and over, and later both healers kept curing poison on the pet, and AutoLevel waits for every pending cure before it pulls.
+3. Turn off cures for the support casters. The readiness wait holds the whole party while any cure or dispel is still being cast, and dispels against same-level or higher casters mostly fail (see `docs/client-internals.md`), so an Enchanter's Cancel Magic on a Snare can hold the party until the Snare wears off. Check `analyze.mjs`'s "Between pulls" lines before turning cures back on.
 4. AutoLevel targets blue through yellow (con 4 to 13), at most five levels above the leader, with the guard on.
 5. Attach the bot and save the group in it: `iq.setBot({ partyIds: [...] })`. It keeps AutoLevel on, brings the companions back after a sign-in, sells surplus loot and refreshes the leader's spells and pet.
 

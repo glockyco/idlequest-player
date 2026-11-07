@@ -47,9 +47,16 @@ as `castSpellAtSelectedTarget` and `getAliveCombatTargetList`.
 - Target picker: AutoLevel takes `combatScene.findClosestCombatTarget` filtered by con, level cap and
   reachability. It does not weigh XP, nearby danger, water or the route.
 - Readiness gate: every start through AutoLevel, the Enemy Targets list or the Auto Attack button
-  runs `prepareAutomatedCombat`, which summons pets and then waits until every party member and pet
-  has full HP and, for mana users, full mana (`waitForPartyReady`, up to 2 minutes). The wait
-  happens standing still before the walk to the next target.
+  runs `prepareAutomatedCombat`, which summons pets and then waits standing still
+  (`waitForPartyReady`, up to 2 minutes plus any time spent rooted). It ends only when every party
+  member and pet has full HP and, for mana users, full mana, nobody is rooted ("Waiting for root to
+  wear off the party."), and the support pass cast no cure or dispel. So one member whose cure
+  keeps failing holds the whole party until the effect wears off.
+- Dispels such as the Enchanter's Cancel Magic succeed with a chance per effect of 32% plus 7% per
+  level the caster is above the effect's caster, or minus 2% per level below, clamped to 10-100%
+  (dispel `levelModifier` added to the caster's level, minus one). Against same-level or higher
+  casters most attempts fail. `analyze.mjs` reports waits with cure or dispel casts separately
+  ("Between pulls").
 - Direct starts skip the gate: `castSpellAtSelectedTarget(gem)` (a manual spell cast, mode
   `manual-spell`) and `commandPetAttackSelectedTarget()` (mode `pet-command`) call
   `startCombatWithEntity` directly. The companions then assist the player's target with their own

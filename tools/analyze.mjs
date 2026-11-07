@@ -150,6 +150,40 @@ for (let i = 0; i < cellOf.length; i++) {
   i = j;
 }
 
+// ---- Between pulls: what each wait from a kill to the next engage was spent on ------------------
+// The readiness wait ends only when everyone is full, nobody is rooted and no cure or dispel was
+// cast in the last pass, so a cure that keeps failing holds the whole party. Waits are grouped by
+// the first matching cause: a cure or dispel cast during the wait, the game's root message, or
+// neither (plain HP and mana recovery, travel and target search).
+const CURE = /^(\w+) begins casting (Cancel Magic|Nullify Magic|Cure \w+|Counteract \w+|Remove \w+|Abolish \w+)/;
+const CURED = /^\w+ (dispelled .+ from \w+|cured \w+ of )/;
+const pulls = [];
+{
+  let cur = null;
+  for (const e of events) {
+    if (!coveredSec.has(Math.floor(e.t / 1000))) continue;
+    if (KILL.test(e.text)) {
+      cur = { start: e.t, casts: {}, cured: 0, root: false };
+      continue;
+    }
+    if (!cur) continue;
+    if (/^You engage .+ in combat/.test(e.text) || / joins the fight!$/.test(e.text)) {
+      cur.secs = (e.t - cur.start) / 1000;
+      if (cur.secs < 300) pulls.push(cur);
+      cur = null;
+      continue;
+    }
+    if (/^Waiting for root to wear off/.test(e.text)) cur.root = true;
+    const m = CURE.exec(e.text);
+    if (m) cur.casts[`${m[1]} ${m[2]}`] = (cur.casts[`${m[1]} ${m[2]}`] ?? 0) + 1;
+    if (CURED.test(e.text)) cur.cured++;
+  }
+}
+const pullGroups = { cure: [], root: [], plain: [] };
+for (const p of pulls) pullGroups[Object.keys(p.casts).length ? "cure" : p.root ? "root" : "plain"].push(p);
+const cureCasts = {};
+for (const p of pulls) for (const [k, n] of Object.entries(p.casts)) cureCasts[k] = (cureCasts[k] ?? 0) + n;
+
 const pct = (x) => `${((100 * x) / covered).toFixed(1)}%`;
 const sec = (x) => `${(x / 1000).toFixed(0)}s`;
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -175,6 +209,11 @@ const result = {
   movement: { moveWhileNotFullSec: Math.round(moveNotFull / 1000), pathUnits: Math.round(pathLen), unitsPerKill: kills.length ? Math.round(pathLen / kills.length) : null, unitsPerSecWhileMoving: cells.move ? +(pathLen / (cells.move / 1000)).toFixed(1) : null },
   recover: { stretches: recoverRuns.length, meanSec: +mean(recoverRuns).toFixed(1), limiterSeconds: Object.fromEntries(top(limiter, 6).map(([k, v]) => [k, Math.round(v)])) },
   readyIdle: { stretches: idleRuns.length, meanSec: +mean(idleRuns).toFixed(1), maxSec: Math.max(0, ...idleRuns), messagesDuringIdleSeconds: Object.fromEntries(top(idleText, 8).map(([k, v]) => [k, Math.round(v)])) },
+  betweenPulls: {
+    ...Object.fromEntries(Object.entries(pullGroups).map(([k, a]) => [k, { waits: a.length, meanSec: +mean(a.map((p) => p.secs)).toFixed(1), totalSec: Math.round(a.reduce((s, p) => s + p.secs, 0)) }])),
+    cureCasts,
+    cureSuccesses: pulls.reduce((s, p) => s + p.cured, 0),
+  },
   byEnemy: Object.fromEntries(
     top(
       kills.reduce((o, k) => ((o[k.enemy] = (o[k.enemy] ?? 0) + 1), o), {}),
@@ -198,6 +237,11 @@ if (args.includes("--json")) {
   for (const [k, v] of Object.entries(r.recover.limiterSeconds)) console.log(`  ${k.padEnd(16)} ${v}s`);
   console.log(`\nReady-idle  ${r.readyIdle.stretches} stretches, mean ${r.readyIdle.meanSec}s, longest ${r.readyIdle.maxSec}s. Messages seen during those stretches (seconds):`);
   for (const [k, v] of Object.entries(r.readyIdle.messagesDuringIdleSeconds)) console.log(`  ${String(v).padStart(5)}  ${k.slice(0, 110)}`);
+  const bp = r.betweenPulls;
+  console.log("\nBetween pulls (kill to next engage), grouped by cause");
+  for (const k of ["plain", "root", "cure"]) console.log(`  ${k.padEnd(6)} ${String(bp[k].waits).padStart(4)} waits  mean ${String(bp[k].meanSec).padStart(5)}s  total ${bp[k].totalSec}s`);
+  const casts = Object.entries(bp.cureCasts);
+  if (casts.length) console.log(`  cure and dispel casts: ${casts.map(([k, n]) => `${k} ${n}`).join(", ")}; ${bp.cureSuccesses} removed an effect`);
   console.log("\nBy enemy");
   for (const [k, v] of Object.entries(r.byEnemy)) console.log(`  ${k.padEnd(28)} ${String(v.kills).padStart(4)} kills  ${String(v.avgXp).padStart(5)} XP`);
 }
