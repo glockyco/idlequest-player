@@ -182,6 +182,96 @@ export async function attach(tab) {
     },
 
     /**
+     * Walk to a quest NPC in the current zone through the Path To window, open the dialogue
+     * panel, optionally click each matching option in `keywords`, and return the NPC's lines
+     * and remaining options. Run inside `pausedAutoLevel`.
+     */
+    async talkToNpc(npcName, keywords = []) {
+      return tab.evaluate(
+        async (targetName, kws) => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const cb = window.iq.stores.combat.getState();
+          if (!cb.isMerchantListOpen) cb.toggleMerchantList();
+          const norm = (s) => String(s ?? "").replace(/_/g, " ").trim().toLowerCase();
+          let row = null;
+          for (let k = 0; k < 20 && !row; k++) {
+            await sleep(250);
+            row = [...document.querySelectorAll(".merchant-name")]
+              .map((el) => el.parentElement)
+              .find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && norm(p.querySelector(".merchant-name")?.textContent).includes(norm(targetName)));
+          }
+          if (!row) throw new Error(`quest NPC "${targetName}" not found in Path To list`);
+          row.click();
+          const waitDialogue = async () => {
+            for (let k = 0; k < 60; k++) {
+              await sleep(400);
+              const loading = [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
+              const hasContent = document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0;
+              const giveBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
+              if (!loading && (hasContent || (giveBtn && !giveBtn.disabled))) return;
+            }
+          };
+          await waitDialogue();
+          for (const kw of kws) {
+            const opt = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].find((b) => norm(b.textContent).includes(norm(kw)));
+            if (!opt) throw new Error(`dialogue option "${kw}" not found on ${targetName}`);
+            opt.click();
+            await sleep(300);
+            await waitDialogue();
+          }
+          const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
+          const options = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].map((el) => el.textContent.trim());
+          const giveBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
+          return { npcName: targetName, dialogues, options, canGive: Boolean(giveBtn && !giveBtn.disabled) };
+        },
+        npcName,
+        keywords,
+      );
+    },
+
+    /**
+     * Walk to a quest NPC in the current zone, open the Give Items trade window, place up to four
+     * carried items (`itemNames`) into the trade slots, click Give, and return the NPC's reply and
+     * any reward chat lines. Run inside `pausedAutoLevel`.
+     */
+    async turnInQuest(npcName, itemNames = []) {
+      if (!itemNames.length || itemNames.length > 4) throw new Error("turnInQuest takes 1 to 4 item names");
+      await handle.talkToNpc(npcName);
+      return tab.evaluate(async (items) => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const since = window.iq.seqs.event;
+        const giveItemsBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
+        if (!giveItemsBtn || giveItemsBtn.disabled) throw new Error("Give Items button is not available on this NPC");
+        giveItemsBtn.click();
+        let win = null;
+        for (let k = 0; k < 20 && !win; k++) {
+          await sleep(200);
+          win = document.querySelector('[data-testid="quest-give-window"]');
+        }
+        if (!win) throw new Error("quest-give-window did not open");
+        const slots = [...win.querySelectorAll('[data-testid^="quest-give-slot-"]')].map((el) => Number(el.getAttribute("data-testid").replace("quest-give-slot-", "")));
+        const ch = () => window.iq.stores.character.getState();
+        const inv = () => ch().characterProfile?.inventory ?? [];
+        for (let k = 0; k < items.length; k++) {
+          const want = items[k];
+          const found = inv().find((x) => (x.bag >= 1 || (x.bag === 0 && x.slot >= 22 && x.slot <= 29)) && x.itemDetails?.name === want);
+          if (!found) throw new Error(`item "${want}" not found in bags`);
+          ch().moveItemToSlot({ bag: found.bag, slot: found.slot }, { bag: 0, slot: slots[k] });
+          await sleep(800);
+        }
+        const giveBtn = [...win.querySelectorAll("button")].find((b) => /^Give$/i.test((b.textContent ?? "").trim()));
+        if (!giveBtn || giveBtn.disabled) throw new Error("Give button in quest-give-window is disabled");
+        giveBtn.click();
+        for (let k = 0; k < 30 && document.querySelector('[data-testid="quest-give-window"]'); k++) await sleep(300);
+        const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
+        const cb = window.iq.stores.combat.getState();
+        if (cb.isNoteOpen) cb.toggleNote();
+        const lines = window.iq.events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest/i.test(e.text)).map((e) => e.text);
+        return { ok: true, dialogues: dialogues.slice(-2), lines };
+      }, itemNames);
+    },
+
+    /**
      * Press buttons on macro bar page 2 (Buy Spells, Buy Companion Spells, Auto Sell, ...) and
      * return the game's reply lines that match `pattern`. Combat chatter can push replies out of
      * the chat tail, so they are read from the event log.
