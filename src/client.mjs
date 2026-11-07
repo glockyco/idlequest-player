@@ -25,8 +25,8 @@ async function lastCursor(path) {
 
 /**
  * Inject the bridge into a browser tab and return a handle with one async method per bridge call.
- * `tab` needs `evaluate(expression | function, ...args)` that runs in the page, plus `click` and
- * `type` for the calls that drive the game's own windows.
+ * `tab` needs `evaluate(expression | function, ...args)`, `click`, `clickAt`, `fill`, `type` and
+ * `waitForSelector` for page evaluation and the game's UI controls.
  */
 export async function attach(tab) {
   const [bridge, opcodes] = await Promise.all([

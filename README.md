@@ -18,8 +18,8 @@ Protocol and client internals: [docs/client-internals.md](docs/client-internals.
 ## Setup
 
 1. Open https://idlequest.net/play in Chrome and sign in.
-2. Attach a tab object that has `evaluate`, `click` and `type`, for example one from omp's `browser`
-   tool with the relay enabled, then:
+2. Attach a browser tab that supports `evaluate`, `click`, `clickAt`, `fill`, `type` and
+   `waitForSelector`, for example an omp `browser` tab with the relay enabled.
 
 ```js
 import { attach } from "./src/client.mjs";
