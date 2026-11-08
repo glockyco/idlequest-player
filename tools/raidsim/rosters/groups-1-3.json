@@ -1,0 +1,20 @@
+{ "level": 60, "members": [
+  {"name": "G1 magician", "class": "magician"},
+  {"name": "G1 warrior", "class": "warrior", "leader": true},
+  {"name": "G1 cleric", "class": "cleric"},
+  {"name": "G1 bard", "class": "bard"},
+  {"name": "G1 shaman", "class": "shaman"},
+  {"name": "G1 enchanter", "class": "enchanter"},
+  {"name": "G2 paladin", "class": "paladin"},
+  {"name": "G2 cleric", "class": "cleric"},
+  {"name": "G2 druid", "class": "druid"},
+  {"name": "G2 necromancer", "class": "necromancer"},
+  {"name": "G2 rogue", "class": "rogue"},
+  {"name": "G2 shaman", "class": "shaman"},
+  {"name": "G3 shadow-knight", "class": "shadow-knight"},
+  {"name": "G3 cleric", "class": "cleric"},
+  {"name": "G3 necromancer", "class": "necromancer"},
+  {"name": "G3 wizard", "class": "wizard"},
+  {"name": "G3 ranger", "class": "ranger"},
+  {"name": "G3 monk", "class": "monk"}
+] }

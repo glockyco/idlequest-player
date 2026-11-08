@@ -132,6 +132,17 @@ Calibration cases. Permafrost at leader level 24 to 25 measured 2.91 kills per m
 | Median kill seconds | -7% | +9% | +3% |
 | Combat share of time | -2% | | |
 
+## Simulating a raid fight
+
+`tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot (clone it as above, `bun install` for the DOM shim). It compares roster choices against a boss before the characters exist. The file header lists what is replaced and what is assumed, `tools/raidsim/classes.mjs` and `kits.mjs` hold the default stats, skills, gear and spells that a roster entry can override.
+
+```sh
+bun tools/raidsim.mjs --boss "Hraashna the Warder" --roster tools/raidsim/rosters/groups-1-3.json   # 20 seeded fights, per-member table
+bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --class-sweep --slot "G3 monk" --seeds 10 --json
+```
+
+Every fight runs in its own process and takes a few seconds. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the assumed stats, skills and gear, so use them to compare rosters and not as a forecast.
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's
