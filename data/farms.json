@@ -3,11 +3,16 @@
     "id": "wisp-stones",
     "zone": "nektulos",
     "keep": "wisp",
-    "levels": [
-      10,
-      15
-    ],
+    "levels": [10, 13],
     "maxGroups": 2,
+    "minutes": 120
+  },
+  {
+    "id": "wisp-stones-northkarana",
+    "zone": "northkarana",
+    "keep": "willowisp",
+    "levels": [10, 13],
+    "maxGroups": 1,
     "minutes": 120
   }
 ]
