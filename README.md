@@ -97,6 +97,14 @@ bun tools/drops.mjs item "Crushbone Belt"        # NPC, zone, drop chance, spawn
 bun tools/drops.mjs npc "orc centurion"          # what an NPC can drop
 ```
 
+What do the groups actually loot? `tools/loot.mjs` counts each group's kills per enemy in its live
+run log and the items looted right after them, with the rate per kill and per hour, so a farm's
+yield and the snapshot's chances can be checked against play.
+
+```sh
+bun tools/loot.mjs --groups G1 --last 600 --enemy wisp   # kills, stones per kill and per hour
+```
+
 Scouting without stopping AutoLevel: `tools/zone-snapshots.mjs` builds the same zone files offline
 from the content snapshot (one most-likely NPC per spawn point). Blackburrow, the Qeynos Aqueduct
 and Greater Faydark came out within about 10% of live scouts in candidates and nearest-candidate

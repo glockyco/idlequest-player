@@ -537,6 +537,11 @@
       guard.force = `test: ${reason}`;
       return true;
     },
+    /** Leave the fight at hand the way the guard leaves a dangerous one, for `reason`, such as a fight that makes no headway. */
+    leaveFight(reason) {
+      guard.force = reason;
+      return true;
+    },
   };
   const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
   // Minified export names change with every client release, so search every export by content.

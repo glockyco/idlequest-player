@@ -68,6 +68,11 @@
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
     avoidNames: "",
+    // A fight the party has fought this long while the enemy it pulled keeps over half its HP is
+    // left, and that enemy is skipped from then on (`slowFoes`): melee-immune wisps held parties
+    // without magic damage for minutes. 0 turns both off.
+    slowFightSec: 180,
+    slowFoeShare: 0.25, // an enemy that pays less than this share of the party's usual XP per fight second is skipped
     rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
     rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
@@ -117,6 +122,8 @@
     switchFails: 0, // failed switches in a row
     switchRetryAt: 0, // the leader is not switched to again before this time
     task: null, // the last task: { id, kind, status, step, startedAt, endedAt, error, ... }
+    fight: null, // { name, t } of the enemy the party engaged last, until its kill line
+    foes: {}, // per enemy name: { fights, secs, xp, slow, level }, the party's fight times and XP with it
     releaseChecked: null, // client release the page was last compared with the stored one
     releaseProbeAt: 0, // when the site was last asked which client release it serves
     remoteRelease: null, // the newer release already alerted about
@@ -364,8 +371,7 @@
       state.restartNow = null;
       return;
     }
-    // A gray errand fights through the Enemy Targets action with AutoLevel off (`grayStep`).
-    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i) || state.errand?.gray) return;
+    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i)) return;
     // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
     if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return;
     state.offSince ??= now();
@@ -396,6 +402,64 @@
     alert("autoLevelRestarted", `AutoLevel was off for ${config.restartAfterSec}s without a pause; started it again${repeated ? ` (${state.restarts.length} times this hour)` : ""}`, repeated);
   };
 
+  // ---- Enemies worth their time -------------------------------------------------------------
+  // The party's fight time and XP per enemy name, from the chat: an engage line opens a fight and
+  // the kill line of the same enemy closes it. What an enemy pays per second of fighting is the
+  // base of the value the party puts on it (docs/plans/controller.md). An enemy that pays less
+  // than `slowFoeShare` of the party's usual rate, or whose fight had to be left, is skipped until
+  // the leader is two levels higher, because the party gains spells, pets and weapons that change
+  // what it can fight.
+  const foeKey = (name) => String(name ?? "").replace(/_/g, " ").trim().toLowerCase();
+  const myLevel = (i) => i.stores.character.getState().characterProfile?.level ?? 0;
+  const foeRecord = (i, name) => {
+    const lvl = myLevel(i);
+    const f = state.foes[name];
+    if (!f || lvl >= f.level + 2) state.foes[name] = { fights: 0, secs: 0, xp: 0, slow: 0, level: lvl };
+    return state.foes[name];
+  };
+  const recordFight = (i, line, t) => {
+    let m;
+    if ((m = /^You engage (.+?) in combat!/.exec(line))) {
+      state.fight = { name: foeKey(m[1]), t };
+    } else if ((m = /^You have (?:defeated|slain) (.+?)(?: and gained (\d+) experience!|, but gain no experience\.)/.exec(line)) && state.fight?.name === foeKey(m[1])) {
+      const f = foeRecord(i, state.fight.name);
+      f.fights++;
+      f.secs += Math.max(1, (t - state.fight.t) / 1000);
+      f.xp += Number(m[2] ?? 0);
+      state.fight = null;
+    }
+  };
+  /** Names of the enemies the party skips: fights it had to leave, or a rate far below its usual one. */
+  const slowFoes = (i) => {
+    const lvl = myLevel(i);
+    const fresh = Object.entries(state.foes).filter(([, f]) => lvl < f.level + 2);
+    const secs = fresh.reduce((s, [, f]) => s + f.secs, 0);
+    const usual = secs > 0 ? fresh.reduce((s, [, f]) => s + f.xp, 0) / secs : 0;
+    return new Set(fresh.filter(([, f]) => f.slow > 0 || (f.secs >= 120 && f.xp / f.secs < config.slowFoeShare * usual)).map(([name]) => name));
+  };
+  // A fight that makes no headway costs the party every second it lasts. After `slowFightSec`
+  // with the enemy it pulled still above half its HP, the guard leaves it the way it leaves a
+  // dangerous one, which also skips that fight's enemies for a while.
+  const leaveSlowFight = (i, cb) => {
+    const f = state.fight;
+    if (!f || !config.slowFightSec || now() - f.t < config.slowFightSec * 1000 || leaderDead(i)) return;
+    if (!i.stores.skills.getState().inCombat) {
+      state.fight = null; // it ended without a kill line, such as by an escape or a zone change
+      return;
+    }
+    const e = state.errand;
+    if (e?.arrived && enemyPattern(e.keep).test(f.name)) return; // an errand's enemy is worth its time
+    const mob = Object.values(cb.engagedMobs ?? {}).find((x) => foeKey(x.name) === f.name && x.state === "alive");
+    if (!mob || !(mob.hp > mob.maxHp / 2) || typeof i.leaveFight !== "function") return;
+    const secs = Math.round((now() - f.t) / 1000);
+    const r = foeRecord(i, f.name);
+    r.slow++;
+    r.secs += secs;
+    state.fight = null;
+    i.leaveFight(`${f.name} kept ${Math.round((100 * mob.hp) / mob.maxHp)}% of its HP for ${secs} s`);
+    alert("slowFight", `left a fight with ${f.name} after ${secs} s at ${Math.round((100 * mob.hp) / mob.maxHp)}% of its HP; the party skips it until level ${r.level + 2}`);
+  };
+
   const scanEvents = (i) => {
     const evs = i.events ?? [];
     const c = state.eventCursor;
@@ -414,6 +478,7 @@
     for (const e of fresh) {
       if (e.type === "bot") continue;
       const text = e.text ?? "";
+      recordFight(i, text, e.t ?? now());
       let m;
       if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) {
         const lvl = Number(m[1]);
@@ -559,20 +624,37 @@
 
   // AutoLevel picks the nearest enemy that passes its con and level filters and is not on the
   // client's skip list (`deferAutoLevelSpawn`, which the client uses for spawns it cannot reach).
-  // Keeping enemies named by `avoidNames` on that list makes AutoLevel pull the others, and an
-  // errand keeps every enemy on it except those its `keep` pattern names. Each entry lasts a
-  // little over two ticks and is renewed while the setting or the errand lasts.
+  // Enemies named by `avoidNames` and the slow ones (`slowFoes`) stay on that list, so AutoLevel
+  // pulls the others. An errand puts the enemies its `keep` pattern names first, inside normal
+  // hunting: while one of them is alive in the errand's zone and AutoLevel could pull it (inside
+  // its level bounds, not skipped and not another player's), every other enemy goes on the list
+  // for a few seconds, so AutoLevel pulls the wanted one. With none such it hunts as usual, so an
+  // errand never leaves the party idle. When the errand widened AutoLevel's range, the other
+  // enemies outside the normal range stay on the list. The fast tick renews the entries.
   const avoidTargets = (i) => {
-    const keep = state.errand?.keep;
-    if (!config.avoidNames && !keep) return;
+    const e = state.errand;
+    const keep = e?.arrived && zoneShort(i) === e.zone ? e.keep : null;
+    const slow = slowFoes(i);
+    if (!config.avoidNames && !keep && !slow.size) return;
     const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
-    const pattern = (s) => new RegExp(s.replace(/[ _]/g, "[ _]"), "i");
-    const avoid = config.avoidNames ? pattern(config.avoidNames) : null;
-    const wanted = keep ? pattern(keep) : null;
-    for (const t of rt.combatScene.getAliveCombatTargetList?.() ?? []) {
+    const avoid = config.avoidNames ? enemyPattern(config.avoidNames) : null;
+    const wanted = keep ? enemyPattern(keep) : null;
+    const normal = keep && e.widened ? normalRange(i, e) : null;
+    const targets = rt.combatScene.getAliveCombatTargetList?.() ?? [];
+    const me = Number(i.stores.character.getState().characterProfile?.id);
+    const { minLevel = -Infinity, maxLevel = Infinity } = rt.getAutoCombatLevelBounds?.() ?? {};
+    const pullable = (t) => {
+      const owner = Number(rt.combatScene.getCombatTargetBySpawnInstanceId?.(t.spawnInstanceId)?.spawn?.combatOwnerCharacterId ?? 0);
+      return t.level >= minLevel && t.level <= maxLevel && !((rt.unreachableSpawnUntil?.get(t.spawnInstanceId) ?? 0) > now()) && !(owner > 0 && owner !== me);
+    };
+    const first = wanted && targets.some((t) => wanted.test(t.name ?? "") && pullable(t));
+    const ms = (config.fastTickSec * 2 + 1) * 1000;
+    for (const t of targets) {
       const name = t.name ?? "";
-      if (avoid?.test(name) || (wanted && !wanted.test(name))) rt.deferAutoLevelSpawn(t.spawnInstanceId, (config.tickSec * 2 + 5) * 1000);
+      const other = !wanted?.test(name);
+      const outside = normal && (t.level < normal.minLevel || t.level > normal.maxLevel);
+      if (avoid?.test(name) || (other && (first || outside || slow.has(foeKey(name))))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
     }
   };
 
@@ -1099,38 +1181,63 @@
 
   // ---- Errands ------------------------------------------------------------------------------
   // An errand hunts named enemies for a drop, such as an epic piece. The party moves to the
-  // errand's zone, AutoLevel pulls only enemies whose names match `keep`, and rotation waits. The
-  // errand ends when the item is in the bags, at its deadline, when the party is no longer in the
-  // zone, or after `rotateEscapes` guard escapes there. Then the minimum con it changed comes
-  // back and the bot rotates on.
+  // errand's zone and hunts there, with the enemies whose names match `keep` first whenever
+  // AutoLevel can pull one (`avoidTargets`), and rotation waits. The errand ends when the item is
+  // in the bags, at its deadline, when the party is no longer in the zone, or after
+  // `rotateEscapes` guard escapes there. Then AutoLevel's limits come back, and the rotation
+  // rules take over: a party outside its rotation moves back into it.
   const hasItem = (i, name) => (i.inventory?.() ?? []).some((r) => r.name === name);
-  const endErrand = async (i, why, failed) => {
+  const enemyPattern = (s) => new RegExp(s.replace(/[ _]/g, "[ _]"), "i");
+  // AutoLevel's level range at the leader's level, as the limits were before the errand.
+  const normalRange = (i, e) => {
+    const shift = (i.stores.character.getState().characterProfile?.level ?? e.startLevel) - e.startLevel;
+    return { minLevel: e.range.minLevel + shift, maxLevel: e.range.maxLevel + shift };
+  };
+  // An errand's enemies can lie outside AutoLevel's level range, such as the level 9 and 11 wisps
+  // of Nektulos for a level 7 party that pulls levels 7 and 8. The errand widens the range just
+  // enough to take them in, and `avoidTargets` keeps every other enemy outside the normal range
+  // skipped, so the party hunts its usual band besides them. The levels come from the zone's
+  // spawn list, so this waits until the party is in the zone.
+  const widenForErrand = (i, e) => {
+    const rt = runtime(i);
+    const cb = () => i.stores.combat.getState();
+    if (!rt?.getAutoCombatLevelBounds || zoneShort(i) !== e.zone) return;
+    e.range ??= rt.getAutoCombatLevelBounds();
+    e.startLevel ??= i.stores.character.getState().characterProfile?.level ?? 0;
+    const wanted = enemyPattern(e.keep);
+    const levels = (i.zoneSpawns?.spawns ?? []).filter((s) => wanted.test(s.name ?? "")).map((s) => s.level).filter(Number.isFinite);
+    if (!levels.length) return;
+    const lo = Math.min(...levels);
+    const hi = Math.max(...levels);
+    // Blue, then green, the lowest con AutoLevel pulls. The cap goes last, because the setters
+    // overwrite each other in that order (docs/client-internals.md).
+    for (const c of [4, 2]) {
+      if (rt.getAutoCombatLevelBounds().minLevel <= lo) break;
+      if (c < cb().minCon) cb().setMinCon(c);
+    }
+    if (rt.getAutoCombatLevelBounds().maxLevel < hi) cb().setMaxLevelDiff(Math.max(1, hi - (i.stores.character.getState().characterProfile?.level ?? hi)));
+    e.widened = true;
+    const b = rt.getAutoCombatLevelBounds();
+    log(`errand: AutoLevel pulls levels ${b.minLevel} to ${b.maxLevel} for enemies of ${lo} to ${hi}, others only from ${e.range.minLevel} to ${e.range.maxLevel}`);
+  };
+  const endErrand = (i, why, failed) => {
     const e = state.errand;
     state.errand = null;
-    const cb = i.stores.combat.getState();
-    if (e.minCon != null) cb.setMinCon(e.limits.minCon);
-    if (e.gray) cb.setEnemyTargetAttackOnArrival?.(e.attackOnArrival);
+    if (e.widened) {
+      const cb = () => i.stores.combat.getState();
+      cb().setMaxCon(e.limits.maxCon);
+      cb().setMinCon(e.limits.minCon);
+      cb().setMaxLevelDiff(e.limits.maxLevelDiff);
+    }
+    // The visit clock restarts, so the rate rule judges the zone without the errand.
+    state.zoneSince = now();
+    state.zoneBestRate = 0;
     alert("errand", `${e.item ?? e.keep} in ${e.zone}: ${why}`, failed);
-    if (!(await rotate(i, `errand ended: ${why}`)) && e.gray) i.stores.combat.getState().startAutoLevel();
-  };
-  // A gray errand hunts enemies that con gray, which AutoLevel never pulls. It fights them the way
-  // a click on the Enemy Targets list does with "attack on arrival" set: the client walks to the
-  // closest alive spawn of those NPCs and starts the fight there (`selectEnemyTarget`,
-  // CAUokwED.js:7673-7790). Gray kills give no XP, so this is for loot such as lightstones.
-  const grayStep = (i, cb) => {
-    const e = state.errand;
-    if (!e?.gray || !e.arrived || leaderDead(i) || zoneShort(i) !== e.zone || i.guard?.phase === "leaving") return;
-    const rt = runtime(i);
-    if (!rt?.selectEnemyTarget || rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null) return;
-    if (cb.isRunning) cb.setIsRunning(false);
-    if (!cb.enemyTargetAttackOnArrival) cb.setEnemyTargetAttackOnArrival(true);
-    const keep = new RegExp(e.keep, "i");
-    const ids = (cb.currentZoneNPCs ?? []).filter((n) => keep.test(n.name ?? "")).map((n) => n.id);
-    if (ids.length) rt.selectEnemyTarget(ids);
   };
   const watchErrand = async (i) => {
     const e = state.errand;
     if (!e?.arrived) return;
+    if (!e.widened) widenForErrand(i, e);
     const cb = i.stores.combat.getState();
     if (e.item && hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
     // An errand without an item farms its enemies until its time is up, which is not a failure.
@@ -1424,7 +1531,7 @@
   };
 
   // Checks of the fight state that cost time for every second they wait: a pull standing with
-  // Auto Attack off and a root holding the readiness wait.
+  // Auto Attack off, a root holding the readiness wait and a fight that makes no headway.
   const fastTick = () => {
     if (!config.enabled) return;
     try {
@@ -1435,7 +1542,7 @@
       avoidTargets(i);
       keepAutoAttack(i, cb);
       dispelRoots(i, cb);
-      grayStep(i, cb);
+      leaveSlowFight(i, cb);
     } catch (e) {
       const msg = String(e?.message ?? e);
       if (state.lastFastError !== msg) log(`fast tick failed: ${msg}`);
@@ -1495,29 +1602,28 @@
     },
 
     /**
-     * Hunt only enemies whose names match `keep` (a regular expression) in `zone` until an item
-     * named `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep:
-     * "gorged|hungered|famished", item: "Power of Water" }`. Without `item` the errand farms
-     * those enemies for `minutes`, e.g. `{ zone: "nektulos", keep: "wisp", minutes: 60 }` for
-     * lightstones. `minCon` lowers AutoLevel's con filter for weaker enemies and `minutes` caps
-     * the hunt. `gray: true` fights enemies that con gray through the Enemy Targets action with
-     * AutoLevel off (`grayStep`), for a party far above them. `errand(null)` ends a running one.
+     * Hunt in `zone` with the enemies whose names match `keep` (a regular expression) first until
+     * an item named `item` is in the bags, e.g. `{ zone: "kaesora", keep:
+     * "gorged|hungered|famished", item: "Power of Water" }`. Without `item` the errand puts those
+     * enemies first for `minutes`, such as the wisps of Nektulos for lightstones. AutoLevel's
+     * range widens to take them in (`widenForErrand`), and `minutes` caps the errand.
+     * `errand(null)` ends a running one.
      */
     async errand(opts) {
       const i = iq();
       if (opts === null) {
-        if (state.errand) await endErrand(i, "stopped", false);
+        if (state.errand) endErrand(i, "stopped", false);
         return "no errand";
       }
-      const { zone, keep, item = null, minutes = 40, minCon = null, gray = false } = opts;
+      const { zone, keep, item = null, minutes = 40 } = opts;
       if (state.errand) throw new Error(`the errand in ${state.errand.zone} is still running`);
       if (!zone || !keep) throw new Error("an errand needs zone and keep");
       new RegExp(keep);
       if (item && hasItem(i, item)) return `already carrying ${item}`;
       const cb = i.stores.combat.getState();
       const what = item ? `${item} from enemies matching ${keep}` : `enemies matching ${keep}`;
-      state.errand = { zone, keep, item, minutes, minCon, gray, attackOnArrival: Boolean(cb.enemyTargetAttackOnArrival), limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
-      log(`errand: ${what} in ${zone}${gray ? " through Enemy Targets" : ""}, up to ${minutes} min`);
+      state.errand = { zone, keep, item, minutes, limits: { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff }, arrived: false, since: now(), until: now() + minutes * 60000 };
+      log(`errand: ${what} in ${zone}, up to ${minutes} min`);
       // A zone change waits for the fight at hand to end, so AutoLevel stops pulling meanwhile. The
       // wait stays under the 30 s a script's page call may last.
       if (zoneShort(i) !== zone && i.stores.skills.getState().inCombat) {
@@ -1529,9 +1635,8 @@
         i.stores.combat.getState().startAutoLevel();
         throw new Error(`could not move to ${zone}`);
       }
-      if (minCon != null) i.stores.combat.getState().setMinCon(minCon);
-      if (gray) i.stores.combat.getState().setIsRunning(false);
       Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
+      widenForErrand(i, state.errand);
       return `hunting ${what} in ${zone}`;
     },
 

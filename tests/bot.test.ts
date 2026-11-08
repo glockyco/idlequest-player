@@ -25,7 +25,7 @@ interface Bot {
   fastTick(): void;
   surplus(): { name: string }[];
   spellPlan(): { gem: number; role: string; id: number; name: string; level: number }[];
-  errand(opts: { zone: string; keep: string; item: string; minutes?: number; minCon?: number } | null): Promise<string>;
+  errand(opts: { zone: string; keep: string; item?: string; minutes?: number } | null): Promise<string>;
 }
 interface FakeGlobals {
   sessionStorage: { getItem(): null; setItem(): void };
@@ -470,18 +470,29 @@ test("rotation moves on from an empty zone and from one whose XP rate fell", asy
   }
 });
 
-test("an errand pulls only its enemies and holds rotation until its item drops, its minutes end or, gray, fights through Enemy Targets", async () => {
+test("an errand puts its enemies first while AutoLevel can pull one and holds rotation until its item drops or its minutes end", async () => {
   vi.useFakeTimers();
   try {
     const found = await install();
     found.bot.config.rotation = ["guktop", "permafrost"];
     found.combat.currentZone = 65;
-    found.targets.push({ spawnInstanceId: 1, name: "a_gorged_ravener" }, { spawnInstanceId: 2, name: "a skeletal guardian" });
-    await found.bot.errand({ zone: "permafrost", keep: "gorged|hungered|famished", item: "Power of Water", minCon: 2 });
+    const bounds = { minLevel: 30, maxLevel: 40 };
+    Object.assign(found.runtime, { getAutoCombatLevelBounds: () => bounds });
+    found.targets.push({ spawnInstanceId: 1, name: "a_gorged_ravener", level: 34 } as { spawnInstanceId: number; name: string }, { spawnInstanceId: 2, name: "a skeletal guardian", level: 33 } as { spawnInstanceId: number; name: string });
+    await found.bot.errand({ zone: "permafrost", keep: "gorged|hungered|famished", item: "Power of Water" });
     expect(found.moves).toEqual(["permafrost"]);
-    expect(found.combat.minCon).toBe(2);
     found.bot.fastTick();
     expect(found.runtime.deferred).toEqual([2]);
+
+    // A wanted enemy AutoLevel cannot pull, or none alive, leaves the party hunting the others.
+    found.runtime.deferred.length = 0;
+    Object.assign(bounds, { minLevel: 35 });
+    found.bot.fastTick();
+    expect(found.runtime.deferred).toEqual([]);
+    Object.assign(bounds, { minLevel: 30 });
+    found.targets.splice(0, 1);
+    found.bot.fastTick();
+    expect(found.runtime.deferred).toEqual([]);
 
     // An empty zone would rotate or wake a script, but the errand waits for respawns.
     for (let k = 0; k < 3; k++) found.say("No available enemies found in this zone.");
@@ -491,10 +502,10 @@ test("an errand pulls only its enemies and holds rotation until its item drops, 
     expect(found.moves).toEqual(["permafrost"]);
     expect(found.bot.state.alerts.map((a) => a.kind)).not.toContain("noEnemies");
 
+    // The item ends the errand in a zone of the rotation, where the party keeps hunting.
     found.bag.push({ name: "Power of Water" });
     await found.bot.tick();
-    expect(found.moves).toEqual(["permafrost", "guktop"]);
-    expect(found.combat.minCon).toBe(4);
+    expect(found.moves).toEqual(["permafrost"]);
     expect(found.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
     found.runtime.deferred.length = 0;
     found.bot.fastTick();
@@ -505,49 +516,108 @@ test("an errand pulls only its enemies and holds rotation until its item drops, 
     farm.bot.config.rotation = ["guktop", "permafrost"];
     farm.combat.currentZone = 65;
     await farm.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 30 });
-    vi.advanceTimersByTime(29 * 60000);
+    vi.advanceTimersByTime(31 * 60000);
     await farm.bot.tick();
-    expect(farm.moves).toEqual(["permafrost"]);
-    vi.advanceTimersByTime(2 * 60000);
-    await farm.bot.tick();
-    expect(farm.moves).toEqual(["permafrost", "guktop"]);
     expect(farm.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
 
-    // A gray errand fights through the Enemy Targets action: AutoLevel stays off, the client is
-    // asked for the closest wisp, and the attack-on-arrival option goes back when it ends.
-    const gray = await install();
-    const selected: number[][] = [];
-    Object.assign(gray.runtime, { selectEnemyTarget: (ids: number[]) => selected.push(ids), combatActive: false });
-    Object.assign(gray.runtime.combatApproach, { isBusy: () => false });
-    Object.assign(gray.combat, {
-      currentZoneNPCs: [{ id: 1, name: "a_willowisp" }, { id: 2, name: "a_greater_wisp" }, { id: 3, name: "a_garter_snake" }],
-      enemyTargetAttackOnArrival: false,
-      setEnemyTargetAttackOnArrival: (v: boolean) => Object.assign(gray.combat, { enemyTargetAttackOnArrival: v }),
-    });
-    gray.bot.config.rotation = ["guktop", "permafrost"];
-    gray.combat.currentZone = 65;
-    await gray.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 30, gray: true });
-    gray.combat.isRunning = false;
-    gray.bot.fastTick();
-    expect(selected).toEqual([[1, 2]]);
-    expect((gray.combat as { enemyTargetAttackOnArrival?: boolean }).enemyTargetAttackOnArrival).toBe(true);
-    const starts = gray.autoLevel.starts;
-    vi.advanceTimersByTime(5 * 60000);
-    await gray.bot.tick();
-    expect(gray.autoLevel.starts).toBe(starts);
-    vi.advanceTimersByTime(26 * 60000);
-    await gray.bot.tick();
-    expect((gray.combat as { enemyTargetAttackOnArrival?: boolean }).enemyTargetAttackOnArrival).toBe(false);
-    expect(gray.moves).toEqual(["permafrost", "guktop"]);
-
+    // An errand without its item wakes a script, and a party outside its rotation moves back into it.
     const late = await install();
-    late.bot.config.rotation = ["guktop", "permafrost"];
+    late.bot.config.rotation = ["guktop"];
     late.combat.currentZone = 65;
     await late.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 30 });
     vi.advanceTimersByTime(31 * 60000);
     await late.bot.tick();
-    expect(late.moves).toEqual(["permafrost", "guktop"]);
     expect(late.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(true);
+    expect(late.moves).toEqual(["permafrost"]);
+    vi.advanceTimersByTime(61000);
+    await late.bot.tick();
+    expect(late.moves).toEqual(["permafrost", "guktop"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an errand widens AutoLevel's range for its enemies, keeps the others in the normal range and restores the limits", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.combat.currentZone = 73;
+    // A level 7 party pulls levels 7 and 8; blue reaches down to 5, green to 3, and the cap adds to the leader's level.
+    Object.assign(f.combat, { minCon: 10, maxCon: 10, maxLevelDiff: 1 });
+    Object.assign(f.me, { level: 7 });
+    Object.assign(f.runtime, { getAutoCombatLevelBounds: () => ({ minLevel: f.combat.minCon <= 2 ? 3 : f.combat.minCon <= 4 ? 5 : 7, maxLevel: 7 + f.combat.maxLevelDiff }) });
+    Object.assign(f.iq, { zoneSpawns: { spawns: [{ name: "a_willowisp", level: 9 }, { name: "a_greater_wisp", level: 11 }, { name: "a_skeleton", level: 8 }] } });
+    await f.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 60 });
+    expect(f.combat.maxLevelDiff).toBe(4);
+    expect(f.combat.minCon).toBe(10);
+
+    // No wisp up: the party hunts its normal levels, and a level 10 enemy that only the wider range takes stays skipped.
+    f.targets.push({ spawnInstanceId: 1, name: "a_skeleton", level: 8 } as { spawnInstanceId: number; name: string }, { spawnInstanceId: 2, name: "a_ghoul", level: 10 } as { spawnInstanceId: number; name: string });
+    f.bot.fastTick();
+    expect(f.runtime.deferred).toEqual([2]);
+
+    // A wisp up: everything else waits.
+    f.runtime.deferred.length = 0;
+    f.targets.push({ spawnInstanceId: 3, name: "a_greater_wisp", level: 11 } as { spawnInstanceId: number; name: string });
+    f.bot.fastTick();
+    expect(f.runtime.deferred).toEqual([1, 2]);
+
+    await f.bot.errand(null);
+    expect(f.combat).toMatchObject({ minCon: 10, maxCon: 10, maxLevelDiff: 1 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a fight that makes no headway is left after slowFightSec and its enemy is skipped from then on", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const left: string[] = [];
+    Object.assign(f.iq, { leaveFight: (why: string) => left.push(why) });
+    Object.assign(f.combat, { engagedMobs: { 1: { name: "a_willowisp", state: "alive", hp: 160, maxHp: 171 } } });
+    f.skills.inCombat = true;
+    f.say("You engage a willowisp in combat!");
+    await f.bot.tick();
+    vi.advanceTimersByTime(170000);
+    f.bot.fastTick();
+    expect(left).toEqual([]);
+    vi.advanceTimersByTime(15000);
+    f.bot.fastTick();
+    expect(left.length).toBe(1);
+    expect(left[0]).toContain("a willowisp");
+
+    f.skills.inCombat = false;
+    f.targets.push({ spawnInstanceId: 5, name: "a_willowisp", level: 9 } as { spawnInstanceId: number; name: string }, { spawnInstanceId: 6, name: "a_skeleton", level: 8 } as { spawnInstanceId: number; name: string });
+    f.bot.fastTick();
+    expect(f.runtime.deferred).toEqual([5]);
+
+    // Two levels later the party may have the spells or weapons it lacked.
+    f.runtime.deferred.length = 0;
+    Object.assign(f.me, { level: f.me.level + 2 });
+    f.bot.fastTick();
+    expect(f.runtime.deferred).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an enemy that pays far less XP per fight second than the party's usual is skipped", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const fight = async (name: string, secs: number, xp: number) => {
+      f.say(`You engage ${name} in combat!`);
+      vi.advanceTimersByTime(secs * 1000);
+      f.say(`You have defeated ${name} and gained ${xp} experience!`);
+      await f.bot.tick();
+    };
+    for (let k = 0; k < 10; k++) await fight("a skeleton", 20, 1000);
+    await fight("a fire beetle", 60, 1000);
+    await fight("a stone golem", 150, 1000);
+    f.targets.push({ spawnInstanceId: 7, name: "a_skeleton", level: 8 } as { spawnInstanceId: number; name: string }, { spawnInstanceId: 8, name: "a_fire_beetle", level: 8 } as { spawnInstanceId: number; name: string }, { spawnInstanceId: 9, name: "a_stone_golem", level: 8 } as { spawnInstanceId: number; name: string });
+    f.bot.fastTick();
+    expect(f.runtime.deferred).toEqual([9]);
   } finally {
     vi.useRealTimers();
   }

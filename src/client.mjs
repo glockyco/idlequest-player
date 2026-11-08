@@ -744,10 +744,10 @@ export async function attach(tab) {
     resumeBot: () => tab.evaluate(() => window.iqBot.resume()),
 
     /**
-     * Start a bot errand: hunt only enemies whose names match `keep` in `zone` until an item named
-     * `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep: "enraged ravener|gorged
-     * ravener", item: "Power of Water" }`. Resolves once the party hunts there, because the move
-     * can outlast one page evaluation. `errand(null)` ends a running errand.
+     * Start a bot errand: hunt in `zone` with the enemies whose names match `keep` first until an
+     * item named `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep: "enraged
+     * ravener|gorged ravener", item: "Power of Water" }`. Resolves once the party hunts there,
+     * because the move can outlast one page evaluation. `errand(null)` ends a running errand.
      */
     async errand(opts) {
       await tab.evaluate((json) => {
