@@ -189,6 +189,11 @@ export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set()
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
+    // A rotation the group stays in keeps its zones until a zone outside it is worth `margin` more
+    // than the weakest inside it, so near ties and shifting crowds do not rewrite it every pass.
+    const current = ranked.filter((m) => (t.rotation ?? []).includes(m.z));
+    const weakest = Math.min(...current.map((m) => m.value));
+    if (stay && current.length === (t.rotation ?? []).length && current.some((m) => m.z === t.zone) && !ranked.some((m) => !t.rotation.includes(m.z) && m.value > weakest * (1 + cfg.margin))) continue;
     // Order alone moves no group, so a rotation with the same zones stays as it is.
     if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) continue;
     const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);

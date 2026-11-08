@@ -177,3 +177,13 @@ test("busy and held groups keep their rotation and count for the zone they are i
   // Kurn and Runnyeye each hold a group, so Upper Guk and Warrens rank first.
   expect(out[0].rotation.slice(0, 2)).toEqual(["guktop", "warrens"]);
 });
+
+test("a rotation keeps its zones until a zone outside it beats the weakest inside by the margin", () => {
+  // Fresh, the third zone would be the unmeasured Upper Guk at the median 600k, a near tie with
+  // the Warrens' 580k, so the group in Kurn's Tower keeps the Warrens.
+  const mine = tab("A", "G3", 15, { zone: "kurn", rotation: ["kurn", "runnyeye", "warrens"] });
+  expect(assignZones({ now: NOW, tabs: [mine], rows: ROWS, rates: RATES })).toEqual([]);
+  // Najena at 420k gives way to Upper Guk at 600k.
+  const weak = tab("A", "G3", 15, { zone: "kurn", rotation: ["kurn", "runnyeye", "najena"] });
+  expect(assignZones({ now: NOW, tabs: [weak], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+});
