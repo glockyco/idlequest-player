@@ -71,6 +71,8 @@
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
     rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
     rezReservePp: 100, // platinum a paid resurrection must leave for spells
+    rezPullCoin: true, // a dead leader short of coin pulls the largest account balance with Manage Money
+    coinKeepNames: [], // characters whose coin is never pulled, such as a farming leader's
     outsideRotationSec: 60, // a party this long in a zone outside `rotation` moves to its first zone (0 = never)
     releaseProbeMin: 10, // ask the site this often whether a newer client release is served (0 = never)
   };
@@ -292,7 +294,31 @@
     const best = offers.filter((o) => o.price === 0 || o.price <= budget).sort((a, b) => b.percent - a.percent || a.price - b.price)[0];
     return best ?? null;
   };
-  const watchDeath = (i) => {
+  // Manage Money moves another character's whole balance, carried and banked, to the active one,
+  // so coin cannot be split ahead of time. A dead leader that cannot pay for a resurrection pulls
+  // the largest balance it may take instead, and the coin stays there until another leader needs it.
+  const pullCoin = async (i, minPp) => {
+    const cb = i.stores.combat.getState();
+    cb.openManageMoney();
+    let panel = null;
+    for (let k = 0; k < 30; k++) {
+      await sleep(250);
+      panel = document.querySelector('[data-testid="manage-money-panel"]');
+      if (panel && !panel.querySelector('[aria-busy="true"]') && !/Loading balances/.test(panel.textContent ?? "")) break;
+    }
+    const rows = [...(panel?.querySelectorAll('tbody tr[data-testid^="money-row-"]') ?? [])].map((tr) => {
+      const tds = [...tr.querySelectorAll("td")].map((td) => td.textContent.trim());
+      return { name: tds[0], pp: Number((/([\d,]+)\s*pp/.exec(tds[3] ?? "")?.[1] ?? "0").replace(/,/g, "")), button: tr.querySelector("button") };
+    });
+    const pick = rows.filter((r) => r.button && !r.button.disabled && r.pp >= minPp && !config.coinKeepNames.includes(r.name)).sort((a, b) => b.pp - a.pp)[0];
+    if (pick) {
+      pick.button.click();
+      await sleep(2000);
+    }
+    i.stores.combat.getState().closeManageMoney();
+    return pick ? `${pick.name} (${pick.pp}pp)` : null;
+  };
+  const watchDeath = async (i) => {
     if (!leaderDead(i)) {
       state.deadSince = null;
       return;
@@ -323,6 +349,13 @@
       state.restartNow = true;
       alert("respawn", `the leader was dead at level ${p.level}; resurrected with ${pick.percent}% of the lost XP for ${pick.price ? `${pick.price}pp` : "free"}`);
       return;
+    }
+    const cheapest = Math.min(...offers.filter((o) => o.price > 0 && o.price <= config.rezMaxPp).map((o) => o.price));
+    if (config.rezPullCoin && Number.isFinite(cheapest) && state.coinPullFor !== state.deadSince) {
+      state.coinPullFor = state.deadSince;
+      const from = await pullCoin(i, cheapest + config.rezReservePp - coinPp);
+      log(from ? `pulled the coin of ${from} to pay for a resurrection` : "no account balance large enough for a resurrection");
+      return; // the next tick reads the new balance
     }
     if (now() - state.deadSince < config.respawnAfterSec * 1000) return;
     const free = [...dialog.querySelectorAll("button")].find((b) => label(b) === "Respawn at Bind");
@@ -1218,7 +1251,7 @@
         return;
       }
       await watchCrowding(i);
-      if (config.respawnAfterSec > 0) watchDeath(i);
+      if (config.respawnAfterSec > 0) await watchDeath(i);
       await watchErrand(i);
       await watchNoEnemies(i);
       await watchOutside(i);
