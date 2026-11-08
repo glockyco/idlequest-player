@@ -16,7 +16,8 @@
 //      for the leader's level, then split into a melee share and a spell share (--spell-share). Melee is
 //      scaled by the client's hit chance and AC mitigation at the NPC's level against the same-level case
 //      (main.pretty.js ap/kt/bt/ep/Tt). Spells are scaled by the client's resist model (BYHOoN7B.js Ss/Qm).
-//      Melee-immune NPCs lose the melee share, magic-immune NPCs the spell share.
+//      NPCs with special ability 19 lose the melee share, those with 23 lose the non-magical part of it
+//      (--magic-melee), and magic-immune NPCs lose the spell share.
 //   3. NPC damage to the tank is the client's NPC attack roll (sp/ep/NE): hit chance from NPC accuracy
 //      against the tank's avoidance, damage from mindmg to maxdmg by NPC offense against --tank-ac,
 //      attacks per round from attack_count or the double attack chance, per attack_delay.
@@ -52,9 +53,15 @@ const DEFAULTS = {
   nukeResist: "fr", // resist stat the spell share rolls against: mr, fr, cr, dr, pr
   overhead: 2, // seconds per kill of readiness wait, target selection and engage
   manaPerSec: 10, // mana the lead caster spends per fight second
+  // Pools at --dps-level, scaled linearly with the party level. At 31 to 32 the linear rule is within
+  // 5% of group 1's tank HP (1478), healer mana (765) and caster mana (863).
   tankHp: 1060,
   healerManaPool: 560,
   casterManaPool: 680,
+  // Share of melee and pet damage from magical hits (magic weapons, pets of level 10 or more), which
+  // special ability 23 does not stop (main.pretty.js:63308-63341). All of group 1's weapons and pets
+  // are magical.
+  magicMelee: 1,
   healCost: 0.25, // healer mana per HP of damage taken
   tankAc: 200, // the tank's mitigation AC as the client uses it (an assumption)
   speed: 35, // units per second while moving
@@ -71,9 +78,10 @@ const cfgFromFlags = (P) => ({
   nukeResist: (raw("nuke-resist") ?? DEFAULTS.nukeResist).toUpperCase(),
   overhead: num("overhead", DEFAULTS.overhead),
   manaPerSec: num("mana-per-sec", DEFAULTS.manaPerSec),
-  tankHp: num("tank-hp", DEFAULTS.tankHp),
-  healerManaPool: num("healer-mana-pool", DEFAULTS.healerManaPool),
-  casterManaPool: num("caster-mana-pool", DEFAULTS.casterManaPool),
+  tankHp: num("tank-hp", (DEFAULTS.tankHp * P) / DEFAULTS.dpsLevel),
+  healerManaPool: num("healer-mana-pool", (DEFAULTS.healerManaPool * P) / DEFAULTS.dpsLevel),
+  casterManaPool: num("caster-mana-pool", (DEFAULTS.casterManaPool * P) / DEFAULTS.dpsLevel),
+  magicMelee: num("magic-melee", DEFAULTS.magicMelee),
   healCost: num("heal-cost", DEFAULTS.healCost),
   tankAc: num("tank-ac", DEFAULTS.tankAc),
   speed: num("speed", DEFAULTS.speed),
@@ -90,7 +98,7 @@ const HIGH = 8; // NPCs this many levels above the leader are danger
 // ---------------------------------------------------------------- client formulas
 // Level -> lowest non-green offset, OK.pretty.js Di().
 const conOffset = (p) => (p <= 12 ? -3 : p <= 57 ? -4 - Math.floor((Math.max(p, 14) - 14) / 4) : -15);
-const skillOf = (l) => Math.min(210, Math.max(1, Math.trunc(l)) * 5); // main.pretty.js j5 (levels above 50 are not used here)
+const skillOf = (l) => (Math.trunc(l) > 50 ? 250 : Math.min(210, Math.max(1, Math.trunc(l)) * 5)); // main.pretty.js j5
 const accuracy = (a, extra = 0, mod = 0) => ((2 * a + 7 + extra + 10) * 121 / 100) * Math.max(0, 100 + mod) / 100; // kt(a, a, extra, mod) for NPCs, kt(skill, skill) for players
 const avoidance = (def, agi) => Math.max(0, (def * 400) / 225 + 10 + ((Math.min(255, Math.max(1, agi)) - 40) * 800) / 3600); // bt
 const hitProb = (att, def) => (att <= 0 ? 0 : def <= 0 ? 1 : att >= def ? 1 - def / (2 * att) : att / (2 * def)); // P(rand*att > rand*def), ed()
@@ -101,7 +109,11 @@ const npcOffense = (l) => {
   const i = s < 6 ? s : s < 30 ? Math.floor(s / 2) + 1 : s * 2 - 40;
   return Math.max(1, n + Math.max(0, i));
 };
-const npcMitAc = (l) => (l < 15 ? l * 3 + (l < 3 ? 2 : 0) : Math.min(200, Math.floor(l * 4.1) - 15)); // Tt(ac, level) with no gear term: level alone
+// Tt(ac, level) without gear: the level term, or the NPC's own AC once the level term reaches 200 (level 53 up).
+const npcMitAc = (l, ac = 0) => {
+  const i = l < 15 ? l * 3 + (l < 3 ? 2 : 0) : Math.min(200, Math.floor(l * 4.1) - 15);
+  return i === 200 ? Math.max(200, ac) : i;
+};
 const doubleChance = (l) => Math.min(1, l <= 35 ? l * 0.0122 : (skillOf(l) + l) / 500); // sd()
 // ep(offense, ac): the damage roll index 0..19 behind the multiplier (idx + 1) / 10, averaged over both uniform draws.
 const epCache = new Map();
@@ -165,7 +177,9 @@ async function* rows(table) {
   for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
 }
 const norm = (s) => s.replace(/^the\s+/i, "").replace(/[`']/g, "").trim().toLowerCase();
-const SPECIAL = { 1: "summon", 2: "enrage", 3: "rampage", 4: "area-rampage", 5: "flurry", 6: "triple", 7: "quad", 8: "dual-wield", 19: "immune-melee", 20: "immune-magic", 22: "immune-melee", 23: "immune-melee" };
+// The client reads 19 as melee immunity and 23 as immunity to non-magical melee (main.pretty.js:62126-62127,
+// 63336-63341). It never reads 22. Magic immunity (20) follows EQEmu's numbering and is not checked in the client.
+const SPECIAL = { 1: "summon", 2: "enrage", 3: "rampage", 4: "area-rampage", 5: "flurry", 6: "triple", 7: "quad", 8: "dual-wield", 19: "immune-melee", 20: "immune-magic", 23: "immune-nonmagic-melee" };
 const parseSpecials = (s) =>
   new Set(
     String(s ?? "")
@@ -213,6 +227,7 @@ async function loadZones(pattern) {
       attackCount: Number(n.attack_count) || 0,
       delay: (Number(n.attack_delay) || 30) / 10,
       accuracy: Number(n.Accuracy) || 0,
+      ac: Number(n.AC) || 0,
       res: { MR: n.MR, FR: n.FR, CR: n.CR, DR: n.DR, PR: n.PR },
       specials: parseSpecials(n.special_abilities),
       // As tools/zones.mjs: no guildmasters, merchants or named placeholders, and nothing untargetable.
@@ -233,11 +248,13 @@ async function loadZones(pattern) {
 // ---------------------------------------------------------------- the model
 function npcModel(n, c) {
   const P = c.level;
-  const melee = (1 - c.spellShare) * meleeFactor(n.level, P);
+  const melee = (1 - c.spellShare) * meleeFactor(n.level, P, n.ac);
   const spell = c.spellShare * spellFactor(n.level, P, n.res[c.nukeResist]);
   const meleeImmune = n.specials.has("immune-melee");
+  const nonMagicImmune = n.specials.has("immune-nonmagic-melee");
   const magicImmune = n.specials.has("immune-magic");
-  const dps = c.dps * Math.pow(P / c.dpsLevel, c.dpsExp) * ((meleeImmune ? 0 : melee) + (magicImmune ? 0 : spell));
+  const meleePart = meleeImmune ? 0 : nonMagicImmune ? melee * c.magicMelee : melee;
+  const dps = c.dps * Math.pow(P / c.dpsLevel, c.dpsExp) * (meleePart + (magicImmune ? 0 : spell));
   const kill = dps > 0 ? n.hp / dps : Infinity;
   // NPC damage against the tank.
   const A = accuracy(skillOf(n.level), n.accuracy);
@@ -255,17 +272,17 @@ function npcModel(n, c) {
   const tankDps = (pHit * perHit * attacks) / n.delay;
   const taken = tankDps * kill;
   const recovery = Number.isFinite(kill) ? Math.max(Math.min(1, taken / c.tankHp), Math.min(1, (kill * c.manaPerSec) / c.casterManaPool), Math.min(1, (taken * c.healCost) / c.healerManaPool)) / REGEN_PER_SEC : 0;
-  return { dps, kill, tankDps, taken, recovery, melee, spell, meleeImmune, magicImmune };
+  return { dps, kill, tankDps, taken, recovery, melee, spell, meleeImmune: meleeImmune || (nonMagicImmune && c.magicMelee < 1), magicImmune };
 }
 const meleeFactorCache = new Map();
-function meleeFactor(L, P) {
+function meleeFactor(L, P, ac = 0) {
   // Hit chance and AC mitigation at level L relative to the same-level case, for a player whose skills are at 5 per level.
-  const key = `${L}|${P}`;
+  const key = `${L}|${P}|${ac}`;
   if (meleeFactorCache.has(key)) return meleeFactorCache.get(key);
   const acc = accuracy(skillOf(P)); // kt(skill, skill)
   const off = skillOf(P) + 50; // weapon skill plus (2 * 150 - 150) / 3 strength offense
-  const at = (l) => hitProb(acc, avoidance(skillOf(l), 75)) * ((epMeanIdx(off, npcMitAc(l)) + 1) / 10);
-  const v = at(L) / at(P);
+  const at = (l, a) => hitProb(acc, avoidance(skillOf(l), 75)) * ((epMeanIdx(off, npcMitAc(l, a)) + 1) / 10);
+  const v = at(L, ac) / at(P, 0);
   meleeFactorCache.set(key, v);
   return v;
 }
@@ -497,8 +514,8 @@ function printSpells(zones, c) {
   const ref2 = magNukesForLevel(c.dpsLevel, 2);
   const refNukeDps = (ref2.reduce((s, x) => s + x[3] / x[5], 0) / ref2.length) * duty * sameLevelEff;
   const basePartyDps = (c.dps - refNukeDps) * scale;
-  const casterManaPool = c.casterManaPool * (P / 24);
-  const healerManaPool = c.healerManaPool * (P / 24);
+  const casterManaPool = c.casterManaPool;
+  const healerManaPool = c.healerManaPool;
   const enchManaPool = 550 * (P / 24);
   const shmManaPool = 500 * (P / 24);
   const top1 = magNukesForLevel(P, 1);
