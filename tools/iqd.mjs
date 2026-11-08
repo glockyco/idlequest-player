@@ -518,8 +518,9 @@ class Daemon {
    * survey is saved to runs/state/account-items.json for tools/handdown.mjs.
    */
   async gearPass(now, tabs) {
-    if (now - (this.gearAt ?? 0) < GEAR_EVERY_MIN * 60000) return null;
-    this.gearAt = now;
+    // The last pass is kept in the database, so a restart of iqd does not survey again at once.
+    if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
+    metaSet(this.db, "gear", { t: now });
     const { planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
@@ -542,6 +543,7 @@ class Daemon {
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
     const { moves, wanted } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf) });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, { ids: wanted }), { timeout: 10000 }).catch(() => {});
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: wanted.length, capped: job.result.capped });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${wanted.length} kept${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }
