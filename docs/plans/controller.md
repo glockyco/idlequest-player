@@ -41,7 +41,7 @@ of a constant per symptom.
 | Part | Lives in | Owns |
 | --- | --- | --- |
 | Adapter | `src/bridge.js` | The world snapshot (party, zone, enemies and their targets, inventory, cursor, open windows, AutoLevel, coin) and the actions: start and stop hunting, travel, target enemies, trade with an NPC, switch the active character, move coin, sell, recover from death, close windows |
-| Controller | `src/bot.js` | The loop: desired state and leases, the reconciler (leader, party, zone, AutoLevel, client options), the task runner, the safety decision, the bag and spell chores and the time labels |
+| Controller | `src/bot.js` | The loop: desired state and leases, the reconciler (leader, party, zone, AutoLevel and its limits, client options), the task runner, the safety decision, the bag and spell chores and the time labels |
 | Value model | shared by the page and the tools | Rates per level, zone and group, the death risk model and the costs of escapes, deaths, character switches and trips |
 | Coordinator | `tools/iqd.mjs` | Zone assignment from measured rates and spawn capacity, lightstone and coin allocation, task scheduling, experiments with frozen desired states during their blocks, versioned deploys, alerts and the decision log |
 
@@ -52,7 +52,7 @@ of a constant per symptom.
 | Hunt | AutoLevel in the assigned zone, with priority enemies when an errand applies | Never; it is what every other task returns to |
 | Errand | Travel, then Hunt with the errand's enemies first | Item in the bags, deadline, or the party leaves the zone |
 | Hand-in | For each member: let the fight end, become active, travel to the NPC's zone, pull the member's share from whoever holds it, walk to the NPC and trade | All shares handed in, or a step fails twice; then the pause ends and the bot restores the leader |
-| Directed hunt | Let the fight end, become the looter if one is named, travel, then fight the named enemies through Enemy Targets one after another | Item in the bags, none of them up for `waitMin`, or the deadline; then the pause ends and the bot restores the leader |
+| Directed hunt | Let the fight end, travel, then camp the enemies' spawn points with the client's Spawn Camp, or fight them through Enemy Targets one after another when no points are given. The leader loots | Item in the bags, every camped point waiting for its respawn (the task reports the first one), none of them up for `waitMin`, or the deadline; then the pause ends and the bot restores the leader |
 | Recovery | Choose a resurrection or the free respawn, pull coin from the account's largest balance when a resurrection is worth more than it costs, then the reconciler returns the party to its zone | The leader is alive in its zone. It runs as the reconciler's death step (`watchDeath` in `src/bot.js`) and not as a task, because each step reads the Resurrection window afresh and can repeat safely |
 
 ## Migration
