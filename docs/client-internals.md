@@ -237,8 +237,9 @@ is under `healerHpPct` HP. With `fightingOnly` the level and hit checks count on
 `hateTargetId`, `currentTargetId` or `chaseTargetId` names the party: `player`,
 `character-<id>` or a pet. The engaged list also holds idle mobs of the encounter with no target
 and guards fighting other NPCs (`npc:<id>`). On a trigger it stops AutoLevel, re-enters the current
-zone (or changes to `retreatZone` if set), and starts AutoLevel again with the same limits, about
-nine seconds later. Before it leaves it defers every mob of that fight, the target and the pull
+zone (or changes to `retreatZone` if set), and starts AutoLevel again with the same limits about
+nine seconds later, if it was running before the escape, so a script or task that holds the party
+keeps it still. Before it leaves it defers every mob of that fight, the target and the pull
 target with `deferAutoLevelSpawn` for `avoidMin` minutes (see the deferral list above), because
 AutoLevel picks the nearest target and would otherwise pull the same camp again right after
 re-entering. After `escalateAfter` escapes in an hour, an escape caused by a mob inside AutoLevel's

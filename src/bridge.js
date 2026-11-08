@@ -436,7 +436,7 @@
   // ---- Guard --------------------------------------------------------------------------------
   // Lives in the page, so it keeps working while no script is attached. When a fight turns
   // dangerous it stops AutoLevel, leaves the fight with the game's own zone-change request (the
-  // one the Travel window sends) and starts AutoLevel again with the same limits.
+  // one the Travel window sends) and, when AutoLevel was running, starts it again with the same limits.
   // Triggers, each checked once a second while a mob is engaged:
   //   level   a mob is `levelGap` or more levels above the leader, or `levelGapLow` while it fights
   //           the party and the leader is at most level `lowLevelMax`
@@ -643,19 +643,25 @@
       for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
       guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
     }
+    // AutoLevel comes back only when it ran before: a script or a task that holds the party still
+    // keeps it off.
+    const wasRunning = cb.isRunning;
     cb.setIsRunning(false);
     try {
       await changeZone(target ?? null);
     } catch (e) {
       guardNote(`zone change failed: ${e.message}`);
     }
-    // Whatever happened above, AutoLevel must be running again.
     applyLimits(stores.combat.getState(), limits);
-    for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
-      stores.combat.getState().startAutoLevel();
-      await new Promise((r) => setTimeout(r, 2000));
+    if (wasRunning) {
+      for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
+        stores.combat.getState().startAutoLevel();
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      guardNote(stores.combat.getState().isRunning ? "AutoLevel running again" : "AutoLevel did NOT restart");
+    } else {
+      guardNote("AutoLevel stays off, as it was before the escape");
     }
-    guardNote(stores.combat.getState().isRunning ? "AutoLevel running again" : "AutoLevel did NOT restart");
     guard.phase = "watching";
   };
   guard.timerId = setInterval(() => {
