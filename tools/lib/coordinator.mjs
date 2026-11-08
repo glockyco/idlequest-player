@@ -31,10 +31,12 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
  * - `owned`: opportunities whose item the account holds in `count` copies, `{ [id]: true }`.
+ * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
+ *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
- * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab.
+ * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -61,6 +63,19 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${o.group}` });
+  }
+
+  // A farm goes to the groups with the lowest mean level inside its `levels`, whose own hunting
+  // earns least next to the farm's fixed yield. At most `maxGroups` share it, because groups in one
+  // zone wait for the enemies the others hold: three wisp groups in Nektulos lost 11 to 20% of their
+  // time that way. A farming group that left the levels or is beyond the cap stops.
+  for (const f of farms) {
+    const fits = (t) => mean(t) >= f.levels[0] && mean(t) <= f.levels[1];
+    const on = tabs.filter((t) => t.errand?.zone === f.zone && t.errand?.keep === f.keep).sort((a, b) => mean(a) - mean(b));
+    const stay = on.filter(fits).slice(0, f.maxGroups);
+    for (const t of on) if (!stay.includes(t)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
+    const join = tabs.filter((t) => free(t) && t.members.length && fits(t)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
+    for (const t of join) out.push({ label: t.label, kind: "errand", id: f.id, spec: { zone: f.zone, keep: f.keep, minutes: f.minutes }, why: `${f.id} for ${t.group}, mean level ${mean(t).toFixed(1)}` });
   }
 
   // Lightstones go to the group with the lowest levels, where they buy the most levels and which

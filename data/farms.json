@@ -1,0 +1,13 @@
+[
+  {
+    "id": "wisp-stones",
+    "zone": "nektulos",
+    "keep": "wisp",
+    "levels": [
+      10,
+      15
+    ],
+    "maxGroups": 2,
+    "minutes": 120
+  }
+]

@@ -55,3 +55,16 @@ test("an errand opportunity queues an errand, and a tab on an errand gets no oth
   const busy = [tab("B", "G2", 17, { errand: { zone: "nektulos" } }), tab("C", "G7", 20)];
   expect(decide({ now: NOW, tabs: busy, opportunities: [pages], stock: { "Greater Lightstone": 12 } })).toMatchObject([{ label: "C", kind: "handIn" }]);
 });
+
+test("a farm keeps at most maxGroups groups, the lowest in its levels, and fills free places", () => {
+  const wisps = { id: "wisp", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
+  const farming = { zone: "nektulos", keep: "wisp" };
+  const tabs = [tab("A", "G3", 13, { errand: farming }), tab("B", "G6", 11, { errand: farming }), tab("C", "G8", 12, { errand: farming }), tab("D", "G1", 41)];
+  // Three on the farm: the highest stops, and nobody joins.
+  expect(decide({ now: NOW, tabs, farms: [wisps] }).map((a) => [a.label, a.kind])).toEqual([["A", "stopErrand"]]);
+  // One on the farm, one free group in its levels: that group joins, the level 41 group does not.
+  const one = [tab("A", "G3", 13), tab("B", "G6", 11, { errand: farming }), tab("D", "G1", 41), tab("E", "G9", 16)];
+  expect(decide({ now: NOW, tabs: one, farms: [wisps] })).toMatchObject([{ label: "A", kind: "errand", spec: { zone: "nektulos", keep: "wisp", minutes: 120 } }]);
+  // A farming group that outgrew the levels stops.
+  expect(decide({ now: NOW, tabs: [tab("E", "G9", 16, { errand: farming })], farms: [wisps] })).toMatchObject([{ label: "E", kind: "stopErrand" }]);
+});

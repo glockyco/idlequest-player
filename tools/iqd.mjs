@@ -317,10 +317,10 @@ export async function searchInPage(a) {
   return (r?.matches ?? []).map((m) => ({ item: m.itemName, who: m.characterName, n: m.quantity ?? 1 }));
 }
 
-/** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`), which checks it and runs it in the page. */
-export function queueInPage(a) {
-  const t = window.iqBot[a.kind](a.spec);
-  return { id: t.id, status: t.status };
+/** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`, `iqBot.errand`), which checks it and runs it in the page. `stopErrand` ends the errand. */
+export async function queueInPage(a) {
+  const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : window.iqBot[a.kind](a.spec));
+  return { id: t?.id ?? null, status: t?.status ?? String(t) };
 }
 
 /** Give a bot without a leader its group's leader and members by name, from the account's character list. */
@@ -409,6 +409,12 @@ class Daemon {
     } catch {
       /* no opportunities file */
     }
+    let farms = [];
+    try {
+      farms = JSON.parse(await readFile(join(REPO, "data/farms.json"), "utf8"));
+    } catch {
+      /* no farms file */
+    }
     const search = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
     const stock = {};
     for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
@@ -428,7 +434,7 @@ class Daemon {
       if (task.nextAt) h.nextAt = task.nextAt;
       if (task.endedAt) h.ms = task.endedAt - task.startedAt;
     }
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {

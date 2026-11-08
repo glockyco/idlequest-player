@@ -323,14 +323,18 @@ starts `run` without it.
 it reads the account's lightstones and the items of `data/opportunities.json` with Inventory
 Search and queues tasks through each bot's own task API (`tools/lib/coordinator.mjs` decides). A
 batch of at least two stones per member goes to the free group with the lowest levels as a
-hand-in. Each opportunity (an epic or quest piece with its group, zone, enemies and optional
-looter, `when` of `night` or `day`, and `kind`) runs for its group until the item is owned: an
+hand-in. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
+copies the roster needs, `when` of `night` or `day`, and `kind`) runs for its group until the
+account holds those copies: an
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt
 camps the enemies' spawn points with the client's Spawn Camp, placeholders included. A hunt comes
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
-`retryMin` minutes. A tab gets at most one coordinator task in 20 minutes, and none while a task
-or errand runs or a pause holds. Its tasks are logged as interventions by `coordinator`, apart from
-manual ones, and the dashboard's Coordinator section shows its last pass.
+`retryMin` minutes. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
+Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
+group beyond the cap or outside the levels stops farming. A tab gets at most one coordinator task in
+20 minutes, and none while a task or errand runs or a pause holds. Its tasks are logged as
+interventions by `coordinator`, apart from manual ones, and the dashboard's Coordinator section
+shows its last pass.
 
 `run --recover` brings back a game tab that is reachable but has lost the bridge or the bot, as a
 page reload does: it signs in with the stored login when the login form shows and installs both as
