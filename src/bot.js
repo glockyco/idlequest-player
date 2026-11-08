@@ -57,7 +57,7 @@
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
-    crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes raises an alert
+    crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes moves to another rotation zone, or raises an alert without one
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
     avoidNames: "",
@@ -686,14 +686,20 @@
     }
   };
 
-  // Other players clearing the same spawns leave AutoLevel waiting for enemies.
-  const watchCrowding = (i) => {
+  // Waiting again and again for an available enemy means other players or other groups of this
+  // browser hold the zone's targets. With another zone in the rotation the bot moves there (the one
+  // fewest other groups hunt), otherwise it wakes a script to decide.
+  const watchCrowding = async (i) => {
     state.enemyWaits = state.enemyWaits.filter((t) => t > now() - 600000);
-    if (state.enemyWaits.length >= config.crowdedWaits && now() - state.crowdAlertAt > 1800000) {
-      state.crowdAlertAt = now();
-      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === i.stores.combat.getState().currentZone);
-      alert("crowded", `AutoLevel waited for an available enemy ${state.enemyWaits.length} times in 10 minutes in ${z?.longName ?? "this zone"}`, true);
+    if (state.enemyWaits.length < config.crowdedWaits || now() - state.crowdAlertAt < 600000) return;
+    state.crowdAlertAt = now();
+    const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === i.stores.combat.getState().currentZone);
+    const why = `AutoLevel waited for an available enemy ${state.enemyWaits.length} times in 10 minutes in ${z?.longName ?? "this zone"}`;
+    if (!state.errand && nextZone(i) && (await rotate(i, why))) {
+      state.enemyWaits = [];
+      return;
     }
+    alert("crowded", why, true);
   };
 
   // "No available enemies found in this zone" means nothing passes AutoLevel's con and level
@@ -1130,7 +1136,7 @@
         state.lastError = null;
         return;
       }
-      watchCrowding(i);
+      await watchCrowding(i);
       if (config.respawnAfterSec > 0) watchDeath(i);
       await watchErrand(i);
       await watchNoEnemies(i);

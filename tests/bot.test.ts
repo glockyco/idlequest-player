@@ -207,16 +207,25 @@ test("single deaths are notes, and the sixth party death within an hour wakes a 
   expect(bot.state.alerts.filter((a) => a.wake).map((a) => a.kind)).toEqual(["deaths"]);
 });
 
-test("frequent waits for an enemy raise a crowded alert, a few do not", async () => {
+test("frequent waits for an enemy move a party with another rotation zone and wake a script without one", async () => {
   const few = await install();
   for (let k = 0; k < 5; k++) few.say("Waiting for an available enemy. AutoLevel will try again shortly.");
   await few.bot.tick();
   expect(few.bot.state.alerts.map((a) => a.kind)).not.toContain("crowded");
 
-  const many = await install();
-  for (let k = 0; k < 6; k++) many.say("Waiting for an available enemy. AutoLevel will try again shortly.");
-  await many.bot.tick();
-  expect(many.bot.state.alerts.filter((a) => a.kind === "crowded").map((a) => a.wake)).toEqual([true]);
+  const stuck = await install();
+  for (let k = 0; k < 6; k++) stuck.say("Waiting for an available enemy. AutoLevel will try again shortly.");
+  await stuck.bot.tick();
+  expect(stuck.bot.state.alerts.filter((a) => a.kind === "crowded").map((a) => a.wake)).toEqual([true]);
+
+  const rotating = await install();
+  rotating.bot.config.rotation = ["guktop", "permafrost"];
+  rotating.combat.currentZone = 65;
+  await rotating.bot.tick();
+  for (let k = 0; k < 6; k++) rotating.say("Waiting for an available enemy. AutoLevel will try again shortly.");
+  await rotating.bot.tick();
+  expect(rotating.moves).toEqual(["permafrost"]);
+  expect(rotating.bot.state.alerts.filter((a) => a.kind === "crowded" && a.wake)).toEqual([]);
 });
 
 test("account characters missing from the party are asked to rejoin", async () => {
