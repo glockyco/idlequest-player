@@ -139,14 +139,14 @@ Kerafyrm does not size the roster. All three of his rows in the content snapshot
 
 ## Roster and leveling groups
 
-The goal needs every roster character at level 46 or higher, the raid bosses killed and the class epics. The epic of each class needs a character of that class, so the roster holds every class at least once. The groups below are built in this order. Each group levels on its own, and the last column says what it adds to the raid.
+The goal is the strongest roster the account can field at the level cap of 60. Raid kills at 46 are welcome earlier, but no choice of class, race or group may trade strength at 60 for an earlier kill, so class mixes are judged by simulated fights of level-60 rosters first and by fights at 46 to 50 second. The goal also needs every roster character at level 46 or higher, the raid bosses killed and the class epics. The epic of each class needs a character of that class, so the roster holds every class at least once. The groups below are built in this order. Each group levels on its own, and the last column says what it adds to the raid.
 
 | Order | Leveling group | What it adds to the raid |
 | ---: | --- | --- |
 | 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | Exists. First tank, first Cleric, Magician, Bard songs, Shaman and Enchanter buffs, haste and slows. |
 | 2 | Paladin, Cleric, Druid, Necromancer, Rogue, Shaman | Second tank, second Cleric and a Druid healer, first Necromancer and Rogue, a second Shaman. |
 | 3 | Shadow Knight, Cleric, Necromancer, Wizard, Ranger, Monk | Third tank, third Cleric, a second Necromancer, the first Wizard, Ranger and Monk. |
-| 4 to 6 | Chosen after the level 46 raid test | See "After the raid test". |
+| 4 and up | Chosen from simulated level-60 fights with farmable gear (`runs/jobs/2026-11-08-mix60-farm`) | See "After the raid test". |
 
 After group 3 the roster is 18 characters: one of each of the 14 classes, plus two more Clerics, a second Necromancer and a second Shaman. It sits at the top of the Warder range and the bottom of the Cazic-Thule range above, and it holds all three Resolve tank classes.
 
