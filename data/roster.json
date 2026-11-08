@@ -5,7 +5,7 @@
     { "id": "G2", "members": ["Pivorandel", "Hargrimol", "Omvoqizon", "Felowynna", "Zharovane", "Ulgarthon"] },
     { "id": "G3", "members": ["Tovrenalis", "Vexmorrath", "Bellowmick", "Zulvethra", "Fizzwackle", "Arwendrel"] },
     { "id": "G4", "members": ["Thalgrimm", "Pellisande", "Merriwick", "Kragvold", "Vorthessa", "Nyxalor"] },
-    { "id": "G5", "letter": "E", "planned": ["warrior", "cleric", "shaman", "necromancer", "enchanter", "rogue"] },
+    { "id": "G5", "letter": "E", "members": ["Embrogg", "Elyssandre", "Esszrak", "Evandrith", "Eloquine", "Eskarn"] },
     { "id": "G6", "letter": "F", "planned": ["monk", "paladin", "druid", "shaman", "magician", "wizard"] },
     { "id": "G7", "letter": "G", "planned": ["shadow-knight", "cleric", "shaman", "bard", "ranger", "necromancer"] },
     { "id": "G8", "letter": "H", "planned": ["warrior", "druid", "enchanter", "rogue", "wizard", "magician"] },

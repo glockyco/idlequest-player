@@ -12,8 +12,6 @@ const repoPath = (p) => (isAbsolute(p) ? p : fileURLToPath(new URL(p, new URL(".
 const METHODS = ["status", "roster", "inventory", "bagSpace", "chatTail", "talk", "recruitDefaultParty", "setLabel", "setTactic", "packets", "guardStatus", "setGuard", "testGuard", "setChores"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** The Travel window lists zones without a leading "The"; the status reports the long name with it. */
-const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
 
 /**
  * Last (session, seq) pair in a JSONL file, or zeros if the file is missing or empty. The page
@@ -142,6 +140,106 @@ export async function attach(tab) {
         equip,
         itemName,
       );
+    },
+
+    /**
+     * Kit the active character after creation: put the starred starter weapon into the empty
+     * primary slot, then move every general-slot item that is not a container into a container,
+     * so the general slots can take bags. Contents of the container in general slot N are
+     * addressed as `{ bag: N, slot: 0.. }`. Resolves with the moves made and the bag space.
+     */
+    async kitStarter() {
+      return tab.evaluate(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const ch = () => window.iq.stores.character.getState();
+        const inv = () => ch().characterProfile.inventory;
+        const general = (x) => x.bag === 0 && x.slot >= 22 && x.slot <= 29;
+        const moves = [];
+        if (!inv().some((x) => x.bag === 0 && x.slot === 13)) {
+          const w = inv().find((x) => /\*$/.test(x.itemDetails?.name ?? "") && x.itemDetails.slots & 8192 && x.itemDetails.damage > 0 && (general(x) || x.bag >= 22));
+          if (w) {
+            ch().moveItemToSlot({ bag: w.bag, slot: w.slot }, { bag: 0, slot: 13 });
+            await sleep(1200);
+            moves.push(`equipped ${w.itemDetails.name}`);
+          }
+        }
+        for (const it of inv().filter((x) => general(x) && !(x.itemDetails?.bagslots > 0))) {
+          let to = null;
+          for (const c of inv().filter((x) => general(x) && x.itemDetails?.bagslots > 0)) {
+            const used = new Set(inv().filter((x) => x.bag === c.slot).map((x) => x.slot));
+            let s = 0;
+            while (used.has(s)) s++;
+            if (s < c.itemDetails.bagslots) {
+              to = { bag: c.slot, slot: s };
+              break;
+            }
+          }
+          if (!to) break;
+          ch().moveItemToSlot({ bag: 0, slot: it.slot }, to);
+          await sleep(900);
+          moves.push(`packed ${it.itemDetails.name}`);
+        }
+        return { moves, primary: inv().find((x) => x.bag === 0 && x.slot === 13)?.itemDetails?.name ?? null, space: window.iq.bagSpace() };
+      });
+    },
+
+    /**
+     * Buy `count` of an item from a merchant in the current zone: walk there through the Path To
+     * window (the row whose name matches `merchant`), then press PURCHASE once per item. A
+     * purchase lands in a free general slot or bag slot, and a container needs a free general
+     * slot. Stops early when a purchase adds nothing. Disable the bot first so its cleanup does
+     * not sell the purchases. Resolves with the number bought and the platinum left.
+     */
+    async buyItem(itemName, { count = 1, merchant, timeoutMs = 180000 } = {}) {
+      await tab.evaluate(async (who) => {
+        const cb = window.iq.stores.combat.getState();
+        if (window.iq.stores.merchant.getState().selectedMerchant?.name === who) return;
+        if (!cb.isMerchantListOpen) cb.toggleMerchantList();
+        let row = null;
+        for (let k = 0; k < 20 && !row; k++) {
+          await new Promise((r) => setTimeout(r, 250));
+          row = [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === who && !/QUEST NPC/i.test(el.parentElement?.textContent ?? ""));
+        }
+        if (!row) throw new Error(`merchant ${who} not found in the Path To list`);
+        row.parentElement.click();
+      }, merchant);
+      const ready = () => tab.evaluate((who, want) => {
+        const m = window.iq.stores.merchant.getState();
+        if (m.selectedMerchant?.name !== who || m.isLoadingItems || !(m.merchantItems ?? []).length) return false;
+        return m.merchantItems.some((i) => i.item?.name === want) ? true : "missing";
+      }, merchant, itemName);
+      for (let end = Date.now() + timeoutMs, r; (r = await ready()) !== true; await sleep(3000)) {
+        if (r === "missing") throw new Error(`${merchant} does not sell ${itemName}`);
+        if (Date.now() > end) throw new Error(`${merchant} did not open with ${itemName} for sale`);
+      }
+      let bought = 0;
+      for (let left = count; left > 0; ) {
+        const r = await tab.evaluate(async (want, n) => {
+          const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+          const have = () => window.iq.stores.character.getState().characterProfile.inventory.filter((x) => x.itemDetails?.name === want).reduce((s, x) => s + Math.max(1, x.charges ?? 1), 0);
+          const ms = window.iq.stores.merchant;
+          const e = ms.getState().merchantItems.find((i) => i.item?.name === want);
+          let got = 0;
+          for (let k = 0; k < n; k++) {
+            // The PURCHASE button shows only for an item considered from the merchant's side.
+            ms.getState().setConsideredItem({ item: e.item, price: e.price, source: "merchant", slot: e.slot });
+            await sleep(250);
+            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "PURCHASE");
+            if (!b || b.disabled) return { got, stop: true };
+            const before = have();
+            b.click();
+            for (let j = 0; j < 20 && have() === before; j++) await sleep(200);
+            if (have() === before) return { got, stop: true };
+            got++;
+          }
+          return { got, stop: false };
+        }, itemName, Math.min(left, 10));
+        bought += r.got;
+        left -= r.got;
+        if (r.stop) break;
+      }
+      const platinum = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.platinum);
+      return { bought, platinum };
     },
 
     /**
@@ -607,53 +705,43 @@ export async function attach(tab) {
     },
 
     /**
-     * Travel through the Travel window (the same path a player uses) and wait for the zone to load.
-     * AutoLevel must be stopped first. The window only opens out of combat, and the game's
-     * auto-loot after the last kill closes it again, so this waits until the fight is over and the
-     * chat has had no loot line for a few seconds, and opens the window again if it closes.
+     * Travel to a zone, given by short name (`misty`) or long name (`Misty Thicket`). Travel is an
+     * instant teleport: this sends the Travel window's zone-change request through the bridge's
+     * `changeZone` and waits for the zone to load. Waits for the current fight to end first, and
+     * throws for an unknown zone instead of retrying. Stop AutoLevel first.
      */
     async travelTo(zoneName, timeoutMs = 120000) {
       const deadline = Date.now() + timeoutMs;
-      const quiet = () => tab.evaluate(() => {
-        const last = window.iq.events.findLast?.((e) => e.type === "LOOT" || /^You loot|corpse/i.test(e.text ?? ""));
-        return !window.iq.status().inCombat && (!last || Date.now() - last.t > 4000);
-      });
-      await handle.clearWindows();
-      let lastError = new Error("combat or looting did not end");
-      while (Date.now() < deadline) {
-        if (!(await quiet())) {
-          await sleep(1000);
-          continue;
-        }
-        try {
-          await tab.click('role/button[name="Travel" exact]');
-          await tab.waitForSelector("placeholder/Search travel destinations", { timeout: 5000 });
-          await tab.fill("placeholder/Search travel destinations", zoneName);
-          await tab.waitForSelector(`role/button[name="${zoneName}" exact]`, { timeout: 5000 });
-          await tab.click(`role/button[name="${zoneName}" exact]`);
-          lastError = null;
-          break;
-        } catch (error) {
-          // Loot or a new fight closed the window, or the zone is not in the list.
-          lastError = error;
-          await handle.clearWindows();
-          await sleep(1500);
-        }
+      while ((await handle.status()).inCombat) {
+        if (Date.now() > deadline) throw new Error(`travel to ${zoneName}: the fight did not end`);
+        await sleep(1000);
       }
-      if (lastError) throw new Error(`travel to ${zoneName} failed: ${lastError.message}`, { cause: lastError });
+      await handle.clearWindows();
+      const short = await tab.evaluate((n) => {
+        const k = n.toLowerCase();
+        const z = window.iq.stores.staticData.getState().zones.find((x) => x.shortName === k || x.longName?.toLowerCase() === k);
+        return z?.shortName ?? null;
+      }, zoneName);
+      if (!short) throw new Error(`travel to ${zoneName}: no such zone`);
+      // changeZone waits up to a minute for the load, longer than one tab evaluation may take.
+      await tab.evaluate((s) => {
+        window.iq.lastTravelError = null;
+        window.iq.changeZone(s).catch((e) => (window.iq.lastTravelError = String(e.message ?? e)));
+      }, short);
       for (;;) {
-        await sleep(2000);
-        const s = await handle.status();
-        if (norm(s.zone ?? "") === norm(zoneName) && !s.zoneLoading) {
-          await tab.evaluate(() => [...document.querySelectorAll("button")].find((b) => /^done$/i.test(b.textContent.trim()))?.click());
-          return s;
-        }
-        if (Date.now() >= deadline) throw new Error(`travel to ${zoneName} timed out`);
+        await sleep(1500);
+        const at = await tab.evaluate(() => {
+          const cb = window.iq.stores.combat.getState();
+          return { loading: cb.isZoneLoading, short: window.iq.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName, error: window.iq.lastTravelError ?? null };
+        });
+        if (at.error) throw new Error(`travel to ${zoneName}: ${at.error}`);
+        if (at.short === short && !at.loading) return handle.status();
+        if (Date.now() > deadline) throw new Error(`travel to ${zoneName} timed out in ${at.short}`);
       }
     },
 
     /**
-     * Visit each zone through the Travel window and save its raw spawn data to `<zoneDir>/<zone>.json`
+     * Visit each zone with `travelTo` and save its raw spawn data to `<zoneDir>/<zone>.json`
      * (see `zoneSnapshot` in the bridge). A relative `zoneDir` is resolved against the repository.
      * Zones already saved are skipped. Does not fight. AutoLevel must be stopped. Analyze the
      * result with `tools/zones.mjs`.

@@ -38,7 +38,7 @@ console.log(await iq.status());
 const party = await iq.roster();                    // every character: class, level, HP, mana, gear
 await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also the active character, or "cleric", "warrior", "rogue")
 await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con values: 2 green, 4 blue, 10 white, 15 yellow, 13 red
-await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, restart if it was running
+await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, restart if it was running
 await iq.switchCharacter("Tagujazolu");            // camp, enter as another account character, regroup the party
 ```
 
@@ -288,8 +288,8 @@ names the running client and `iq.missingApi` lists the missing parts.
   client's bundles under a DOM shim. After a content snapshot update, regenerate the quest
   turn-in items the bot keeps with `bun tools/quest-items.mjs`.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
-  it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
-  before opening the Travel window. The bot's pause is renewed while the work runs. If the script
+  it restarts with the saved con and level limits. `travelTo` waits for the current fight to end,
+  then sends the Travel window's zone change, which teleports at once. The bot's pause is renewed while the work runs. If the script
   dies, the pause runs out within two minutes and the bot starts AutoLevel again a minute later.
 - Long work belongs in the page: start it there, keep its progress on `window`, and poll it with
   short `tab.evaluate` calls, as `iq.errand` does. An omp browser tab fails a call that runs about
@@ -314,8 +314,8 @@ names the running client and `iq.missingApi` lists the missing parts.
   `enabled`. `iq.resumeBot()` ends a pause and `iq.setBot({ enabled: true })` turns the bot back on.
 - `watch` or `evaluate` throws or never returns: the tab is gone or its renderer crashed, and the
   bot went with it. Reload the tab, sign in and attach again.
-- `travelTo` fails with `travel to <zone> failed`: the Travel window lists zones without a leading
-  "The", and AutoLevel must be stopped first (use `pausedAutoLevel`).
+- `travelTo` fails with `no such zone`: pass the zone's short name (`misty`) or its long name as
+  the game spells it. AutoLevel must be stopped first (use `pausedAutoLevel`).
 - An item stays on the cursor: `iq.bagSpace().cursor` names it, and looting and cleanup stop until
   it is placed. The bot places it after three minutes.
 
