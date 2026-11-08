@@ -14,6 +14,5 @@
   [14, ["warrens", "kurn", "runnyeye", "najena"]],
   [11, ["warrens", "kurn", "crushbone", "befallen"]],
   [8, ["warrens", "crushbone", "steamfont", "befallen"]],
-  [5, ["misty", "tox", "gfaydark", "steamfont", "nektulos"]],
-  [1, ["misty", "tox", "steamfont", "nektulos"]]
+  [1, ["steamfont", "nektulos", "misty"]]
 ]
