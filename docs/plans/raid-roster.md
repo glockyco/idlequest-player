@@ -155,7 +155,7 @@ The leader casts only its memorized spells from the client's static table for it
 
 In a raid the leader adds its class package instead of its scribed spells (`n8`). Warrior, Monk and Rogue leaders add nothing, which costs nothing if recruits cover every buff line, and an Enchanter or Shaman leader adds a haste of 40 to 70% without scribing. A recruit gives the same haste only if it has the spell scribed, and the two do not stack. Which class should lead raids therefore depends on which buff lines the scribed recruits leave open. That is a measurement: compare the raid's buff list with and without the leader's package.
 
-Group 1 is still led by its Magician. The bot's upkeep now plans gems for every class, so whether the Warrior should lead group 1 is a measurement: an hour each way at the same level, compared with `analyze.mjs`.
+Group 1 is led by its Warrior. Under Tagujazolu at levels 33 to 34 in Solusek's Eye the party earned 2.99M XP per hour (Ewbanaqoa 2.89M, `runs/2026-11-08-lead`), 5% below the model's 3.0M to 3.15M. Under Domeyafun at 32 in the same zone the bot reported 3.02M, 5% above the model's 2.87M. Both are inside the 15% noise between equal blocks, so leading with the Warrior costs nothing measurable, and it frees the Magician to cast from his whole spellbook as a companion.
 
 ### After the raid test
 
@@ -175,7 +175,7 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 ## Resolved and open questions
 
 - Character slots (partly verified): the selector shows at least 9 pages of 8 slots, 72 positions (`.re/js/engine.pretty.js:1415`). That is a user interface minimum, not a server cap. No creation limit has been seen.
-- Concurrent sessions (seen live once, not recorded in the repository): two browser sessions on the same account stayed in the game world at the same time without disconnecting each other, each controlling a different character. An earlier second tab failed (`diary/2026-11-06-e.md`), so test it again before relying on it.
+- Concurrent sessions (resolved): three sessions on the account play three groups at once, each in its own visible relay tab signed in from the local login, without disconnecting each other (`diary/2026-11-08-c.md`). A hidden tab cannot finish loading the game.
 - Kerafyrm (resolved): untargetable in the current content, so the roster is not sized for him.
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
 - Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
@@ -187,5 +187,3 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - The client bundle changes: diff the raid-mode code (`Vd`, `yQ`, `QQ`, `n8`, `o61`, `c61`, `m61`), the Resolve list `Ed`, the casino table and Kerafyrm's rows. A raid member limit, a new route to a boss or a targetable Kerafyrm changes what the roster has to beat.
 - Group 2 has leveled for two hours: compare its XP per hour, recovery time and root and cure waits with group 1's at the same levels. If a Druid and Cleric healing pair or a group without a Bard or Enchanter does as well, reduce the Cleric and haste duplicates in group 3.
 - Raid fights show the limit: move groups 4 to 6 toward Clerics and Warriors when healing or tanking runs out first, and toward the best measured damage slots when fights run long.
-- A second session is approved: level two groups at once.
-- Group 1's leader has been switched for an hour: keep the Warrior in front if the party's XP per hour and recovery improve.
