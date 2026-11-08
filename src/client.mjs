@@ -282,6 +282,72 @@ export async function attach(tab) {
     },
 
     /**
+     * Pull one carried or banked item of another account character to the active character with
+     * the Inventory Search window: search the item's name, press the row's Transfer button for
+     * `from`, and read the window's reply. The active character needs a free bag slot. Resolves
+     * with the reply text, or throws when no transferable row names that owner.
+     */
+    async pullItem({ itemName, from, timeoutMs = 20000 }) {
+      return tab.evaluate(
+        async (item, who, ms) => {
+          const sleep = (t) => new Promise((r) => setTimeout(r, t));
+          const cb = () => window.iq.stores.combat.getState();
+          cb().openInventorySearch();
+          let panel = null;
+          for (let k = 0; k < 25 && !(panel = document.querySelector('[data-testid="inventory-search-panel"]')); k++) await sleep(200);
+          if (!panel) throw new Error("Inventory Search did not open");
+          const input = panel.querySelector("input");
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, item);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          const label = `Transfer ${item} from ${who}`;
+          const end = Date.now() + ms;
+          let btn = null;
+          while (Date.now() < end && !(btn = [...panel.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label && !b.disabled))) await sleep(300);
+          if (!btn) {
+            cb().closeInventorySearch();
+            throw new Error(`no transferable ${item} on ${who}`);
+          }
+          btn.click();
+          // The window first shows "Transferring item…", then the result.
+          const have = () => window.iq.stores.character.getState().characterProfile.inventory.filter((x) => x.itemDetails?.name === item).length;
+          const before = have();
+          let reply = null;
+          while (Date.now() < end && (!reply || /…$|^Transferring/.test(reply) || (!panel.querySelector('[role="alert"]') && have() === before))) {
+            await sleep(300);
+            reply = panel.querySelector('[role="status"]')?.textContent || panel.querySelector('[role="alert"]')?.textContent || null;
+          }
+          cb().closeInventorySearch();
+          return reply;
+        },
+        itemName,
+        from,
+        timeoutMs,
+      );
+    },
+
+    /**
+     * Equip a carried item on the active character in worn slot `slot` (gear-data's slot numbers,
+     * for example 17 for the chest) with the character store's slot move. The slot must be empty,
+     * because a move onto an occupied slot does nothing. Resolves with what the slot holds after.
+     */
+    async equipFromBags(itemName, slot) {
+      return tab.evaluate(
+        async (item, to) => {
+          const ch = () => window.iq.stores.character.getState();
+          const inv = () => ch().characterProfile.inventory;
+          const from = inv().find((x) => x.itemDetails?.name === item && (x.bag >= 22 || (x.bag === 0 && x.slot >= 22 && x.slot <= 29)));
+          if (!from) throw new Error(`no ${item} in the bags`);
+          if (inv().some((x) => x.bag === 0 && x.slot === to)) throw new Error(`slot ${to} is not empty`);
+          ch().moveItemToSlot({ bag: from.bag, slot: from.slot }, { bag: 0, slot: to });
+          await new Promise((r) => setTimeout(r, 1200));
+          return inv().find((x) => x.bag === 0 && x.slot === to)?.itemDetails?.name ?? null;
+        },
+        itemName,
+        slot,
+      );
+    },
+
+    /**
      * Read account-wide coin balances through the Manage Money panel, and optionally pull carried
      * and bank coin from `transferFrom` (a character name, an array of names, or `"all"`) into the
      * active character's wallet.
