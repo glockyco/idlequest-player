@@ -33,7 +33,7 @@ async function lastCursor(path) {
 /**
  * Inject the bridge and the supervisor bot into a browser tab and return a handle with one async
  * method per bridge call. `tab` needs `evaluate(expression | function, ...args)`, `click`,
- * `clickAt`, `fill`, `type` and `waitForSelector` for page evaluation and the game's UI controls.
+ * `clickAt`, `fill` and `waitForSelector` for page evaluation and the game's UI controls.
  */
 export async function attach(tab) {
   const [bridge, bot, opcodes, classSpells, questItems, bandRotations] = await Promise.all([
@@ -372,7 +372,8 @@ export async function attach(tab) {
 
     /**
      * Start AutoLevel with the given limits. Con values follow the game's options:
-     * 2 green, 4 blue, 10 white, 15 yellow, 13 red. `maxLevelDiff` caps enemy level above yours (0 = no cap).
+     * 2 green, 4 blue, 10 white, 15 yellow, 13 red. `maxLevelDiff` caps enemy level above yours and
+     * also sets the maximum con: 0 gives White, 1 to 2 Yellow, 3 or more Red (main.pretty.js:190701-190716).
      */
     async startAutoLevel({ minCon, maxCon, maxLevelDiff } = {}) {
       await handle.clearWindows();
