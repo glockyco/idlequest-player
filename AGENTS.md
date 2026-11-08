@@ -27,6 +27,8 @@ These rules are for agents that play the account with this repository. [README.m
    - At character select the list shows eight characters per page. Press "Next page" until the leader's button appears, click it, then ENTER WORLD.
    - Never reload a game tab. A reload turns a broken session into a login page. If fights stop being confirmed ("The combat request could not be confirmed") while the socket is connected, open a new tab and sign in there.
    - Never delete or create characters while a group plays: the world session stopped confirming fights right after deletions. Do it at character select.
+   - "LOADING FAILED: IdleQuest could not finish loading the zone" has a TRY AGAIN button, which loads the zone without a reload. A tab that answers "Selected tab is not ready" for a minute has crashed: open a new tab, sign in, and `iq.switchCharacter(leader)` from character select after setting the bot's `partyIds`, because a new tab starts with empty bot settings.
+   - Disable the bot (`iq.setBot({ enabled: false })`) for a trip outside the rotation, such as shopping, or it moves the party back into a rotation zone.
    - Ask for help only if the login files are missing or the server rejects the login.
 4. After a sign-in the party holds no account characters. The bot asks the characters in its `partyIds` setting to rejoin once it is attached. The ids are the numeric `characterId` of each companion (`iq.roster()` shows them as `character-<id>`). The setting is saved in the tab's session storage, which survives reloads of that tab. Set it again with `iq.setBot({ partyIds: [...] })` when the party changes or in a new tab. `iq.switchCharacter` sets it.
 
