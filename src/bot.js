@@ -137,7 +137,7 @@
   // `tools/check-client.mjs` reads this table to see whether a new client still has them.
   const CLIENT_FN = {
     sell: "Sale confirmation was interrupted",
-    autoBank: "No eligible ingredients or spell scrolls found",
+    autoBank: "courier-based banking fees",
     autoPlace: "Auto-placing",
   };
   const findClientFn = (needle) => {
@@ -156,12 +156,25 @@
     sellAtFn ??= findClientFn(CLIENT_FN.sell);
     return sellAtFn(bag, slot);
   };
-  // The call behind the Auto Bank macro: it sends crafting ingredients and spell scrolls to the
-  // tradeskill bank by courier. Nothing is sold or destroyed.
+  // The call behind the Auto Bank macro: a banker courier arrives and sends crafting ingredients
+  // and spell scrolls to the tradeskill bank. Nothing is sold or destroyed. It takes the scene's
+  // world-interaction port, which the client hands to its UI through a React context, so it is
+  // read from the provider's props in the React tree. It reports in chat and returns nothing.
   let autoBankFn = null;
-  const autoBank = () => {
+  const interactionPort = () => {
+    for (const el of document.querySelectorAll("body *")) {
+      const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+      for (let f = key ? el[key] : null; f; f = f.return) {
+        const v = f.memoizedProps?.value;
+        if (v && typeof v.summonCourier === "function") return v;
+      }
+    }
+    throw new Error("world interaction port not found");
+  };
+  const autoBank = async () => {
     autoBankFn ??= findClientFn(CLIENT_FN.autoBank);
-    return autoBankFn();
+    await autoBankFn("banker", interactionPort());
+    return null;
   };
 
   const characterNames = (i) => {
