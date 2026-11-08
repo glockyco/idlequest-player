@@ -1276,3 +1276,18 @@ test("a quest running when the bot is reinstalled goes on under the new install"
     vi.useRealTimers();
   }
 });
+
+test("client options are kept at the bot's values with their toggles, and set ones are left alone", async () => {
+  const f = await install();
+  const flips: string[] = [];
+  Object.assign(f.combat, {
+    autoUpgradeEnabled: true,
+    autoUpgradeCompanionsEnabled: false,
+    toggleAutoUpgrade: () => (flips.push("self"), (f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled = false),
+    toggleAutoUpgradeCompanions: () => flips.push("companions"),
+  });
+  await f.bot.tick();
+  await f.bot.tick();
+  expect(flips).toEqual(["self"]);
+  expect((f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled).toBe(false);
+});

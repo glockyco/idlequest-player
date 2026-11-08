@@ -36,6 +36,10 @@
     // Never sold, besides the reagents of the leader's own spells. Lightstones (10300) and Greater
     // Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
+    // Client options the bot keeps for every character it plays, by the combat store's state key. The
+    // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
+    // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false },
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
     // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
@@ -629,6 +633,17 @@
   // without a way back the limits drifted: groups hunted at blue for hours after one crowded
   // minute. The limits return to `limits` once nothing holds them: no errand or task, no tightening
   // by the guard, which returns by itself after a quiet hour, and no widening within `widenMin`.
+  // The options live per character on the server, so a character switch brings the new
+  // character's own. Each setting flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`).
+  const keepOptions = (cb) => {
+    for (const [key, want] of Object.entries(config.clientOptions ?? {})) {
+      const toggle = cb[`toggle${key[0].toUpperCase()}${key.slice(1).replace(/Enabled$/, "")}`];
+      if (key in cb && cb[key] !== want && typeof toggle === "function") {
+        toggle();
+        log(`client option ${key} set to ${want}`);
+      }
+    }
+  };
   const keepLimits = (i, cb) => {
     const l = config.limits;
     if (!l || state.errand || state.task?.status === "running" || i.guard?.preferred || now() - (state.widenedAt ?? 0) < config.widenMin * 60000 || sameLimits(cb, l)) return;
@@ -1772,6 +1787,7 @@
       keepParty(i, cb);
       await watchIdle(i, cb);
       keepLimits(i, cb);
+      keepOptions(cb);
       avoidTargets(i);
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);
