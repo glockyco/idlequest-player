@@ -305,6 +305,22 @@ test("AutoLevel idle after waiting for an enemy widens a white minimum con to bl
   }
 });
 
+test("a dead leader takes a free group resurrection, else the best one it can pay above its reserve, else respawns", async () => {
+  const { bot } = await install();
+  const paid = [
+    { percent: 50, price: 50 },
+    { percent: 90, price: 200 },
+    { percent: 96, price: 1000 },
+  ];
+  // 96% for 1000pp is above rezMaxPp (200), so 90% is the most it buys.
+  expect(bot.recoveryChoice(paid, 2400)).toEqual({ percent: 90, price: 200 });
+  // 260pp leaves 160 to spend above the 100pp reserve: 50% only.
+  expect(bot.recoveryChoice(paid, 260)).toEqual({ percent: 50, price: 50 });
+  expect(bot.recoveryChoice(paid, 140)).toBeNull();
+  expect(bot.recoveryChoice([{ percent: 75, price: 0 }, ...paid.slice(1)], 0)).toEqual({ percent: 75, price: 0 });
+  expect(bot.recoveryChoice([], 5000)).toBeNull();
+});
+
 test("cleanup sells extra copies first, then cheap singles, and keeps food, research pieces and dear items", async () => {
   const { bot, me } = await install();
   const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });

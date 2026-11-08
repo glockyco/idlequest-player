@@ -66,7 +66,9 @@
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
-    respawnAfterSec: 20, // a dead leader takes the free respawn at the bind point after this long (0 = never)
+    respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
+    rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
+    rezReservePp: 100, // platinum a paid resurrection must leave for spells
     outsideRotationSec: 60, // a party this long in a zone outside `rotation` moves to its first zone (0 = never)
     releaseProbeMin: 10, // ask the site this often whether a newer client release is served (0 = never)
   };
@@ -276,24 +278,56 @@
   // changes, target skips, cures or sales.
   const inRaid = (i) => Boolean(i.stores.raid?.getState?.().raidModeActive);
   // A dead leader waits on the Resurrection window, and AutoLevel cannot run until it answers.
-  // The free respawn at the bind point costs no XP while Death XP Loss is off (its default).
+  // From level 5 a death costs the leader level squared times 666.67 XP (16,666 at 5, 24,000 at 6,
+  // about 963,000 at 38). The window offers a free group resurrection when the party can cast one,
+  // resurrections that restore 50, 90 or 96% of the loss for platinum, and a free respawn at the
+  // bind point that restores nothing. A resurrection also puts the leader back at the corpse.
   const leaderDead = (i) => !(i.stores.character.getState().characterProfile?.curHp > 0);
+  // The highest restore the leader can pay: free offers always, paid ones up to `rezMaxPp` and only
+  // while `rezReservePp` stays for spells. Offers are { percent, price } in platinum.
+  const recoveryChoice = (offers, coinPp) => {
+    const budget = Math.min(config.rezMaxPp, coinPp - config.rezReservePp);
+    const best = offers.filter((o) => o.price === 0 || o.price <= budget).sort((a, b) => b.percent - a.percent || a.price - b.price)[0];
+    return best ?? null;
+  };
   const watchDeath = (i) => {
     if (!leaderDead(i)) {
       state.deadSince = null;
       return;
     }
     state.deadSince ??= now();
+    const dialog = document.querySelector('[role="dialog"][aria-label="Resurrection"]');
+    if (!dialog) {
+      // The window opens by itself once recovery is ready. A closed one reopens with its button.
+      document.querySelector('[data-testid="death-recovery-reopen"] button')?.click();
+      return;
+    }
+    if (/Loading recovery options|Recovering…/.test(dialog.textContent ?? "")) return;
+    const label = (b) => b.getAttribute("aria-label") ?? "";
+    const offers = [];
+    for (const b of dialog.querySelectorAll("button")) {
+      const paid = /^Resurrect for ([\d,]+)pp$/.exec(label(b));
+      if (!paid && !/^Group resurrection/.test(label(b))) continue;
+      const pct = /(\d+)%/.exec(b.parentElement?.textContent ?? "");
+      if (pct && !b.disabled) offers.push({ button: b, percent: Number(pct[1]), price: paid ? Number(paid[1].replace(/,/g, "")) : 0 });
+    }
+    const p = i.stores.character.getState().characterProfile ?? {};
+    const coinPp = (p.platinum ?? 0) + (p.gold ?? 0) / 10 + (p.silver ?? 0) / 100 + (p.copper ?? 0) / 1000;
+    const pick = recoveryChoice(offers, coinPp);
+    if (pick) {
+      pick.button.click();
+      state.deadSince = now();
+      // A resurrection chosen in the window leaves AutoLevel paused at the corpse.
+      state.restartNow = true;
+      alert("respawn", `the leader was dead at level ${p.level}; resurrected with ${pick.percent}% of the lost XP for ${pick.price ? `${pick.price}pp` : "free"}`);
+      return;
+    }
     if (now() - state.deadSince < config.respawnAfterSec * 1000) return;
-    const near = (el, re) => {
-      for (let k = 0; el && k < 5; k++, el = el.parentElement) if (re.test(el.textContent ?? "")) return true;
-      return false;
-    };
-    const free = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Free" && near(b, /Respawn at bind/i));
+    const free = [...dialog.querySelectorAll("button")].find((b) => label(b) === "Respawn at Bind");
     if (!free) return;
     free.click();
     state.deadSince = now();
-    alert("respawn", "the leader was dead; took the free respawn at the bind point");
+    alert("respawn", `the leader was dead at level ${p.level}; took the free respawn at the bind point${offers.length ? ` (${Math.floor(coinPp)}pp carried, no resurrection within the limits)` : ""}`);
   };
   const keepAutoLevel = (i, cb) => {
     if (cb.isRunning) {
@@ -306,10 +340,15 @@
     // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
     // is the client's, not a person's, so it restarts at the next tick, within a minute of the line.
     const contested = state.abandonAt && now() - state.abandonAt < 60000;
-    if (contested) {
+    if (contested || state.restartNow) {
       state.abandonAt = null;
       cb.startAutoLevel();
       state.offSince = now();
+      if (state.restartNow) {
+        state.restartNow = false;
+        log("restarted AutoLevel after the resurrection");
+        return;
+      }
       state.contestedRestarts = (state.contestedRestarts ?? 0) + 1;
       log(`restarted AutoLevel after a contested target (${state.contestedRestarts} so far)`);
       return;
@@ -1205,6 +1244,8 @@
     spellPlan: () => spellPlan(iq()),
     /** The zones of `list` ordered by how few other groups of this browser hunt there now. */
     leastUsed: (list) => leastUsed(list),
+    /** The resurrection the bot would buy from `offers` ({ percent, price } in pp) with `coinPp` carried, or null to respawn. */
+    recoveryChoice: (offers, coinPp) => recoveryChoice(offers, coinPp),
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
     upkeep: (reason = "manual") => runUpkeep(iq(), reason),
 
