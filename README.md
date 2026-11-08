@@ -138,6 +138,12 @@ Calibration cases. Permafrost at leader level 24 to 25 measured 2.91 kills per m
 | Median kill seconds | -7% | +9% | +3% |
 | Combat share of time | -2% | | |
 
+`tools/plan.mjs` turns the model into hours of play: for each playing group, the time to the start of levels 46, 50, 55 and 60, from the leader's XP rate over the last hour (the collector's run logs), the model's rate per level and the XP table the server confirms. `--new-groups N` adds groups that start at level 1 now. The header says how calibration and levels above the band rows are handled.
+
+```sh
+bun tools/plan.mjs --new-groups 6
+```
+
 ## Simulating a raid fight
 
 `tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot (clone it as above, `bun install` for the DOM shim). It compares roster choices against a boss before the characters exist. It loads the newest saved client release (`--client` picks another one, and a release needs a table in `tools/raidsim/clients.mjs`, which `tools/raidsim/map-client.mjs` writes). Members get the live creation stats of their race and class (`data/char-create.json`) and the server's skill caps for their level (`data/skill-caps.json`, levels 46 to 60), both read from the game. The file header lists what is replaced and what is still assumed. A roster entry overrides race, stats, the bonus-point allocation (`alloc`), skills, items, spells and gear policy.
