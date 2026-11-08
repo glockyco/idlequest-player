@@ -34,15 +34,16 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
  * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, needs, steps, retryMin } }`, `holders`,
- *   the account characters that carry each quest's reward, `{ [id]: [name] }`, and `have`, the
- *   account's copies of each item a quest `needs`, `{ [item]: n }`.
+ *   the account characters that carry each quest's reward, `{ [id]: [name] }`, `started`, those that
+ *   carry the reward of one of its earlier steps, `{ [id]: [name] }`, and `have`, the account's
+ *   copies of each item a quest `needs`, `{ [item]: n }`.
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
  * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
  *   errands by level range, because both change the limits the arms compare.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -62,15 +63,19 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
   for (const [id, q] of Object.entries(quests)) {
-    // A quest that hands over a dropped item runs for as many members as the account holds copies.
+    // A quest that hands over a dropped item runs for as many members as the account holds copies,
+    // and for every member part way through, whose first step already took its copy.
     let copies = Math.min(Infinity, ...(q.needs ?? []).map((n) => have[n] ?? 0));
     for (const t of tabs) {
       if (!free(t)) continue;
-      const who = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name).slice(0, copies);
+      const want = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+      const begun = want.filter((n) => (started[id] ?? []).includes(n));
+      const fresh = want.filter((n) => !begun.includes(n)).slice(0, copies);
+      const who = [...begun, ...fresh];
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
-      copies -= who.length;
+      copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id }, why: `${id} for ${who.join(", ")}` });
     }
   }

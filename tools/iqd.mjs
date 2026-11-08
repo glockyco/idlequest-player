@@ -486,9 +486,13 @@ class Daemon {
     // the piece), wherever they lie, because Inventory Search moves NO DROP pieces between characters.
     for (const o of opportunities) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
     const holders = {};
+    const started = {};
     const have = {};
+    const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
-      holders[id] = (await search(q.reward)).filter((m) => m.item === q.reward).map((m) => m.who);
+      holders[id] = await carriers(q.reward);
+      const steps = [...new Set(q.steps.map((s) => s.expect).filter((e) => e && e !== q.reward))];
+      started[id] = [...new Set((await Promise.all(steps.map(carriers))).flat())];
       for (const n of q.needs ?? []) have[n] ??= (await search(n)).filter((m) => m.item === n).reduce((a, m) => a + m.n, 0);
     }
     // The wanted enemies' spawn points, read once from the content snapshot.
@@ -505,7 +509,7 @@ class Daemon {
     }
     const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, have, gear, held, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, started, have, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {

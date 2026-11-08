@@ -133,3 +133,10 @@ test("a quest that needs a dropped item runs for as many members as the account 
   expect(decide({ now: NOW, tabs, quests, have: { Head: 1 } })).toMatchObject([{ label: "A", spec: { members: ["N1"] } }]);
   expect(decide({ now: NOW, tabs, quests, have: { Head: 3 } }).map((a) => a.spec.members)).toEqual([["N1", "N2"], ["N3"]]);
 });
+
+test("a member part way through a quest runs it without a copy of what it needs", () => {
+  const quests = { n1: { class: "Necromancer", reward: "Symbol", needs: ["Head"], steps: [{ zone: "lakerathe", npc: "Kazen" }] } };
+  const tabs = [{ ...tab("A", "G4", 14), members: ["N1", "N2"].map((name) => ({ name, level: 14, class: "Necromancer" })) }];
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2", "N1"] } }]);
+});

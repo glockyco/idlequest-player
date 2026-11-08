@@ -104,5 +104,48 @@
         "expect": "Symbol of the Apprentice"
       }
     ]
+  },
+  "cleric-epic-1": {
+    "class": "Cleric",
+    "minLevel": 34,
+    "reward": "Coral Statue of Tarew",
+    "needs": [
+      "Lord Bergurgle's Crown"
+    ],
+    "steps": [
+      {
+        "zone": "lakerathe",
+        "npc": "Shmendrik Lavawalker",
+        "give": [
+          "Lord Bergurgle's Crown"
+        ]
+      },
+      {
+        "zone": "lakerathe",
+        "kill": "Shmendrik Lavawalker",
+        "waitSec": 30
+      },
+      {
+        "zone": "lakerathe",
+        "kill": "spirit of flame",
+        "waitSec": 60
+      },
+      {
+        "zone": "lakerathe",
+        "npc": "Natasha Whitewater",
+        "give": [
+          "Damaged Goblin Crown"
+        ],
+        "expect": "Ornate Sea Shell"
+      },
+      {
+        "zone": "timorous",
+        "npc": "Omat Vastsea",
+        "give": [
+          "Ornate Sea Shell"
+        ],
+        "expect": "Coral Statue of Tarew"
+      }
+    ]
   }
 }

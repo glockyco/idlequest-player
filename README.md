@@ -326,8 +326,11 @@ back when the camp says its points respawn, a held camp after 15 minutes, and ot
 `retryMin` minutes. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
-members of its class and level who do not carry its reward, one task per tab, and a chain that
-stopped part way goes on after the last reward the member carries. Each experiment in
+members of its class and level who do not carry its reward, one task per tab. Members who carry the
+reward of an earlier step always run, and the others at most as many as the account holds copies of
+the items it `needs`. A chain that stopped part way goes on after the last step `expect` the member
+carries. A step talks to its `npc` with `say` keywords, gives it `give`, hands in `each`, or fights
+`kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn. Each experiment in
 `data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
 `without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at

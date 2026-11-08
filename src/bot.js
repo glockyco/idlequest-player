@@ -919,6 +919,23 @@
     state.restartNow = "the party gathered";
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
+  // A task that fights as a member other than the leader gathers the group around it first, since
+  // every watcher, keepParty too, waits while another character is active, and that character
+  // enters the world alone.
+  const gatherParty = async (i) => {
+    const cs = () => i.stores.companions.getState();
+    cs().requestAccountCharacterAvailability();
+    await sleep(1500);
+    const available = new Set(cs().availableAccountCharacterIds ?? []);
+    const missing = partyMissing(i).filter((id) => !available.size || available.has(id));
+    for (const id of missing) {
+      cs().controlAccountCharacter(id);
+      await sleep(2500);
+    }
+    const away = () => partyMissing(i).filter((id) => missing.includes(id));
+    for (let k = 0; k < 20 && away().length; k++) await sleep(1000);
+    return `${missing.length - away().length} of ${missing.length} joined`;
+  };
   // ---- Leader -------------------------------------------------------------------------------
   // The active character converges to `leaderId` whenever no pause holds the tab. A switch camps
   // with the client's own command and enters the world as the character (`session.camp` and
@@ -1050,43 +1067,68 @@
   // quest NPCs answer and reward the character in front of them. A step travels to its zone, pulls
   // the items it hands over from whoever on the account holds them, then talks to its NPC with
   // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
-  // `handInEach` does, and checks that the member then carries `expect`. A hand-in is a quest of one
-  // `each` step per member. Entering the world puts a character where it last stood, and the zone
-  // store can lag the switch, so every step travels.
+  // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), and
+  // checks that the member then carries `expect`. A hand-in is a quest of one `each` step per
+  // member. Entering the world puts a character where it last stood, and the zone store can lag
+  // the switch, so the first step after a switch always travels, and later steps only to another
+  // zone, because a zone change also moves the party back to the zone's entry.
   const questTask = async (i, task, step) => {
-    for (const m of task.members) {
-      if (m.done) continue;
-      const t0 = now();
-      await step(`stop for ${m.name}`, () => calm(i), 75000);
-      await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
-      // A chain that stopped part way, in this task or an earlier one, goes on after the last step
-      // whose reward the member carries, so no step repeats and no reward is asked for twice.
-      const resume = m.steps.findLastIndex((s) => s.expect && i.carried(s.expect) > 0) + 1;
-      m.at = Math.max(m.at ?? 0, resume);
-      for (const [k, s] of m.steps.entries()) {
-        if (k < m.at) continue;
-        await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
-        const need = { ...(s.each ?? {}) };
-        for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
-        for (const [item, n] of Object.entries(need)) {
-          while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
-        }
-        // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
-        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
-        if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
-        if (s.each) {
-          const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);
-          Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
-        }
-        if (s.expect) {
-          for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) await sleep(500);
-          if (i.carried(s.expect) < 1) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc}`);
-        }
-        m.at = k + 1;
-      }
-      Object.assign(m, { done: true, sec: Math.round((now() - t0) / 1000) });
-      log(`quest: ${m.name} done in ${m.sec} s${m.xp ? `, ${m.items} items for ${m.xp} XP` : ""}`);
+    const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
+    try {
+      for (const m of task.members) await questMember(i, m, step);
+    } finally {
+      i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
+  };
+  const questMember = async (i, m, step) => {
+    if (m.done) return;
+    const t0 = now();
+    await step(`stop for ${m.name}`, () => calm(i), 75000);
+    await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
+    // A chain that stopped part way, in this task or an earlier one, goes on after the last step
+    // whose reward the member carries, so no step repeats and no reward is asked for twice.
+    const resume = m.steps.findLastIndex((s) => s.expect && i.carried(s.expect) > 0) + 1;
+    m.at = Math.max(m.at ?? 0, resume);
+    let fresh = true;
+    let gathered = false;
+    for (const [k, s] of m.steps.entries()) {
+      if (k < m.at) continue;
+      if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
+      fresh = false;
+      const need = { ...(s.each ?? {}) };
+      for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
+      for (const [item, n] of Object.entries(need)) {
+        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+      }
+      // A script-spawned enemy appears a few seconds after the hand-in or kill that summons it, and a
+      // fight the party did not reach is tried again, as a hunt does, until `waitSec` runs out.
+      if (s.kill) {
+        if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
+        gathered = true;
+        const wanted = enemyPattern(s.kill);
+        const since = now();
+        const end = since + (s.waitSec ?? 60) * 1000;
+        for (let r = null; r !== "killed" && !killedSince(i, wanted, since); ) {
+          if (r && now() > end) throw new Error(`${r === "none" ? `no ${s.kill} came up` : `the fight with ${s.kill} was lost`} (${fightState(i)})`);
+          if (r) await sleep(2000);
+          r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
+        }
+      }
+      // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
+      if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
+      if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
+      if (s.each) {
+        const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);
+        Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
+      }
+      if (s.expect) {
+        for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) await sleep(500);
+        if (i.carried(s.expect) < 1) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
+      }
+      m.at = k + 1;
+    }
+    Object.assign(m, { done: true, sec: Math.round((now() - t0) / 1000) });
+    log(`quest: ${m.name} done in ${m.sec} s${m.xp ? `, ${m.items} items for ${m.xp} XP` : ""}`);
   };
   // A directed hunt fights the enemies its `keep` pattern names through the Enemy Targets action,
   // the way a click on that list does with "attack on arrival": the client walks to the closest
@@ -1107,17 +1149,25 @@
     }
     return false;
   };
+  // What a failed directed kill saw, for its error.
+  const fightState = (i) => `in combat ${Boolean(i.stores.skills.getState().inCombat)}, target ${i.stores.combat.getState().targetNPC?.name ?? "none"}, last line: ${(i.events ?? []).at(-1)?.text ?? "none"}`;
   const directedKill = async (i, wanted) => {
     const rt = runtime(i);
     if (!rt?.selectEnemyTarget) throw new Error("the client's Enemy Targets action was not found");
     const cb = () => i.stores.combat.getState();
+    // An enemy that attacked first, such as a script spawn at a corpse, is already the party's
+    // fight, so its kill is only awaited.
+    const engaged = () => i.stores.skills.getState().inCombat && wanted.test(cb().targetNPC?.name ?? "");
     const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? ""));
-    if (!alive.length) return "none";
-    for (let k = 0; k < 30 && (rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null); k++) await sleep(1000);
-    if (cb().isRunning) cb().setIsRunning(false);
-    if (!cb().enemyTargetAttackOnArrival) cb().setEnemyTargetAttackOnArrival(true);
-    const t0 = now();
-    rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
+    if (!alive.length && !engaged()) return "none";
+    let t0 = now();
+    if (!engaged()) {
+      for (let k = 0; k < 30 && (rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null); k++) await sleep(1000);
+      if (cb().isRunning) cb().setIsRunning(false);
+      if (!cb().enemyTargetAttackOnArrival) cb().setEnemyTargetAttackOnArrival(true);
+      t0 = now();
+      rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
+    }
     for (let k = 0; k < 150; k++) {
       await sleep(1000);
       if (killedSince(i, wanted, t0)) {
