@@ -101,7 +101,17 @@ No recipe is established here as an IdleQuest NPC-sale profit loop or as a measu
 
 The Resets tab provides 2 free boss summons per account in a rolling 24-hour period, shared across characters, with one kill per boss. Travel to the boss's zone, summon, then use Move & Attack. A new summon spends a reset. Resuming a saved boss or retrying a wipe does not. A private copy expires 24 hours after summoning. A listed boss has its own 24-hour kill cooldown beginning on death. The list of daily bosses comes from the server, so which bosses it offers is unverified. Sources: <https://idlequest.net/wiki/raiding>, "Daily raid resets", and the Resets panel text at `.re/js/engine.pretty.js:414960-414980`.
 
-Casino boss potions do not spend those free resets. The wiki permits as many as the account has, but only 1 active casino boss at a time until it dies or expires. The client's casino potion table (`.re/js/OK.pretty.js:4663-5008`) lists 30 bosses, among them Lord Yelinak, Vulak`Aerr, The Avatar of War, Tunare and the four Warders, but not Lord Vyemm, Cazic-Thule or Kerafyrm. It is not the daily list. How potions are obtained is unverified. Source: <https://idlequest.net/wiki/raiding>, "Daily raid resets".
+Casino boss potions do not spend those free resets. The wiki permits as many as the account has, but only 1 active casino boss at a time until it dies or expires. The client's casino potion table (`.re/releases/20261108T004644-064bc896/pretty/CAUokwED.js:4659-5085`) lists 30 bosses, among them Lord Yelinak, Vulak`Aerr, The Avatar of War, Tunare and the four Warders, but not Lord Vyemm, Cazic-Thule or Kerafyrm. It is not the daily list. Source: <https://idlequest.net/wiki/raiding>, "Daily raid resets".
+
+The potions come from Fansy's Famous Casino (`/casino`, or `openGamblePane` on the UI store). Its Items prize unlocks at level 46 and plays Crown and Anchor: each die that shows the chosen symbol is a match. Two matches give a potion or a gem (50/50), three or more give one boss potion, and the account gets at most one boss potion per 24 hours (no prize during the cooldown). The panel's odds, read in the live client:
+
+| Roll | Price | Two matches | Boss potion | Platinum per boss potion |
+| --- | ---: | ---: | ---: | ---: |
+| 3 dice | 15 pp | 6.94% | 0.463% | 3,240 |
+| 6 dice | 210 pp | 20.09% | 6.229% | 3,371 |
+| 9 dice | 600 pp | 27.91% | 17.826% | 3,366 |
+
+A boss potion therefore costs about 3,300 pp on average, which adds a third boss a day to the two free resets. The potion and gem prizes are the classic stat, resist and rejuvenation potions and crushed gems. No Double Experience potion is among them. Using a boss potion sends `casinoPotion: true` with the item's instance and the character's id.
 
 ### Hourly price, and what "free" does not establish
 
@@ -169,7 +179,7 @@ The wiki explains same-account companion progression and independent raid copies
 
 - The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). Players report that the potion now affects the whole group. No item in that client or in the content snapshot casts it, so its source and price are not known.
 - The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
-- A group-wide doubling would double that group's XP for 30 minutes, more than any zone or tactic change measured so far. Find its source in game (merchant categories "Potions", the casino, rewards) before planning around it.
+- A group-wide doubling would double that group's XP for 30 minutes, more than any zone or tactic change measured so far. The casino's prizes and Olyna Mudel's potions in West Freeport do not include it. Look for it in other merchants' "Potions" categories and in rewards before planning around it.
 
 ## Five highest-value actions
 
