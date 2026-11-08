@@ -8,7 +8,7 @@
 //   gems    leader only: memorized spell ids, up to 8 (3 for a Bard); default is the 8 highest level
 //           spells that appear in the client's auto-cast table for the class
 import { byId } from "./content.mjs";
-import { BASE_STATS, SKILL_CAPS, SKILL_IDS, classId, raceId } from "./classes.mjs";
+import { SKILL_IDS, classId, creationStats, raceId, skillCaps, skillCapsByName } from "./classes.mjs";
 import { defaultGear, defaultGems, merchantSpells } from "./kits.mjs";
 
 function placeItems(list, items) {
@@ -30,10 +30,9 @@ export async function normalizeEntry(entry, defaultLevel, index) {
   const cls = classId(entry.class);
   const level = entry.level ?? defaultLevel;
   const race = raceId(entry.race, cls);
-  const caps = SKILL_CAPS[cls];
+  const caps = skillCapsByName(cls, level);
   const nameToId = SKILL_IDS;
-  const skills = {};
-  for (const [name, cap] of Object.entries(caps)) skills[nameToId[name]] = Math.min(cap, level * 5);
+  const skills = { ...skillCaps(cls, level) };
   for (const [k, v] of Object.entries(entry.skills ?? {})) {
     const id = Number.isInteger(+k) ? +k : nameToId[k];
     if (id === undefined) throw new Error(`unknown skill ${JSON.stringify(k)} in the roster entry for ${entry.name}`);
@@ -48,7 +47,7 @@ export async function normalizeEntry(entry, defaultLevel, index) {
     race,
     level,
     leader: !!entry.leader,
-    stats: { ...BASE_STATS[cls], ...(entry.stats ?? {}) },
+    stats: { ...creationStats(cls, race, entry.alloc), ...(entry.stats ?? {}) },
     skills,
     equipped,
     spells: entry.spells ?? (await merchantSpells(cls, level)),

@@ -60,8 +60,13 @@
 //                              evaluates a name in module scope, so non-exported functions and
 //                              stores can be used and observed.
 //
-// What this tool assumes, because the server owns it and no client or content file has it:
-//   - class skill levels, raw attributes and race of a member (classes.mjs); entries override them
+// Inputs taken from the live game: raw attributes are the creation stats of the member's race and
+// class with the server's preset allocation (data/char-create.json), and skill caps come from the
+// server for levels 46 to 60 (data/skill-caps.json), classes.mjs. Entries override them.
+//
+// What this tool assumes, because no client, server or content data says what we will own:
+//   - every skill trained to its cap, no AAs, and the default race of a class (Human, Barbarian for
+//     a Shaman) when an entry names none
 //   - default gear (best merchant item per slot by armor class, best merchant weapon by damage per
 //     delay) and default spells (every merchant scroll the class can cast), kits.mjs
 //   - a leader memorizes the 8 (Bard 3) highest level spells of the client's auto-cast table that

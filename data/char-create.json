@@ -1,0 +1,1747 @@
+{
+ "source": "live client staticData charCreateCombinations and charCreatePointAllocations",
+ "races": [
+  {
+   "id": 1,
+   "name": "Human"
+  },
+  {
+   "id": 2,
+   "name": "Barbarian"
+  },
+  {
+   "id": 3,
+   "name": "Erudite"
+  },
+  {
+   "id": 4,
+   "name": "Wood Elf"
+  },
+  {
+   "id": 5,
+   "name": "High Elf"
+  },
+  {
+   "id": 6,
+   "name": "Dark Elf"
+  },
+  {
+   "id": 7,
+   "name": "Half-Elf"
+  },
+  {
+   "id": 8,
+   "name": "Dwarf"
+  },
+  {
+   "id": 9,
+   "name": "Troll"
+  },
+  {
+   "id": 10,
+   "name": "Ogre"
+  },
+  {
+   "id": 11,
+   "name": "Halfling"
+  },
+  {
+   "id": 12,
+   "name": "Gnome"
+  },
+  {
+   "id": 128,
+   "name": "Iksar"
+  }
+ ],
+ "classes": [
+  {
+   "id": 1,
+   "name": "Warrior",
+   "createPoints": 25
+  },
+  {
+   "id": 2,
+   "name": "Cleric",
+   "createPoints": 30
+  },
+  {
+   "id": 3,
+   "name": "Paladin",
+   "createPoints": 20
+  },
+  {
+   "id": 4,
+   "name": "Ranger",
+   "createPoints": 20
+  },
+  {
+   "id": 5,
+   "name": "Shadow Knight",
+   "createPoints": 20
+  },
+  {
+   "id": 6,
+   "name": "Druid",
+   "createPoints": 30
+  },
+  {
+   "id": 7,
+   "name": "Monk",
+   "createPoints": 20
+  },
+  {
+   "id": 8,
+   "name": "Bard",
+   "createPoints": 25
+  },
+  {
+   "id": 9,
+   "name": "Rogue",
+   "createPoints": 30
+  },
+  {
+   "id": 10,
+   "name": "Shaman",
+   "createPoints": 30
+  },
+  {
+   "id": 11,
+   "name": "Necromancer",
+   "createPoints": 30
+  },
+  {
+   "id": 12,
+   "name": "Wizard",
+   "createPoints": 30
+  },
+  {
+   "id": 13,
+   "name": "Magician",
+   "createPoints": 30
+  },
+  {
+   "id": 14,
+   "name": "Enchanter",
+   "createPoints": 30
+  },
+  {
+   "id": 15,
+   "name": "Beastlord",
+   "createPoints": 0
+  },
+  {
+   "id": 16,
+   "name": "Berserker",
+   "createPoints": 0
+  }
+ ],
+ "combinations": [
+  {
+   "race": 1,
+   "class": 1,
+   "base": {
+    "str": 85,
+    "sta": 85,
+    "agi": 80,
+    "dex": 75,
+    "wis": 75,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 2,
+   "base": {
+    "str": 80,
+    "sta": 80,
+    "agi": 75,
+    "dex": 75,
+    "wis": 85,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 3,
+   "base": {
+    "str": 85,
+    "sta": 80,
+    "agi": 75,
+    "dex": 75,
+    "wis": 80,
+    "int": 75,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 4,
+   "base": {
+    "str": 80,
+    "sta": 85,
+    "agi": 85,
+    "dex": 75,
+    "wis": 80,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 20,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 5,
+   "base": {
+    "str": 85,
+    "sta": 80,
+    "agi": 75,
+    "dex": 75,
+    "wis": 75,
+    "int": 85,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 6,
+   "base": {
+    "str": 75,
+    "sta": 85,
+    "agi": 75,
+    "dex": 75,
+    "wis": 85,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 7,
+   "base": {
+    "str": 80,
+    "sta": 80,
+    "agi": 85,
+    "dex": 85,
+    "wis": 75,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 20,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 8,
+   "base": {
+    "str": 80,
+    "sta": 75,
+    "agi": 75,
+    "dex": 85,
+    "wis": 75,
+    "int": 75,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 25
+   }
+  },
+  {
+   "race": 1,
+   "class": 9,
+   "base": {
+    "str": 75,
+    "sta": 75,
+    "agi": 85,
+    "dex": 85,
+    "wis": 75,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 11,
+   "base": {
+    "str": 75,
+    "sta": 75,
+    "agi": 75,
+    "dex": 85,
+    "wis": 75,
+    "int": 85,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 12,
+   "base": {
+    "str": 75,
+    "sta": 85,
+    "agi": 75,
+    "dex": 75,
+    "wis": 75,
+    "int": 85,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 13,
+   "base": {
+    "str": 75,
+    "sta": 85,
+    "agi": 75,
+    "dex": 75,
+    "wis": 75,
+    "int": 85,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 1,
+   "class": 14,
+   "base": {
+    "str": 75,
+    "sta": 75,
+    "agi": 75,
+    "dex": 75,
+    "wis": 75,
+    "int": 85,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 5,
+    "cha": 25
+   }
+  },
+  {
+   "race": 2,
+   "class": 1,
+   "base": {
+    "str": 113,
+    "sta": 105,
+    "agi": 87,
+    "dex": 70,
+    "wis": 70,
+    "int": 60,
+    "cha": 55
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 2,
+   "class": 9,
+   "base": {
+    "str": 103,
+    "sta": 95,
+    "agi": 92,
+    "dex": 80,
+    "wis": 70,
+    "int": 60,
+    "cha": 55
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 2,
+   "class": 10,
+   "base": {
+    "str": 103,
+    "sta": 100,
+    "agi": 82,
+    "dex": 70,
+    "wis": 80,
+    "int": 60,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 2,
+   "base": {
+    "str": 65,
+    "sta": 75,
+    "agi": 70,
+    "dex": 70,
+    "wis": 93,
+    "int": 107,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 3,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 70,
+    "dex": 70,
+    "wis": 88,
+    "int": 107,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 5,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 70,
+    "dex": 70,
+    "wis": 83,
+    "int": 117,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 11,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 70,
+    "dex": 80,
+    "wis": 83,
+    "int": 117,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 12,
+   "base": {
+    "str": 60,
+    "sta": 80,
+    "agi": 70,
+    "dex": 70,
+    "wis": 83,
+    "int": 117,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 13,
+   "base": {
+    "str": 60,
+    "sta": 80,
+    "agi": 70,
+    "dex": 70,
+    "wis": 83,
+    "int": 117,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 3,
+   "class": 14,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 70,
+    "dex": 70,
+    "wis": 83,
+    "int": 117,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 5,
+    "cha": 25
+   }
+  },
+  {
+   "race": 4,
+   "class": 1,
+   "base": {
+    "str": 75,
+    "sta": 75,
+    "agi": 100,
+    "dex": 80,
+    "wis": 80,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 4,
+   "class": 4,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 105,
+    "dex": 80,
+    "wis": 85,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 20,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 4,
+   "class": 6,
+   "base": {
+    "str": 65,
+    "sta": 75,
+    "agi": 95,
+    "dex": 80,
+    "wis": 90,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 4,
+   "class": 8,
+   "base": {
+    "str": 70,
+    "sta": 65,
+    "agi": 95,
+    "dex": 90,
+    "wis": 80,
+    "int": 75,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 25
+   }
+  },
+  {
+   "race": 4,
+   "class": 9,
+   "base": {
+    "str": 65,
+    "sta": 65,
+    "agi": 105,
+    "dex": 90,
+    "wis": 80,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 5,
+   "class": 2,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 85,
+    "dex": 70,
+    "wis": 105,
+    "int": 92,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 5,
+   "class": 3,
+   "base": {
+    "str": 65,
+    "sta": 70,
+    "agi": 85,
+    "dex": 70,
+    "wis": 100,
+    "int": 92,
+    "cha": 90
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 5,
+   "class": 12,
+   "base": {
+    "str": 55,
+    "sta": 75,
+    "agi": 85,
+    "dex": 70,
+    "wis": 95,
+    "int": 102,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 5,
+   "class": 13,
+   "base": {
+    "str": 55,
+    "sta": 75,
+    "agi": 85,
+    "dex": 70,
+    "wis": 95,
+    "int": 102,
+    "cha": 80
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 5,
+   "class": 14,
+   "base": {
+    "str": 55,
+    "sta": 65,
+    "agi": 85,
+    "dex": 70,
+    "wis": 95,
+    "int": 102,
+    "cha": 90
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 5,
+    "cha": 25
+   }
+  },
+  {
+   "race": 6,
+   "class": 1,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 95,
+    "dex": 75,
+    "wis": 83,
+    "int": 99,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 2,
+   "base": {
+    "str": 65,
+    "sta": 70,
+    "agi": 90,
+    "dex": 75,
+    "wis": 93,
+    "int": 99,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 5,
+   "base": {
+    "str": 70,
+    "sta": 70,
+    "agi": 90,
+    "dex": 75,
+    "wis": 83,
+    "int": 109,
+    "cha": 65
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 9,
+   "base": {
+    "str": 60,
+    "sta": 65,
+    "agi": 100,
+    "dex": 85,
+    "wis": 83,
+    "int": 99,
+    "cha": 60
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 11,
+   "base": {
+    "str": 60,
+    "sta": 65,
+    "agi": 90,
+    "dex": 85,
+    "wis": 83,
+    "int": 109,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 12,
+   "base": {
+    "str": 60,
+    "sta": 75,
+    "agi": 90,
+    "dex": 75,
+    "wis": 83,
+    "int": 109,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 13,
+   "base": {
+    "str": 60,
+    "sta": 75,
+    "agi": 90,
+    "dex": 75,
+    "wis": 83,
+    "int": 109,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 6,
+   "class": 14,
+   "base": {
+    "str": 60,
+    "sta": 65,
+    "agi": 90,
+    "dex": 75,
+    "wis": 83,
+    "int": 109,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 5,
+    "cha": 25
+   }
+  },
+  {
+   "race": 7,
+   "class": 1,
+   "base": {
+    "str": 80,
+    "sta": 80,
+    "agi": 95,
+    "dex": 85,
+    "wis": 60,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 7,
+   "class": 3,
+   "base": {
+    "str": 80,
+    "sta": 75,
+    "agi": 90,
+    "dex": 85,
+    "wis": 65,
+    "int": 75,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 7,
+   "class": 4,
+   "base": {
+    "str": 75,
+    "sta": 80,
+    "agi": 100,
+    "dex": 85,
+    "wis": 65,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 20,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 7,
+   "class": 6,
+   "base": {
+    "str": 70,
+    "sta": 80,
+    "agi": 90,
+    "dex": 85,
+    "wis": 70,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 7,
+   "class": 8,
+   "base": {
+    "str": 75,
+    "sta": 70,
+    "agi": 90,
+    "dex": 95,
+    "wis": 60,
+    "int": 75,
+    "cha": 85
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 25
+   }
+  },
+  {
+   "race": 7,
+   "class": 9,
+   "base": {
+    "str": 70,
+    "sta": 70,
+    "agi": 100,
+    "dex": 95,
+    "wis": 60,
+    "int": 75,
+    "cha": 75
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 8,
+   "class": 1,
+   "base": {
+    "str": 100,
+    "sta": 100,
+    "agi": 75,
+    "dex": 90,
+    "wis": 83,
+    "int": 60,
+    "cha": 45
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 8,
+   "class": 2,
+   "base": {
+    "str": 95,
+    "sta": 95,
+    "agi": 70,
+    "dex": 90,
+    "wis": 93,
+    "int": 60,
+    "cha": 45
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 8,
+   "class": 3,
+   "base": {
+    "str": 100,
+    "sta": 95,
+    "agi": 70,
+    "dex": 90,
+    "wis": 88,
+    "int": 60,
+    "cha": 55
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 8,
+   "class": 9,
+   "base": {
+    "str": 90,
+    "sta": 90,
+    "agi": 80,
+    "dex": 100,
+    "wis": 83,
+    "int": 60,
+    "cha": 45
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 9,
+   "class": 1,
+   "base": {
+    "str": 118,
+    "sta": 119,
+    "agi": 88,
+    "dex": 75,
+    "wis": 60,
+    "int": 52,
+    "cha": 40
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 9,
+   "class": 5,
+   "base": {
+    "str": 118,
+    "sta": 114,
+    "agi": 83,
+    "dex": 75,
+    "wis": 60,
+    "int": 62,
+    "cha": 45
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 9,
+   "class": 10,
+   "base": {
+    "str": 108,
+    "sta": 114,
+    "agi": 83,
+    "dex": 75,
+    "wis": 70,
+    "int": 52,
+    "cha": 45
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 10,
+   "class": 1,
+   "base": {
+    "str": 140,
+    "sta": 132,
+    "agi": 75,
+    "dex": 70,
+    "wis": 67,
+    "int": 60,
+    "cha": 37
+   },
+   "preset": {
+    "str": 7,
+    "sta": 18,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 10,
+   "class": 5,
+   "base": {
+    "str": 140,
+    "sta": 127,
+    "agi": 70,
+    "dex": 70,
+    "wis": 67,
+    "int": 70,
+    "cha": 42
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 10,
+   "class": 10,
+   "base": {
+    "str": 130,
+    "sta": 127,
+    "agi": 70,
+    "dex": 70,
+    "wis": 77,
+    "int": 60,
+    "cha": 42
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 11,
+   "class": 1,
+   "base": {
+    "str": 80,
+    "sta": 85,
+    "agi": 100,
+    "dex": 90,
+    "wis": 80,
+    "int": 67,
+    "cha": 50
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 11,
+   "class": 2,
+   "base": {
+    "str": 75,
+    "sta": 80,
+    "agi": 95,
+    "dex": 90,
+    "wis": 90,
+    "int": 67,
+    "cha": 50
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 11,
+   "class": 6,
+   "base": {
+    "str": 70,
+    "sta": 85,
+    "agi": 95,
+    "dex": 90,
+    "wis": 90,
+    "int": 67,
+    "cha": 50
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 11,
+   "class": 9,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 105,
+    "dex": 100,
+    "wis": 80,
+    "int": 67,
+    "cha": 50
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 1,
+   "base": {
+    "str": 70,
+    "sta": 80,
+    "agi": 90,
+    "dex": 85,
+    "wis": 67,
+    "int": 98,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 2,
+   "base": {
+    "str": 65,
+    "sta": 75,
+    "agi": 85,
+    "dex": 85,
+    "wis": 77,
+    "int": 98,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 9,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 95,
+    "dex": 95,
+    "wis": 67,
+    "int": 98,
+    "cha": 60
+   },
+   "preset": {
+    "str": 25,
+    "sta": 0,
+    "agi": 0,
+    "dex": 5,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 11,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 85,
+    "dex": 95,
+    "wis": 67,
+    "int": 108,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 12,
+   "base": {
+    "str": 60,
+    "sta": 80,
+    "agi": 85,
+    "dex": 85,
+    "wis": 67,
+    "int": 108,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 13,
+   "base": {
+    "str": 60,
+    "sta": 80,
+    "agi": 85,
+    "dex": 85,
+    "wis": 67,
+    "int": 108,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  },
+  {
+   "race": 12,
+   "class": 14,
+   "base": {
+    "str": 60,
+    "sta": 70,
+    "agi": 85,
+    "dex": 85,
+    "wis": 67,
+    "int": 108,
+    "cha": 70
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 5,
+    "cha": 25
+   }
+  },
+  {
+   "race": 128,
+   "class": 1,
+   "base": {
+    "str": 80,
+    "sta": 80,
+    "agi": 95,
+    "dex": 85,
+    "wis": 80,
+    "int": 75,
+    "cha": 55
+   },
+   "preset": {
+    "str": 0,
+    "sta": 25,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 128,
+   "class": 5,
+   "base": {
+    "str": 80,
+    "sta": 75,
+    "agi": 90,
+    "dex": 85,
+    "wis": 80,
+    "int": 85,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 20,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 128,
+   "class": 7,
+   "base": {
+    "str": 75,
+    "sta": 75,
+    "agi": 100,
+    "dex": 95,
+    "wis": 80,
+    "int": 75,
+    "cha": 55
+   },
+   "preset": {
+    "str": 0,
+    "sta": 0,
+    "agi": 20,
+    "dex": 0,
+    "wis": 0,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 128,
+   "class": 10,
+   "base": {
+    "str": 70,
+    "sta": 75,
+    "agi": 90,
+    "dex": 85,
+    "wis": 90,
+    "int": 75,
+    "cha": 60
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 25,
+    "int": 0,
+    "cha": 0
+   }
+  },
+  {
+   "race": 128,
+   "class": 11,
+   "base": {
+    "str": 70,
+    "sta": 70,
+    "agi": 90,
+    "dex": 95,
+    "wis": 80,
+    "int": 85,
+    "cha": 55
+   },
+   "preset": {
+    "str": 0,
+    "sta": 5,
+    "agi": 0,
+    "dex": 0,
+    "wis": 0,
+    "int": 25,
+    "cha": 0
+   }
+  }
+ ]
+}

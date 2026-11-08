@@ -140,7 +140,7 @@ Calibration cases. Permafrost at leader level 24 to 25 measured 2.91 kills per m
 
 ## Simulating a raid fight
 
-`tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot (clone it as above, `bun install` for the DOM shim). It compares roster choices against a boss before the characters exist. It loads the newest saved client release (`--client` picks another one, and a release needs a table in `tools/raidsim/clients.mjs`, which `tools/raidsim/map-client.mjs` writes). The file header lists what is replaced and what is assumed, `tools/raidsim/classes.mjs` and `kits.mjs` hold the default stats, skills, gear and spells that a roster entry can override.
+`tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot (clone it as above, `bun install` for the DOM shim). It compares roster choices against a boss before the characters exist. It loads the newest saved client release (`--client` picks another one, and a release needs a table in `tools/raidsim/clients.mjs`, which `tools/raidsim/map-client.mjs` writes). Members get the live creation stats of their race and class (`data/char-create.json`) and the server's skill caps for their level (`data/skill-caps.json`, levels 46 to 60), both read from the game. The file header lists what is replaced and what is still assumed, and `tools/raidsim/kits.mjs` holds the default gear and spells. A roster entry overrides race, stats, the bonus-point allocation (`alloc`), skills, items and spells.
 
 ```sh
 bun tools/raidsim.mjs --boss "Hraashna the Warder" --roster tools/raidsim/rosters/groups-1-3.json   # 20 seeded fights, per-member table
