@@ -1,0 +1,12 @@
+[
+  {
+    "level": 41,
+    "text": "Check the zone rotation rows for the level with tools/predict.mjs and the measured rate before the party settles there.",
+    "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
+  },
+  {
+    "level": 46,
+    "text": "Raids open. Run the raid size test, then the first raid test, and resize the roster from them.",
+    "doc": "docs/plans/raid-roster.md#revisit-when"
+  }
+]

@@ -189,6 +189,60 @@ by testing which one makes every kill's XP fit a whole NPC level.
   zone entry.
 - Validate any new indicator against the game's messages before building on it.
 
+## Monitoring
+
+`tools/iqd.mjs` (iqd) reads every game tab on a timer, keeps a history and raises attention items, so
+an agent sleeps in one `wait` call instead of polling the tabs. It runs outside the agent's loop,
+changes nothing in the game and needs no injection: it evaluates one read-only expression per tab
+through the relay's browser-level CDP endpoint (`src/cdp.mjs`) and attaches only to pages whose URL
+starts with `https://idlequest.net/play`. Every attach is logged in the `attach_log` table.
+
+Start it once as a long-lived process, for example as an omp service named `iqd` that is ready at the
+log line `iqd started`, or with `nohup`. A second `run` refuses to start while one is active.
+
+```sh
+bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM
+bun tools/iqd.mjs wait --severity act --max-minutes 60   # background shell job, returns on the next item
+bun tools/iqd.mjs status                     # under 40 lines, also written to runs/status.md every cycle
+bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
+bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention
+bun tools/iqd.mjs job add --purpose "predict level 36" --cmd "bun tools/predict.mjs --level 36" --out runs/p36.txt
+bun tools/iqd.mjs job done 3 "Permafrost first"
+```
+
+`--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
+`SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and
+`events.jsonl` in `exportRun`'s format, read from the page's buffers without removing anything, so
+`tools/analyze.mjs runs/live/<leader>` works on them and `iq.exportRun` can still run on the same
+tab.
+
+`wait` returns every unresolved item at or above its severity (`act` above `decide` above `info`)
+that no earlier `wait` of that severity returned, prints it with the status and exits 0. After the
+time is up it prints the status and exits 0 as well. Between `wait` calls nothing is lost, because
+the position is stored in the database. The first `wait` of a severity starts after the items that
+exist then, and `status` lists those.
+
+| Kind | Severity | Raised when | Clears |
+| --- | --- | --- | --- |
+| `gone` | act | The tab is missing from the relay or does not answer for 60 s. Also raised for a parked tab. | When the tab answers again, or `ack` ends the session |
+| `nobridge` | act | `window.iq` or `window.iqBot` is missing, or the snapshot fails | When both answer |
+| `autolevel-off` | act | AutoLevel is off for 3 min while the bot is enabled, outside raid mode, errands and bot pauses | When AutoLevel runs |
+| `nokill` | act | AutoLevel runs for 10 min without a kill, outside raid mode, errands and bot pauses | At the next kill |
+| `heap` | act | The page's JS heap is above 85% of its limit | Below 85% |
+| `death` | act | The bot's `death` alert with `wake`, which means the leader or a party member died | `ack` |
+| `alert-<kind>` | act | Any other bot alert with `wake`, with its text copied. `levelUp` is left out because the level rules report it. | `ack` |
+| `levelup` | info | A leader or an account companion is above its last stored level | `ack` |
+| `trigger` | decide | A leader crosses a level listed in `data/triggers.json` (`level`, `text`, `doc`) | `ack` |
+
+A tab whose bot is disabled is parked and raises nothing except `gone`. On its first look at a page,
+iqd takes the bot's wake alerts of the last 15 minutes and raises no level rules for a character it
+has not stored before. The thresholds are in `THRESHOLDS` in `tools/iqd.mjs` and the rules are
+tested in `tests/iqd.test.ts`.
+
+Limits of what the page offers: only the leader has an XP value (`experienceProgress`), so party
+members are stored with level, HP and mana only. The kill log carries the enemy's raw name with
+underscores and nothing else. Per-hour rates come from the kills of the last 30 minutes.
+
 ## After a client update
 
 The bot raises a wake alert `clientUpdate` when the page runs a different client release than the
