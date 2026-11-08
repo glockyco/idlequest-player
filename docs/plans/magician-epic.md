@@ -14,7 +14,7 @@ Source shorthand below resolves to these local files:
 - `L` = `C/data/loottable_entries/*.ndjson` joined to `C/data/lootdrop_entries/*.ndjson` by `lootdrop_id`, then to each NPC's `loottable_id`.
 - `S` = `C/data/spawnentry/*.ndjson` joined to `C/data/spawn2/*.ndjson` by `spawngroupID`. The zone short names below come from these spawn records. Zone names and entry levels come from `C/data/zone/*.ndjson`.
 
-Each farming row below was checked against NPC records, item records, `L` and `S`. Presence means snapshot presence, not a guaranteed drop or a live-game test. A scripted spawn can legitimately have no static spawn record.
+Each farming row below was checked against NPC records, item records, `L` and `S`. Presence means snapshot presence, not a guaranteed drop or a live-game test. A scripted spawn can legitimately have no static spawn record. Drop chances, spawn chances, points and respawn times for the farm rows are in the Magician additions table in [epics.md](epics.md#magician-additions).
 
 The public IdleQuest wiki is https://idlequest.net/wiki. A direct read returns the application shell, not its rendered article. The repository's recorded wiki text, `.re/wiki-loot.txt`, says that Options > General > Keep Epic Quest Items protects epic items, intermediate items and prerequisite ingredients, including duplicates, from automatic cleanup. Leave it enabled. This is recorded wiki guidance, not a fresh verification of the setting. The recorded wiki zone inventory, `data/idlequest-zones.json`, includes the route's classic zones, including West Commonlands, Plane of Sky, Plane of Hate and Lesser Faydark. Neither capture establishes live NPC availability.
 
@@ -51,7 +51,7 @@ Collect all three different pages, then trade them together.
 | Farm or turn-in | Zone | Required item or result | Required level and expected difficulty | Snapshot evidence |
 |---|---|---|---|---|
 | a gypsy dancer, levels 24-25 | `mistmoore` | Power of Wind (28037) | No known item gate. Group at camp level, solo later. | NPCs 59144, 59084 in `N/b`, `e`. Item `I/4`. `L`, `S`, `P99` lines 140-141. |
-| blazing elemental, level 25, or lava elemental, level 35 | `soldunga` | Power of Fire (28036) | No known item gate. Group while leveling, solo later. Prefer the lower-level target if practical. | NPCs 31006, 31143 in `N/5`, `2`. Item `I/6`. `L`, `S`, `P99` lines 143-146. |
+| blazing elemental, level 25, or lava elemental, level 35 | `soldunga` | Power of Fire (28036) | No known item gate. Group while leveling, solo later. The lava elemental is the better source (28% drop on a 25% spawn, against 2% for the blazing elemental). | NPCs 31006, 31143 in `N/5`, `2`. Item `I/6`. `L`, `S`, `P99` lines 143-146. |
 | enraged, famished or gorged ravener (100%), or hungered ravener (35%), levels 32-36 | `kaesora` | Power of Water (28039) | No known item gate. Group while leveling, solo later. | NPCs 88029, 88094, 88038, 88083, 88069 in `N/9`, `3`, `1`. Item `I/e`. `L`, `S`, `P99` lines 148-151. |
 | a faerie guard, levels 24-26, or a fairy guard, level 25 | `lfaydark` | Power of Earth (28038) | No known item gate. Group at camp level, solo later. | NPCs 57053, 57101, 57051, 57123 in `N/8`, `d`, `9`, `c`. Item `I/e`. `L`, `S`, `P99` lines 153-154. |
 | Walnan | `butcher` | Powers of Fire 28036 + Wind 28037 + Earth 28038 + Water 28039 give Power of the Elements (28031) | None in script. Solo turn-in. | NPC 68087, `N/8`. Result `I/7`. `Q/butcher/Walnan`. |
@@ -80,7 +80,7 @@ Use item 18958. The snapshot also contains another Power of the Orb, item 28005 
 | Undertow, level 49 | `kedge` | Blazing Wand (10376) | No known item gate. Group. | NPC 64087, `N/b`. Item `I/9`. `L`, `S`, `P99` line 202. |
 | Jennus Lyklobar | `skyfire` | Power of the Orb 18958 + Torch 28007 + Blazing Wand 10376 + Burning Embers 28008 give Element of Fire (28009) | None in script. Solo turn-in with safe travel. | NPC 91046, `N/0`. Result `I/5`. `Q/skyfire/Jennus_Lyklobar`. |
 
-Neh is a triggered encounter, not a missing NPC. Black reaver death scripts can spawn NPC 90184 (`Q/citymist/90000`, `Q/citymist/90192`). Kill that version for the torch. The separate hostile Shaman turn-in replacement, NPC 90181, exists but its loot table does not contain the torch (`N/c`, `L`, `Q/citymist/%23Neh-Ashiir`, `Q/citymist/%23Neh-Ashiir_`). Do not assume every similarly named Neh is interchangeable.
+Neh is a triggered encounter, not a missing NPC. Black reaver death scripts can spawn NPC 90184 (`Q/citymist/90000`, `Q/citymist/90192`). Kill that version for the torch. The version 0 placeholder (NPC 90000) spawns Neh on 20% of its deaths and the version 1 placeholder (NPC 90192) on 15%, and otherwise the placeholder respawns at once, so the reavers die in a chain. The separate hostile Shaman turn-in replacement, NPC 90181, exists but its loot table does not contain the torch (`N/c`, `L`, `Q/citymist/%23Neh-Ashiir`, `Q/citymist/%23Neh-Ashiir_`). Do not assume every similarly named Neh is interchangeable.
 
 ## 7. Earth prerequisite tools
 
@@ -88,8 +88,8 @@ Vira in `soltemple` constructs both tools. NPC 80015 is present (`N/d`, `S`). Re
 
 | Tool | Collect one of each | Source NPCs and zones | Snapshot evidence |
 |---|---|---|---|
-| Broom of Trilon (6360) | Broom (16544), Cyclops Toes (16543), Griffon Feathers (16538), Star Ruby (10032) | Broom from Najena magicians. Toes from a cyclops, levels 28-31, in `rathemtn`. Feathers from a griffawn, levels 13-17, in `northkarana` or `eastkarana`. P99 says buy Star Ruby from gem vendors. Solo feather farming, group for cyclops at camp level. | Raw and reward items present in `I/3`, `1`, `6`, `8`, `d`. Example NPCs 50305 (`N/4`), 50316 (`N/0`), 13003 (`N/0`), 15038 (`N/2`). `L`, `S`, `Q/soltemple/Vira`, `P99` line 219. Vendor stock not independently checked. |
-| Shovel of Ponz (6361) | Shovel (16545), Hill Giant Toes (16539), Gargoyle Eye (10014), Ruby (10035) | Shovel from Najena magicians. Toes from a hill giant, levels 33-37, in `rathemtn`. Eye from a gargoyle, level 19, in `oot`. P99 says buy Ruby from gem vendors. Group for hill giants while leveling, solo eye farming later. | Items present in `I/d`, `3`, `5`, `a`. Example NPCs 50279 (`N/0`), 50297 (`N/e`), 69123 (`N/0`). `L`, `S`, `Q/soltemple/Vira`, `P99` line 218. Vendor stock not independently checked. |
+| Broom of Trilon (6360) | Broom (16544), Cyclops Toes (16543), Griffon Feathers (16538), Star Ruby (10032) | Broom from Najena magicians. Toes from a cyclops, levels 28-31, in `rathemtn` (11.9%), or from the western Karana cyclops NPC 12197 in `qey2hh1` (100%). Feathers from a griffawn, levels 13-17, in `northkarana` or `eastkarana`. Merchants sell Star Ruby, among them Turga in `lakerathe` and Zok_Pirk in `rathemtn`. Solo feather farming, group for cyclops at camp level. | Raw and reward items present in `I/3`, `1`, `6`, `8`, `d`. Example NPCs 50305 (`N/4`), 50316 (`N/0`), 13003 (`N/0`), 15038 (`N/2`). `L`, `S`, `Q/soltemple/Vira`, `P99` line 219. Merchant rows checked in `S` merchantlist. |
+| Shovel of Ponz (6361) | Shovel (16545), Hill Giant Toes (16539), Gargoyle Eye (10014), Ruby (10035) | Shovel from Najena magicians. Toes from a hill giant, levels 33-37, in `rathemtn` (10%), or from a dreadlands mountain giant, levels 30-40 (36 to 40%). Eye from a gargoyle, level 19, in `oot`. Merchants sell Ruby, among them Turga in `lakerathe` and Zok_Prolo and Darfumpel_Zirubbel in `rathemtn`. Group for hill giants while leveling, solo eye farming later. | Items present in `I/d`, `3`, `5`, `a`. Example NPCs 50279 (`N/0`), 50297 (`N/e`), 69123 (`N/0`). `L`, `S`, `Q/soltemple/Vira`, `P99` line 218. Merchant rows checked in `S` merchantlist. |
 
 Trade each recipe's four ingredients together to Vira. Do not hand the raw tools to Tiblner. Najena avoids relying on P99's Feerrott tool alternatives and lets the Mastery pages and both tools be collected together (`L`, `Q/soltemple/Vira`, `P99` lines 218-219).
 
@@ -97,7 +97,7 @@ Trade each recipe's four ingredients together to Vira. Do not hand the raw tools
 
 | Farm or turn-in | Zone | Required item or result | Required level and expected difficulty | Snapshot evidence |
 |---|---|---|---|---|
-| Magi P`Tasa, level 56 | `hateplane` or `hateplaneb` | Staff of Elemental Mastery: Earth (11567) | Zone minimum 46. Raid plan, although P99 allows a very strong group. | NPCs 76019 (`N/d`) and 186157 (`N/3`). Item `I/3`. `L`, `S`, `P99` line 216. Both zones also contain staff-bearing forsaken revenants. |
+| Magi P`Tasa, level 56 | `hateplane` or `hateplaneb` | Staff of Elemental Mastery: Earth (11567) | Zone minimum 46. Raid plan, although P99 allows a very strong group. | NPCs 76019 (`N/d`) and 186157 (`N/3`). Item `I/3`. `L`, `S`, `P99` line 216. The `hateplaneb` NPC has spawn weight 0. Forsaken revenants carry the staff too, at 0.04% in `hateplane` and 2.7 to 3.0% in `hateplaneb`. |
 | Slixin Klex, level 50 | `burningwood` | Dirt of Underfoot (28042) | No known item gate. Group. | NPC 87047, `N/7`. Item `I/6`. `L`, `S`, `P99` line 217. |
 | Tiblner Milnik | `firiona` | Earth staff 11567 + Dirt 28042 + Broom of Trilon 6360 + Shovel of Ponz 6361 give Element of Earth (28032) | None in script. Solo turn-in with safe travel. | NPC 84160, `N/e`. Result `I/6`. `Q/firiona/Tiblner_Milnik`. |
 
@@ -136,16 +136,16 @@ Scribe spell 1944, named `Summon Orb` in the snapshot, and cast it to summon Orb
 - No mandatory NPC or item in this route was absent from the inspected snapshot. Neh and the Master need scripted spawning rather than a static spawn (`Q/citymist/90000`, `Q/citymist/90192`, `Q/airplane/Kihun_Solstin`). This does not establish deployed-game completion.
 - P99's `ct` alligator page alternative was not found in the checked loot and spawn joins. Najena is present and covers the requirement (`L`, `S`, `P99` line 172).
 - Some levels differ from P99, including Neh, Phinigel, Gylton, Nezekezena and the raveners. Use the snapshot levels in the tables for planning, not P99 level descriptions (`N/3`, `e`, `2`, `4`, `9`, `P99` lines 149, 200-202, 231).
-- The snapshot has additional useful drop sources, including Rain on Undertow, Earth staff on forsaken revenants and page 1 on dread wolves. These are alternatives in the data, not observed farming results (`L`, `S`).
+- The snapshot has additional useful drop sources, including Rain on Undertow, the western Karana cyclops for Cyclops Toes and page 1 on dread wolves. These are alternatives in the data, not observed farming results (`L`, `S`).
 - P99 timers, multiquesting, lockpicking, crowd-control tactics, faction workarounds, exact placeholders and raid sizes are not confirmed IdleQuest requirements. The public wiki shell and recorded loot article do not settle them (https://idlequest.net/wiki, `.re/wiki-loot.txt`).
 
 ## Start farming while leveling
 
-These are planning bands, not new hard level requirements. Use a group at the lower end of each band and defer anything the party cannot safely kill. Mob levels and sources are in the numbered steps above.
+These are planning bands, not new hard level requirements. The party's zone rotation is `BAND_ROTATIONS` in `src/bot.js`. Pieces from rotation zones need no extra trip. Every other piece is an errand (`iq.errand`) that hunts the named enemies without keeping a weak zone in the rotation. Use a group at the lower end of each band and defer anything the party cannot safely kill. Mob levels and sources are in the numbered steps above, rates in [epics.md](epics.md#magician-additions).
 
 1. Levels 10-22: collect all four Mastery pages plus raw Broom and Shovel in `najena`. Save Griffon Feathers from level 13-17 griffawns in the Karanas and Gargoyle Eye from the level 19 gargoyle in `oot` (steps 4 and 7).
-2. Levels 24-30: collect Wind in `mistmoore`, Fire from blazing elementals in `soldunga`, Earth in `lfaydark`, Cyclops Toes in `rathemtn`, and the cloak from level 30 Quillmane when practical (steps 3, 7 and 10).
-3. Levels 29-37: collect Unrest page 2, Power of Water in `kaesora`, and Hill Giant Toes in `rathemtn`. Buy the two correct gems and complete Vira's tools when ingredients are ready (steps 2, 3 and 7).
-4. Levels 38-42: collect Elemental Binder in `hole`, page 1 in `kithicor`, page 3 in `gukbottom`, and Burning Embers from Gylton in `burningwood`. Complete the preliminary turn-ins for Power of the Orb (steps 2, 5, 6 and 10).
+2. Levels 22-30: `unrest` is in the rotation from 26 to 30 (page 2) and `soldunga` from 28 (Fire). Run errands for Wind in `mistmoore`, Earth in `lfaydark`, Cyclops Toes in `qey2hh1` and the cloak from level 30 Quillmane (steps 3, 7 and 10).
+3. Levels 31-37: `soldunga` stays in the rotation (Fire from lava elementals). Run errands for Power of Water in `kaesora`, Hill Giant Toes in `dreadlands` and page 2 in `unrest`. Buy the two gems and complete Vira's tools when ingredients are ready (steps 2, 3 and 7).
+4. Levels 38-42: run errands for Elemental Binder in `hole`, page 1 in `kithicor`, page 3 in `gukbottom` and Burning Embers in `burningwood`. `citymist` is in the rotation from 38. Complete the preliminary turn-ins for Power of the Orb (steps 2, 5, 6 and 10).
 5. Level 46+: organize planar farming for Earth staff and Crown. In parallel, group for Tarbul, Undertow, Slixin and Neh. Check Undertow for both Wand and Rain (steps 6, 8, 9 and 10).
 6. Once the raid or strong groups can handle them: kill Phinigel and Captain Rottgrime, finish all four Element turn-ins, then summon the Master and obtain the spell (steps 9-11).
