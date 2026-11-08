@@ -224,16 +224,24 @@ test("chat lines that the bot's own alerts repeat are read once", async () => {
   expect(events.length).toBeLessThan(10);
 });
 
-test("single deaths are notes, and the sixth party death within an hour wakes a script once", async () => {
+test("deaths wake a script once their cost passes a tenth of the hour, and a leader's lost XP counts", async () => {
   const { bot, say } = await install();
-  say("Tagujazolu has been slain!", "DEATH");
   for (let k = 0; k < 6; k++) say("Kekab has been slain!", "DEATH"); // a pet's deaths do not count
+  for (let k = 0; k < 6; k++) say("Tagujazolu has been slain!", "DEATH"); // six companion deaths cost under 6 minutes
+  await bot.tick();
   await bot.tick();
   expect(bot.state.alerts.filter((a) => a.wake)).toEqual([]);
-  for (let k = 0; k < 6; k++) say("Tagujazolu has been slain!", "DEATH");
-  await bot.tick();
+  for (let k = 0; k < 4; k++) say("Tagujazolu has been slain!", "DEATH");
   await bot.tick();
   expect(bot.state.alerts.filter((a) => a.wake).map((a) => a.kind)).toEqual(["deaths"]);
+
+  // At level 14 a leader death loses 130,667 XP, 20 minutes at 400k XP an hour.
+  const lead = await install();
+  lead.kills.push({ t: Date.now() - 60000, xp: 400000, enemy: "a rat" });
+  lead.say("You have been slain by a rat!", "DEATH");
+  await lead.bot.tick();
+  await lead.bot.tick();
+  expect(lead.bot.state.alerts.filter((a) => a.wake).map((a) => a.text)).toEqual([expect.stringContaining("(1 of the leader) cost about 21 minutes")]);
 });
 
 test("the remedy table widens a crowded party's limits, then moves it, and wakes a script when nothing is left", async () => {

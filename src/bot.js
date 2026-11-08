@@ -42,7 +42,7 @@
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
-    deathsPerHourAlert: 6, // party deaths within an hour that wake a script; single deaths are notes
+    deathCostShareAlert: 0.1, // deaths whose cost passes this share of the last hour wake a script (`watchDeaths`); single deaths are notes
     attackWaitSec: 3, // a pull standing at its target with Auto Attack off this long: turn it on
     dispelRoots: true, // dispel a root that holds the readiness wait when that saves time (dispelRoots)
     dispelCycleSec: 9, // seconds between one member's dispel attempts between fights
@@ -494,7 +494,8 @@
         // is a note. A run of them points at a zone or limits that need changing (`watchDeaths`).
         const who = m?.[1] ?? "You";
         alert("death", text, false);
-        if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text });
+        const lvl = i.stores.character.getState().characterProfile?.level ?? 0;
+        if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text, leader: who === "You", lostXp: who === "You" && lvl >= 5 ? lvl * lvl * 666.67 : 0 });
       } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
       else if (/Looking for another target\.$/.test(text)) state.abandonAt = e.t ?? now();
       // A lowered cap and a timed-out escape are the guard working. Only an AutoLevel it could not
@@ -517,11 +518,22 @@
     }
   };
 
-  const watchDeaths = () => {
+  // A death costs the fight and the wait that follows it beyond a kill's (tools/fights.mjs, "What
+  // escapes and deaths cost": 38 s more for a companion, 85 s more for the leader), and the
+  // leader's also costs level squared times 666.67 XP, which takes as long to earn again as the
+  // party's XP rate of the hour says. Companions' deaths cost only time, so a tougher target band
+  // can be worth a few of them: only when their cost passes `deathCostShareAlert` of the hour does a
+  // script decide about the zone or the limits.
+  const DEATH_EXTRA_SEC = { member: 38, leader: 85 };
+  const watchDeaths = (i) => {
     state.deaths = (state.deaths ?? []).filter((d) => d.t > now() - 3600000);
-    if (state.deaths.length < config.deathsPerHourAlert || now() - (state.deathAlertAt ?? 0) < 3600000) return;
+    if (!state.deaths.length || now() - (state.deathAlertAt ?? 0) < 3600000) return;
+    const xpPerSec = (i.kills ?? []).filter((k) => k.t > now() - 3600000).reduce((s, k) => s + (k.xp ?? 0), 0) / 3600;
+    const cost = state.deaths.reduce((s, d) => s + (d.leader ? DEATH_EXTRA_SEC.leader + (xpPerSec > 0 ? d.lostXp / xpPerSec : 0) : DEATH_EXTRA_SEC.member), 0);
+    if (cost < config.deathCostShareAlert * 3600) return;
     state.deathAlertAt = now();
-    alert("deaths", `${state.deaths.length} deaths in the last hour, the last: ${state.deaths.at(-1).text}`, true);
+    const leader = state.deaths.filter((d) => d.leader).length;
+    alert("deaths", `${state.deaths.length} deaths in the last hour (${leader} of the leader) cost about ${Math.round(cost / 60)} minutes, the last: ${state.deaths.at(-1).text}`, true);
   };
 
   // The client's auto-place call, which puts the cursor item into the first place that fits.
@@ -1716,7 +1728,7 @@
       shareZone(i);
       await watchCursor(i);
       watchLoot(i);
-      watchDeaths();
+      watchDeaths(i);
       if (inRaid(i)) {
         watchMemory();
         state.lastError = null;
