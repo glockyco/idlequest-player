@@ -1059,7 +1059,7 @@ test("a hand-in step that fails twice ends the task, wakes a script and gives th
   }
 });
 
-test("a hunt task fights gray enemies through Enemy Targets as the named character until the item drops", async () => {
+test("a hunt task fights gray enemies through Enemy Targets as the named character, with the party, until the item drops", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
@@ -1078,13 +1078,33 @@ test("a hunt task fights gray enemies through Enemy Targets as the named charact
         }, 4000);
       },
     });
+    f.party.companions.splice(0); // a switch leaves the new character alone
     f.bot.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as: "Edroun", waitMin: 1 });
     await runToEnd(f);
+    expect(f.recruited.slice(0, 2)).toEqual([10, 1]); // the rest of the group, its leader too, joins Edroun for the hunt
     expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "got Power of Wind" });
     expect(selected).toEqual([[59144]]);
     expect(f.moves).toEqual(["mistmoore"]);
     expect(f.commands).toEqual(["session.camp", "session.enterWorld Edroun", "session.camp", "session.enterWorld Me"]);
     expect(onArrival.at(-1)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a hunt over several zones moves on when none of the enemies is up and ends after a round finds none", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const guard = { spawnInstanceId: 9, npcId: 57053, name: "a_faerie_guard", level: 17 };
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => (f.moves.at(-1) === "gfaydark" && !f.events.some((e: { text: string }) => /defeated a faerie guard/.test(e.text)) ? [guard] : []);
+    Object.assign(f.runtime, { selectEnemyTarget: () => setTimeout(() => f.say("You have defeated a faerie guard, but gain no experience."), 3000) });
+    f.bot.hunt({ zone: ["lfaydark", "gfaydark"], keep: "faerie guard", item: "Power of Earth", waitMin: 0 });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "none of faerie guard up" });
+    expect(f.moves).toEqual(["lfaydark", "gfaydark", "lfaydark"]);
   } finally {
     vi.useRealTimers();
   }

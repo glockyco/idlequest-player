@@ -359,11 +359,12 @@
     state.deadSince = now();
     alert("respawn", `the leader was dead at level ${p.level}; took the free respawn at the bind point${offers.length ? ` (${Math.floor(coinPp)}pp carried, no resurrection within the limits)` : ""}`);
   };
-  // The account characters of `partyIds` that are not in the party now.
+  // The group's account characters (`partyIds` and the leader) that are not in the party now.
   const partyMissing = (i) => {
     const present = new Set((i.stores.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => Number(c.characterId)));
     const me = Number(i.stores.character.getState().characterProfile?.id);
-    return config.partyIds.filter((id) => !present.has(Number(id)) && Number(id) !== me);
+    const group = [...new Set([...config.partyIds, config.leaderId].filter((id) => id != null).map(Number))];
+    return group.filter((id) => !present.has(id) && id !== me);
   };
   const keepAutoLevel = (i, cb) => {
     if (cb.isRunning) {
@@ -895,6 +896,19 @@
     setTimeout(tick, 2500 * (missing.length + 1) + 500);
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
+  // Ask every missing party member to join at once and wait until they are in, for a task that
+  // switched characters: a switch leaves the new character alone, and the group should fight with it.
+  const gatherParty = async (i) => {
+    const missing = partyMissing(i);
+    if (!missing.length) return 0;
+    i.stores.companions.getState().requestAccountCharacterAvailability();
+    for (const id of missing) {
+      await sleep(2500);
+      i.stores.companions.getState().controlAccountCharacter(id);
+    }
+    for (let k = 0; k < 20 && partyMissing(i).length; k++) await sleep(1000);
+    return missing.length - partyMissing(i).length;
+  };
 
   // ---- Leader -------------------------------------------------------------------------------
   // The active character converges to `leaderId` whenever no pause holds the tab. A switch camps
@@ -1025,8 +1039,10 @@
   // alive spawn of those NPCs and starts the fight there (`selectEnemyTarget`,
   // docs/client-internals.md). AutoLevel never pulls enemies that con gray, so this is how a party
   // far above them gets their drops, and with `as` the character who must loot a NO DROP piece
-  // does the fighting. It ends when `item` is in the bags, when none of those enemies has been up
-  // for `waitMin` minutes, or after `minutes`, and the bot then restores the tab as after every
+  // does the fighting. `zone` may list several zones with the same enemies: when none is up where
+  // the hunt is, it moves on to the next one, and it waits a minute in each only after a round
+  // found none anywhere. It ends when `item` is in the bags, when none of those enemies has been
+  // up for `waitMin` minutes, or after `minutes`, and the bot then restores the tab as after every
   // task.
   const KILL_LINE = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
   const killedSince = (i, wanted, t0) => {
@@ -1065,7 +1081,16 @@
     try {
       await step("stop", () => calm(i), 75000);
       if (task.as) await step(`switch to ${task.as}`, () => becomeActive(i, task.as), 200000);
-      await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+      await step("gather the party", () => gatherParty(i), 90000);
+      // A character that played little has full bags, and a drop it cannot take stays on the corpse.
+      await step("make room", async () => {
+        await sellSurplus(i, true);
+        if (i.bagSpace().free < 1) throw new Error(`${activeName(i)} has no free bag slot`);
+      }, 120000);
+      const zones = [].concat(task.zone);
+      let at = 0;
+      let empty = 0; // zones in a row without a wanted enemy
+      await step(`travel to ${zones[at]}`, () => i.changeZone(zones[at]), 90000);
       task.kills = 0;
       let seen = now();
       while (now() < task.startedAt + task.minutes * 60000) {
@@ -1074,9 +1099,15 @@
         if (r === "killed") {
           task.kills++;
           seen = now();
+          empty = 0;
         } else if (r === "none") {
-          if (now() - seen >= task.waitMin * 60000) return void (task.result = `none of ${task.keep} up`);
-          await sleep(10000);
+          empty++;
+          if (empty >= zones.length && now() - seen >= task.waitMin * 60000) return void (task.result = `none of ${task.keep} up`);
+          if (empty >= zones.length) await sleep(zones.length > 1 ? 60000 : 10000);
+          if (zones.length > 1) {
+            at = (at + 1) % zones.length;
+            await step(`travel to ${zones[at]}`, () => i.changeZone(zones[at]), 90000);
+          }
         }
       }
       task.result = task.item && hasItem(i, task.item) ? `got ${task.item}` : "time is up";
@@ -1663,7 +1694,7 @@
       return { ...runTask(state.task) };
     },
     /**
-     * Fight the enemies whose names match `keep` in `zone` through the Enemy Targets action, as a
+     * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the same enemies) through the Enemy Targets action, as a
      * task in the page (`huntTask`), for drops from enemies AutoLevel does not pull, such as gray
      * ones. `as` names the character who fights and loots, for NO DROP pieces. The task ends when
      * `item` is in the bags, when none of those enemies was up for `waitMin` minutes, or after
