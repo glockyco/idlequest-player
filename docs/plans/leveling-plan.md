@@ -35,6 +35,10 @@ The party stayed in Permafrost from 23 to 28 (255 minutes at 2.3M to 2.5M) and i
 
 | Party level | Rotation | Measured | Model | Notes |
 | --- | --- | --- | --- | --- |
+| 1-7 | warrens, toxxulia | Toxxulia 37k to 121k at 3-5 (group 1) | At 3: the Warrens 174k, Toxxulia below the top six. At 6: the Warrens 442k, Kurn's Tower 313k with 85% of its candidates beside enemies 8 or more levels up | The snapshot gives the Warrens a multiplier of 2.00 and the wiki 1.28. At 1.28 it still ranks with the best, so read the multiplier from the first kills (`analyze.mjs`, "Zone multiplier") before trusting the 2.00. |
+| 8-13 | warrens, crushbone, steamfontmts | Steamfont 152k to 279k at 8-11, Crushbone 208k to 394k at 11-14 (group 1) | At 10: the Warrens 978k, Kurn's Tower 672k, Crushbone 576k | Crushbone and Steamfont are the measured fallbacks. |
+| 14-17 | warrens, kurn, runnyeye | Kurn's Tower 0.87M to 1.03M at 15-17 (group 1) | At 14: the Warrens 1.59M, Kurn's Tower 1.05M, Runnyeye 1.04M | Burynai excavators in Kurn's Tower cast Root. |
+| 18-21 | warrens, permafrost, runnyeye | Permafrost 1.47M to 1.54M at 18-19 (group 1) | At 18: the Warrens 2.16M, Runnyeye 1.45M, Permafrost 1.41M. At 21 the Warrens have 29 candidate spawns left | The Warrens run out of in-band enemies from about 21. |
 | 22-25 | permafrost, runnyeye, guktop | Permafrost 1.8M at 22, 2.1M at 23, 2.3M to 2.4M at 24-25 | Permafrost 2.1M to 2.35M, Runnyeye 1.9M to 2.1M, Guk 1.7M to 1.9M | Runnyeye is second in the model and has not been visited. |
 | 26-27 | permafrost, paw, unrest | Permafrost 2.4M to 2.5M | Permafrost 2.5M, Splitpaw 2.2M, Unrest 2.2M | At 28 outer goblins turn green and AutoLevel paths toward ice giants (level 47 to 50): 189 guard escapes in 25 minutes at 1.2M to 1.5M. The model does not see this, so leave Permafrost at 28. |
 | 28-30 | unrest, soldunga, paw | Splitpaw 2.3M at 28, Unrest 2.0M at 29 and 2.5M at 30 | Unrest 2.4M to 2.6M, Solusek's Eye 2.3M, Splitpaw 2.2M at 28 | Mistmoore's gypsy dancer (level 24 to 25) drops Power of Wind (100%, one spawn per 29 minutes): an errand in this band. |

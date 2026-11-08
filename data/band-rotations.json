@@ -6,5 +6,9 @@
   [31, ["soldunga", "unrest", "paw"]],
   [28, ["unrest", "soldunga", "paw"]],
   [26, ["permafrost", "paw", "unrest"]],
-  [22, ["permafrost", "runnyeye", "guktop"]]
+  [22, ["permafrost", "runnyeye", "guktop"]],
+  [18, ["warrens", "permafrost", "runnyeye"]],
+  [14, ["warrens", "kurn", "runnyeye"]],
+  [8, ["warrens", "crushbone", "steamfontmts"]],
+  [1, ["warrens", "toxxulia"]]
 ]
