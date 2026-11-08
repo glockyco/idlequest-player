@@ -164,15 +164,16 @@ export const ZONE_DEFAULTS = {
  * level up, because the slowest group sets the account's time to 60, and a zone is worth a
  * `crowdWeight` share less for each group that hunts there already. A zone's measured rate is
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
- * zone with little time there ranks near the median and gets tried. Busy groups and groups an
- * experiment holds keep their rotation and count for the zone they are in. Returns
+ * zone with little time there ranks near the median and gets tried. Busy groups keep their rotation and
+ * count for the zone they are in. Groups an experiment holds are assigned like the others, because
+ * crowding the arms unevenly confounds an experiment more than a change of zone does. Returns
  * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
-export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set(), cfg = ZONE_DEFAULTS }) {
+export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();
   const occupy = (zone) => zone && crowd.set(zone, (crowd.get(zone) ?? 0) + 1);
-  const fixed = (t) => t.task?.status === "running" || t.errand || held.has(t.group);
+  const fixed = (t) => t.task?.status === "running" || t.errand;
   for (const t of tabs) if (fixed(t)) occupy(t.zone);
   for (const t of [...tabs].filter((x) => !fixed(x)).sort((a, b) => mean(a) - mean(b))) {
     const level = t.members[0]?.level ?? 0;

@@ -527,7 +527,7 @@ class Daemon {
     const rates = await this.loadRates();
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
     const tasked = new Set(actions.map((a) => a.label));
-    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, held })) {
+    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates })) {
       const tab = tabs.find((t) => t.label === z.label);
       const changed = await this.relay.evaluate(tab.targetId, call(applySettingsInPage, { s: { rotation: z.rotation } }), { timeout: 10000 }).catch(() => []);
       if (!changed?.length) continue;

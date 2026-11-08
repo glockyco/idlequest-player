@@ -170,9 +170,9 @@ test("the lowest group takes the best zone first, and the next counts it as crow
   expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
 });
 
-test("busy and held groups keep their rotation and count for the zone they are in", () => {
-  const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye" }), tab("B", "G4", 15, { zone: "najena" })];
-  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, held: new Set(["G5"]) });
+test("busy groups keep their rotation and count for the zone they are in", () => {
+  const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye", task: { status: "running" } }), tab("B", "G4", 15, { zone: "najena" })];
+  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });
   expect(out.map((z) => z.label)).toEqual(["B"]);
   // Kurn and Runnyeye each hold a group, so Upper Guk and Warrens rank first.
   expect(out[0].rotation.slice(0, 2)).toEqual(["guktop", "warrens"]);
