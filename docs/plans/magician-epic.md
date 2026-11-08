@@ -141,7 +141,7 @@ Scribe spell 1944, named `Summon Orb` in the snapshot, and cast it to summon Orb
 
 ## Start farming while leveling
 
-These are planning bands, not new hard level requirements. The party's zone rotation is `BAND_ROTATIONS` in `src/bot.js`. Pieces from rotation zones need no extra trip. Every other piece is an errand (`iq.errand`) that hunts the named enemies without keeping a weak zone in the rotation. Use a group at the lower end of each band and defer anything the party cannot safely kill. Mob levels and sources are in the numbered steps above, rates in [epics.md](epics.md#magician-additions).
+These are planning bands, not new hard level requirements. The party's zone rotation is the band rows in `data/band-rotations.json`. Pieces from rotation zones need no extra trip. Every other piece is an errand (`iq.errand`) that hunts the named enemies without keeping a weak zone in the rotation. Use a group at the lower end of each band and defer anything the party cannot safely kill. Mob levels and sources are in the numbered steps above, rates in [epics.md](epics.md#magician-additions).
 
 1. Levels 10-22: collect all four Mastery pages plus raw Broom and Shovel in `najena`. Save Griffon Feathers from level 13-17 griffawns in the Karanas and Gargoyle Eye from the level 19 gargoyle in `oot` (steps 4 and 7).
 2. Levels 22-30: `unrest` is in the rotation from 26 to 30 (page 2) and `soldunga` from 28 (Fire). Run errands for Wind in `mistmoore`, Earth in `lfaydark`, Cyclops Toes in `qey2hh1` and the cloak from level 30 Quillmane (steps 3, 7 and 10).

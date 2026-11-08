@@ -36,24 +36,28 @@ async function lastCursor(path) {
  * `clickAt`, `fill`, `type` and `waitForSelector` for page evaluation and the game's UI controls.
  */
 export async function attach(tab) {
-  const [bridge, bot, opcodes, classSpells, questItems] = await Promise.all([
+  const [bridge, bot, opcodes, classSpells, questItems, bandRotations] = await Promise.all([
     readFile(new URL("bridge.js", here), "utf8"),
     readFile(new URL("bot.js", here), "utf8"),
     readFile(new URL("../data/opcodes.json", here), "utf8").then(JSON.parse),
     readFile(new URL("../data/class-spells.json", here), "utf8").then(JSON.parse),
     readFile(new URL("../data/quest-items.json", here), "utf8").then(JSON.parse),
+    readFile(new URL("../data/band-rotations.json", here), "utf8").then(JSON.parse),
   ]);
   await tab.evaluate(bridge);
   await tab.evaluate((table) => window.iq.setOpcodeNames(table), opcodes);
-  // The bot's gem plan reads the client's per-class spell table from window.iq.classSpells, and
-  // its cleanup keeps the quest turn-in items in window.iq.questItems.
+  // The bot's gem plan reads the client's per-class spell table from window.iq.classSpells, its
+  // cleanup keeps the quest turn-in items in window.iq.questItems, and its level-ups set the zone
+  // rotation from window.iq.bandRotations.
   await tab.evaluate(
-    (table, items) => {
+    (table, items, bands) => {
       window.iq.classSpells = table;
       window.iq.questItems = items;
+      window.iq.bandRotations = bands;
     },
     classSpells,
     questItems,
+    bandRotations,
   );
   await tab.evaluate(bot);
 

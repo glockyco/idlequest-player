@@ -62,7 +62,7 @@
     rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
-    autoBandRotation: true, // update `rotation` from BAND_ROTATIONS when the leader enters a new level band
+    autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
   };
   let saved = {};
   try {
@@ -635,23 +635,12 @@
   // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
   // next one when "No available enemies" persists, or when the last 10 minutes earned less than
   // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
-  // The rows for 31, 34 and 38 list the zones `tools/predict.mjs --level <min>` ranks highest
-  // without danger flags, from 32 to 40. Check the rows from 41 the same way before the party gets
-  // there, and check each new zone's XP multiplier on the first visit, because the content snapshot
-  // and the wiki disagree for 29 zones.
-  const BAND_ROTATIONS = [
-    [46, ["velketor", "sebilis", "chardok"]],
-    [41, ["velketor", "chardok", "sebilis"]],
-    [38, ["soldunga", "kaesora", "paw"]],
-    [34, ["soldunga", "kaesora", "unrest"]],
-    [31, ["soldunga", "unrest", "paw"]],
-    [28, ["unrest", "soldunga", "paw"]],
-    [26, ["permafrost", "paw", "unrest"]],
-    [22, ["permafrost", "runnyeye", "guktop"]],
-  ];
+  // The band rows (`window.iq.bandRotations`, from data/band-rotations.json, shared with
+  // tools/gear.mjs) set `rotation` at each level-up. docs/plans/leveling-plan.md gives the evidence
+  // for each row.
   const applyBandRotation = (lvl) => {
     if (!config.autoBandRotation || !(config.rotation ?? []).length) return;
-    const band = BAND_ROTATIONS.find(([min]) => lvl >= min)?.[1];
+    const band = (iq()?.bandRotations ?? []).find(([min]) => lvl >= min)?.[1];
     if (band && JSON.stringify(band) !== JSON.stringify(config.rotation)) {
       config.rotation = [...band];
       saved.rotation = [...band];

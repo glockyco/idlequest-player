@@ -1,6 +1,6 @@
 # Epic quests for the roster
 
-The 1.0 class epics for every roster class: whether IdleQuest implements them, what each step needs and where it comes from, which pieces the party meets while leveling from 22 to 46, and which epics add most to the account. The Magician's epic is in [magician-epic.md](magician-epic.md) and appears here only where this plan adds to it. Zone rotation is `BAND_ROTATIONS` in `src/bot.js` and [leveling-plan.md](leveling-plan.md), the roster is in [raid-roster.md](raid-roster.md).
+The 1.0 class epics for every roster class: whether IdleQuest implements them, what each step needs and where it comes from, which pieces the party meets while leveling from 22 to 46, and which epics add most to the account. The Magician's epic is in [magician-epic.md](magician-epic.md) and appears here only where this plan adds to it. Zone rotation is the band rows in `data/band-rotations.json` and [leveling-plan.md](leveling-plan.md), the roster is in [raid-roster.md](raid-roster.md).
 
 This is a content-backed plan. No chain was played in the running game. Minutes are estimates from spawn arithmetic, not measurements.
 
@@ -35,7 +35,7 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 
 ## Summary by class
 
-"Rotation" means a zone in the `BAND_ROTATIONS` row for the party level in `src/bot.js`. Any other zone is an errand (`iq.errand`), which hunts named enemies without keeping the zone in the rotation. "Late" means a step the party cannot reasonably do before level 50 (NPC level 55 or higher, hp 25,000 or more, or a respawn of 12 hours or more). The number after a class is its characters in [raid-roster.md](raid-roster.md). Class sections below give each step.
+"Rotation" means a zone in the band row for the party level in `data/band-rotations.json`. Any other zone is an errand (`iq.errand`), which hunts named enemies without keeping the zone in the rotation. "Late" means a step the party cannot reasonably do before level 50 (NPC level 55 or higher, hp 25,000 or more, or a respawn of 12 hours or more). The number after a class is its characters in [raid-roster.md](raid-roster.md). Class sections below give each step.
 
 | Class | Epic (item id) | In IdleQuest | Hand-in class gate | Pieces in rotation zones, 22 to 46 | Late steps | Effort | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -74,7 +74,7 @@ Echo of Nortlav (Red Scales 35%) has weight 0 in its only spawn group and is not
 
 ## Collect while leveling
 
-Pieces by the party level at which they become practical. "Rotation" rows need no extra time beyond the normal rotation, and the levels given are those of the `BAND_ROTATIONS` rows that list the zone (`src/bot.js`). "Errand" rows run as `iq.errand` for the named enemies, and their minutes include a few minutes of travel and are estimates. Every row is `S` and `Q` unless marked. Later groups meet the same bands when they level, so rows for classes not yet in the party are for those groups. Kaesora is not in `BAND_ROTATIONS`, although `tools/predict.mjs --level 31` ranks it among the best zones from level 31, so its pieces are errands until a row lists it.
+Pieces by the party level at which they become practical. "Rotation" rows need no extra time beyond the normal rotation, and the levels given are those of the band rows that list the zone (`data/band-rotations.json`). "Errand" rows run as `iq.errand` for the named enemies, and their minutes include a few minutes of travel and are estimates. Every row is `S` and `Q` unless marked. Later groups meet the same bands when they level, so rows for classes not yet in the party are for those groups. Kaesora is in the rows from 34, so its pieces are errands only at 31 to 33.
 
 | Party level | Zone | Piece (class and step) | How | Minutes |
 | --- | --- | --- | --- | --- |
@@ -142,20 +142,20 @@ Order of pursuit for the current party (Warrior, Cleric, Bard, Shaman, Enchanter
 
 ### Rotation changes
 
-`BAND_ROTATIONS` in `src/bot.js` holds the rotation rows, and `tools/predict.mjs --level N` ranks zones by modeled XP per hour. An errand takes a named piece without keeping a weak zone in the rotation, so a zone joins the rotation only when its XP pays. The table lists what the current rows supply and which pieces stay errands.
+`data/band-rotations.json` holds the rotation rows, and `tools/predict.mjs --level N` ranks zones by modeled XP per hour. An errand takes a named piece without keeping a weak zone in the rotation, so a zone joins the rotation only when its XP pays. The table lists what the current rows supply and which pieces stay errands.
 
 | Party level | Rotation row | Pieces the rotation supplies | Errands in the band |
 | --- | --- | --- | --- |
 | 22 to 25 | permafrost, runnyeye, guktop | Heart of Frost (Warrior W5), Ghoulbane (Paladin G, Shadow Knight 11) | Soblohg (Black Sapphire), lakerathe hilt |
 | 26 to 27 | permafrost, paw, unrest | Heart of Frost, Brother Hayle hand-in (Paladin F, paw), Magician page 2 (tentacle terrors, 90%) | Baenar's invoice (southkarana) |
 | 28 to 30 | unrest, soldunga, paw | Page 2, Marfen's doll and Serra's note (Bard 6 to 9), Gimblox's ring (Cleric 7), Power of Fire from blazing elementals (2%) | Power of Wind (mistmoore), Power of Earth (lfaydark), Cyclops Toes (qey2hh1), Quillmane, Blackwing |
-| 31 to 33 | soldunga, paw, dalnir | Gimblox's ring, Power of Fire (lava elemental L35, 28%), Lost Scroll (Enchanter E8), Hayle | Kaesora (Power of Water, spectral librarian), Hill Giant Toes (dreadlands) |
-| 34 to 37 | soldunga, paw, droga | Gimblox's ring, Power of Fire, Hayle | Kaesora, Xicotl, Bergurgle, page 3 (gukbottom), ghoul scribe |
-| 38 to 40 | frozenshadow, crystal, citymist | Citymist: Star Ruby (mist golem L42 to 46, 27.5%, also sold by merchants) for the Magician's Broom of Trilon | Page 1 (kithicor), Elemental Binder (hole), Burning Embers (burningwood), Maligar, arch magus, Felia |
+| 31 to 33 | soldunga, unrest, paw | Gimblox's ring, Power of Fire (lava elemental L35, 28%), Hayle | Kaesora (Power of Water, spectral librarian), Lost Scroll (Enchanter E8, dalnir), Hill Giant Toes (dreadlands) |
+| 34 to 37 | soldunga, kaesora, unrest | Gimblox's ring, Power of Fire, Power of Water and the spectral librarian (kaesora) | Hayle (paw), Xicotl, Bergurgle, page 3 (gukbottom), ghoul scribe |
+| 38 to 40 | soldunga, kaesora, paw | Gimblox's ring, Power of Fire, the spectral librarian, Hayle | Star Ruby (citymist mist golem L42 to 46, 27.5%, also sold by merchants) for the Magician's Broom of Trilon, page 1 (kithicor), Elemental Binder (hole), Burning Embers (burningwood), Maligar, arch magus, Felia |
 | 41 to 45 | velketor, chardok, sebilis | Gems for Warrior W9 if the party kills the L46 to 57 mobs. Chardok and sebilis also hold Bathezid, Selrach, Velazul, Mak`ha, the Undead Bard and Trakanon, all raid level | Jacinth (wakening), Rain (Tarbul), Dirt (Slixin), Immortals and Felia (skyfire) |
 | 46 and up | velketor, sebilis, chardok | Same | Planar raid kills |
 
-Kaesora ranks fourth at level 31 (2.45M XP/h), third at 33 (2.67M) and second at 36 (2.84M) in `tools/predict.mjs`. `BAND_ROTATIONS` does not list it, so Power of Water and the spectral librarian stay errands until a row does. Kithicor ranks eleventh at 34 (2.15M) and seventh at 38, so page 1 (enraged dread wolf, two always-spawning points) is an errand. At levels 31, 33, 34, 36, 38 and 41 dreadlands, gukbottom and burningwood are not among the top eleven zones, and hole is eighth at 41 (1.79M), so their pieces are errands too.
+Kaesora ranks fourth at level 31 (2.45M XP/h), third at 33 (2.67M) and second at 36 (2.84M) in `tools/predict.mjs`, and the rows from 34 list it, so Power of Water and the spectral librarian come with the rotation from 34 and are errands before that. Kithicor ranks eleventh at 34 (2.15M) and seventh at 38, so page 1 (enraged dread wolf, two always-spawning points) is an errand. At levels 31, 33, 34, 36, 38 and 41 dreadlands, gukbottom and burningwood are not among the top eleven zones, and hole is eighth at 41 (1.79M), so their pieces are errands too.
 
 ## Magician additions
 

@@ -187,16 +187,11 @@ if (partyMode) {
   }
   const byName = new Map();
   for (const it of allItems.values()) if (!byName.has(it.name)) byName.set(it.name, it);
-  const ROTATION_ZONES = new Set(
-    [
-      level <= 30 && ["The Estate of Unrest", "Solusek's Eye", "Lair of the Splitpaw"],
-      level >= 28 && level <= 36 && ["Solusek's Eye", "The Crypt of Dalnir", "The Crystal Caverns", "Kaesora"],
-      level >= 34 && level <= 42 && ["The Crystal Caverns", "The Tower of Frozen Shadow", "Kaesora", "The City of Mist"],
-      level >= 40 && ["Velketor's Labyrinth", "Chardok", "Old Sebilis"],
-    ]
-      .filter(Boolean)
-      .flat(),
-  );
+  // In-rotation zones: the bot's band row for this level and the next one up.
+  const bands = JSON.parse(await readFile(new URL("../data/band-rotations.json", import.meta.url), "utf8"));
+  const here = bands.findIndex(([min]) => level >= min);
+  const shorts = [...(bands[here]?.[1] ?? []), ...(here > 0 ? bands[here - 1][1] : [])];
+  const ROTATION_ZONES = new Set(shorts.map((s) => zoneName.get(s)).filter(Boolean));
   console.log(`Whole-party upgrade plan at level ${level} (drops from mobs up to level ${mobMax})`);
   console.log(`In-rotation zones: ${[...ROTATION_ZONES].join(", ")}\n`);
   for (const m of members) {

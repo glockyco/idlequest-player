@@ -60,7 +60,7 @@ Rates are the leader's XP per hour while AutoLevel ran, taken per character leve
 | 28 | Lair of the Splitpaw (1.28) | 2.32M | Permafrost fell to 1.72M the same level. |
 | 29-31 | The Estate of Unrest (1.13) | 2.04M-2.59M | Level 31 has only 10 minutes recorded. |
 
-From level 22 the bot's `BAND_ROTATIONS` and the leveling plan choose the zones.
+From level 22 the bot's band rows (`data/band-rotations.json`) and the leveling plan choose the zones.
 
 Avoid at these levels, from guard events and deaths in the same runs: Blackburrow at 5 (a level-15 gnoll high shaman joined a fight and killed the leader), the City of Guk at 12 (21 guard escapes from froglok warriors, knights and shamans of level 22 to 27) and Permafrost at 28 (189 guard escapes from ice giants of level 47 to 50 and a giant wooly spider).
 

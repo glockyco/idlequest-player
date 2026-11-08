@@ -299,6 +299,15 @@ test("cleanup keeps the last copy of a quest turn-in item and sells its extra co
   expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
 });
 
+test("a level-up sets the rotation from the injected band table", async () => {
+  const { bot, iq, say } = await install();
+  Object.assign(iq, { bandRotations: [[31, ["soldunga", "unrest"]], [22, ["permafrost"]]] });
+  bot.config.rotation = ["permafrost"];
+  say("You have gained a level! Welcome to level 31!");
+  await bot.tick();
+  expect(bot.config.rotation).toEqual(["soldunga", "unrest"]);
+});
+
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
   const empty = "No available enemies found in this zone.";
   const tightened = await install();

@@ -1,0 +1,10 @@
+[
+  [46, ["velketor", "sebilis", "chardok"]],
+  [41, ["velketor", "chardok", "sebilis"]],
+  [38, ["soldunga", "kaesora", "paw"]],
+  [34, ["soldunga", "kaesora", "unrest"]],
+  [31, ["soldunga", "unrest", "paw"]],
+  [28, ["unrest", "soldunga", "paw"]],
+  [26, ["permafrost", "paw", "unrest"]],
+  [22, ["permafrost", "runnyeye", "guktop"]]
+]

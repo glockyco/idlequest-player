@@ -99,7 +99,7 @@ weights documented in the file. Weapons are ranked by base damage capped at the 
 divided by delay, the comparison the IdleQuest wiki gives. `--party` reads a saved `iq.roster()`
 result (`me` and `party`, each with class, race and `items`). Save the roster from an eval cell
 first: `await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones
-it prints are written into the tool by level, not read from the bot.
+it prints are the bot's band rows (`data/band-rotations.json`) for the level and the next band.
 
 ```sh
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
