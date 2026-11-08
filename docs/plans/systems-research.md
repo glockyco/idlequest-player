@@ -181,6 +181,34 @@ The wiki explains same-account companion progression and independent raid copies
 - The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
 - A group-wide doubling would double that group's XP for 30 minutes, more than any zone or tactic change measured so far. The casino's prizes and Olyna Mudel's potions in West Freeport do not include it. Look for it in other merchants' "Potions" categories and in rewards before planning around it.
 
+## 7. Race
+
+The roster is chosen for its final raid strength, so a race's XP factor does not decide it. What race changes, read in the live client (`.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` unless named):
+
+- Starting attributes. The live creation table is in `data/char-create.json`: a base row per race and class and the server's preset allocation of the class's bonus points (20 to 30). Attributes never grow with level, so after creation only gear, buffs and AAs raise them, up to 255 plus cap modifiers (`Bt` 21847-22200, `kL` 21065).
+- HP is a class and level factor times STA, with STA above 255 counting half (`kD` 20565-20577). At level 46 a STA point is worth about 4 HP for a Warrior and 1.8 for a pure caster, about 6 and 2.7 at 60. Mana is INT for most casters and WIS for Clerics, Paladins, Rangers, Druids and Shamans, about 9 mana per point at 46 and 11 at 60 below 200 (`bD` 20578-20589). STR adds about 0.67 attack per point (`je` 16715-16718), AGI adds avoidance and AC (`xt` 16679-16684, `F6` 20762-20785), DEX adds Warrior and Ranger crit chance and weapon proc rate.
+- Racial resists: at most 10 to 15 points apart against caps of 500 (`HD` 20800-20870).
+- Iksar: natural AC equal to the level, clamped to 10 to 35 (`ID` 20590-20640), and slower martial arts as a Monk (`di` 21748-21757). Troll and Iksar regenerate 12 HP per tick at 60 against 4 for other races (`KF`, `0eakiHJI.js:20175-20182`). Barbarian, Troll and Ogre tanks bash without a shield (Slam, same damage as a bash, `rp` 62395-62398).
+- Item restrictions: items carry a race and a deity mask (`B7YhzEJy.js:2309-2317`), and some sets are race-locked. Cultural armor quests need the matching race.
+- Not in the client: Ogre frontal stun immunity, race bonuses to skills or skill caps, race size in combat, and the XP factor, which the server applies.
+- Raid recruits go through the same stat function with their race (`bp` 64277-64292), and Raid Resolve is by class only.
+
+`tools/raidsim.mjs` uses the creation table, so a roster entry's race changes the fight the way the client computes it.
+
+## 8. Guilds
+
+A guild of our own characters changes nothing in raids. The recruit list is every account character plus guild members (`f11`, `.re/js/main.pretty.js:70581-70603`), every recruit is built as a `guildCharacter` snapshot whatever its guild (`yQ` 64332-64376), and no raid code reads guild membership for buffs, the leader's class package, raid time, daily resets or the casino. The client has no guild bank, perks, buffs, tribute or hall: those names appear only in the opcode map. A guild has Leader, Officer and Member ranks, a message of the day, invites by character name and public notes (`.re/releases/20261108T004644-064bc896/pretty/CVEP2_Ra.js:418694-419075`). Each character accepts its own invite, and the guild name shows over every member. The creation fee and requirements are on the server and unknown. Recruiting other players' characters is the only thing a guild adds, and this account does not do that.
+
+## 9. Other systems
+
+From the live client (`CVEP2_Ra.js` unless named):
+
+- Specializations (Abilities window, 408620-408830): a caster picks one school, and only that school trains past 50. Its skill lowers mana cost by `floor(baseMana * skill / 1870)`, about 10.7% at skill 200 (`.re/js/BQ.pretty.js:3558-3588`), from level 20 for Necromancers, Wizards, Magicians and Enchanters and from 30 for Clerics, Druids and Shamans. The panel belongs to the active character, so a companion's school is chosen while signed in as it. Reset drops the school to 49. The raid code does not read the skill, so it helps leveling, not raids [inferred from `.re/js/main.pretty.js`].
+- Saved Groups (414637-414870): a party saved in this browser's local storage and recruited with one click from an empty party outside combat.
+- Recharge merchants (Maslow in the East Commonlands tunnel): refill a click item's charges for a fee (wiki, loot-and-inventory).
+- Free practice: casting trains undertrained schools by up to 5 points per cast until 80% of the cap, and meditating trains Meditate out of combat (wiki, autolevel).
+- Minor or none for account strength: fishing and foraging, coin wagers at the casino, name changes, pizza, trade and auction commands. There is no paid shop, no achievements or login rewards, and no offline progress.
+
 ## Five highest-value actions
 
 1. Keep the six own-character party leveling and buy missing merchant spells deliberately. The documented party supports persistent companion XP, and the raid command set starts at 46. Do not substitute default bots for roster progress. Sources: <https://idlequest.net/wiki/experience-and-zones>, <https://idlequest.net/wiki/companions>, "Buying companion spells", and <https://idlequest.net/wiki/raiding>, "What is unfinished?".
