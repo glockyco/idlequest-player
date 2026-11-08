@@ -42,11 +42,7 @@
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
-    stallMin: 10, // AutoLevel running without XP this long raises an alert
     deathsPerHourAlert: 6, // party deaths within an hour that wake a script; single deaths are notes
-    stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
-    routeStuckSec: 8, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
-    readyStuckSec: 30, // "Waiting for party to be ready" this long with everyone full: restart AutoLevel
     attackWaitSec: 3, // a pull standing at its target with Auto Attack off this long: turn it on
     dispelRoots: true, // dispel a root that holds the readiness wait when that saves time (dispelRoots)
     dispelCycleSec: 9, // seconds between one member's dispel attempts between fights
@@ -64,7 +60,6 @@
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
     leaderId: null, // the character this tab plays as when no pause holds it; null leaves the active character alone
-    crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes moves to another rotation zone, or raises an alert without one
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
     avoidNames: "",
@@ -107,14 +102,9 @@
     cursorAlerted: false,
     offlineSince: null,
     offlineAlerted: false,
-    xpSeen: null, // { xp, t } when XP last changed
-    stallAlerted: false,
+    idleCase: null, // { why, rung, at, alerted }: the idle cause the remedy table works on
     lootFails: [], // times of "could not loot" messages
     lootAlertAt: 0,
-    enemyWaits: [], // times of "Waiting for an available enemy"
-    crowdAlertAt: 0,
-    noEnemies: [], // times of "No available enemies found in this zone"
-    noEnemiesAlertAt: 0,
     deaths: [], // times of party deaths
     deathAlertAt: 0,
     rejoinAt: 0,
@@ -501,11 +491,6 @@
         alert("death", text, false);
         if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text });
       } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
-      else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
-      else if (/^(No usable route|Route blocked)\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
-      else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
-      else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
-      else if (/^No available enemies found in this zone/.test(text)) state.noEnemies.push(e.t ?? now());
       else if (/Looking for another target\.$/.test(text)) state.abandonAt = e.t ?? now();
       // A lowered cap and a timed-out escape are the guard working. Only an AutoLevel it could not
       // restart needs someone.
@@ -570,56 +555,71 @@
     }
   };
 
-  const watchXp = async (i, cb) => {
-    const xp = i.stores.character.getState().characterProfile?.experienceProgress?.current;
-    if (xp == null) return;
-    if (!state.xpSeen || state.xpSeen.xp !== xp || !cb.isRunning) {
-      state.xpSeen = { xp, t: now() };
-      state.stallAlerted = false;
-      return;
-    }
-    const idleMin = (now() - state.xpSeen.t) / 60000;
-    const inCombat = !!i.stores.skills?.getState?.().inCombat;
-    const restart = (why) => {
-      state.stuckRestartAt = now();
-      state.routeRecoverAt = state.readyWaitAt = null;
-      cb.setIsRunning(false);
-      setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 1500);
-      alert("stuckRestart", `${why}; restarted AutoLevel`, false);
-    };
-    if (inCombat || now() < state.pauseUntil) return;
-    // The game's route recovery ("No usable route. Recovering near ...") usually finds a new target
-    // within a second, but can also leave AutoLevel on and idle for good. Stopping and starting it
-    // picks a new target.
-    if (state.routeRecoverAt && now() - state.routeRecoverAt > config.routeStuckSec * 1000) {
-      restart(`route recovery found no target in ${config.routeStuckSec}s`);
-      return;
-    }
-    // AutoLevel waits for full HP and mana before each pull. Waiting on with everyone full is the
-    // same kind of hang.
-    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && i.partyFull() && !partyRoots(i).length) {
-      restart(`waited ${Math.round((now() - state.readyWaitAt) / 1000)}s for a party that was already full`);
-      return;
-    }
-    // Running, out of combat and no XP for a few minutes.
-    if (config.stuckRestartMin > 0 && idleMin > config.stuckRestartMin && now() - (state.stuckRestartAt ?? 0) > config.stuckRestartMin * 60000) {
-      // After "Waiting for an available enemy" AutoLevel idles until something passes its limits, so
-      // other groups hold every such enemy. A white minimum con (new groups start there) widens to
-      // blue first, then the party moves to the rotation zone fewest other groups hunt. An errand
-      // waits for its named spawns on purpose.
-      const waited = !state.errand && state.enemyWaits.at(-1) > state.xpSeen.t;
-      const minCon = cb.minCon;
-      if (waited && minCon > 4) {
+  // ---- Idle remedies -----------------------------------------------------------------------
+  // One table maps each idle cause of the page's activity label (src/bridge.js, "Activity") to a
+  // ladder of remedies (docs/plans/controller.md, principle 3). A rung runs once the cause has
+  // lasted `afterSec`, the next one if the same cause outlasts `afterSec` again, and a rung with
+  // nothing to do passes to the next at once. When the ladder is used up, an alert wakes a script.
+  // "off" is keepAutoLevel's, "afterKill" is the client's own pause after a kill, and an errand
+  // waits for its spawns on purpose, so it gets the restarts only.
+  const REMEDIES = {
+    waitAttack: { afterSec: 20, rungs: ["restart"] },
+    readyWait: { afterSec: 30, rungs: ["restart"] },
+    noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"] },
+    crowded: { afterSec: 60, rungs: ["widen", "move"] },
+    noEnemies: { afterSec: 0, rungs: ["widen", "move"] },
+  };
+  const restartAutoLevel = (cb) => {
+    cb.setIsRunning(false);
+    setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 1500);
+  };
+  const remedies = {
+    restart: (i, cb) => {
+      restartAutoLevel(cb);
+      return "restarted AutoLevel";
+    },
+    // Undo what narrowed the limits: the guard's tightening first, then a minimum con above blue.
+    widen: (i, cb) => {
+      const p = i.guard?.preferred;
+      if (p) {
+        i.guard.preferred = null;
+        cb.setMaxCon(p.maxCon);
+        cb.setMinCon(p.minCon);
+        cb.setMaxLevelDiff(p.maxLevelDiff);
+        restartAutoLevel(cb);
+        return `back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff} from before the guard tightened them`;
+      }
+      if (cb.minCon > 4) {
+        const was = cb.minCon;
         cb.setMinCon(4);
-        restart(`${Math.round(idleMin)} minutes waiting for an available enemy at minimum con ${minCon}; lowered it to blue (4)`);
-      } else if (waited && nextZone(i) && (await rotate(i, `${Math.round(idleMin)} minutes waiting for an available enemy`))) {
-        state.stuckRestartAt = now();
-        state.xpSeen = { xp, t: now() };
-      } else restart(`${Math.round(idleMin)} minutes out of combat without XP`);
+        restartAutoLevel(cb);
+        return `lowered minimum con from ${was} to blue (4)`;
+      }
+      return null;
+    },
+    move: async (i, cb, why) => (nextZone(i) && (await rotate(i, why)) ? "moved to another rotation zone" : null),
+  };
+  const watchIdle = async (i, cb) => {
+    const a = i.activity?.();
+    const spec = a?.act === "idle" ? REMEDIES[a.why] : null;
+    // A rooted member keeps the readiness wait on, and Nullify Magic (`watchRoots`) breaks roots.
+    if (!spec || (a.why === "readyWait" && partyRoots(i).length)) return void (state.idleCase = null);
+    let c = state.idleCase;
+    if (!c || c.why !== a.why) c = state.idleCase = { why: a.why, rung: 0, at: a.since };
+    if (now() - c.at < spec.afterSec * 1000) return;
+    const rungs = state.errand ? spec.rungs.filter((r) => r === "restart") : spec.rungs;
+    const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.longName ?? "this zone";
+    while (c.rung < rungs.length) {
+      const done = await remedies[rungs[c.rung++]](i, cb, `idle (${a.why}) in ${zone}`);
+      if (done) {
+        c.at = now();
+        log(`remedy for idle (${a.why}): ${done}`);
+        return;
+      }
     }
-    if (!state.stallAlerted && idleMin > config.stallMin) {
-      state.stallAlerted = true;
-      alert("xpStall", `AutoLevel has run ${config.stallMin} minutes without gaining XP`, true);
+    if (!c.alerted) {
+      c.alerted = true;
+      alert("idle", `idle (${a.why}) in ${zone} after every remedy (${rungs.join(", ") || "none during an errand"})`, true);
     }
   };
 
@@ -835,65 +835,30 @@
     }
   };
 
-  // Waiting again and again for an available enemy means other players or other groups of this
-  // browser hold the zone's targets. With another zone in the rotation the bot moves there (the one
-  // fewest other groups hunt), otherwise it wakes a script to decide.
-  const watchCrowding = async (i) => {
-    state.enemyWaits = state.enemyWaits.filter((t) => t > now() - 600000);
-    if (state.enemyWaits.length < config.crowdedWaits || now() - state.crowdAlertAt < 600000) return;
-    state.crowdAlertAt = now();
-    const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === i.stores.combat.getState().currentZone);
-    const why = `AutoLevel waited for an available enemy ${state.enemyWaits.length} times in 10 minutes in ${z?.longName ?? "this zone"}`;
-    if (!state.errand && nextZone(i) && (await rotate(i, why))) {
-      state.enemyWaits = [];
+  // The full party is part of the desired state. The client refuses new members during combat
+  // ("You cannot add party members during combat"), and AutoLevel pulls again right after each
+  // fight, so a party short of members stops pulling until the current fight ends, then gathers
+  // them, and keepAutoLevel starts it again. Members the server does not offer as available, such
+  // as one another tab plays, are not waited for.
+  const keepParty = (i, cb) => {
+    if (!config.partyIds.length || now() < state.pauseUntil) return;
+    const available = new Set(i.stores.companions.getState().availableAccountCharacterIds ?? []);
+    const missing = partyMissing(i).filter((id) => !available.size || available.has(id));
+    if (!missing.length) return;
+    if (i.stores.skills.getState().inCombat) {
+      if (cb.isRunning) {
+        cb.setIsRunning(false);
+        log(`stopped pulling until ${missing.length} missing member(s) can join after this fight`);
+      }
       return;
     }
-    alert("crowded", why, true);
-  };
-
-  // "No available enemies found in this zone" means nothing passes AutoLevel's con and level
-  // filters (spawns it failed to reach are skipped for five minutes), and the game then switches
-  // AutoLevel off. Undo what can be undone here: limits the guard tightened, then a raised minimum
-  // con. Otherwise the zone does not fit the party, so wake an attached script to choose another.
-  const watchNoEnemies = async (i) => {
-    state.noEnemies = state.noEnemies.filter((t) => t > now() - 300000);
-    // During an errand an empty zone means the wanted enemies are dead, and the errand's deadline
-    // decides how long to wait for them.
-    if (state.errand) state.noEnemies = [];
-    if (state.noEnemies.length < 3) return;
-    const cb = i.stores.combat.getState();
-    const g = i.guard;
-    state.noEnemies = [];
-    if (g?.preferred) {
-      const p = g.preferred;
-      g.preferred = null;
-      cb.setMaxCon(p.maxCon);
-      cb.setMinCon(p.minCon);
-      cb.setMaxLevelDiff(p.maxLevelDiff);
-      log(`no enemies at the guard's tightened limits; back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff}`);
-    } else if (cb.minCon > 4) {
-      cb.setMinCon(4);
-      log(`no enemies at minimum con ${cb.minCon}; lowered it to blue (4)`);
-    } else if (await rotate(i, "no available enemies")) {
-      // moved on
-    } else if (now() - state.noEnemiesAlertAt > 900000) {
-      state.noEnemiesAlertAt = now();
-      const z = i.stores.staticData.getState().zones.find((x) => x.zoneidnumber === cb.currentZone);
-      alert("noEnemies", `no enemies within con ${cb.minCon}..${cb.maxCon}, cap ${cb.maxLevelDiff} in ${z?.longName ?? "this zone"} at level ${i.stores.character.getState().characterProfile?.level}`, true);
-    }
-  };
-
-  // After a login, a reload or a switch of the active character the party holds no account
-  // characters, and AutoLevel would hunt alone. A pause leaves the party to its script.
-  const keepParty = (i) => {
-    if (!config.partyIds.length || now() < state.pauseUntil || i.stores.skills.getState().inCombat || now() - state.rejoinAt < 120000) return;
-    const missing = partyMissing(i);
-    if (!missing.length) return;
+    if (now() - state.rejoinAt < 20000) return;
     state.rejoinAt = now();
     i.stores.companions.getState().requestAccountCharacterAvailability();
-    missing.forEach((id, k) => setTimeout(() => i.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
+    missing.forEach((id, k) => setTimeout(() => iq()?.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
     // Look again once the last of them should have arrived, so AutoLevel starts without waiting for the next tick.
     setTimeout(tick, 2500 * (missing.length + 1) + 500);
+    state.restartNow = "the party gathered";
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
   // Ask every missing party member to join at once and wait until they are in, for a task that
@@ -1607,13 +1572,11 @@
         state.lastError = null;
         return;
       }
-      await watchCrowding(i);
       await watchErrand(i);
-      await watchNoEnemies(i);
       await watchOutside(i);
       await watchRate(i);
-      keepParty(i);
-      await watchXp(i, cb);
+      keepParty(i, cb);
+      await watchIdle(i, cb);
       avoidTargets(i);
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);

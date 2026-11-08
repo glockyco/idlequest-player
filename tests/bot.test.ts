@@ -153,6 +153,7 @@ async function install(partyIds: number[] = []) {
     screen.currentScreen = "game";
     return { ok: true };
   };
+  const activity: { act: string; why: string | null; since: number } = { act: "fight", why: null, since: Date.now() };
   const iq = {
     // The client's spell table by class id, which the tests that plan gems fill in.
     classSpells: {} as SpellTable,
@@ -179,6 +180,8 @@ async function install(partyIds: number[] = []) {
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
+    // The bridge's activity label, which tests set to the situation they need.
+    activity: () => activity,
     // The bridge's readiness check over the fake party: full HP, and full mana for casters.
     partyFull: () =>
       me.curHp >= me.maxHp && me.mana >= me.maxMana && (party.companions as { curHp: number; maxHp: number; curMana: number; maxMana: number }[]).every((c) => c.curHp >= c.maxHp && (!(c.maxMana > 0) || c.curMana >= c.maxMana)),
@@ -206,7 +209,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, sheet, screen, commands, commandReply };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, sheet, screen, commands, commandReply, activity };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -233,25 +236,34 @@ test("single deaths are notes, and the sixth party death within an hour wakes a 
   expect(bot.state.alerts.filter((a) => a.wake).map((a) => a.kind)).toEqual(["deaths"]);
 });
 
-test("frequent waits for an enemy move a party with another rotation zone and wake a script without one", async () => {
-  const few = await install();
-  for (let k = 0; k < 5; k++) few.say("Waiting for an available enemy. AutoLevel will try again shortly.");
-  await few.bot.tick();
-  expect(few.bot.state.alerts.map((a) => a.kind)).not.toContain("crowded");
+test("the remedy table widens a crowded party's limits, then moves it, and wakes a script when nothing is left", async () => {
+  vi.useFakeTimers();
+  try {
+    const p = await install();
+    p.bot.config.rotation = ["guktop", "permafrost"];
+    p.combat.currentZone = 65;
+    p.combat.minCon = 10;
+    await p.bot.tick();
+    Object.assign(p.activity, { act: "idle", why: "crowded", since: Date.now() });
+    vi.advanceTimersByTime(30000);
+    await p.bot.tick();
+    expect([p.combat.minCon, p.moves]).toEqual([10, []]);
+    vi.advanceTimersByTime(31000);
+    await p.bot.tick();
+    expect([p.combat.minCon, p.moves]).toEqual([4, []]);
+    vi.advanceTimersByTime(61000);
+    await p.bot.tick();
+    expect(p.moves).toEqual(["permafrost"]);
 
-  const stuck = await install();
-  for (let k = 0; k < 6; k++) stuck.say("Waiting for an available enemy. AutoLevel will try again shortly.");
-  await stuck.bot.tick();
-  expect(stuck.bot.state.alerts.filter((a) => a.kind === "crowded").map((a) => a.wake)).toEqual([true]);
-
-  const rotating = await install();
-  rotating.bot.config.rotation = ["guktop", "permafrost"];
-  rotating.combat.currentZone = 65;
-  await rotating.bot.tick();
-  for (let k = 0; k < 6; k++) rotating.say("Waiting for an available enemy. AutoLevel will try again shortly.");
-  await rotating.bot.tick();
-  expect(rotating.moves).toEqual(["permafrost"]);
-  expect(rotating.bot.state.alerts.filter((a) => a.kind === "crowded" && a.wake)).toEqual([]);
+    const alone = await install();
+    alone.combat.minCon = 4;
+    Object.assign(alone.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
+    await alone.bot.tick();
+    await alone.bot.tick();
+    expect(alone.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)).toEqual([true]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("account characters missing from the party are asked to rejoin", async () => {
@@ -261,71 +273,39 @@ test("account characters missing from the party are asked to rejoin", async () =
   expect(recruited).toEqual([11, 12]);
 }, 10000);
 
-test("a route recovery that finds no target restarts AutoLevel, one that does is left alone", async () => {
-  const hung = await install();
+test("a party short of members stops pulling during a fight and asks them to rejoin once it ends", async () => {
+  const p = await install([10, 20]);
+  p.party.companions.splice(1); // Edroun (20) dropped out
+  p.skills.inCombat = true;
+  p.combat.isRunning = true;
+  p.bot.state.rejoinAt = 0;
+  await p.bot.tick();
+  expect([p.autoLevel.stops, p.recruited]).toEqual([1, []]);
+  p.skills.inCombat = false;
+  await p.bot.tick();
+  await Bun.sleep(2600);
+  expect(p.recruited).toEqual([20]);
+}, 10000);
+
+test("a target or readiness hang restarts AutoLevel, and the client's own pause after a kill is left alone", async () => {
   vi.useFakeTimers();
   try {
-    hung.say("No usable route. Recovering near Burynai excavator.");
-    await hung.bot.tick();
-    vi.advanceTimersByTime(hung.bot.config.routeStuckSec * 1000 + 1000);
+    const hung = await install();
+    Object.assign(hung.activity, { act: "idle", why: "noTarget", since: Date.now() - 21000 });
     await hung.bot.tick();
     vi.advanceTimersByTime(2000);
     expect(hung.autoLevel).toEqual({ stops: 1, starts: 1 });
 
-    const found = await install();
-    found.say("No usable route. Recovering near Burynai excavator.");
-    found.say("You engage Burynai sapper in combat!");
-    await found.bot.tick();
-    vi.advanceTimersByTime(found.bot.config.routeStuckSec * 1000 + 1000);
-    await found.bot.tick();
-    expect(found.autoLevel).toEqual({ stops: 0, starts: 0 });
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("a readiness wait with everyone full restarts AutoLevel, one for a hurt member does not", async () => {
-  vi.useFakeTimers();
-  try {
-    const hurt = await install();
-    hurt.tank.curHp = 250;
-    hurt.say("Waiting for party to be ready.");
-    await hurt.bot.tick();
-    vi.advanceTimersByTime(hurt.bot.config.readyStuckSec * 1000 + 1000);
-    await hurt.bot.tick();
+    const ready = await install();
+    Object.assign(ready.activity, { act: "idle", why: "readyWait", since: Date.now() - 31000 });
+    await ready.bot.tick();
     vi.advanceTimersByTime(2000);
-    expect(hurt.autoLevel).toEqual({ stops: 0, starts: 0 });
+    expect(ready.autoLevel).toEqual({ stops: 1, starts: 1 });
 
-    const full = await install();
-    full.say("Waiting for party to be ready.");
-    await full.bot.tick();
-    vi.advanceTimersByTime(full.bot.config.readyStuckSec * 1000 + 1000);
-    await full.bot.tick();
-    vi.advanceTimersByTime(2000);
-    expect(full.autoLevel).toEqual({ stops: 1, starts: 1 });
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("AutoLevel idle after waiting for an enemy widens a white minimum con to blue, then moves to another rotation zone", async () => {
-  vi.useFakeTimers();
-  try {
-    const p = await install();
-    p.bot.config.rotation = ["guktop", "permafrost"];
-    p.combat.currentZone = 65;
-    p.combat.minCon = 10;
-    await p.bot.tick();
-    const idle = async () => {
-      vi.advanceTimersByTime(1000);
-      p.say("Waiting for an available enemy. AutoLevel will try again shortly.");
-      vi.advanceTimersByTime(p.bot.config.stuckRestartMin * 60000 + 1000);
-      await p.bot.tick();
-    };
-    await idle();
-    expect([p.combat.minCon, p.moves]).toEqual([4, []]);
-    await idle();
-    expect([p.combat.minCon, p.moves]).toEqual([4, ["permafrost"]]);
+    const fighting = await install();
+    Object.assign(fighting.activity, { act: "idle", why: "afterKill", since: Date.now() - 60000 });
+    await fighting.bot.tick();
+    expect(fighting.autoLevel).toEqual({ stops: 0, starts: 0 });
   } finally {
     vi.useRealTimers();
   }
@@ -412,38 +392,29 @@ test("a level-up starts the new band row where the fewest other groups of the br
 });
 
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
-  const empty = "No available enemies found in this zone.";
+  const empty = { act: "idle", why: "noEnemies", since: Date.now() };
   const tightened = await install();
   tightened.guard.preferred = { minCon: 4, maxCon: 13, maxLevelDiff: 5 };
   Object.assign(tightened.combat, { minCon: 4, maxCon: 15, maxLevelDiff: 2 });
-  for (let k = 0; k < 3; k++) tightened.say(empty);
+  Object.assign(tightened.activity, empty);
   await tightened.bot.tick();
   expect([tightened.combat.minCon, tightened.combat.maxCon, tightened.combat.maxLevelDiff, tightened.guard.preferred]).toEqual([4, 13, 5, null]);
 
   const picky = await install();
   picky.combat.minCon = 10;
-  for (let k = 0; k < 3; k++) picky.say(empty);
+  Object.assign(picky.activity, empty);
   await picky.bot.tick();
   expect(picky.combat.minCon).toBe(4);
 
   const unfit = await install();
-  for (let k = 0; k < 3; k++) unfit.say(empty);
+  Object.assign(unfit.activity, empty);
   await unfit.bot.tick();
-  expect(unfit.bot.state.alerts.filter((a) => a.kind === "noEnemies").map((a) => a.wake)).toEqual([true]);
+  expect(unfit.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)).toEqual([true]);
 });
 
-test("rotation moves on from an empty zone and from one whose XP rate fell", async () => {
+test("rotation moves on from a zone whose XP rate fell or whose guard keeps escaping", async () => {
   vi.useFakeTimers();
   try {
-    const empty = await install();
-    empty.bot.config.rotation = ["guktop", "permafrost"];
-    empty.combat.currentZone = 65;
-    await empty.bot.tick();
-    for (let k = 0; k < 3; k++) empty.say("No available enemies found in this zone.");
-    await empty.bot.tick();
-    expect(empty.moves).toEqual(["permafrost"]);
-    expect(empty.bot.state.alerts.map((a) => a.kind)).not.toContain("noEnemies");
-
     const dry = await install();
     dry.bot.config.rotation = ["guktop", "permafrost"];
     dry.combat.currentZone = 65;

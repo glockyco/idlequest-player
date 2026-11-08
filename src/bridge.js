@@ -300,10 +300,12 @@
   //   approach   walking to the enemy AutoLevel or the Enemy Targets list picked
   //   recover    the readiness wait before a pull (HP, mana, pets, cures) or its retry, or someone
   //              below full HP or mana while AutoLevel runs, as in its 5 s pause after each kill
-  //   idle       nothing happens: AutoLevel is off ("off"), stands at its target with Auto Attack
-  //              off ("waitAttack"), waits for an enemy that others or its deferrals hold
-  //              ("crowded"), pauses after a kill with the party full ("afterKill"), or runs
-  //              without a target ("noTarget")
+  //   idle       nothing happens: AutoLevel is off ("off"), or off because the client found nothing
+  //              within its limits in the zone ("noEnemies"), stands at its target with Auto
+  //              Attack off ("waitAttack"), retries its readiness wait with the party full
+  //              ("readyWait"), waits for an enemy that others or its deferrals hold ("crowded"),
+  //              pauses after a kill with the party full ("afterKill"), or runs without a target
+  //              ("noTarget")
   /** True when the leader and every living companion and pet are at full HP and mana. */
   const partyFull = () => {
     const p = stores.character.getState().characterProfile ?? {};
@@ -326,6 +328,12 @@
   // AutoLevel waits this long after each won fight before it looks for the next enemy (`Dt` in the
   // client's combat runtime), plus a second of sampling slack.
   const AFTER_KILL_MS = 6000;
+  // The client's "No available enemies found in this zone" switches AutoLevel off, and its line
+  // names that cause for the 90 seconds after it.
+  const noEnemiesSince = (t) => {
+    for (let k = events.length - 1; k >= 0 && events[k].t > t - 90000; k--) if (/^No available enemies found in this zone/.test(events[k].text ?? "")) return true;
+    return false;
+  };
   const activityNow = () => {
     const p = stores.character.getState().characterProfile;
     const cb = stores.combat.getState();
@@ -340,8 +348,9 @@
     const rt = runtime();
     const attempt = rt?.combatApproach?.attempt;
     if (attempt) return attempt.phase === "waiting-to-attack" ? ["idle", "waitAttack"] : ["approach"];
-    if (rt?.buffPhaseActive || rt?.preparationRetryTimer != null) return ["recover"];
-    if (!cb.isRunning) return ["idle", "off"];
+    if (rt?.buffPhaseActive) return ["recover"];
+    if (rt?.preparationRetryTimer != null) return partyFull() ? ["idle", "readyWait"] : ["recover"];
+    if (!cb.isRunning) return ["idle", noEnemiesSince(Date.now()) ? "noEnemies" : "off"];
     if (!partyFull()) return ["recover"];
     if (rt?.waitingForAutoLevelTargets) return ["idle", "crowded"];
     return ["idle", Date.now() - (kills.at(-1)?.t ?? 0) < AFTER_KILL_MS ? "afterKill" : "noTarget"];
