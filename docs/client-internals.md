@@ -224,10 +224,16 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
-it works while no script is attached. While a mob is engaged it checks four things: a mob
-`levelGap` or more levels above the leader, a mob whose biggest hit times `hitsToKill` reaches the
-lowest max HP in the party, a party member newly dead, and a Cleric under `healerManaPct` mana
-while someone is under `healerHpPct` HP. On a trigger it stops AutoLevel, re-enters the current
+it works while no script is attached. While a mob is engaged it checks five things: a mob
+`levelGap` or more levels above the leader (`levelGapLow` for a mob fighting the party while the
+leader is at most level `lowLevelMax`), a mob whose biggest hit times `hitsToKill` reaches the
+lowest max HP in the party, a leader at `dyingHpPct` HP or less who would be dead within
+`dyingSec` at the HP lost over the last `dyingWindowSec`, a party member newly dead, and a Cleric
+under `healerManaPct` mana while someone
+is under `healerHpPct` HP. With `fightingOnly` the level and hit checks count only mobs whose
+`hateTargetId`, `currentTargetId` or `chaseTargetId` names the party: `player`,
+`character-<id>` or a pet. The engaged list also holds idle mobs of the encounter with no target
+and guards fighting other NPCs (`npc:<id>`). On a trigger it stops AutoLevel, re-enters the current
 zone (or changes to `retreatZone` if set), and starts AutoLevel again with the same limits, about
 nine seconds later. Before it leaves it defers every mob of that fight, the target and the pull
 target with `deferAutoLevelSpawn` for `avoidMin` minutes (see the deferral list above), because

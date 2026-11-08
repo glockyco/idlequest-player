@@ -365,10 +365,13 @@
   // dangerous it stops AutoLevel, leaves the fight with the game's own zone-change request (the
   // one the Travel window sends) and starts AutoLevel again with the same limits.
   // Triggers, each checked once a second while a mob is engaged:
-  //   level   a mob is `levelGap` or more levels above the leader
+  //   level   a mob is `levelGap` or more levels above the leader, or `levelGapLow` while it fights
+  //           the party and the leader is at most level `lowLevelMax`
   //   hit     a mob's biggest hit times `hitsToKill` reaches the lowest max HP in the party, from
   //           leader level `hitFromLevel`: below it members have 35 to 60 HP, so nearly every
   //           mob qualifies and the party would escape instead of fighting
+  //   dying   the leader is at or below `dyingHpPct` HP and, at the HP it lost over the last
+  //           `dyingWindowSec`, dead within `dyingSec`
   //   down    a party member has died since the guard last looked
   //   healer  a Cleric is below `healerManaPct` mana while someone is below `healerHpPct` HP
   const guardPrev = window.iq?.guard;
@@ -386,16 +389,28 @@
       retreatZone: null, // short name to leave to, or null to re-enter the current zone
       loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
       avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
-      // The engaged list also holds mobs of the encounter that stand idle without a target, which
-      // set off 48 escapes in an hour from level 11 goblin shamans that never attacked. With this
-      // on, the level and hit triggers only count mobs that target, chase or hate someone.
-      fightingOnly: false,
+      // The engaged list also holds mobs of the encounter that stand idle without a target, and
+      // city guards and sentinels that fight other NPCs ("npc:<id>"). Both set off most level
+      // escapes at low levels. With this on, the level and hit triggers only count mobs that
+      // target, chase or hate the leader, a companion or a pet.
+      fightingOnly: true,
+      // At leader levels 1 to 8 most fights against mobs that hit someone from 6 or 7 levels up
+      // ended in a death (tools/fights.mjs), so there a mob fighting the party counts from
+      // `levelGapLow`.
+      lowLevelMax: 8,
+      levelGapLow: 6,
+      // From level 5 the leader's death costs level squared times 666.67 XP. In the recorded
+      // fights this rule fired before most leader deaths and rarely in fights that were won.
+      dyingHpPct: 50,
+      dyingSec: 4,
+      dyingWindowSec: 6,
       ...guardPrev?.config,
     },
     phase: "watching", // watching | leaving
     preferred: guardPrev?.preferred ?? null, // limits to return to after a quiet hour, once tightened
     trips: guardPrev?.trips ?? [],
     knownDown: new Set(),
+    hp: [], // the leader's HP once a second over the last 10 s, for the dying trigger
     timerId: null,
   };
   // Settings an older install carried over that this one no longer reads.
@@ -435,12 +450,23 @@
       members.push({ name: c.name, hp: c.curHp, maxHp: c.maxHp, mana: c.curMana, maxMana: c.maxMana, cls: classes[cs.botCombatDataMap?.[c.id]?.class] });
     }
     const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
-    // A mob fights when it targets, chases or hates someone ("player", "character-<id>" or a pet).
-    const fighting = (m) => m.hateTargetId != null || m.currentTargetId != null || m.chaseTargetId != null;
+    // A mob fights the party when it targets, chases or hates "player", "character-<id>" or a pet
+    // ("pet_<...>"). Ids of the form "npc:<id>" are other NPCs, such as a guard fighting a kobold.
+    const atParty = (id) => id != null && !String(id).startsWith("npc:");
+    const fighting = (m) => atParty(m.hateTargetId) || atParty(m.currentTargetId) || atParty(m.chaseTargetId);
+    const gap = (m) => (p.level <= cfg.lowLevelMax && fighting(m) ? Math.min(cfg.levelGap, cfg.levelGapLow) : cfg.levelGap);
     for (const mob of cfg.fightingOnly ? mobs.filter(fighting) : mobs) {
-      if (mob.level >= p.level + cfg.levelGap) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
+      if (mob.level >= p.level + gap(mob)) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
       if (p.level >= (cfg.hitFromLevel ?? 0) && maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
+    }
+    const back = guard.hp.find((s) => s.t >= Date.now() - cfg.dyingWindowSec * 1000);
+    if (back && p.maxHp && p.curHp > 0 && p.curHp * 100 <= p.maxHp * cfg.dyingHpPct) {
+      const perSec = (back.hp - p.curHp) / Math.max(1, (Date.now() - back.t) / 1000);
+      if (perSec > 0 && p.curHp / perSec <= cfg.dyingSec) {
+        const mob = mobs.find((m) => m.currentTargetId === "player" || m.hateTargetId === "player") ?? mobs[0];
+        return { reason: `dying: leader at ${p.curHp}/${p.maxHp} HP, losing ${Math.round(perSec)} HP/s`, mob };
+      }
     }
     for (const m of members) {
       if (m.hp > 0) guard.knownDown.delete(m.name);
@@ -546,6 +572,8 @@
     const cbNow = stores.combat.getState();
     // Raid bosses stand far above the leader by design, and the raid controls command each fight.
     if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading || stores.raid?.getState?.().raidModeActive) return;
+    guard.hp.push({ t: Date.now(), hp: stores.character.getState().characterProfile?.curHp ?? 0 });
+    while (guard.hp[0].t < Date.now() - 10000) guard.hp.shift();
     // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
     const danger = guard.force ? { reason: guard.force } : guardDanger();
     guard.force = null;
