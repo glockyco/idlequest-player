@@ -147,5 +147,36 @@
         "expect": "Coral Statue of Tarew"
       }
     ]
+  },
+  "paladin-epic-crystal": {
+    "class": "Paladin",
+    "minLevel": 10,
+    "reward": "Pure Crystal",
+    "steps": [
+      {
+        "zone": "kaladimb",
+        "npc": "Jark",
+        "say": [
+          "something",
+          "dinner"
+        ]
+      },
+      {
+        "zone": "kaladimb",
+        "npc": "Nella Stonebraids",
+        "say": [
+          "jark"
+        ],
+        "expect": "Cold Plate of Beef and Bread"
+      },
+      {
+        "zone": "kaladimb",
+        "npc": "Jark",
+        "give": [
+          "Cold Plate of Beef and Bread"
+        ],
+        "expect": "Pure Crystal"
+      }
+    ]
   }
 }

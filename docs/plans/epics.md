@@ -428,6 +428,8 @@ Scripts include `fearplane/Irak_Altil` (final), `erudnext/Reklon_Gnallen`, `felw
 
 Turn-in: the peasant woman is the only class check (Paladin). No script checks level or flags, and no step needs a quest flag. Everything is NO DROP and lore. Ghoulbane is shared with the Shadow Knight chain, one copy per character.
 
+Low-level routes (`Q`): the Pure Crystal is Jark's dinner. Say "something" and "dinner" to Jark in kaladimb, which spawns Nella Stonebraids, say "jark" to her for the Cold Plate of Beef and Bread, and give it to Jark (`data/quests.json`, `paladin-epic-crystal`). The Sealed Note takes four Drom's Champagne to Tykar Renlin (freporte) for Bunker Cell #1, the cell with Bog Juice and Edible Goo (Brewing and Baking combines, no other source) to the prisoner (freportw) for H. K. 102, and H. K. 102 to Bank Clerk Jaylin or Assistant Kiolna in highkeep for the Sealed Note, which Hayle takes. The Testimony needs a bought Cloth Shirt to Altunic Jartin (ecommons) for the Token of Generosity, a Spider Venom Sac to Merko Quetalis (freportn) for the Token of Bravery, both tokens to Merko, which spawns Guard Willia (L6, never hail her), and her Token of Truth to Merko. Hayle's final hand-in also checks a faction that is not traced.
+
 ### Shadow Knight: Innoruuk's Curse [14383]
 
 Reward: two-handed slash 40/45 (`itemtype` 1), hp +60, mana +40, STR +20, DEX +15, INT +15, proc Soul Consumption (50 magic damage, proc level 50), classes Shadow Knight (`S`). The 1.5 epic is `poknowledge/Sienn_Kastane` (`Q`).
