@@ -12,8 +12,8 @@ have to reimplement the combat engine, so this project drives the real client in
 - `src/bridge.js` is evaluated inside the game page. It finds the client's state stores and its
   server socket and exposes them as `window.iq`.
 - `src/bot.js` runs inside the page next to the bridge as `window.iqBot`. It keeps AutoLevel
-  running, banks ingredients and sells cheap loot before the bags fill and raises alerts, with or
-  without a script attached.
+  running, banks ingredients and sells cheap loot before the bags fill, rotates zones, runs
+  errands for named drops and raises alerts, with or without a script attached.
 - `src/client.mjs` injects both into a browser tab and calls them from a script.
 
 Agents that play the account follow [AGENTS.md](AGENTS.md).
@@ -23,7 +23,7 @@ Protocol and client internals: [docs/client-internals.md](docs/client-internals.
 ## Setup
 
 1. Open https://idlequest.net/play in Chrome and sign in.
-2. Attach a browser tab that supports `evaluate`, `click`, `clickAt`, `fill`, `type` and
+2. Attach a browser tab that supports `evaluate`, `click`, `clickAt`, `fill` and
    `waitForSelector`, for example an omp `browser` tab with the relay enabled.
 
 ```js
@@ -37,21 +37,21 @@ console.log(await iq.status());
 ```js
 const party = await iq.roster();                    // every character: class, level, HP, mana, gear
 await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also the active character, or "cleric", "warrior", "rogue")
-await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });
-await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, always restart
+await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con values: 2 green, 4 blue, 10 white, 15 yellow, 13 red
+await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, restart if it was running
 ```
 
-Merchant spells are bought automatically when the game reports that spells are missing. This runs
-inside the page while AutoLevel is active. To trigger it manually or disable it:
+Merchant spells are bought automatically when the game's missing-spells reminder appears. This
+runs inside the page whether or not AutoLevel is active. To trigger it manually or disable it:
 
 ```js
 await iq.buySpells();
-await tab.evaluate(() => window.iq.setChores({ autoBuySpells: false }));
+await iq.setChores({ autoBuySpells: false });
 ```
 
 Unattended play: the bot checks every 15 seconds. `watch` waits until it raises an alert that
 needs attention, or until the time is up, and returns a compact report. To play by hand, pause the
-bot first, because it starts AutoLevel again two minutes after it stops.
+bot first, because it starts AutoLevel again a minute after it stops.
 
 ```js
 const r = await iq.watch({ minutes: 50, sinceSeq: 0, exportDir: "runs/my-run" });
@@ -80,10 +80,13 @@ bun tools/drops.mjs npc "orc centurion"          # what an NPC can drop
 ```
 
 Scouting without stopping AutoLevel: `tools/zone-snapshots.mjs` builds the same zone files offline
-from the content snapshot (one most-likely NPC per spawn point). It matched live scouts to within
-about 5% for Blackburrow, the Qeynos Aqueduct and Greater Faydark, and is 40% high for Toxxulia,
-so check a zone live before committing to it. `tools/zones.mjs` skips zones the game does not have
-(`data/idlequest-zones.json`, from the wiki, with each zone's XP multiplier).
+from the content snapshot (one most-likely NPC per spawn point). Blackburrow, the Qeynos Aqueduct
+and Greater Faydark came out within about 10% of live scouts in candidates and nearest-candidate
+distance at level 5. Toxxulia Forest did not: the snapshot has two zones with that name (`tox` and
+`toxxulia`), `tox` shows 114 candidates against 86 live, and only `toxxulia` matches the live
+scout. Check a zone live before committing to it. `tools/zones.mjs` skips zones the game does not
+have (`data/idlequest-zones.json`, from the wiki, with each zone's XP multiplier), but it matches
+them by long name, so both Toxxulia rows pass.
 
 ```sh
 bun tools/zone-snapshots.mjs runs/zones-content "."          # all zones, about 10 seconds
@@ -93,7 +96,12 @@ bun tools/zones.mjs runs/zones-content --level 15
 Gear: `tools/gear.mjs` lists the best usable item per slot for a class, race and level, with the
 mobs that drop it and the merchants that sell it. Armor is ranked by a rough stat score with the
 weights documented in the file. Weapons are ranked by base damage capped at the level's limit,
-divided by delay, the comparison the IdleQuest wiki gives.
+divided by delay, the comparison the IdleQuest wiki gives. `--party` reads a saved `iq.roster()`
+result (`me` and `party` with `items`), or without a file the six characters of group 1 that are
+written into the tool. Members missing from that list are treated as human, because the roster
+does not carry races. Save the roster from an eval cell first:
+`await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones it
+prints are also written into the tool by level, not read from the bot.
 
 ```sh
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
@@ -102,29 +110,29 @@ bun tools/gear.mjs --party runs/roster.json --level 30   # whole-party upgrade p
 
 ## Predicting XP per hour
 
-`tools/predict.mjs` estimates XP per hour per character for every zone at a party level, from the content snapshot (clone it as above) and the client's own hit, mitigation and resist formulas. It runs in about a second.
+`tools/predict.mjs` estimates XP per hour per character for every zone at a party level, from the content snapshot (clone it as above) and the client's own hit, mitigation and resist formulas. It runs in a second or two.
 
 ```sh
 bun tools/predict.mjs --level 25 --top 15            # ranked table: kill, recovery and walk seconds, kills/h, XP/h, danger flags
 bun tools/predict.mjs --level 25 --zone permafrost   # per-NPC breakdown of one zone
-bun tools/predict.mjs --level 29 --spells [--zone unrest]  # compare nuke/tactic policies (0/1/2 nuke gems, companion nukes/DoTs)
-bun tools/predict.mjs --check                        # the model against the measured runs, with residuals
+bun tools/predict.mjs --level 29 --spells [--zone unrest]  # compare nuke/tactic policies for a Magician leader (0/1/2 nuke gems, companion nukes/DoTs)
+bun tools/predict.mjs --check                        # the model against three measured cases that are written into the tool, with residuals
 ```
 
-Flags: `--min-diff` and `--max-diff` (levels relative to the leader, default -3 and 5, and never green by AutoLevel's con rule), `--dps` and `--dps-level` (party damage per second against a same-level enemy and the leader level it was measured at), `--dps-exp`, `--spell-share`, `--overhead`, `--mana-per-sec`, `--tank-hp`, `--tank-ac`, `--healer-mana-pool`, `--caster-mana-pool`, `--speed`, `--stay` (minutes in the zone, which spreads the initial stock of enemies) and `--party-levels` (a comma list, default six equal levels). The header of the file explains each step. `--fit` refits `--dps`, `--overhead` and `--mana-per-sec` to the two runs.
+Flags: `--min-diff` and `--max-diff` (levels relative to the leader, default -3 and 5, and never green by AutoLevel's con rule), `--dps` and `--dps-level` (party damage per second against a same-level enemy and the leader level it was measured at), `--dps-exp`, `--spell-share`, `--nuke-resist`, `--overhead`, `--mana-per-sec`, `--tank-hp`, `--tank-ac`, `--healer-mana-pool`, `--caster-mana-pool` (the pools default to group 1's at level 24, scaled with the party level), `--magic-melee` (the share of melee and pet damage from magical hits, default 1), `--heal-cost`, `--speed`, `--stay` (minutes in the zone, which spreads the initial stock of enemies), `--party-levels` (a comma list, default six equal levels), `--content` (the content snapshot directory), `--all` (zones the game does not have) and `--json`. The header of the file explains each step. `--fit` refits `--dps`, `--overhead` and `--mana-per-sec` to the three cases, using the quantities each case measured.
 
-The model includes the spawn table with spawn chances and respawn times, enemy HP, damage, special abilities and resists, the party's hit chance and resist penalty by level difference, the tank's damage taken, recovery from mana and HP at 2.5% per 0.6 s, walking between candidate spawn points, and a spawn-rate cap per zone. It leaves out wandering and named spawns beyond their chance, enemy spells, enrage and rampage timing (a fixed extra damage instead), crowd control, pets as separate damage dealers, other players taking spawns, content flags and spawn conditions, the trip to the zone and loot. Walking is the distance to the nearest candidate point, which is shorter than the 64 units per kill measured in Permafrost, so the overhead absorbs the difference. How damage grows with the leader's level (`--dps-exp`) is not identified by two runs at levels 21 and 24, so predictions far from level 24 depend on it. Read the table as a ranking, and check a zone live before committing to it.
+The model includes the spawn table with spawn chances and respawn times, enemy HP, damage, special abilities and resists, the party's hit chance and resist penalty by level difference, the tank's damage taken, recovery from mana and HP at 2.5% per 0.6 s, walking between candidate spawn points, and a spawn-rate cap per zone. It leaves out wandering and named spawns beyond their chance, enemy spells, enrage and rampage timing (a fixed extra damage instead), crowd control, pets as separate damage dealers, other players taking spawns, content flags and spawn conditions, the trip to the zone and loot. Melee immunity follows the client: special ability 19 stops all melee, 23 stops only non-magical hits, and magic weapons and pets of level 10 or more count as magical. The other special ability names follow the EQEmu numbering (`tools/mobs.mjs` says it is from memory), not a check against the client. Walking is the distance to the nearest candidate point, which is shorter than the 66 units per kill measured in Permafrost, so the overhead absorbs the difference. How damage grows with the leader's level (`--dps-exp`) is not identified by three runs at levels 21, 24 and 29, so predictions far from level 24 depend on it. Read the table as a ranking, and check a zone live before committing to it.
 
-Calibration, from the 2026-11-07 run. Permafrost at leader level 24 to 25 measured 2.91 kills per minute, 2.30M XP/h, 13,217 XP per kill, a 13 s mean kill and 64.6% of the time in combat. The City of Guk at level 21 measured 3.19 kills per minute, 1.64M XP/h and a 10.3 s median kill. The fitted values are `--dps 49` at level 24, `--overhead 2` and `--mana-per-sec 10`. `--dps-exp 0.5` is set between the 0 and 1 that bracket the best fit, and the party's pool sizes and levels come from the run's samples. Residuals, model against measured:
+Calibration cases. Permafrost at leader level 24 to 25 measured 2.91 kills per minute, 2.30M XP/h, 13,217 XP per kill, a 13 s mean kill and 64.6% of the time in combat. The City of Guk at level 21 measured 3.19 kills per minute, 1.64M XP/h and a 10.3 s median kill. The Estate of Unrest at level 29 measured 1.92 kills per minute, 2.75M XP/h, 15,051 XP per kill and a 13.0 s median kill. The defaults are `--dps 49` at level 24, `--overhead 2` and `--mana-per-sec 10`, fitted to Permafrost and Guk, so Unrest is a check outside that fit. `--dps-exp 0.5` is set between the 0 and 1 that bracket the best fit, and the party's pool sizes and levels come from the run's samples. Residuals, model against measured:
 
-| Quantity | Permafrost | City of Guk |
-| --- | ---: | ---: |
-| XP/h per leader | +2% | +2% |
-| Kills per minute | +7% | -10% |
-| XP per kill | -5% | |
-| Mean kill seconds | -6% | |
-| Median kill seconds | -7% | +9% |
-| Combat share of time | -2% | |
+| Quantity | Permafrost | City of Guk | Estate of Unrest |
+| --- | ---: | ---: | ---: |
+| XP/h per leader | +2% | -1% | -7% |
+| Kills per minute | +7% | -12% | +42% |
+| XP per kill | -5% | | +4% |
+| Mean kill seconds | -6% | | +2% |
+| Median kill seconds | -7% | +9% | +3% |
+| Combat share of time | -2% | | |
 
 ## Measuring efficiency
 
@@ -157,18 +165,45 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
 - Never assign to `socket.onJson` or another callback slot on the game's objects. The client's own
   packet dispatch lives there, and replacing it leaves the world stuck on the loading screen.
   Tee traffic by wrapping instance methods, as `src/bridge.js` does.
-- Avoid reloading or navigating the game tab while signed in. The page keeps no credentials in
-  cookies, localStorage or IndexedDB, so a lost session means signing in again.
+- Avoid reloading or navigating the game tab while signed in. The login session lives in page
+  memory only ([docs/client-internals.md](docs/client-internals.md#authentication)), so a lost
+  session means signing in again.
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
-  Regenerate `data/opcodes.json` with `tools/extract-opcodes.ts` after a client release.
+  `.re/js/*.pretty.js` are the bundles from https://idlequest.net/assets/ formatted with the
+  prettier installed in `.re/`. After a client release, refresh them and regenerate the opcode
+  table with `bun tools/extract-opcodes.ts .re/js/main.pretty.js data/opcodes.json`. Then check that
+  the bridge and the bot still install (see Troubleshooting).
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
   before opening the Travel window. The bot's pause is renewed while the work runs. If the script
-  dies, the pause runs out and the bot starts AutoLevel again.
-- `tab.evaluate` calls time out after 30 seconds. Start long work in the page, keep its progress on
-  `window`, and poll it with short calls.
+  dies, the pause runs out within two minutes and the bot starts AutoLevel again a minute later.
+- Long work belongs in the page: start it there, keep its progress on `window`, and poll it with
+  short `tab.evaluate` calls, as `iq.errand` does. An omp browser tab fails a call that runs about
+  30 seconds or longer (not verified against the omp source).
 - Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions
   that a player cannot use.
+
+## Troubleshooting
+
+- `bridge: could not find ...` when attaching: the client no longer has a store with the state keys
+  `STORE_SIGNATURES` in `src/bridge.js` looks for. Find the new keys in the prettified client and
+  update the signature.
+- `opcode table not loaded`: the bridge was evaluated without `attach`. Call `attach(tab)`, which
+  loads `data/opcodes.json`.
+- `client function containing "..." not found` in `iqBot.report().recent` (as `tick failed`): the
+  bot finds the client's sell, Auto Bank and auto-place calls by a text they contain
+  (`findClientFn` in `src/bot.js`), and a release changed that text. Bag cleanup stops until the
+  needle is updated.
+- The world sticks on the loading screen: something replaced `socket.onJson` or another callback
+  slot. Reload and sign in, and wrap instance methods instead.
+- AutoLevel stays off: `iq.botReport()` shows `paused` with a reason and an end time, and
+  `enabled`. `iq.resumeBot()` ends a pause and `iq.setBot({ enabled: true })` turns the bot back on.
+- `watch` or `evaluate` throws or never returns: the tab is gone or its renderer crashed, and the
+  bot went with it. Reload the tab, sign in and attach again.
+- `travelTo` fails with `travel to <zone> failed`: the Travel window lists zones without a leading
+  "The", and AutoLevel must be stopped first (use `pausedAutoLevel`).
+- An item stays on the cursor: `iq.bagSpace().cursor` names it, and looting and cleanup stop until
+  it is placed. The bot places it after three minutes.
 
 ## Diary
 
