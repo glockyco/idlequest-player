@@ -474,6 +474,19 @@ test("an errand pulls only its enemies, holds rotation until the item drops, the
     found.bot.fastTick();
     expect(found.runtime.deferred).toEqual([]);
 
+    // Without an item the errand farms until its minutes are up, and that end is not a failure.
+    const farm = await install();
+    farm.bot.config.rotation = ["guktop", "permafrost"];
+    farm.combat.currentZone = 65;
+    await farm.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 30 });
+    vi.advanceTimersByTime(29 * 60000);
+    await farm.bot.tick();
+    expect(farm.moves).toEqual(["permafrost"]);
+    vi.advanceTimersByTime(2 * 60000);
+    await farm.bot.tick();
+    expect(farm.moves).toEqual(["permafrost", "guktop"]);
+    expect(farm.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
+
     const late = await install();
     late.bot.config.rotation = ["guktop", "permafrost"];
     late.combat.currentZone = 65;

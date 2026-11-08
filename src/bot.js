@@ -29,7 +29,9 @@
     keepCopies: 1, // copies (or stacks) of each item that are never sold as surplus
     autoBank: true, // when bags run low, first send ingredients and spell scrolls to the tradeskill bank
     junkMaxCopper: 8000, // then sell single items whose merchant price is at most this (1000 = 1 platinum)
-    keepItemIds: [10015], // never sold, besides the reagents of the leader's own spells
+    // Never sold, besides the reagents of the leader's own spells. Lightstones (10300) and Greater
+    // Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
+    keepItemIds: [10015, 10300, 10400],
     // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
     keepItemTypes: [14, 15], // never sold as cheap single items: food and drink
@@ -928,15 +930,16 @@
     const e = state.errand;
     state.errand = null;
     if (e.minCon != null) i.stores.combat.getState().setMinCon(e.limits.minCon);
-    alert("errand", `${e.item} in ${e.zone}: ${why}`, failed);
+    alert("errand", `${e.item ?? e.keep} in ${e.zone}: ${why}`, failed);
     await rotate(i, `errand ended: ${why}`);
   };
   const watchErrand = async (i) => {
     const e = state.errand;
     if (!e?.arrived) return;
     const cb = i.stores.combat.getState();
-    if (hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
-    if (now() > e.until) return endErrand(i, `no ${e.item} after ${e.minutes} minutes`, true);
+    if (e.item && hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
+    // An errand without an item farms its enemies until its time is up, which is not a failure.
+    if (now() > e.until) return endErrand(i, e.item ? `no ${e.item} after ${e.minutes} minutes` : `${e.minutes} minutes done`, Boolean(e.item));
     if (i.guard?.phase !== "leaving" && zoneShort(i) !== e.zone) return endErrand(i, `the party left ${e.zone}`, true);
     const escapes = (i.guard?.trips ?? []).filter((t) => t.zone === cb.currentZone && t.t >= e.since);
     if (config.rotateEscapes > 0 && escapes.length >= config.rotateEscapes) return endErrand(i, `${escapes.length} guard escapes`, true);
@@ -1252,8 +1255,10 @@
     /**
      * Hunt only enemies whose names match `keep` (a regular expression) in `zone` until an item
      * named `item` is in the bags, then rotate on, e.g. `{ zone: "kaesora", keep:
-     * "gorged|hungered|famished", item: "Power of Water" }`. `minCon` lowers AutoLevel's con
-     * filter for weaker enemies and `minutes` caps the hunt. `errand(null)` ends a running one.
+     * "gorged|hungered|famished", item: "Power of Water" }`. Without `item` the errand farms
+     * those enemies for `minutes`, e.g. `{ zone: "nektulos", keep: "wisp", minutes: 60 }` for
+     * lightstones. `minCon` lowers AutoLevel's con filter for weaker enemies and `minutes` caps
+     * the hunt. `errand(null)` ends a running one.
      */
     async errand(opts) {
       const i = iq();
@@ -1261,21 +1266,22 @@
         if (state.errand) await endErrand(i, "stopped", false);
         return "no errand";
       }
-      const { zone, keep, item, minutes = 40, minCon = null } = opts;
-      if (state.errand) throw new Error(`the errand for ${state.errand.item} is still running`);
-      if (!zone || !keep || !item) throw new Error("an errand needs zone, keep and item");
+      const { zone, keep, item = null, minutes = 40, minCon = null } = opts;
+      if (state.errand) throw new Error(`the errand in ${state.errand.zone} is still running`);
+      if (!zone || !keep) throw new Error("an errand needs zone and keep");
       new RegExp(keep);
-      if (hasItem(i, item)) return `already carrying ${item}`;
+      if (item && hasItem(i, item)) return `already carrying ${item}`;
       const cb = i.stores.combat.getState();
+      const what = item ? `${item} from enemies matching ${keep}` : `enemies matching ${keep}`;
       state.errand = { zone, keep, item, minutes, minCon, limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
-      log(`errand: ${item} from enemies matching ${keep} in ${zone}, up to ${minutes} min`);
-      if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand for ${item}`))) {
+      log(`errand: ${what} in ${zone}, up to ${minutes} min`);
+      if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand: ${what}`))) {
         state.errand = null;
         throw new Error(`could not move to ${zone}`);
       }
       if (minCon != null) i.stores.combat.getState().setMinCon(minCon);
       Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
-      return `hunting ${keep} in ${zone} for ${item}`;
+      return `hunting ${what} in ${zone}`;
     },
 
     /**
