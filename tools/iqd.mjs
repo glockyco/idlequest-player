@@ -20,14 +20,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Thresholds of the attention rules. */
 export const THRESHOLDS = {
   goneSec: 60, // tab missing or not answering
-  autoLevelOffSec: 180, // AutoLevel off while the bot is enabled
-  noKillSec: 600, // AutoLevel running without a kill
+  idleSec: 120, // idle or dead without a bot pause or a raid
+  noKillSec: 300, // no kill without a bot pause or a raid
   heapShare: 0.85, // share of the JS heap limit
   snapshotEverySec: 300, // a character's snapshot is written at least this often
 };
 
 /** Attention kinds that describe a state. They resolve themselves when the state ends. */
-export const CONDITION_KINDS = ["gone", "nobridge", "autolevel-off", "nokill", "heap"];
+export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap"];
 
 // ---- Database -----------------------------------------------------------------------------------
 
@@ -83,6 +83,16 @@ export function resolveItem(db, id, note = null, t = Date.now()) {
 
 // ---- Rules --------------------------------------------------------------------------------------
 
+/** The activity seconds of a snapshot as "; last 10 min: fight 40%, approach 21%, ...", largest first. */
+export function activityText(sec) {
+  const total = Object.values(sec ?? {}).reduce((a, b) => a + b, 0);
+  if (!total) return "";
+  const parts = Object.entries(sec)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k} ${Math.round((100 * v) / total)}%`);
+  return `; last ${Math.round(total / 60)} min: ${parts.join(", ")}`;
+}
+
 /**
  * One rule step for one tab. Pure: reads the observation and the tab's rule state, returns the new
  * state, the items that are true now and the condition kinds this step could judge. The caller
@@ -111,7 +121,7 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   const evaluated = [...CONDITION_KINDS];
 
   if (snap.error || !snap.hasBridge || !snap.hasBot) {
-    st.offSince = st.runningSince = null;
+    st.watchSince = null;
     const what = snap.error ? `snapshot failed: ${snap.error}` : !snap.hasBridge ? "window.iq is missing" : "window.iqBot is missing";
     item("act", "nobridge", `nobridge:${label}`, `${label}: ${what}`);
     return { state: st, items, evaluated };
@@ -119,23 +129,24 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
 
   // A parked tab has its bot turned off on purpose. Nothing about it needs attention.
   if (snap.bot.enabled === false) {
-    st.offSince = st.runningSince = null;
+    st.watchSince = null;
     return { state: st, items, evaluated, parked: true };
   }
 
-  const al = snap.autoLevel ?? {};
-  const running = Boolean(al.running);
-  const exempt = Boolean(snap.raid || snap.bot.errand || (snap.bot.pauseUntil ?? 0) > now);
-  st.offSince = !running && !exempt ? (st.offSince ?? now) : null;
-  st.runningSince = running ? (st.runningSince ?? now) : null;
-
-  if (st.offSince != null && now - st.offSince >= thresholds.autoLevelOffSec * 1000) {
-    item("act", "autolevel-off", `autolevel-off:${label}`, `${label}: AutoLevel has been off for ${Math.round((now - st.offSince) / 1000)} s while the bot is enabled`);
-  }
-  if (running && !exempt) {
-    const since = Math.max(snap.kills?.last ?? 0, st.runningSince);
-    if (now - since >= thresholds.noKillSec * 1000) {
-      item("act", "nokill", `nokill:${label}`, `${label}: no kill for ${Math.round((now - since) / 60000)} min while AutoLevel runs${snap.zone ? ` in ${snap.zone}` : ""}`);
+  // Every tab that plays must make progress (docs/plans/controller.md). Idle and dead seconds come
+  // from the page's activity label, and a tab that keeps busy without a kill, such as an approach
+  // that never arrives, shows in the time since its last kill. A bot pause is a lease with its own
+  // deadline and a raid sets its own pace, so both stop the clocks. An errand does not, because an
+  // errand hunts as well.
+  const leased = Boolean(snap.raid || (snap.bot.pauseUntil ?? 0) > now);
+  st.watchSince = leased ? null : (st.watchSince ?? now);
+  if (!leased) {
+    const act = snap.activity;
+    const stillSec = act && (act.act === "idle" || act.act === "dead") ? (now - Math.max(act.since, st.watchSince)) / 1000 : 0;
+    const noKillSec = (now - Math.max(snap.kills?.last ?? 0, st.watchSince)) / 1000;
+    if (stillSec >= thresholds.idleSec || noKillSec >= thresholds.noKillSec) {
+      const what = stillSec >= thresholds.idleSec ? `${act.act}${act.why ? ` (${act.why})` : ""} for ${Math.round(stillSec)} s` : `no kill for ${Math.round(noKillSec / 60)} min`;
+      item("act", "stall", `stall:${label}`, `${label}: ${what}${snap.zone ? ` in ${snap.zone}` : ""}${activityText(snap.activitySec)}`);
     }
   }
   if (snap.heap?.limit && snap.heap.used / snap.heap.limit > thresholds.heapShare) {
@@ -236,6 +247,8 @@ export function snapshotInPage(a) {
     const zone = (sd.zones ?? []).find((z) => z.zoneidnumber === cb.currentZone);
     out.zone = zone ? (zone.longName ?? zone.shortName) : (cb.currentZone ?? null);
     out.autoLevel = { running: Boolean(cb.isRunning), mode: cb.automatedCombatMode, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
+    out.activity = iq.activity?.() ?? null;
+    out.activitySec = iq.activitySeconds?.(600000) ?? null;
     out.raid = Boolean(S.raid?.getState?.().raidModeActive);
     out.conn = { screen: S.screen?.getState?.().currentScreen ?? null, connected: iq.socket?.isConnected ?? null, worldReady: iq.socket?.worldReady ?? null, inCombat: Boolean(S.skills?.getState?.().inCombat), zoneLoading: Boolean(cb.isZoneLoading) };
     const ks = iq.kills ?? [];
@@ -533,8 +546,13 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
       const k = sn?.kills;
       const hours = k?.winMs >= 60000 ? k.winMs / 3600000 : null;
       const rates = hours ? `${Math.round(k.n30 / hours)} kills/h ${big(k.xp30 / hours)} xp/h` : "rates n/a";
-      const mode = !sn?.autoLevel?.running ? (sn?.raid ? "raid" : (sn?.bot?.pauseUntil ?? 0) > now ? "paused" : sn?.bot?.errand ? "errand" : "OFF") : "running";
-      tail = `${mode} ${rates} last kill ${k?.last ? dur(now - k.last) : "none"}`;
+      // What the party did at the last look and for how long, and the idle share of the 10 minutes before.
+      const a = sn?.activity;
+      const mode = sn?.raid ? "raid" : a ? `${a.act}${a.why ? `(${a.why})` : ""} ${dur((sn.t ?? now) - a.since)}` : sn?.autoLevel?.running ? "running" : "OFF";
+      const secs = Object.entries(sn?.activitySec ?? {});
+      const total = secs.reduce((sum, [, v]) => sum + v, 0);
+      const idle = secs.filter(([key]) => key.startsWith("idle") || key === "dead").reduce((sum, [, v]) => sum + v, 0);
+      tail = `${mode} ${rates}${total ? ` idle ${Math.round((100 * idle) / total)}%` : ""} last kill ${k?.last ? dur(now - k.last) : "none"}`;
     }
     out.push(cut(`  ${head} | ${tail} | heap ${sn?.heap ? `${sn.heap.used}MB ${Math.round((100 * sn.heap.used) / sn.heap.limit)}%` : "n/a"}`, 150));
   }

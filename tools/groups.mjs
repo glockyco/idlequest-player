@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
-// One line per leveling group: level, zone, XP per hour, where the time went, escapes, deaths and
-// the member whose recovery the party waited for most, over the last `--last` minutes of each
-// leader's live run (runs/live/<leader>, written by iqd), or between `--since` and `--until` (ms
-// epoch) for the blocks of an experiment. Groups come from data/roster.json and class mixes from
-// the iqd database, so mixes can be compared side by side.
+// One line per leveling group: level, zone, XP per hour, where the time went, the idle share by the
+// page's activity labels with its main cause, escapes, deaths and the member whose recovery the
+// party waited for most, over the last `--last` minutes of each leader's live run (runs/live/<leader>,
+// written by iqd), or between `--since` and `--until` (ms epoch) for the blocks of an experiment.
+// Groups come from data/roster.json and class mixes from the iqd database, so mixes can be compared
+// side by side.
 //
 //   bun tools/groups.mjs [--last 60 | --since <ms> --until <ms>] [--json]
 import { Database } from "bun:sqlite";
@@ -61,6 +62,9 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
   const snap = db.query("SELECT snap FROM sessions WHERE leader = ? AND ended IS NULL ORDER BY id DESC LIMIT 1").get(leader);
   const sn = snap?.snap ? JSON.parse(snap.snap) : null;
   const limiter = Object.entries(a?.recover?.limiterSeconds ?? {}).sort((x, y) => y[1] - x[1])[0];
+  // Idle and dead shares of the labeled seconds, and the idle cause with the most seconds.
+  const idleRows = Object.entries(a?.activity ?? {}).filter(([k]) => k.startsWith("idle") || k === "dead");
+  const idleCause = idleRows.sort((x, y) => y[1].sec - x[1].sec)[0];
   out.push({
     group: g.id,
     leader,
@@ -72,6 +76,8 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     combat: a?.timeShare?.combat?.share ?? null,
     move: a?.timeShare?.move?.share ?? null,
     recover: a?.timeShare?.recover?.share ?? null,
+    idle: a?.activity ? idleRows.reduce((s, [, v]) => s + v.share, 0) : null,
+    idleCause: idleCause ? idleCause[0].replace(/^idle\//, "") : null,
     escapes: a?.escapes?.count ?? null,
     ...(await deaths(leader, g.members).then((d) => ({ deaths: d?.all ?? null, leaderDeaths: d?.leader ?? null, xpLost: d?.xpLost ?? null }))),
     waitedFor: limiter ? `${limiter[0]} ${Math.round(limiter[1])}s` : null,
@@ -83,9 +89,9 @@ else {
   const pct = (x) => (x == null ? "  -" : `${Math.round(100 * x)}%`.padStart(4));
   const big = (n) => (n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1e3)}k`);
   console.log(`${minutes} min per group, ${new Date(since).toTimeString().slice(0, 5)} to ${new Date(until).toTimeString().slice(0, 5)} (runs/live/<leader>)`);
-  console.log("group leader        lvl  mix                      zone                   XP/h   k/min fight move recov esc dead (leader, XP lost)  waited for");
+  console.log("group leader        lvl  mix                      zone                   XP/h   k/min fight move recov idle (cause)       esc dead (leader, XP lost)  waited for");
   for (const r of out)
     console.log(
-      `${r.group.padEnd(5)} ${r.leader.padEnd(13)} ${String(r.level ?? "-").padStart(3)}  ${r.mix.padEnd(24)} ${String(r.zone ?? "-").slice(0, 21).padEnd(21)} ${big(r.xpPerHour).padStart(6)} ${String(r.killsPerMin ?? "-").padStart(6)} ${pct(r.combat)} ${pct(r.move)} ${pct(r.recover)} ${String(r.escapes ?? "-").padStart(4)} ${String(r.deaths ?? "-").padStart(4)} (${r.leaderDeaths ?? "-"}, ${r.xpLost ? big(r.xpLost) : "0"})`.padEnd(150) + `  ${r.waitedFor ?? ""}`,
+      `${r.group.padEnd(5)} ${r.leader.padEnd(13)} ${String(r.level ?? "-").padStart(3)}  ${r.mix.padEnd(24)} ${String(r.zone ?? "-").slice(0, 21).padEnd(21)} ${big(r.xpPerHour).padStart(6)} ${String(r.killsPerMin ?? "-").padStart(6)} ${pct(r.combat)} ${pct(r.move)} ${pct(r.recover)} ${pct(r.idle)} ${`(${r.idleCause ?? "-"})`.padEnd(13)} ${String(r.escapes ?? "-").padStart(4)} ${String(r.deaths ?? "-").padStart(4)} (${r.leaderDeaths ?? "-"}, ${r.xpLost ? big(r.xpLost) : "0"})`.padEnd(165) + `  ${r.waitedFor ?? ""}`,
     );
 }

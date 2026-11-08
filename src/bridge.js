@@ -263,15 +263,86 @@
   if (window.iq?.samplerId) clearInterval(window.iq.samplerId);
   if (window.iq?.unsubChat) window.iq.unsubChat();
 
+  // ---- Activity -----------------------------------------------------------------------------
+  // One label for every second of play, so the time a tab loses is measured instead of guessed
+  // (docs/plans/controller.md). The labels come from the client's own state, in this order:
+  //   dead       the active character is dead
+  //   travel     zoning (why "zone"), an escape of the guard ("escape"), or AutoLevel's own trip
+  //              to a merchant ("restock") or back after a death ("deathReturn")
+  //   fight      in combat
+  //   task       the bot is paused for a script, why is the pause reason
+  //   approach   walking to the enemy AutoLevel or the Enemy Targets list picked
+  //   recover    the readiness wait before a pull (HP, mana, pets, cures) or its retry, or someone
+  //              below full HP or mana while AutoLevel runs, as in its 5 s pause after each kill
+  //   idle       nothing happens: AutoLevel is off ("off"), stands at its target with Auto Attack
+  //              off ("waitAttack"), waits for an enemy that others or its deferrals hold
+  //              ("crowded"), pauses after a kill with the party full ("afterKill"), or runs
+  //              without a target ("noTarget")
+  /** True when the leader and every living companion and pet are at full HP and mana. */
+  const partyFull = () => {
+    const p = stores.character.getState().characterProfile ?? {};
+    const cs = stores.companions.getState();
+    const full = (hp, maxHp, mana, maxMana) => hp >= maxHp && (!(maxMana > 0) || mana >= maxMana);
+    return (
+      full(p.curHp, p.maxHp, p.mana, p.maxMana) &&
+      (cs.companions ?? []).every((c) => {
+        if (c.isDead) return true;
+        const d = cs.botCombatDataMap?.[c.id];
+        return full(d?.curHp ?? c.curHp, d?.maxHp ?? c.maxHp, d?.curMana ?? c.curMana, d?.maxMana ?? c.maxMana);
+      })
+    );
+  };
+  let journeyHelper; // the client's restock and death-return helper, undefined until searched
+  const journey = () => {
+    if (journeyHelper === undefined) journeyHelper = allExports().find((g) => g && typeof g === "object" && typeof g.beforeFight === "function" && "returningAfterDeath" in g) ?? null;
+    return journeyHelper;
+  };
+  // AutoLevel waits this long after each won fight before it looks for the next enemy (`Dt` in the
+  // client's combat runtime), plus a second of sampling slack.
+  const AFTER_KILL_MS = 6000;
+  const activityNow = () => {
+    const p = stores.character.getState().characterProfile;
+    const cb = stores.combat.getState();
+    if (!(p?.curHp > 0)) return ["dead"];
+    if (cb.isZoneLoading) return ["travel", "zone"];
+    if (guard.phase === "leaving") return ["travel", "escape"];
+    if (stores.skills.getState().inCombat) return ["fight"];
+    const bot = window.iqBot?.state;
+    if ((bot?.pauseUntil ?? 0) > Date.now()) return ["task", String(bot.pauseReason ?? "").slice(0, 40)];
+    const trip = journey()?.phase;
+    if (trip) return ["travel", trip === "death-return" ? "deathReturn" : "restock"];
+    const rt = runtime();
+    const attempt = rt?.combatApproach?.attempt;
+    if (attempt) return attempt.phase === "waiting-to-attack" ? ["idle", "waitAttack"] : ["approach"];
+    if (rt?.buffPhaseActive || rt?.preparationRetryTimer != null) return ["recover"];
+    if (!cb.isRunning) return ["idle", "off"];
+    if (!partyFull()) return ["recover"];
+    if (rt?.waitingForAutoLevelTargets) return ["idle", "crowded"];
+    return ["idle", Date.now() - (kills.at(-1)?.t ?? 0) < AFTER_KILL_MS ? "afterKill" : "noTarget"];
+  };
+  // The current label and when it began, `{ act, why, since }`, kept by the sampler.
+  let activity = window.iq?.activity?.() ?? null;
   const sample = () => {
     const p = stores.character.getState().characterProfile;
     if (!p?.id) return null;
     const cb = stores.combat.getState();
     const comps = stores.companions.getState().companions ?? [];
+    const t = Date.now();
+    // A fault in the labels must not stop the recorder, so it shows as its own label.
+    let lab;
+    try {
+      lab = activityNow();
+    } catch {
+      lab = ["unknown"];
+    }
+    const [act, why = null] = lab;
+    if (activity?.act !== act || activity?.why !== why) activity = { act, why, since: t };
     return {
       ses: session,
       seq: ++seqs.sample,
-      t: Date.now(),
+      t,
+      act,
+      ...(why ? { why } : {}),
       lvl: p.level,
       xp: p.experienceProgress?.current ?? null, // absolute XP, continuous across levels
       zone: cb.currentZone,
@@ -434,8 +505,13 @@
   // Minified export names change with every client release, so search every export by content.
   const allExports = () => Object.values(mods).flatMap((m) => Object.values(m));
   const zoneChanger = () => allExports().find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
-  // The combat runtime singleton: the chunk export whose instance has the live combat scene.
-  const runtime = () => allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })())?.getInstance();
+  // The combat runtime singleton: the chunk export whose instance has the live combat scene. The
+  // activity sampler asks every second, so the export is kept once found.
+  let runtimeExport = null;
+  const runtime = () => {
+    runtimeExport ??= allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })()) ?? null;
+    return runtimeExport?.getInstance();
+  };
   const guardDanger = () => {
     const cfg = guard.config;
     const cb = stores.combat.getState();
@@ -610,6 +686,28 @@
     events,
     seqs,
     session,
+    /** What the party does now, `{ act, why, since }` (see "Activity" above), or null before the first sample. */
+    activity: () => activity,
+    /** True when the leader and every living companion and pet are at full HP and mana. */
+    partyFull,
+    /**
+     * Seconds of each activity over the last `ms` of samples, keyed `act` or `act/why` for travel
+     * and idle, e.g. `{ fight: 300, approach: 120, "idle/crowded": 90 }`.
+     */
+    activitySeconds(ms = 600000) {
+      const out = {};
+      const from = Date.now() - ms;
+      for (let k = samples.length - 1; k > 0 && samples[k].t >= from; k--) {
+        const s = samples[k];
+        if (!s.act || s.ses !== samples[k - 1].ses) continue;
+        const dt = s.t - samples[k - 1].t;
+        if (dt > 3500) continue; // a gap in the recording is not play time
+        const key = s.why && (s.act === "idle" || s.act === "travel") ? `${s.act}/${s.why}` : s.act;
+        out[key] = (out[key] ?? 0) + dt / 1000;
+      }
+      for (const key of Object.keys(out)) out[key] = Math.round(out[key]);
+      return out;
+    },
     guard,
     chores,
     buyMissingSpells,

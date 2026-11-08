@@ -25,6 +25,10 @@
 //   recover                out of combat, still, someone below max HP or mana
 //   ready-idle             out of combat, still, everyone full  (nothing explains this second yet)
 // Time in `ready-idle` is attributed from the game's own messages seen in the same stretch.
+//
+// Samples recorded since the bridge labels its seconds also carry `act` and `why` (the "Activity"
+// section of src/bridge.js), read from the client's own state. "Activity" reports their seconds, keyed
+// `act` or `act/why` for idle and travel, over the covered seconds that carry a label.
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 
@@ -73,6 +77,8 @@ let coinSum = 0; // copper picked up over covered seconds
 let coinSeen = false;
 const coveredSec = new Set();
 let stopped = 0; // seconds where AutoLevel was not running
+const activity = {}; // ms per page label
+let labeled = 0; // covered ms whose sample carries a label
 for (let i = 1; i < samples.length; i++) {
   const a = samples[i - 1];
   const b = samples[i];
@@ -96,6 +102,11 @@ for (let i = 1; i < samples.length; i++) {
   if (cell === "move" && !full(b)) moveNotFull += dt;
   if (a.x != null && b.x != null && !b.combat) pathLen += Math.hypot(b.x - a.x, b.y - a.y);
   cellOf.push(cell);
+  if (b.act) {
+    const key = b.why && (b.act === "idle" || b.act === "travel") ? `${b.act}/${b.why}` : b.act;
+    activity[key] = (activity[key] ?? 0) + dt;
+    labeled += dt;
+  }
 }
 
 // ---- Outcome ---------------------------------------------------------------------------------
@@ -328,6 +339,8 @@ const result = {
     xpPerHourIfNoDowntime: cells.combat ? Math.round(((xpGained / (cells.combat / 60000)) * 60) / 1) : null,
   },
   timeShare: Object.fromEntries(Object.entries(cells).map(([k, v]) => [k, { sec: Math.round(v / 1000), share: +(v / covered).toFixed(3) }])),
+  // Seconds by the page's own label, as shares of the labeled seconds. Null before samples carried labels.
+  activity: labeled ? { labeledMin: +(labeled / 60000).toFixed(1), ...Object.fromEntries(top(activity, 99).map(([k, v]) => [k, { sec: Math.round(v / 1000), share: +(v / labeled).toFixed(3) }])) } : null,
   movement: { moveWhileNotFullSec: Math.round(moveNotFull / 1000), pathUnits: Math.round(pathLen), unitsPerKill: kills.length ? Math.round(pathLen / kills.length) : null, unitsPerSecWhileMoving: cells.move ? +(pathLen / (cells.move / 1000)).toFixed(1) : null },
   recover: { stretches: recoverRuns.length, meanSec: +mean(recoverRuns).toFixed(1), limiterSeconds: Object.fromEntries(top(limiter, 6).map(([k, v]) => [k, Math.round(v)])) },
   readyIdle: { stretches: idleRuns.length, meanSec: +mean(idleRuns).toFixed(1), maxSec: Math.max(0, ...idleRuns), messagesDuringIdleSeconds: Object.fromEntries(top(idleText, 8).map(([k, v]) => [k, Math.round(v)])) },
@@ -365,6 +378,10 @@ if (args.includes("--json")) {
   console.log("\nWhere the time goes");
   for (const [k, v] of Object.entries(cells)) console.log(`  ${k.padEnd(11)} ${sec(v).padStart(6)}  ${pct(v).padStart(6)}`);
   console.log(`  of the move time, ${sec(moveNotFull)} (${((100 * moveNotFull) / Math.max(cells.move, 1)).toFixed(0)}%) overlapped with someone still below full; path ${r.movement.pathUnits} units, ${r.movement.unitsPerKill} per kill, ${r.movement.unitsPerSecWhileMoving} units/s while moving`);
+  if (r.activity) {
+    console.log(`\nActivity by the page's labels (${r.activity.labeledMin} min labeled)`);
+    for (const [k, v] of Object.entries(r.activity)) if (k !== "labeledMin") console.log(`  ${k.padEnd(16)} ${String(v.sec).padStart(6)}s  ${(100 * v.share).toFixed(1).padStart(5)}%`);
+  }
   console.log(`\nRecovery  ${r.recover.stretches} stretches, mean ${r.recover.meanSec}s. Last member still not full, by seconds:`);
   for (const [k, v] of Object.entries(r.recover.limiterSeconds)) console.log(`  ${k.padEnd(16)} ${v}s`);
   console.log(`\nReady-idle  ${r.readyIdle.stretches} stretches, mean ${r.readyIdle.meanSec}s, longest ${r.readyIdle.maxSec}s. Messages seen during those stretches (seconds):`);

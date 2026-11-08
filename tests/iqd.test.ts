@@ -1,7 +1,7 @@
 // Checks the attention rules of tools/iqd.mjs on fixture snapshots. No browser, no relay, no clock.
 // Run with `bun test`.
 import { expect, test } from "bun:test";
-import { openDb, raiseItem, renderStatus, resolveItem, stepSession, syncAttention, THRESHOLDS } from "../tools/iqd.mjs";
+import { openDb, raiseItem, renderStatus, resolveItem, stepSession, syncAttention } from "../tools/iqd.mjs";
 
 const T0 = 1_800_000_000_000;
 const SEC = 1000;
@@ -45,6 +45,7 @@ const snap = (over: Snap = {}): Snap => ({
     { id: null, name: "pet", level: 20, type: 1 },
   ],
   autoLevel: { running: true },
+  activity: { act: "fight", why: null, since: T0 - 3 * SEC },
   raid: false,
   kills: { last: T0 - 5 * SEC },
   heap: { used: 400, limit: 4000 },
@@ -66,32 +67,45 @@ function run(obsAt: (i: number) => Obs, steps: number, gap: number, opts: Opts =
 }
 const kinds = (res: Result) => res.items.map((i) => i.kind);
 
-test("AutoLevel off for three minutes raises once the limit is reached", () => {
-  const off = ok(snap({ autoLevel: { running: false } }));
-  expect(kinds(run(() => off, 1, 30))).toEqual([]);
-  expect(kinds(run(() => off, 6, 30))).toEqual([]); // 150 s
-  expect(kinds(run(() => off, 7, 30))).toEqual(["autolevel-off"]); // 180 s
+// An idle tab since T0 with no kill since T0 - 5 s, for the stall rule.
+const idleSnap = (why: string, over: Snap = {}): Snap => snap({ autoLevel: { running: why !== "off" }, activity: { act: "idle", why, since: T0 }, ...over });
+
+test("idle for two minutes raises a stall that names the cause", () => {
+  const idle = ok(idleSnap("crowded", { activitySec: { "idle/crowded": 90, fight: 30 } }));
+  expect(kinds(run(() => idle, 4, 30))).toEqual([]); // 90 s
+  const res = run(() => idle, 5, 30); // 120 s
+  expect(kinds(res)).toEqual(["stall"]);
+  expect(res.items[0].text).toContain("idle (crowded) for 120 s");
+  expect(res.items[0].text).toContain("idle/crowded 75%");
 });
 
-test("AutoLevel off during a pause, a raid or an errand raises nothing", () => {
-  const overrides: Snap[] = [{ raid: true }, { bot: bot({ pauseUntil: T0 + 3600 * SEC }) }, { bot: bot({ errand: { zone: "x", item: "y" } }) }];
-  for (const over of overrides) {
-    const off = ok(snap({ autoLevel: { running: false }, ...over }));
-    expect(kinds(run(() => off, 20, 30))).toEqual([]);
+test("a dead leader counts as idle", () => {
+  const dead = ok(snap({ activity: { act: "dead", why: null, since: T0 } }));
+  expect(kinds(run(() => dead, 5, 30))).toEqual(["stall"]);
+});
+
+test("an errand that idles raises, a pause or a raid does not", () => {
+  const errand = ok(idleSnap("noTarget", { bot: bot({ errand: { zone: "x", item: "y" } }) }));
+  expect(kinds(run(() => errand, 5, 30))).toEqual(["stall"]);
+  for (const over of [{ raid: true }, { bot: bot({ pauseUntil: T0 + 3600 * SEC }) }]) {
+    expect(kinds(run(() => ok(idleSnap("off", over)), 20, 30))).toEqual([]);
   }
 });
 
-test("when a pause ends the three minutes start again", () => {
-  const paused = ok(snap({ autoLevel: { running: false }, bot: bot({ pauseUntil: T0 + 300 * SEC }) }));
-  // Five minutes paused, then 30 s off without a pause.
-  expect(kinds(run(() => paused, 12, 30))).toEqual([]);
+test("after a pause the idle time counts from its end", () => {
+  // Idle since T0, paused for the first five minutes, then 90 s without the pause.
+  const pausedThenNot = () => ok(idleSnap("off", { bot: bot({ pauseUntil: T0 + 300 * SEC }) }));
+  expect(kinds(run(pausedThenNot, 13, 30))).toEqual([]);
+  expect(kinds(run(pausedThenNot, 15, 30))).toEqual(["stall"]);
 });
 
-test("no kill for ten minutes while running raises, a fresh kill does not", () => {
-  const stale = ok(snap({ kills: { last: T0 - 11 * 60 * SEC } }));
+test("busy without a kill for five minutes raises, a fresh kill does not", () => {
+  const stale = ok(snap({ activity: { act: "approach", why: null, since: T0 - 20 * SEC }, kills: { last: T0 - 11 * 60 * SEC } }));
   expect(kinds(run(() => stale, 1, 30))).toEqual([]); // counted from the first look
-  expect(kinds(run(() => stale, 20, 30))).toEqual([]); // 570 s
-  expect(kinds(run(() => stale, 21, 30))).toEqual(["nokill"]); // 600 s
+  expect(kinds(run(() => stale, 10, 30))).toEqual([]); // 270 s
+  const res = run(() => stale, 11, 30); // 300 s
+  expect(kinds(res)).toEqual(["stall"]);
+  expect(res.items[0].text).toContain("no kill for 5 min");
   const fresh = (i: number) => ok(snap({ kills: { last: T0 + i * 30 * SEC - 5 * SEC } }));
   expect(kinds(run(fresh, 40, 30))).toEqual([]);
 });
@@ -173,9 +187,10 @@ test("items are deduplicated by key while open and conditions resolve themselves
   };
   const rows = () => db.query("SELECT * FROM attention").all() as { id: number; kind: string; resolved: number | null; note: string | null }[];
 
-  for (let i = 0; i < 12; i++) step(i, snap({ autoLevel: { running: false } })); // 330 s off: one item, not five
-  expect(rows().map((r) => r.kind)).toEqual(["autolevel-off"]);
-  step(12, snap()); // AutoLevel runs again
+  for (let i = 0; i < 12; i++) step(i, idleSnap("off")); // 330 s idle: one item, not eight
+  expect(rows().map((r) => r.kind)).toEqual(["stall"]);
+  const busy = (i: number) => snap({ kills: { last: T0 + i * 30 * SEC - 5 * SEC } });
+  step(12, busy(12)); // fighting and killing again
   expect(rows()[0].resolved).not.toBeNull();
   expect(rows()[0].note).toBe("condition cleared");
 
@@ -184,7 +199,7 @@ test("items are deduplicated by key while open and conditions resolve themselves
   const id = raiseItem(db, death) as number;
   expect(id).toBeGreaterThan(0);
   expect(raiseItem(db, death)).toBeNull();
-  step(13, snap());
+  step(13, busy(13));
   expect(rows().find((r) => r.id === id)?.resolved).toBeNull();
   expect(resolveItem(db, id, "read")).toBe(true);
   expect(raiseItem(db, death)).not.toBeNull();
@@ -192,7 +207,7 @@ test("items are deduplicated by key while open and conditions resolve themselves
 
 test("a parked tab clears the items it had", () => {
   const db = openDb(":memory:");
-  raiseItem(db, { severity: "act", kind: "autolevel-off", session: "Tagu", key: "autolevel-off:Tagu", text: "off" });
+  raiseItem(db, { severity: "act", kind: "stall", session: "Tagu", key: "stall:Tagu", text: "idle" });
   const res: Result = stepSession({ state: {}, obs: ok(snap({ autoLevel: { running: false }, bot: bot({ enabled: false }) })), now: T0, label: "Tagu" });
   syncAttention(db, { label: "Tagu", res, now: T0 });
   const row = db.query("SELECT note FROM attention").get() as { note: string };
@@ -205,5 +220,4 @@ test("status stays within 40 lines with many open items", () => {
   const text = renderStatus(db, T0);
   expect(text.split("\n").length).toBeLessThanOrEqual(40);
   expect(text).toContain("and 22 more");
-  expect(THRESHOLDS.goneSec).toBe(60);
 });

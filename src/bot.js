@@ -510,20 +510,6 @@
     }
   };
 
-  const partyFull = (i) => {
-    const p = i.stores.character.getState().characterProfile ?? {};
-    const cs = i.stores.companions.getState();
-    const full = (hp, maxHp, mana, maxMana) => hp >= maxHp && (!(maxMana > 0) || mana >= maxMana);
-    return (
-      full(p.curHp, p.maxHp, p.mana, p.maxMana) &&
-      (cs.companions ?? []).every((c) => {
-        if (c.isDead) return true;
-        const d = cs.botCombatDataMap?.[c.id];
-        return full(d?.curHp ?? c.curHp, d?.maxHp ?? c.maxHp, d?.curMana ?? c.curMana, d?.maxMana ?? c.maxMana);
-      })
-    );
-  };
-
   const watchXp = async (i, cb) => {
     const xp = i.stores.character.getState().characterProfile?.experienceProgress?.current;
     if (xp == null) return;
@@ -551,7 +537,7 @@
     }
     // AutoLevel waits for full HP and mana before each pull. Waiting on with everyone full is the
     // same kind of hang.
-    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && partyFull(i) && !partyRoots(i).length) {
+    if (state.readyWaitAt && now() - state.readyWaitAt > config.readyStuckSec * 1000 && i.partyFull() && !partyRoots(i).length) {
       restart(`waited ${Math.round((now() - state.readyWaitAt) / 1000)}s for a party that was already full`);
       return;
     }

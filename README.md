@@ -306,14 +306,15 @@ time is up it prints the status and exits 0 as well. Between `wait` calls nothin
 the position is stored in the database. The first `wait` of a severity starts after the items that
 exist then, and `status` lists those.
 
-`status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Open `info` items are counted, not listed.
+`status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Each session line shows what the party does now and for how long, its rates and the idle share of the last 10 minutes. Open `info` items are counted, not listed.
+
+The bridge labels every recorded second with what the party does (`act`, and `why` for idle and travel time): fight, approach, recover, travel, task, dead or idle. The labels and their order are in the "Activity" section of `src/bridge.js`, `iq.activity()` returns the current one and `iq.activitySeconds(ms)` sums them.
 
 | Kind | Severity | Raised when | Clears |
 | --- | --- | --- | --- |
 | `gone` | act | The tab is missing from the relay or does not answer for 60 s. Also raised for a parked tab. | When the tab answers again, or `ack` ends the session |
 | `nobridge` | act | `window.iq` or `window.iqBot` is missing, or the snapshot fails | When both answer |
-| `autolevel-off` | act | AutoLevel is off for 3 min while the bot is enabled, outside raid mode, errands and bot pauses | When AutoLevel runs |
-| `nokill` | act | AutoLevel runs for 10 min without a kill, outside raid mode, errands and bot pauses | At the next kill |
+| `stall` | act | The party is idle or dead for 2 min, or makes no kill for 5 min, outside raid mode and bot pauses. Errands count. The text names the cause and the activity shares of the last 10 minutes. | When the party is busy and killing again |
 | `heap` | act | The page's JS heap is above 85% of its limit | Below 85% |
 | `death` | act | The bot's `death` alert with `wake`, which means the leader or a party member died | `ack` |
 | `alert-<kind>` | act | Any other bot alert with `wake`, with its text copied. `levelUp` is left out because the level rules report it. | `ack` |

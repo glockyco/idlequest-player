@@ -157,6 +157,9 @@ async function install(partyIds: number[] = []) {
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
+    // The bridge's readiness check over the fake party: full HP, and full mana for casters.
+    partyFull: () =>
+      me.curHp >= me.maxHp && me.mana >= me.maxMana && (party.companions as { curHp: number; maxHp: number; curMana: number; maxMana: number }[]).every((c) => c.curHp >= c.maxHp && (!(c.maxMana > 0) || c.curMana >= c.maxMana)),
     inventory: () => bag,
     stores: {
       character: store({ characterProfile: me }),
