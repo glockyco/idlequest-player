@@ -47,7 +47,10 @@
     nukeGems: 1, // direct-damage spells to keep memorized (a Wizard keeps at least three)
     dotGems: 1, // damage-over-time spells to keep memorized, for classes whose table has them
     buffGems: 1, // self-buffs to keep memorized (a Bard's three gems are all songs)
-    petPreference: "Water", // among equal-level summons, the one whose name has this (the Magician's elements)
+    // Among equal-level summons, the one whose name has this. The Magician's four elements hit the
+    // same in melee at every tier (npc_types), and Water adds a damage spell and more HP than Fire
+    // or Air. Earth has the most HP and no damage spell.
+    petPreference: "Water",
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
