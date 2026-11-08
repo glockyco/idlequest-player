@@ -2,7 +2,8 @@
 // Measured loot per enemy from the live run logs (runs/live/<leader>/events.jsonl, written by iqd):
 // kills of each enemy name, the items looted right after those kills and their rate per kill, and
 // both per hour of the window. A loot line belongs to the kill line before it when it follows
-// within 3 s. Use it to check a farm's yield and the content snapshot's drop rates
+// within 15 s, the client's own deadline for loot to settle after a kill. Half the loot lines come
+// 3 to 4 s after their kill. Use it to check a farm's yield and the content snapshot's drop rates
 // (`tools/drops.mjs`) against what the groups actually get.
 //
 //   bun tools/loot.mjs [--groups G5,G10 | --leaders A,B] [--last 60 | --since <ms> --until <ms>]
@@ -64,7 +65,7 @@ async function tally(leader) {
       continue;
     }
     const l = LOOT.exec(e.text);
-    if (l && last && e.t - last.t <= 3000 && !COIN.test(l[1])) last.row.items[l[1]] = (last.row.items[l[1]] ?? 0) + 1;
+    if (l && last && e.t - last.t <= 15000 && !COIN.test(l[1])) last.row.items[l[1]] = (last.row.items[l[1]] ?? 0) + 1;
   }
   return enemies;
 }
