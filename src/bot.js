@@ -995,10 +995,33 @@
     }
     if (activeName(i) !== name) throw new Error(`${name} did not become active`);
   };
-  const pullOne = async (i, item) => {
+  const pullOne = async (i, item, from = null) => {
     if (i.bagSpace().free < 2) await sellSurplus(i, true);
-    const r = await i.pullItem(item);
+    const r = await i.pullItem(item, { from });
     if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
+  };
+  // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
+  // item from the account character that holds it, which Inventory Search does for NO DROP items
+  // too, and gives it equipped to the character it suits best, in the party or not, so the tab
+  // never switches characters. A move that fails is recorded and the next one runs.
+  const gearTask = async (i, task, step) => {
+    await step("stop", () => calm(i), 75000);
+    for (const mv of task.moves) {
+      if (mv.done || mv.error) continue;
+      try {
+        const to = findCharacter(i, mv.to);
+        if (!to) throw new Error(`no account character ${mv.to}`);
+        if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
+        const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: true }), 30000);
+        if (!r.ok) throw new Error(`the transfer was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
+        Object.assign(mv, { done: true, lines: r.lines });
+      } catch (e) {
+        if (e instanceof TaskStopped) throw e;
+        mv.error = String(e?.message ?? e);
+        log(`gear: ${mv.item} to ${mv.to} failed: ${mv.error}`);
+      }
+    }
+    task.result = `${task.moves.filter((m) => m.done).length} of ${task.moves.length} moves`;
   };
   // A quest runs its `steps` for each member while that member is the active character, because
   // quest NPCs answer and reward the character in front of them. A step travels to its zone, pulls
@@ -1244,7 +1267,7 @@
       await raid.end().catch((e) => log(`task raid: end raid failed: ${e?.message ?? e}`));
     }
   };
-  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask };
   const startQuest = (kind, members, name = kind) => {
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (!members.length) throw new Error(`a ${kind} needs members`);
@@ -1255,8 +1278,8 @@
   const taskSummary = (task) =>
     task.kind === "hunt"
       ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
-      : task.kind === "raid"
-        ? (task.result ?? `${task.target ?? task.bossKey}, no fight`)
+      : task.kind === "raid" || task.kind === "gear"
+        ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   const runTask = (task) => {
     const runner = Math.random().toString(36).slice(2);
@@ -1872,6 +1895,18 @@
       if (target) new RegExp(target);
       state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, startedAt: now() };
       log(`task raid: ${target ?? bossKey}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
+      return { ...runTask(state.task) };
+    },
+    /**
+     * Carry out gear moves `[{ item, from, to, slot }]` from the roster gear plan as a task in the
+     * page (`gearTask`): pull each item from its holder and give it equipped to its receiver.
+     * Returns a copy of the task, which `state.task` keeps up to date.
+     */
+    gear({ moves }) {
+      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      if (!moves?.length) throw new Error("a gear task needs moves");
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null })) };
+      log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },
     /** Stop the running task after its current step. The bot then gives the tab back to its leader. */

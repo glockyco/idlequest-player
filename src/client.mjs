@@ -88,48 +88,12 @@ export async function attach(tab) {
 
     /**
      * Give a carried item to any character on the account (in the party or offline), equipped when
-     * `equip` is true. Moves the item to the cursor with the character store's slot move, sends
-     * the client's held-item transfer, and puts the item back if the transfer is rejected.
+     * `equip` is true, with the bridge's `giveItem` (the client's held-item transfer).
      */
     async giveItem(itemName, characterName, equip = true) {
-      const item = (await handle.inventory()).find((r) => r.name === itemName && (r.loc === "bag" || (r.bag === 0 && r.slot >= 22 && r.slot <= 29)));
-      if (!item) throw new Error(`no ${itemName} in the bags`);
-      const target = (await handle.roster()).party.find((m) => m.name === characterName);
-      let characterId = Number(String(target?.id ?? "").replace("character-", ""));
-      if (!characterId) {
-        characterId = await tab.evaluate((name) => {
-          const c = (window.iq.stores.roster?.getState?.().characters ?? []).find((x) => x.name?.toLowerCase() === name.toLowerCase());
-          return Number(c?.id || 0);
-        }, characterName);
-      }
+      const characterId = await tab.evaluate((name) => Number((window.iq.stores.roster?.getState?.().characters ?? []).find((x) => x.name?.toLowerCase() === name.toLowerCase())?.id || 0), characterName);
       if (!characterId) throw new Error(`${characterName} is not a character on this account`);
-      return tab.evaluate(
-        async (from, id, e, expectedName) => {
-          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          const ch = () => window.iq.stores.character.getState();
-          const since = window.iq.seqs.event;
-          ch().moveItemToSlot(from, { bag: 0, slot: 30 });
-          await sleep(900);
-          if (window.iq.bagSpace().cursor !== expectedName) {
-            throw new Error(`cursor holds ${window.iq.bagSpace().cursor ?? "nothing"} instead of ${expectedName}`);
-          }
-          const ok = await window.iq.stores.companions.getState().transferHeldItem(id, e);
-          await sleep(900);
-          if (window.iq.bagSpace().cursor) {
-            ch().moveItemToSlot({ bag: 0, slot: 30 }, from);
-            await sleep(700);
-          }
-          if (window.iq.bagSpace().cursor) {
-            throw new Error(`${window.iq.bagSpace().cursor} is still on the cursor; place it before continuing`);
-          }
-          const lines = window.iq.events.filter((x) => x.seq > since && /equips|transfer|give|cannot|space/i.test(x.text)).map((x) => x.text);
-          return { ok, lines };
-        },
-        { bag: item.bag, slot: item.slot },
-        characterId,
-        equip,
-        itemName,
-      );
+      return handle.runJob("giveItem", [itemName, characterId, { equip }]);
     },
 
     /**

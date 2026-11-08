@@ -965,6 +965,35 @@
       cb().closeInventorySearch();
     }
   };
+  const cursorItem = () => {
+    const c = (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+    return c ? itemName(c) : null;
+  };
+  /**
+   * Give a carried `item` to account character `characterId`, in the party or not, equipped when
+   * `equip` is true: the item goes onto the cursor with the character store's slot move and the
+   * client's held-item transfer sends it. A refused transfer puts the item back. Resolves with
+   * the transfer's answer and the chat lines it brought.
+   */
+  const giveItem = async (item, characterId, { equip = true } = {}) => {
+    const ch = () => stores.character.getState();
+    const row = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === item);
+    if (!row) throw new Error(`no ${item} in the bags`);
+    const from = { bag: row.bag, slot: row.slot };
+    const since = seqs.event;
+    ch().moveItemToSlot(from, { bag: 0, slot: 30 });
+    await pause(900);
+    if (cursorItem() !== item) throw new Error(`the cursor holds ${cursorItem() ?? "nothing"} instead of ${item}`);
+    const ok = await stores.companions.getState().transferHeldItem(characterId, equip);
+    await pause(900);
+    if (cursorItem()) {
+      ch().moveItemToSlot({ bag: 0, slot: 30 }, from);
+      await pause(700);
+    }
+    if (cursorItem()) throw new Error(`${cursorItem()} is still on the cursor`);
+    const lines = events.filter((x) => x.seq > since && /equips|transfer|give|cannot|space/i.test(x.text ?? "")).map((x) => x.text);
+    return { ok: Boolean(ok), lines };
+  };
   /** Close windows that hide the right-hand buttons: Done and Close buttons, merchant, Path To, the quest dialogue and the combat macro bar. */
   const closeWindows = async () => {
     // Toggles flip a window, so they run once, before the buttons are clicked.
@@ -985,7 +1014,7 @@
   // job: `job(name, ...args)` starts one of JOBS and returns its id at once, and `jobs[id]` holds
   // its progress and result. The last 20 jobs are kept.
   const jobs = window.iq?.jobs ?? {};
-  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, closeWindows, sellCursor };
+  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, closeWindows, sellCursor };
   const job = (name, ...args) => {
     const fn = JOBS[name];
     if (!fn) throw new Error(`no job named ${name}`);
@@ -1066,6 +1095,7 @@
     giveToNpc,
     handInEach,
     pullItem,
+    giveItem,
     sellCursor,
     closeWindows,
     job,
