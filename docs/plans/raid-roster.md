@@ -24,7 +24,20 @@ Sources: `npc_types`, `npc_spells`, `npc_spells_entries` and `spells_new` rows f
 Where a boss comes from:
 
 - Raid mode fights the NPC above level 50 that the leader targets in the current zone (`Vd`, `.re/js/main.pretty.js:50654-50656`), with AutoLevel off. The raid target catalog (`MB`, `.re/js/main.pretty.js:25529-27778`) and its budgets (`IB`, 25085-25528) are never read. Only a discarded `Map` is built from the catalog (`.re/js/main.pretty.js:50646`). Unattended raids need raid commands in the SDK.
-- Natural spawn rows in the snapshot: Cazic-Thule in `fearplane` and Lord Yelinak in `skyshrine` (chance 100, 3-day respawn), Vulak`Aerr in `templeveeshan` (chance 100, 7-day respawn). The four Warders and Lord Vyemm have one spawn group each with chance 0, and the scripts that could spawn them are empty or only mention Vyemm as present (`C/effective/quests/sleeper/`, `templeveeshan/Hsrek.lua`). Tunare has no spawn row, and the Avatar of War is spawned by a script in `kael` (`#The_Idol_of_Rallos_Zek.lua`). Whether the live server spawns these is unverified.
+- In the open world the live server spawns most of them. The spawn list each zone sends on entry (`GetZoneSpawnsResponse`, read with a level-1 character, `runs/state/raid-zone-spawns.json` and `runs/state/sleeper-spawns.json`) gives each NPC a state and a respawn time:
+
+  | Boss | Zone | Open-world state |
+  | --- | --- | --- |
+  | Cazic-Thule | fearplane | respawning, a timer of a few days |
+  | Lord Yelinak | skyshrine | respawning, a timer of a few days |
+  | Vulak`Aerr | templeveeshan | respawning, a timer of about a week |
+  | Lord Vyemm | templeveeshan | respawning, a timer of under a day, so the game makes him fightable |
+  | Tunare | growthplane | the field actor `#_Tunare` (127001) is up. Engaging it spawns the Resolve boss `#Tunare` (127098) and despawns the actor (`growthplane/#_Tunare.lua`) |
+  | The Avatar of War | kael | spawned when The Statue of Rallos Zek (113071, level 59, 400,750 HP) dies (`kael/#The_Idol_of_Rallos_Zek.lua`). The statue was respawning |
+  | The four Warders | sleeper | `disabled`, so only the daily list or a casino potion brings them |
+  | Kerafyrm and The Sleeper | sleeper | `disabled` (128089 and 128094), so Kerafyrm is not fightable in the open world |
+
+  Other players can kill the open-world bosses first, and a kill there starts the respawn timer for everyone.
 - The server's daily boss list gives two free resets per account every rolling 24 hours, one kill per boss, and a private copy lasts 24 hours with free resumes and retries (`.re/js/engine.pretty.js:414980`). Which bosses it offers comes from the server.
 - The casino table (`.re/releases/20261108T004644-064bc896/pretty/CAUokwED.js:4664-5009`, not the daily list) holds 30 bosses, among them Yelinak, Vulak`Aerr, the Avatar of War, Tunare and the four Warders. It does not hold Vyemm or Cazic-Thule. From level 46 the casino's Items prize wins one boss potion per account per 24 hours for about 3,300 pp on average ([systems-research.md](systems-research.md#boss-summons-and-daily-allowance)).
 
@@ -122,7 +135,7 @@ Planning ranges, assumptions until the level 46 test:
 
 ### Kerafyrm
 
-Kerafyrm does not size the roster. All three of his rows are `untargetable: 1`, his scripts in `C/effective/quests/sleeper/` and `skyshrine/` are empty files, and he is not in the casino table or the raid catalog. If he becomes targetable, re-plan from the Resolve list.
+Kerafyrm does not size the roster. All three of his rows in the content snapshot are `untargetable: 1`, his scripts in `C/effective/quests/sleeper/` and `skyshrine/` are empty files, and he is not in the casino table or the raid catalog. The live server's NPC list for `sleeper` marks him targetable (`untargetable: 0`, level 99, 3,500,000 HP), but his spawn and The Sleeper's are `disabled`. If he spawns, re-plan from the Resolve list.
 
 ## Roster and leveling groups
 
@@ -192,10 +205,10 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 
 - Character slots (partly verified): the selector shows at least 9 pages of 8 slots, 72 positions (`.re/js/engine.pretty.js:1415`). That is a user interface minimum, not a server cap. No creation limit has been seen.
 - Concurrent sessions (resolved): three sessions on the account play three groups at once, each in its own visible relay tab signed in from the local login, without disconnecting each other (`diary/2026-11-08-c.md`). A hidden tab cannot finish loading the game.
-- Kerafyrm (resolved): untargetable in the current content, so the roster is not sized for him.
+- Kerafyrm (resolved): his open-world spawn is disabled on the live server, so the roster is not sized for him. The daily list is unread until a character reaches 46.
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
 - Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
-- Open: the server's raid-time price at level 46 to 60, whether the server caps raid size, which bosses the daily list offers, whether the Warders, Vyemm, Tunare and the Avatar of War spawn on the live server, whether raid DoT damage is resisted, the real melee DPS and HP of geared recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
+- Open: the server's raid-time price at level 46 to 60 (2,000 pp an hour with the highest character at 7 and at 35), whether the server caps raid size, which bosses the daily list offers, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
 
 ## Revisit when
 
