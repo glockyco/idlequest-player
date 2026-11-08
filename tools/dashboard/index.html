@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IdleQuest account</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>IdleQuest account</h1>
+      <nav>
+        <a href="#goal">Goal</a>
+        <a href="#groups">Groups</a>
+        <a href="#attention">Attention</a>
+        <a href="#engineering">Engineering</a>
+        <a href="#trends">Trends</a>
+        <a href="#jobs">Jobs</a>
+      </nav>
+      <div id="daemon" class="muted"></div>
+    </header>
+    <main>
+      <section id="goal">
+        <h2>Goal</h2>
+        <div id="goal-tiles" class="tiles"></div>
+        <div id="criteria"></div>
+        <h3>Roster</h3>
+        <div id="roster"></div>
+        <h3>Hours of play to each level</h3>
+        <div id="eta"></div>
+      </section>
+      <section id="groups">
+        <h2>Groups</h2>
+        <div id="group-cards" class="cards"></div>
+        <h3>Last hour</h3>
+        <div id="group-hour"></div>
+      </section>
+      <section id="attention">
+        <h2>Attention</h2>
+        <div id="attention-open"></div>
+        <div class="split">
+          <div><h3>Recently resolved</h3><div id="attention-resolved"></div></div>
+          <div><h3>Interventions</h3><div id="interventions"></div></div>
+        </div>
+      </section>
+      <section id="engineering">
+        <h2>Engineering</h2>
+        <p class="muted">Manual interventions are the SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items. Both should fall per group-hour over time.</p>
+        <div id="eng-charts" class="split"></div>
+        <div id="eng-table"></div>
+      </section>
+      <section id="trends">
+        <h2>Trends</h2>
+        <div class="controls">
+          Level of each group's leader over the last
+          <select id="trend-hours">
+            <option value="6">6 hours</option>
+            <option value="24" selected>24 hours</option>
+            <option value="72">3 days</option>
+            <option value="168">7 days</option>
+          </select>
+        </div>
+        <div id="trend-chart"></div>
+      </section>
+      <section id="jobs">
+        <h2>Jobs</h2>
+        <div id="jobs-list"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

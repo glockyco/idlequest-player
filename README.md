@@ -292,7 +292,8 @@ Start it once as a long-lived process, for example as an omp service named `iqd`
 log line `iqd started`, or with `nohup`. A second `run` refuses to start while one is active.
 
 ```sh
-bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM
+bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM, dashboard on http://127.0.0.1:4790/
+bun tools/iqd.mjs serve --port 4791          # only the dashboard, for work on its page while run is active
 bun tools/iqd.mjs wait --severity act --max-minutes 60   # background shell job, returns on the next item
 bun tools/iqd.mjs status                     # under 40 lines, also written to runs/status.md every cycle
 bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
@@ -304,6 +305,14 @@ bun tools/iqd.mjs job done 3 "Permafrost first"
 The SDK records its own actions there as well: every top-level call that changes the game or the
 bot (`ACTIONS` in `src/client.mjs`, such as `setBot`, `travelTo`, `switchCharacter` or `pullItem`)
 adds an intervention with actor `sdk`, the leader and the call's arguments.
+
+The dashboard at <http://127.0.0.1:4790/> shows the goal's state (every roster character's level and
+the share of the XP to level 60), one card per group with what it does now and how it spent the last
+ten minutes, the planner's hours to each level, open and resolved attention items, the intervention
+log, interventions and stalls per group-hour by day, each group's level over time and the jobs. It
+reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for their reports, and it changes
+nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard.mjs`. `--port 0`
+starts `run` without it.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and

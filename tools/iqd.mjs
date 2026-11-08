@@ -217,7 +217,7 @@ export function snapshotInPage(a) {
         enabled: bot.config.enabled,
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
-        errand: st.errand ? { zone: st.errand.zone, item: st.errand.item } : null,
+        errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400) })),
@@ -513,13 +513,55 @@ const big = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1
 const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}~` : s);
 
 /** Group of each character name from data/roster.json, or an empty map without the file. */
-function rosterGroups() {
+export function rosterGroups() {
   try {
     const r = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
     return new Map(r.groups.flatMap((g) => (g.members ?? []).map((n) => [n, g.id])));
   } catch {
     return new Map();
   }
+}
+
+/**
+ * What one open session row of the database says about its tab at `now`: who leads, where, what
+ * the party does and since when, its kill and XP rates over the snapshot's window, the idle share of
+ * the last 10 minutes, the last kill, page memory and the bot's errand or pause. The status text and
+ * the dashboard both read tabs through this.
+ */
+export function sessionSummary(s, now, groupOf = rosterGroups()) {
+  const sn = s.snap ? JSON.parse(s.snap) : null;
+  const st = s.state ? JSON.parse(s.state) : {};
+  const l = sn?.leader;
+  const k = sn?.kills;
+  const hours = k?.winMs >= 60000 ? k.winMs / 3600000 : null;
+  const a = sn?.activity;
+  const secs = Object.entries(sn?.activitySec ?? {});
+  const total = secs.reduce((sum, [, v]) => sum + v, 0);
+  const idle = secs.filter(([key]) => key.startsWith("idle") || key === "dead").reduce((sum, [, v]) => sum + v, 0);
+  return {
+    group: groupOf.get(s.leader) ?? null,
+    leader: s.leader ?? null,
+    level: l?.level ?? null,
+    xpPct: l?.xpPct ?? null,
+    zone: sn?.zone ?? null,
+    goneMs: st.unreachableSince ? now - st.unreachableSince : null,
+    parked: Boolean(s.parked),
+    raid: Boolean(sn?.raid),
+    activity: a ? { act: a.act, why: a.why ?? null, forMs: (sn.t ?? now) - a.since } : null,
+    autoLevel: sn?.autoLevel ?? null,
+    killsPerHour: hours ? k.n30 / hours : null,
+    xpPerHour: hours ? k.xp30 / hours : null,
+    activitySec: sn?.activitySec ?? null,
+    idleShare: total ? idle / total : null,
+    lastKillMs: k?.last ? now - k.last : null,
+    lastEnemy: k?.lastEnemy ?? null,
+    heap: sn?.heap ?? null,
+    bags: sn?.bags ?? null,
+    errand: sn?.bot?.errand ?? null,
+    pause: sn?.bot?.pauseUntil > now ? { untilMs: sn.bot.pauseUntil - now, reason: sn.bot.pauseReason } : null,
+    party: [...(l ? [{ name: l.name, level: l.level, class: l.class, hp: l.hp, maxHp: l.maxHp, mana: l.mana, maxMana: l.maxMana }] : []), ...(sn?.party ?? []).filter((m) => m.type === 2).map((m) => ({ name: m.name, level: m.level, class: m.class, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }))],
+    seenMs: now - s.last_seen,
+  };
 }
 
 /** Plain-text status, at most 40 lines. Reads the database only. */
@@ -535,26 +577,18 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
   const sessions = db.query("SELECT * FROM sessions WHERE ended IS NULL ORDER BY first_seen, id").all();
   if (!sessions.length) out.push("  none");
   for (const s of sessions) {
-    const sn = s.snap ? JSON.parse(s.snap) : null;
-    const st = s.state ? JSON.parse(s.state) : {};
-    const l = sn?.leader;
-    const head = `${groupOf.get(s.leader) ?? "--"} ${s.leader ?? "?"} L${l?.level ?? "?"}${l?.xpPct != null ? ` ${l.xpPct.toFixed(0)}%` : ""} ${sn?.zone ?? "?"}`;
+    const v = sessionSummary(s, now, groupOf);
+    const head = `${v.group ?? "--"} ${v.leader ?? "?"} L${v.level ?? "?"}${v.xpPct != null ? ` ${v.xpPct.toFixed(0)}%` : ""} ${v.zone ?? "?"}`;
     let tail;
-    if (st.unreachableSince) tail = `GONE ${dur(now - st.unreachableSince)}`;
-    else if (s.parked) tail = "PARKED (bot disabled)";
+    if (v.goneMs != null) tail = `GONE ${dur(v.goneMs)}`;
+    else if (v.parked) tail = "PARKED (bot disabled)";
     else {
-      const k = sn?.kills;
-      const hours = k?.winMs >= 60000 ? k.winMs / 3600000 : null;
-      const rates = hours ? `${Math.round(k.n30 / hours)} kills/h ${big(k.xp30 / hours)} xp/h` : "rates n/a";
+      const rates = v.killsPerHour != null ? `${Math.round(v.killsPerHour)} kills/h ${big(v.xpPerHour)} xp/h` : "rates n/a";
       // What the party did at the last look and for how long, and the idle share of the 10 minutes before.
-      const a = sn?.activity;
-      const mode = sn?.raid ? "raid" : a ? `${a.act}${a.why ? `(${a.why})` : ""} ${dur((sn.t ?? now) - a.since)}` : sn?.autoLevel?.running ? "running" : "OFF";
-      const secs = Object.entries(sn?.activitySec ?? {});
-      const total = secs.reduce((sum, [, v]) => sum + v, 0);
-      const idle = secs.filter(([key]) => key.startsWith("idle") || key === "dead").reduce((sum, [, v]) => sum + v, 0);
-      tail = `${mode} ${rates}${total ? ` idle ${Math.round((100 * idle) / total)}%` : ""} last kill ${k?.last ? dur(now - k.last) : "none"}`;
+      const mode = v.raid ? "raid" : v.activity ? `${v.activity.act}${v.activity.why ? `(${v.activity.why})` : ""} ${dur(v.activity.forMs)}` : v.autoLevel?.running ? "running" : "OFF";
+      tail = `${mode} ${rates}${v.idleShare != null ? ` idle ${Math.round(100 * v.idleShare)}%` : ""} last kill ${v.lastKillMs != null ? dur(v.lastKillMs) : "none"}`;
     }
-    out.push(cut(`  ${head} | ${tail} | heap ${sn?.heap ? `${sn.heap.used}MB ${Math.round((100 * sn.heap.used) / sn.heap.limit)}%` : "n/a"}`, 150));
+    out.push(cut(`  ${head} | ${tail} | heap ${v.heap ? `${v.heap.used}MB ${Math.round((100 * v.heap.used) / v.heap.limit)}%` : "n/a"}`, 150));
   }
 
   const chars = db
@@ -597,7 +631,9 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
 // ---- Commands -----------------------------------------------------------------------------------
 
 const HELP = `iqd <command>
-  run [--interval 30]            collect game tab state until stopped
+  run [--interval 30] [--port 4790]
+                                 collect game tab state until stopped, with the dashboard on the port (0 for none)
+  serve [--port 4790]            only the dashboard, on the database as it is
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]
                                  block until a new unresolved attention item appears
@@ -612,7 +648,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -660,7 +696,23 @@ async function cmdRun({ values, runs }) {
   process.on("SIGTERM", stop);
   await relay.start();
   log(`iqd started, every ${intervalSec}s, data in ${runs}`);
+  const port = Number(values.port ?? 4790);
+  if (port) {
+    // A dashboard that cannot start, such as on a taken port, must not stop the collector.
+    try {
+      const { startDashboard } = await import("./lib/dashboard-server.mjs");
+      startDashboard({ db, port, log });
+    } catch (e) {
+      log(`dashboard did not start: ${e.message}`);
+    }
+  }
   await daemon.loop();
+}
+
+async function cmdServe({ values, runs }) {
+  const db = openDb(join(runs, "iq.db"));
+  const { startDashboard } = await import("./lib/dashboard-server.mjs");
+  startDashboard({ db, port: Number(values.port ?? 4790) });
 }
 
 async function cmdStatus({ runs }) {
@@ -743,7 +795,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // When each group reaches the levels raids ask for, from the live state and the XP model.
 //
-//   bun tools/plan.mjs [--window 60] [--levels 46,50,55,60] [--new-groups 6]
+//   bun tools/plan.mjs [--window 60] [--levels 46,50,55,60] [--new-groups 6] [--json]
 //                      [--stone-xp-h 300000 | Leader=300000,Leader=0] [--deaths-h 0.5] [--crowd N]
 //
 // Inputs:
@@ -37,6 +37,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { conLimits, cfgFromFlags, evalZone, loadZones } from "./predict.mjs";
+import { factor, xpStart } from "./lib/xp.mjs";
 
 const here = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -57,15 +58,6 @@ const stoneOf = (leader) => {
   const map = new Map(stoneFlag.split(",").map((p) => p.split("=")));
   return Number(map.get(leader) ?? map.get("*") ?? 0);
 };
-
-// XP to reach the start of level L for a factor of 1.00. The table is EQEmu's GetEXPForLevel, which
-// the server's experienceProgress matches (start of 35 at 43,234,400, end at 51,450,000).
-const MOD = (L) => (L < 31 ? 1.0 : L < 36 ? 1.1 : L < 41 ? 1.2 : L < 46 ? 1.3 : L < 52 ? 1.4 : ({ 52: 1.5, 53: 1.6, 54: 1.7, 55: 1.9, 56: 2.1, 57: 2.3, 58: 2.5, 59: 2.7, 60: 3.0 })[L] ?? 3.1);
-export const xpStart = (L) => (L <= 1 ? 0 : Math.round((L - 1) ** 3 * MOD(L) * 1000));
-// Race and class factors from the wiki (experience-and-zones, "Race and class requirements").
-const RACE = { Troll: 1.2, Iksar: 1.2, Ogre: 1.15, Barbarian: 1.05, Halfling: 0.95 };
-const CLASS = { Warrior: 0.9, Rogue: 0.91 };
-export const factor = (race, cls) => (RACE[race] ?? 1) * (CLASS[cls] ?? 1);
 
 // A death costs level^2 x 666.67 XP from level 5 (the client's DeathExperienceLoss, leader only).
 const deathXp = (L) => (L >= 5 ? L * L * 666.67 : 0);
@@ -236,6 +228,11 @@ const fmtH = (h) => (h == null ? "n/a" : h < 48 ? `${h.toFixed(0)} h` : `${(h / 
 const fmtR = (r) => (r >= 1e6 ? `${(r / 1e6).toFixed(2)}M` : `${Math.round(r / 1e3)}k`);
 const word = (s) => (s < 0.15 ? "firm" : s < 0.3 ? "rough" : "guess");
 const cell = (e) => (e ? `${fmtH(e.hours)} (${fmtH(e.low)}-${fmtH(e.high)}) ${word(e.sigma)}` : "n/a");
+if (args.includes("--json")) {
+  const rows = groups.map((g) => ({ leader: g.leader, level: g.level, rateNow: g.rateNow, calibration: g.c, deathsPerHour: g.deaths, slowest: g.slowest, eta: Object.fromEntries(targets.map((t) => [t, eta(g, t)])) }));
+  console.log(JSON.stringify({ windowMin, targets, groups: rows, idle }));
+  process.exit(0);
+}
 const lines = [];
 const head = ["Group", "Level", "XP/h now", "Calib", "Deaths/h", "Slowest", ...targets.map((t) => `to ${t}`)];
 lines.push(head);
