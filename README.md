@@ -332,7 +332,9 @@ stopped part way goes on after the last reward the member carries. A tab gets at
 interventions by `coordinator`, apart from manual ones, and the dashboard's Coordinator section
 shows its last pass.
 
-`run --recover` brings back a game tab that is reachable but has lost the bridge or the bot, as a
+`run --recover` deploys the bridge and bot to every tab whose installed code differs from the
+repository's (`codeVersion` in `src/install.mjs`, outside raids), and brings back a game tab that is
+reachable but has lost the bridge or the bot, as a
 page reload does: it signs in with the stored login when the login form shows and installs both as
 `attach` does (`src/install.mjs`), at most every two minutes per tab. The bot keeps its settings in
 the tab's sessionStorage, so it enters the world as its leader and regroups by itself, and a tab

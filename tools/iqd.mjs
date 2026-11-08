@@ -261,6 +261,7 @@ export function snapshotInPage(a) {
     const ep = p?.experienceProgress;
     out.pageSession = iq.session;
     out.release = iq.release ?? null;
+    out.code = iq.code ?? null;
     out.leader = p?.id
       ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, xp: ep?.current ?? null }
       : null;
@@ -566,6 +567,7 @@ class Daemon {
       if (!this.trackers.has(id)) this.trackers.set(id, { targetId: id, rowId: null, label: `tab:${id.slice(-4)}`, leader: null, state: {} });
     }
     const triggers = await this.triggers();
+    if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch(() => this.code);
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate });
     await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
@@ -618,8 +620,11 @@ class Daemon {
       this.db.query("UPDATE sessions SET state = ? WHERE id = ?").run(JSON.stringify(tr.state), tr.rowId);
     }
     this.applyItems(tr, res, now, oldLabel);
-    if (obs.reachable && snap && !snap.error && (!snap.hasBridge || !snap.hasBot)) await this.recoverTab(tr, now).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
-    else if (snap?.hasBot) tr.state.recovery = null;
+    // A tab without the bridge or the bot is recovered, and one that runs older code gets the new
+    // code, unless a raid runs, which a reinstall would end.
+    const stale = snap?.hasBridge && snap.hasBot && this.code && snap.code !== this.code && !snap.raid;
+    if (obs.reachable && snap && !snap.error && (!snap.hasBridge || !snap.hasBot || stale)) await this.recoverTab(tr, now, stale).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
+    else if (snap?.hasBot && !stale) tr.state.recovery = null;
     if (usable && snap.leader && snap.rec) await this.exportRows(tr, snap).catch((e) => this.log(`export ${tr.label}: ${e.message}`));
   }
 
@@ -646,7 +651,7 @@ class Daemon {
    * and members from data/roster.json, by the leader it showed before. The bot then enters the
    * world as the leader and regroups by itself.
    */
-  async recoverTab(tr, now) {
+  async recoverTab(tr, now, update = false) {
     if (!this.recover) return;
     const r = (tr.state.recovery ??= { attempts: 0, at: 0 });
     if (now - r.at < 120000) return;
@@ -667,6 +672,7 @@ class Daemon {
     for (const e of await installExpressions()) await evaluate(e, 30000);
     const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
     const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;
+    if (update) return this.log(`deploy ${tr.label}: code ${this.code}`);
     note(`installed the bridge and bot at ${screen}${set ? `, and set ${g.members[0]} as leader of ${g.id}` : ""}`);
   }
 
@@ -871,7 +877,7 @@ const HELP = `iqd <command>
   run [--interval 30] [--port 4790] [--coordinate] [--recover]
                                  collect game tab state until stopped, with the dashboard on the port (0 for none);
                                  --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs,
-                                 --recover signs tabs in again and reinstalls a missing bridge and bot
+                                 --recover signs tabs in again, reinstalls a missing bridge and bot, and deploys changed code
   serve [--port 4790]            only the dashboard, on the database as it is
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]

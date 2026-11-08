@@ -11,7 +11,8 @@ const here = new URL(".", import.meta.url);
  * The expressions that install the bridge, give it the opcode names and the tables the bot reads
  * (the client's per-class spell table, the quest turn-in items, the band rotations), and install
  * the bot, in that order. The bot keeps its settings in the tab's sessionStorage, so a reload in
- * the same tab gets its leader, party and rotation back.
+ * the same tab gets its leader, party and rotation back. The last expression stamps the page with
+ * `codeVersion`, so the collector can tell a tab that runs older code.
  */
 export async function installExpressions() {
   const [bridge, bot, opcodes, classSpells, questItems, bandRotations] = await Promise.all([
@@ -22,12 +23,20 @@ export async function installExpressions() {
     readFile(new URL("../data/quest-items.json", here), "utf8"),
     readFile(new URL("../data/band-rotations.json", here), "utf8"),
   ]);
-  return [
+  const code = [
     bridge,
     `window.iq.setOpcodeNames(${opcodes})`,
     `(() => { window.iq.classSpells = ${classSpells}; window.iq.questItems = ${questItems}; window.iq.bandRotations = ${bandRotations}; })()`,
     bot,
   ];
+  return [...code, `window.iq.code = ${JSON.stringify(version(code))}`];
+}
+
+const version = (parts) => Bun.hash(parts.join("\n")).toString(36);
+
+/** The version of the code `installExpressions` installs now, a hash of the expressions. */
+export async function codeVersion() {
+  return (await installExpressions()).at(-1).match(/"(.+)"/)[1];
 }
 
 /** The stored login, `~/.config/idlequest/email` and `password`. */
