@@ -34,11 +34,16 @@ These rules are for agents that play the account with this repository. [README.m
 
 ## Unattended loop
 
-Call `watch` in one eval cell with a timeout a few minutes above its `minutes`, act on what woke it, and call it again with the returned `alertSeq`. One call covers up to 55 minutes of play.
+The collector `tools/iqd.mjs` watches every game tab, so an agent never polls tabs by hand (README, "Monitoring"):
 
-```js
-const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/<date>-live" });
-```
+1. Keep `bun tools/iqd.mjs run` running as a long-lived process. Start it at session start if `bun tools/iqd.mjs status` says the daemon is not running.
+2. Start each turn with `bun tools/iqd.mjs status`: sessions, characters, open attention items and open jobs.
+3. Handle open attention items first, `act` before `decide`, and close each with `iqd ack <id> <what was done>`.
+4. Register background work that a decision waits for with `iqd job add` and close it with `iqd job done`. Results go under `runs/jobs/`, never into a temporary directory.
+5. When nothing needs a hand, run `bun tools/iqd.mjs wait --severity decide` as a background job. It ends when an item at or above that severity appears, and its end wakes the agent. Do not use sleep timers for supervision.
+6. Record each change of a game setting with `iqd note <text> --session <leader>` until the SDK records changes itself.
+
+Attention items mirror the bot's wake alerts. The responses per bot alert:
 
 | Alert | Response |
 | --- | --- |
@@ -48,13 +53,13 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/<date>-l
 | `cursor` | An item sits on the cursor. The bot puts it away after three minutes. If it cannot, free a general slot or place the item by hand until `bagSpace().cursor` is null. |
 | `xpStall` | AutoLevel ran ten minutes without XP although the bot restarts it after a hung route recovery, a readiness wait with everyone full, or three idle minutes out of combat (`stuckRestart` notes). Look for a pending cure, a mana loop or no targets in the con range, then change limits or zone. |
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel. Find it in the event log. |
-| `offline` | The page left the game world. Never reload or navigate the tab. The client tries to resume the session by itself, and if the login form shows, stop and ask for a sign-in. |
+| `offline` | The page left the game world. Never reload or navigate the tab. The client tries to resume the session by itself. If the login form shows, sign in from the local login files as "Session start" describes. |
 | `guard` | Our own pulls triggered repeated escapes and the guard lowered the level cap, or an escape failed to restart AutoLevel. Escapes from wanderers alone do not alert: judge the zone by its measured XP per hour, which `analyze.mjs` reports with the escapes and their cost. |
 | `noEnemies` | Nothing in the zone passes AutoLevel's limits even after the bot restored guard-tightened limits and a blue minimum con, and `rotation` names no other zone. Usually the party outleveled the zone or emptied what it can reach. Set `rotation` to two or three zones measured for the level band. |
 | `rotate` | The bot moved to the next zone in `rotation`, because the current one ran out of reachable enemies, its last 10 minutes earned under 60% of the visit's best, or `rotateEscapes` guard escapes happened there in 10 minutes. Only a failed move wakes a script. When `rotation` is not empty, the bot also rewrites it from the band rows in `data/band-rotations.json` each time the leader reaches a level from 22 up. The rows up to 40 follow `tools/predict.mjs --level N`, so check each row from 41 with that tool and the measured rate per zone before the party gets there. |
 | `crowded` | Spawns are contested. Weigh the options in [docs/guide.md](docs/guide.md#deciding-where-to-hunt-and-what-to-do), such as staying, a wider target range, another zone or an errand. Then measure the choice and record it with the reason. |
 | `errand` | An errand ended without its item: its deadline passed, the party left the zone or the guard escaped repeatedly. The bot rotates on by itself. Decide from [docs/plans/epics.md](docs/plans/epics.md) whether to run it again. |
-| `memory` | The page's JS heap passed 80% of its limit (`memoryAlertShare`). Record `iq.botReport().memoryMB` in the diary. The renderer has crashed after many hours, and a crash needs a person to reload the tab and sign in. |
+| `memory` | The page's JS heap passed 80% of its limit (`memoryAlertShare`). Record `iq.botReport().memoryMB` in the diary. A renderer that crashes is replaced by a new signed-in tab as "Session start" describes. |
 
 ## Inventory and the game UI
 
