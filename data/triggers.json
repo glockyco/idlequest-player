@@ -1,12 +1,32 @@
 [
   {
-    "level": 41,
-    "text": "Check the zone rotation rows for the level with tools/predict.mjs and the measured rate before the party settles there.",
+    "level": 38,
+    "text": "New band row without a measured rate. Compare the first hour with tools/plan.mjs and replace a zone that falls short.",
+    "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
+  },
+  {
+    "level": 44,
+    "text": "New band row without a measured rate. Compare the first hour with tools/plan.mjs and replace a zone that falls short.",
     "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
   },
   {
     "level": 46,
     "text": "Raids open. Run the raid size test, then the first raid test, and resize the roster from them.",
     "doc": "docs/plans/raid-roster.md#revisit-when"
+  },
+  {
+    "level": 51,
+    "text": "New band row without a measured rate, past the model's fitted range. Compare the first hour with tools/plan.mjs.",
+    "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
+  },
+  {
+    "level": 55,
+    "text": "New band row without a measured rate, past the model's fitted range. Compare the first hour with tools/plan.mjs.",
+    "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
+  },
+  {
+    "level": 57,
+    "text": "New band row without a measured rate, past the model's fitted range. Compare the first hour with tools/plan.mjs.",
+    "doc": "docs/plans/leveling-plan.md#zone-rotation-by-level"
   }
 ]
