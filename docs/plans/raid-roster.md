@@ -72,7 +72,13 @@ Reading the table:
 - In six minutes the slots that need no mana pull ahead: the Necromancer and Shaman DoT packages and, if the templates are right, melee. A nuker adds little after the first 90 seconds. Mana regeneration changes a nuker's six-minute total by about 15% either way.
 - The Magician's pet is about 1 to 2 thousand in 90 seconds and 4 to 7 in six minutes. The earlier claim of 62-90 pet DPS was the unused template. The Magician is not a better raid damage slot than any other caster.
 - Bosses with high fire and magic resists (Nanzata, the Avatar of War, Tunare) cut a Magician to a quarter or a half of what it does against Hraashna. A Wizard, with fire, cold, magic, poison and disease spells, is hurt least.
-- What would change this: real melee DPS from geared recruits, whether raid DoT damage is resisted, real mana pools and regeneration, how many package spells a recruit has scribed, and whether Mod Rod is used. A raid simulator on the client's raid functions, or the first level 46 raid test, settles these.
+- What would change this: real melee DPS from geared recruits, whether raid DoT damage is resisted, real mana pools and regeneration, how many package spells a recruit has scribed, and whether Mod Rod is used. The first level 46 raid test settles these. Until then the simulator below gives a second estimate.
+
+### Simulated fights
+
+`tools/raidsim.mjs` runs the client's own member builder, raid tick and boss engine offline, with per-class stats, skills and merchant kits that are assumptions (its header lists them). Against Hraashna the Warder with groups 1 to 3 at level 60, all 20 seeded fights ended in a kill after 358 to 726 s (mean 504 s). In nearly every fight the tanks, the Clerics and most melee died between 75 and 320 s. The Shamans, the Druid and the Enchanter survived because DoT damage adds no hate (`_Ot`, `.re/js/engine.pretty.js:5800-5847`), so the boss idles once only they are left.
+
+Swapping the group 3 Monk slot through every class (20 seeds each) changed the mean kill time by: Necromancer -146 s, Shadow Knight -103 s, Shaman -95 s, Magician -73 s, Cleric -71 s, Enchanter -65 s, Druid -64 s, Paladin -61 s, Wizard -55 s, Rogue -52 s, Warrior -51 s, Ranger -10 s, Bard +2 s. With these assumed stats, a Necromancer, Shadow Knight or Shaman is the best extra slot and a Monk or Bard the weakest. The deaths say healing and tanking run out before damage does. Re-run it when real recruit stats can replace the assumed ones.
 
 ### How big a raid
 
