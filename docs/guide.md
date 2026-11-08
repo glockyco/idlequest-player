@@ -33,6 +33,15 @@ A new group does not have to start empty. Before switching leaders (<https://idl
 4. Run Buy Companion Spells for the remaining merchant spells. It spends the active character's carried money.
 5. After switching, Inventory Search on the macro bar can pull gear from other characters' bags and banks, and Manage Money pulls another character's whole balance.
 
+## Kit for new characters
+
+New characters start with no weapon equipped and with their eight general slots full of starter items, which the client does not show for companions. Kit every member before the first hunt:
+
+1. Coin: Manage Money (`iq.manageMoney({ transferFrom })`) moves an earlier character's whole balance to the new leader.
+2. Free the general slots: enter the world as each new character (`iq.switchCharacter`), sell what sells, and pack the rest (starter food, the note, the starred starter weapon and bandages, which cannot be sold) into the starter `Backpack*`. Starter spell scrolls are already scribed.
+3. Weapons: buy one per member from a weapons merchant and give it with `iq.giveItem(name, member, true)`. Tyeg Envil in West Freeport sells a Two Handed Sword (22 pp, Paladin and other plate melee) and a Warhammer (6 pp, Cleric, Druid, Shaman). Nothing there fits a Necromancer. The merchant item's class bits are in `item.classes`.
+4. Bags: disable the bot first (`iq.setBot({ enabled: false })`), because its cleanup sells a surplus Backpack, and a bag cannot go inside a bag, so each purchase needs a free top-level slot. Buy one Backpack, give it with `iq.giveItem("Backpack", member, false)`, and repeat until the member reports a full inventory. Check a purchase by the inventory, not the last chat line, because the food auto-buy writes chat in between. Enable the bot again afterwards.
+
 ## First hour of a new group
 
 These settings worked for group 1. Treat them as a starting point and change them when a measurement says so.
