@@ -11,8 +11,8 @@
   [26, ["permafrost", "paw", "unrest"]],
   [22, ["permafrost", "runnyeye", "guktop"]],
   [18, ["warrens", "permafrost", "runnyeye", "najena"]],
-  [14, ["warrens", "kurn", "runnyeye", "najena"]],
-  [11, ["warrens", "kurn", "crushbone", "befallen"]],
+  [14, ["warrens", "kurn", "runnyeye", "najena", "guktop"]],
+  [11, ["warrens", "kurn", "befallen", "crushbone", "guktop", "najena"]],
   [8, ["warrens", "crushbone", "steamfont", "befallen"]],
   [1, ["steamfont", "nektulos", "misty"]]
 ]
