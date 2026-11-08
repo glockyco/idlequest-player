@@ -52,9 +52,10 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   const recent = (label) => history.some((h) => h.label === label && !h.nextAt && now - h.t < cfg.taskGapMin * 60000);
   const free = (t) => !busy.has(t.label) && !recent(t.label) && !out.some((o) => o.label === t.label);
 
-  // Minutes of the last hour each tab spent on the coordinator's hunts, by their recorded length
-  // (a task still running counts five minutes).
-  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? 300000), 0);
+  // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
+  // a hunt without one, still running or ended unseen, by the time since it started, at most the
+  // 20 minutes a hunt may run.
+  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, 1200000)), 0);
 
   // A group an experiment holds plays only what its arm sets, so an errand it runs stops.
   for (const t of tabs) if (held.has(t.group) && t.errand) out.push({ label: t.label, kind: "stopErrand", id: null, spec: null, why: `an experiment holds ${t.group}` });
@@ -100,7 +101,9 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     if (o.kind !== "errand" && huntMs(tab.label) >= cfg.huntShare * 3600000) continue;
     // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
-    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
+    // A hunt runs at most for what is left of the tab's hunt share of the hour.
+    const left = Math.floor((cfg.huntShare * 3600000 - huntMs(tab.label)) / 60000);
+    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.max(1, Math.min(o.minutes ?? 20, left)) };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
 

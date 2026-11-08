@@ -26,17 +26,17 @@ test("a piece is hunted by its group until owned, waits for its time of day and 
   expect(decide({ now: NOW, tabs, opportunities: [page], owned: { p3: true } })).toEqual([]);
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, when: "night" }] })).toEqual([]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, { gameHour: 21 })], opportunities: [{ ...page, when: "night" }] })).toHaveLength(1);
-  const history = [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3" }];
+  const history = [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history })).toEqual([]);
   expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history })).toHaveLength(1);
 });
 
 test("a hunt that reported its next respawn comes back then, earlier or later than the retry interval", () => {
   const tabs = [tab("A", "G1", 40)];
-  const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt }];
+  const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt, ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history: hunted(NOW + 60000) })).toEqual([]);
   // Five minutes after a hunt that set its return time, the 20 minute gap does not hold the tab.
-  const soon = [{ t: NOW - 5 * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW - 1000 }];
+  const soon = [{ t: NOW - 5 * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW - 1000, ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history: soon })).toHaveLength(1);
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) })).toMatchObject([{ spec: { points: [7] } }]);
 });
@@ -189,4 +189,13 @@ test("a group that stays keeps its rotation, and one that should move gets a new
   expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })).toHaveLength(1);
   const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
   expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+});
+
+test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share", () => {
+  const tabs = [tab("A", "G1", 40)];
+  // A camp started 9 minutes ago is still running, so 0.15 h minus 9 minutes leaves none.
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] })).toEqual([]);
+  // One finished 2-minute hunt leaves 7 minutes for the next.
+  const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] });
+  expect(a.spec.minutes).toBe(7);
 });
