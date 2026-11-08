@@ -178,9 +178,16 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   return { state: st, items, evaluated };
 }
 
+// Events (bot alerts, deaths, level-ups) say what happened at one moment, and an ongoing problem
+// shows as a condition (stall, gone, nobridge, heap). So a newer act event of the same kind for the
+// tab replaces the older one, an info event closes after its time to live, and an act event closes
+// after its time to live once the tab has no open condition. Decisions stay open until answered.
+export const EVENT_TTL_MS = { info: 10 * 60000, act: 60 * 60000 };
+
 /**
- * Store the items of one rule step and resolve open condition items that no longer hold. Items of
- * the tab's earlier label (the tab showed another character before) are resolved the same way.
+ * Store the items of one rule step, resolve open condition items that no longer hold and close
+ * events that are replaced or expired. Items of the tab's earlier label (the tab showed another
+ * character before) are resolved the same way.
  */
 export function syncAttention(db, { label, oldLabel = label, res, now = Date.now(), log = () => {} }) {
   const open = db.query("SELECT id, kind, dedupe FROM attention WHERE resolved IS NULL AND session IN (?, ?)").all(label, oldLabel);
@@ -194,6 +201,14 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
       resolveItem(db, o.id, res.parked ? "tab is parked" : "condition cleared", now);
       log(`attention #${o.id} ${o.kind} cleared`);
     }
+  }
+  const events = db.query("SELECT id, t, severity, kind FROM attention WHERE resolved IS NULL AND session IN (?, ?) ORDER BY id").all(label, oldLabel);
+  const conditionOpen = events.some((e) => CONDITION_KINDS.includes(e.kind));
+  const newest = new Map(events.filter((e) => e.severity === "act").map((e) => [e.kind, e.id]));
+  for (const e of events) {
+    if (CONDITION_KINDS.includes(e.kind) || !(e.severity in EVENT_TTL_MS)) continue;
+    if (e.severity === "act" && newest.get(e.kind) !== e.id) resolveItem(db, e.id, `replaced by #${newest.get(e.kind)}`, now);
+    else if (now - e.t >= EVENT_TTL_MS[e.severity] && (e.severity === "info" || !conditionOpen)) resolveItem(db, e.id, "expired", now);
   }
 }
 

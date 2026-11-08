@@ -194,8 +194,8 @@ test("items are deduplicated by key while open and conditions resolve themselves
   expect(rows()[0].resolved).not.toBeNull();
   expect(rows()[0].note).toBe("condition cleared");
 
-  // Events stay open until someone resolves them, and a resolved key can be raised again.
-  const death = { severity: "act", kind: "death", session: "Tagu", key: "death:111:4", text: "You have been slain" };
+  // An event is read or resolved by hand, and a resolved key can be raised again.
+  const death = { t: T0 + 13 * 30 * SEC, severity: "act", kind: "death", session: "Tagu", key: "death:111:4", text: "You have been slain" };
   const id = raiseItem(db, death) as number;
   expect(id).toBeGreaterThan(0);
   expect(raiseItem(db, death)).toBeNull();
@@ -203,6 +203,25 @@ test("items are deduplicated by key while open and conditions resolve themselves
   expect(rows().find((r) => r.id === id)?.resolved).toBeNull();
   expect(resolveItem(db, id, "read")).toBe(true);
   expect(raiseItem(db, death)).not.toBeNull();
+});
+
+test("a newer event of a kind replaces the older one, and events expire once the tab plays", () => {
+  const db = openDb(":memory:");
+  const rows = () => db.query("SELECT id, kind, resolved, note FROM attention ORDER BY id").all() as { id: number; kind: string; resolved: number | null; note: string | null }[];
+  const playing: Result = { state: {}, items: [], evaluated: ["stall", "gone", "nobridge", "heap"] };
+  const idle = (key: string): Result => ({ ...playing, items: [{ severity: "act", kind: "alert-idle", key, text: "idle (crowded) after every remedy" }] });
+  syncAttention(db, { label: "Tagu", res: idle("alert-idle:1:5"), now: T0 });
+  syncAttention(db, { label: "Tagu", res: idle("alert-idle:1:9"), now: T0 + 11 * 60 * SEC });
+  expect(rows().map((r) => r.note)).toEqual(["replaced by #2", null]);
+
+  // Info expires after ten minutes, an act event after an hour, but not while the tab stalls.
+  raiseItem(db, { t: T0, severity: "info", kind: "levelup", session: "Tagu", key: "levelup:2:35", text: "Dome reached level 35" });
+  raiseItem(db, { t: T0, severity: "decide", kind: "trigger", session: "Tagu", key: "trigger:1:46", text: "Tagu reached level 46" });
+  const stalled: Result = { ...playing, items: [{ severity: "act", kind: "stall", key: "stall:Tagu", text: "idle (off) for 130 s" }] };
+  syncAttention(db, { label: "Tagu", res: stalled, now: T0 + 75 * 60 * SEC });
+  expect(rows().map((r) => [r.kind, r.note])).toEqual([["alert-idle", "replaced by #2"], ["alert-idle", null], ["levelup", "expired"], ["trigger", null], ["stall", null]]);
+  syncAttention(db, { label: "Tagu", res: playing, now: T0 + 76 * 60 * SEC });
+  expect(rows().map((r) => [r.kind, r.note])).toEqual([["alert-idle", "replaced by #2"], ["alert-idle", "expired"], ["levelup", "expired"], ["trigger", null], ["stall", "condition cleared"]]);
 });
 
 test("a parked tab clears the items it had", () => {
