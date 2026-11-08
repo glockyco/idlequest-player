@@ -7,11 +7,11 @@
     { "id": "G4", "members": ["Thalgrimm", "Pellisande", "Merriwick", "Kragvold", "Vorthessa", "Nyxalor"] },
     { "id": "G5", "letter": "E", "members": ["Embrogg", "Elyssandre", "Esszrak", "Evandrith", "Eloquine", "Eskarn"] },
     { "id": "G6", "letter": "F", "members": ["Figrothe", "Fisugrond", "Fushyny", "Fymadrin", "Faekregux", "Figrelun"] },
-    { "id": "G7", "letter": "G", "planned": ["shadow-knight", "cleric", "shaman", "bard", "ranger", "necromancer"] },
-    { "id": "G8", "letter": "H", "planned": ["warrior", "druid", "enchanter", "rogue", "wizard", "magician"] },
-    { "id": "G9", "letter": "I", "planned": ["monk", "paladin", "cleric", "shaman", "bard", "ranger"] },
-    { "id": "G10", "letter": "K", "planned": ["shadow-knight", "druid", "enchanter", "necromancer", "wizard", "bard"] },
-    { "id": "G11", "letter": "L", "planned": ["warrior", "paladin", "shaman", "rogue", "ranger", "monk"] },
+    { "id": "G7", "letter": "G", "members": ["Gygekrian", "Getadreth", "Gykrovelael", "Gaesylo", "Gaezikrus", "Gukraemaer"] },
+    { "id": "G8", "letter": "H", "members": ["Higraesir", "Hythavor", "Hianymis", "Hudelaerk", "Hufiazun", "Hodrydrus"] },
+    { "id": "G9", "letter": "I", "members": ["Ibaegrix", "Ivelugias", "Inagym", "Idraene", "Ifekirk", "Imorymu"] },
+    { "id": "G10", "letter": "K", "members": ["Kimorili", "Kiabriala", "Kidadriar", "Kuzidres", "Kiasiby", "Kilogruth"] },
+    { "id": "G11", "letter": "L", "members": ["Loshotin", "Linysir", "Lashybraend", "Liaganor", "Logresaerk", "Litilor"] },
     { "id": "G12", "letter": "M", "planned": ["shadow-knight", "druid", "enchanter", "magician", "bard", "ranger"] }
   ]
 }

@@ -225,7 +225,8 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
     if (!cb.autoUpgradeCompanionsEnabled) cb.toggleAutoUpgradeCompanions();
   });
   await iq.applyRoleTactics();
-  const rotation = await tab.evaluate(() => [...(window.iq.bandRotations ?? []).find(([min]) => min <= 1)[1]]);
+  // The bot orders a band row by how few of this browser's other groups hunt each zone.
+  const rotation = await tab.evaluate(() => window.iqBot.leastUsed([...(window.iq.bandRotations ?? []).find(([min]) => min <= 1)[1]]));
   await iq.setBot({ rotation, enabled: true });
   await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({ minCon: 10, maxCon: 13 });

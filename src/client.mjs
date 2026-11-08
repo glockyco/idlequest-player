@@ -486,13 +486,13 @@ export async function attach(tab) {
         maxCon ?? null,
         maxLevelDiff ?? null,
       );
-      // The bot or the guard may have restarted AutoLevel already, for example after a zone change,
-      // and then the AutoLevel button would open a window without a Start button.
-      if (!(await tab.evaluate(() => window.iq.stores.combat.getState().isRunning))) {
-        await tab.click('role/button[name="AutoLevel" exact]');
-        await tab.waitForSelector('role/button[name="Start" exact]', { timeout: 10000 });
-        await tab.click('role/button[name="Start" exact]');
-      }
+      // The AutoLevel window's Start button closes the window and calls the store's start
+      // (`CVEP2_Ra.js:417418`), as the bot and the guard do. A click can land on a zone-change
+      // overlay that still covers the button.
+      await tab.evaluate(() => {
+        const s = window.iq.stores.combat.getState();
+        if (!s.isRunning) s.startAutoLevel();
+      });
       await sleep(2000);
       await handle.resumeBot();
       return (await handle.status()).autoLevel;

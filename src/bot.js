@@ -299,6 +299,18 @@
     }
     if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i)) return;
     state.offSince ??= now();
+    // When another player holds the chosen target, the client gives it up with "Looking for another
+    // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
+    // is the client's, not a person's, so it restarts at once.
+    const contested = state.abandonAt && now() - state.abandonAt < 30000 && state.abandonAt >= state.offSince - 5000;
+    if (contested) {
+      state.abandonAt = null;
+      cb.startAutoLevel();
+      state.offSince = now();
+      state.contestedRestarts = (state.contestedRestarts ?? 0) + 1;
+      log(`restarted AutoLevel after a contested target (${state.contestedRestarts} so far)`);
+      return;
+    }
     if (now() - state.offSince < config.restartAfterSec * 1000) return;
     cb.startAutoLevel();
     state.offSince = now(); // give the start a full interval before trying again
@@ -349,6 +361,7 @@
       else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
       else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
       else if (/^No available enemies found in this zone/.test(text)) state.noEnemies.push(e.t ?? now());
+      else if (/Looking for another target\.$/.test(text)) state.abandonAt = e.t ?? now();
       else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, true);
     }
   };
@@ -738,15 +751,40 @@
   // The band rows (`window.iq.bandRotations`, from data/band-rotations.json, shared with
   // tools/gear.mjs) set `rotation` at each level-up. docs/plans/leveling-plan.md gives the evidence
   // for each row.
+  // Every group's bot reads the same rows, and groups in one zone contest the same enemies ("That
+  // target is already engaged by another player"). The game tabs of one browser share
+  // localStorage, so each bot records its zone there every tick, and a band row and the next zone
+  // are chosen by how few other groups of this browser hunt there, in row order on a tie.
+  const ZONE_PREFIX = "iqBot.zone.";
+  const shareZone = (i) => {
+    const me = i.stores.character.getState().characterProfile;
+    const zone = i.stores.staticData?.getState?.().zones?.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
+    if (me?.name && zone && typeof localStorage !== "undefined") localStorage.setItem(ZONE_PREFIX + me.name, JSON.stringify({ zone, level: me.level, t: now() }));
+  };
+  const occupancy = (zone) => {
+    if (typeof localStorage === "undefined") return 0;
+    const self = ZONE_PREFIX + (iq()?.stores.character.getState().characterProfile?.name ?? "");
+    let n = 0;
+    for (let k = 0; k < localStorage.length; k++) {
+      const key = localStorage.key(k);
+      if (!key?.startsWith(ZONE_PREFIX) || key === self) continue;
+      try {
+        const v = JSON.parse(localStorage.getItem(key));
+        if (v.zone === zone && now() - v.t < 300000) n++;
+      } catch {}
+    }
+    return n;
+  };
+  const leastUsed = (list) => list.map((z, k) => ({ z, k, n: occupancy(z) })).sort((a, b) => a.n - b.n || a.k - b.k).map((x) => x.z);
   const applyBandRotation = (lvl) => {
     if (!config.autoBandRotation || !(config.rotation ?? []).length) return;
-    const band = (iq()?.bandRotations ?? []).find(([min]) => lvl >= min)?.[1];
-    if (band && JSON.stringify(band) !== JSON.stringify(config.rotation)) {
-      config.rotation = [...band];
-      saved.rotation = [...band];
-      sessionStorage.setItem(KEY, JSON.stringify(saved));
-      log(`updated rotation for level ${lvl}: ${band.join(", ")}`);
-    }
+    const row = (iq()?.bandRotations ?? []).find(([min]) => lvl >= min)?.[1];
+    if (!row || JSON.stringify([...row].sort()) === JSON.stringify([...config.rotation].sort())) return;
+    const band = leastUsed(row);
+    config.rotation = [...band];
+    saved.rotation = [...band];
+    sessionStorage.setItem(KEY, JSON.stringify(saved));
+    log(`updated rotation for level ${lvl}: ${band.join(", ")}`);
   };
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
   const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
@@ -756,14 +794,16 @@
     const list = config.rotation ?? [];
     if (!list.length || state.errand || !config.outsideRotationSec || list.includes(zoneShort(i))) return;
     if (now() - (state.zoneSince ?? now()) < config.outsideRotationSec * 1000) return;
-    await moveTo(i, list[0], `${zoneShort(i)} is not in the rotation`);
+    await moveTo(i, leastUsed(list)[0], `${zoneShort(i)} is not in the rotation`);
   };
   const nextZone = (i) => {
-    const list = config.rotation ?? [];
-    if (!list.length) return null;
     const here = zoneShort(i);
-    const k = list.indexOf(here);
-    return list[(k + 1) % list.length] === here ? null : list[(k + 1) % list.length];
+    const others = (config.rotation ?? []).filter((z) => z !== here);
+    if (!others.length) return null;
+    const k = (config.rotation ?? []).indexOf(here);
+    // Row order from the zone after this one, so ties keep the old cycling.
+    const ordered = [...others.filter((z) => config.rotation.indexOf(z) > k), ...others.filter((z) => config.rotation.indexOf(z) < k)];
+    return leastUsed(ordered)[0];
   };
   const moveTo = async (i, dest, why) => {
     if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
@@ -1066,6 +1106,7 @@
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
       scanEvents(i);
       watchZone(i, cb);
+      shareZone(i);
       await watchCursor(i);
       watchLoot(i);
       if (inRaid(i)) {
@@ -1128,6 +1169,8 @@
     surplus: () => surplus(iq(), true),
     /** The gems the upkeep would set for the leader's class, in gem order: [{gem, role, id, name, level}]. */
     spellPlan: () => spellPlan(iq()),
+    /** The zones of `list` ordered by how few other groups of this browser hunt there now. */
+    leastUsed: (list) => leastUsed(list),
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
     upkeep: (reason = "manual") => runUpkeep(iq(), reason),
 
