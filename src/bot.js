@@ -861,20 +861,6 @@
     state.restartNow = "the party gathered";
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
-  // Ask every missing party member to join at once and wait until they are in, for a task that
-  // switched characters: a switch leaves the new character alone, and the group should fight with it.
-  const gatherParty = async (i) => {
-    const missing = partyMissing(i);
-    if (!missing.length) return 0;
-    i.stores.companions.getState().requestAccountCharacterAvailability();
-    for (const id of missing) {
-      await sleep(2500);
-      i.stores.companions.getState().controlAccountCharacter(id);
-    }
-    for (let k = 0; k < 20 && partyMissing(i).length; k++) await sleep(1000);
-    return missing.length - partyMissing(i).length;
-  };
-
   // ---- Leader -------------------------------------------------------------------------------
   // The active character converges to `leaderId` whenever no pause holds the tab. A switch camps
   // with the client's own command and enters the world as the character (`session.camp` and
@@ -1003,12 +989,12 @@
   // the way a click on that list does with "attack on arrival": the client walks to the closest
   // alive spawn of those NPCs and starts the fight there (`selectEnemyTarget`,
   // docs/client-internals.md). AutoLevel never pulls enemies that con gray, so this is how a party
-  // far above them gets their drops, and with `as` the character who must loot a NO DROP piece
-  // does the fighting. `zone` may list several zones with the same enemies: when none is up where
-  // the hunt is, it moves on to the next one, and it waits a minute in each only after a round
-  // found none anywhere. It ends when `item` is in the bags, when none of those enemies has been
-  // up for `waitMin` minutes, or after `minutes`, and the bot then restores the tab as after every
-  // task.
+  // far above them gets their drops. The leader loots, and NO DROP pieces move between account
+  // characters with Inventory Search, so a hunt never switches characters. `zone` may list several
+  // zones with the same enemies: when none is up where the hunt is, it moves on to the next one,
+  // and it waits a minute in each only after a round found none anywhere. It ends when `item` is in
+  // the bags, when none of those enemies has been up for `waitMin` minutes, or after `minutes`, and
+  // the bot then restores the tab as after every task.
   const KILL_LINE = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
   const killedSince = (i, wanted, t0) => {
     const evs = i.events ?? [];
@@ -1040,14 +1026,60 @@
     }
     return "lost";
   };
+  // With the wanted enemies' spawn points (`points`, spawn2 ids), a hunt camps them with the client's
+  // own Spawn Camp (`startSpawnCamp` in the combat runtime), which kills whatever stands on them,
+  // placeholders too, so the wanted NPC can roll at the next respawn. The camp ends when the item
+  // is in the bags, at the deadline, or once every point waits for its respawn, and the earliest
+  // respawn becomes `nextAt`, for a scheduler to come back then and not before.
+  const CAMP_WAITING = /^Waiting for (the )?next spawn|^Waiting for another player/;
+  const CAMP_HELD_RETRY_MS = 15 * 60000; // a camp another player holds is tried again after this
+  const campPoints = async (i, task, wanted) => {
+    const rt = runtime(i);
+    const cb = () => i.stores.combat.getState();
+    if (!rt?.startSpawnCamp) throw new Error("the client's Spawn Camp was not found");
+    let kills = 0;
+    let scanned = now();
+    let waitingSince = null;
+    // The camp takes only enemies inside AutoLevel's level range, and placeholders often con green
+    // for the party that hunts a piece, so the minimum con drops to green (2, the lowest the client
+    // offers) while the camp runs.
+    const minCon = cb().minCon;
+    if (minCon > 2) cb().setMinCon(2);
+    rt.startSpawnCamp(task.points, 0, task.keep);
+    try {
+      while (now() < task.startedAt + task.minutes * 60000) {
+        await sleep(2000);
+        if (killedSince(i, wanted, scanned)) kills++;
+        scanned = now();
+        if (task.item && hasItem(i, task.item)) return { kills, result: `got ${task.item}` };
+        const waiting = CAMP_WAITING.test(cb().spawnCampStatus ?? "") && !i.stores.skills.getState().inCombat;
+        waitingSince = waiting ? (waitingSince ?? now()) : null;
+        if (waitingSince && now() - waitingSince > 5000) {
+          // The camp also waits when its points hold enemies it will not take: another player's, or
+          // outside AutoLevel's level range. Those points are not cleared, so the hunt comes back later.
+          const pts = (i.zoneSpawns?.spawns ?? []).filter((s) => task.points.includes(s.spawn2Id));
+          const held = pts.filter((s) => s.state === "alive");
+          if (held.length) {
+            const owned = held.filter((s) => s.combatOwnershipState && s.combatOwnershipState !== "unowned").length;
+            return { kills, nextAt: now() + CAMP_HELD_RETRY_MS, result: `camp held: ${held.map((s) => s.name.replace(/_/g, " ")).join(", ")} on the points (${owned} owned by another player, the rest outside AutoLevel's range)` };
+          }
+          const due = pts.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
+          const nextAt = due.length ? Math.min(...due) : null;
+          return { kills, nextAt, result: `camp cleared${nextAt ? `, next spawn at ${new Date(nextAt).toTimeString().slice(0, 8)}` : ""}` };
+        }
+      }
+      return { kills, result: "time is up" };
+    } finally {
+      cb().setIsRunning(false); // ends the camp as well
+      if (cb().minCon !== minCon) cb().setMinCon(minCon);
+    }
+  };
   const huntTask = async (i, task, step) => {
     const wanted = enemyPattern(task.keep);
     const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
     try {
       await step("stop", () => calm(i), 75000);
-      if (task.as) await step(`switch to ${task.as}`, () => becomeActive(i, task.as), 200000);
-      await step("gather the party", () => gatherParty(i), 90000);
-      // A character that played little has full bags, and a drop it cannot take stays on the corpse.
+      // The leader loots, and a full bag leaves a drop on the corpse.
       await step("make room", async () => {
         await sellSurplus(i, true);
         if (i.bagSpace().free < 1) throw new Error(`${activeName(i)} has no free bag slot`);
@@ -1060,6 +1092,12 @@
       let seen = now();
       while (now() < task.startedAt + task.minutes * 60000) {
         if (task.item && hasItem(i, task.item)) return void (task.result = `got ${task.item}`);
+        if (task.points?.length) {
+          const r = await step(`camp ${task.keep}`, () => campPoints(i, task, wanted), task.minutes * 60000);
+          task.kills += r.kills;
+          if (r.nextAt) task.nextAt = r.nextAt;
+          return void (task.result = r.result);
+        }
         const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted), 200000);
         if (r === "killed") {
           task.kills++;
@@ -1659,17 +1697,20 @@
     /**
      * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the same enemies) through the Enemy Targets action, as a
      * task in the page (`huntTask`), for drops from enemies AutoLevel does not pull, such as gray
-     * ones. `as` names the character who fights and loots, for NO DROP pieces. The task ends when
+     * ones. The leader loots, and a NO DROP piece moves to the character who needs it with
+     * Inventory Search, as a hand-in does. The task ends when
      * `item` is in the bags, when none of those enemies was up for `waitMin` minutes, or after
-     * `minutes`. Returns a copy of the task, which `state.task` keeps up to date.
+     * `minutes`. With `points`, the wanted enemies' spawn points (spawn2 ids, `spawnPoints` in
+     * tools/lib/content.mjs), the hunt camps them with the client's Spawn Camp instead, which kills
+     * placeholders too, and ends once every point waits, with `nextAt` set to the first respawn
+     * (`campPoints`). Returns a copy of the task, which `state.task` keeps up to date.
      */
-    hunt({ zone, keep, item = null, as = null, minutes = 20, waitMin = 0 }) {
+    hunt({ zone, keep, item = null, minutes = 20, waitMin = 0, points = [] }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!zone || !keep) throw new Error("a hunt needs zone and keep");
       new RegExp(keep);
-      if (as && !findCharacter(iq(), as)) throw new Error(`no account character ${as}`);
-      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, as, minutes, waitMin, startedAt: now() };
-      log(`task hunt: ${keep} in ${zone}${item ? ` for ${item}` : ""}${as ? ` as ${as}` : ""}, up to ${minutes} min`);
+      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, minutes, waitMin, points, startedAt: now() };
+      log(`task hunt: ${keep} in ${zone}${item ? ` for ${item}` : ""}, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
     /** Stop the running task after its current step. The bot then gives the tab back to its leader. */

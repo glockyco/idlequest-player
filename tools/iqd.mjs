@@ -220,7 +220,7 @@ export function snapshotInPage(a) {
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep } : null,
-        task: st.task ? { kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400) })),
@@ -376,7 +376,7 @@ class Daemon {
     const groupOf = rosterGroups();
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     let opportunities = [];
     try {
@@ -388,9 +388,22 @@ class Daemon {
     const stock = {};
     for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
     const owned = {};
-    for (const o of opportunities) owned[o.id] = (await search(o.item)).some((m) => m.item === o.item && (!o.as || m.who === o.as));
+    // An opportunity is done once the account holds `count` copies (one for each character that needs
+    // the piece), wherever they lie, because Inventory Search moves NO DROP pieces between characters.
+    for (const o of opportunities) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
+    // The wanted enemies' spawn points, read once from the content snapshot.
+    const { spawnPoints } = await import("./lib/content.mjs");
+    this.points ??= new Map();
+    for (const o of opportunities) if (!this.points.has(o.id)) this.points.set(o.id, o.camp === false ? [] : await spawnPoints(o.zone, o.keep).catch(() => []));
     const state = metaGet(this.db, "coordinator") ?? { history: [] };
-    const actions = decide({ now, tabs, stock, opportunities, owned, history: state.history });
+    // A finished hunt reports when its points respawn, which is when to come back.
+    for (const h of state.history) {
+      const task = tabs.find((t) => t.label === h.label)?.task;
+      if (task?.id !== h.task || task.status === "running") continue;
+      if (task.nextAt) h.nextAt = task.nextAt;
+      if (task.endedAt) h.ms = task.endedAt - task.startedAt;
+    }
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {

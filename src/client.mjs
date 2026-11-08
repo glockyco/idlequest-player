@@ -417,12 +417,13 @@ export async function attach(tab) {
     },
 
     /**
-     * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the same enemies) through the Enemy Targets action with
-     * the bot's in-page task (`iqBot.hunt`), for drops from enemies AutoLevel does not pull, such
-     * as gray ones, e.g. `{ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as:
-     * "Domeyafun", waitMin: 3 }`. `as` makes that character fight and loot, for NO DROP pieces.
-     * The tab goes back to its leader when the task ends. Resolves with the finished task, or
-     * throws with the task when it failed.
+     * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the
+     * same enemies) with the bot's in-page task (`iqBot.hunt`), for drops from enemies AutoLevel
+     * does not pull, such as gray ones, e.g. `{ zone: "mistmoore", keep: "gypsy dancer", item:
+     * "Power of Wind", waitMin: 3 }`. With `points` it camps the enemies' spawn points. The leader
+     * loots, and NO DROP pieces move to the character who needs them with Inventory Search
+     * (`pullItem`). The tab goes back to its leader when the task ends. Resolves with the finished
+     * task, or throws with the task when it failed.
      */
     async hunt({ timeoutMs = 3600000, ...opts }) {
       return handle.runTask("hunt", opts, timeoutMs);

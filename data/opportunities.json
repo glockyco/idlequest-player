@@ -2,10 +2,101 @@
   {
     "id": "mag-page3",
     "group": "G1",
-    "as": "Domeyafun",
     "zone": "gukbottom",
     "keep": "bloodthirsty ghoul|frenzied ghoul",
     "item": "Torn Page of Magi`kot pg. 3",
+    "count": 4,
     "retryMin": 30
+  },
+  {
+    "id": "mag-mastery-fire",
+    "group": "G2",
+    "kind": "errand",
+    "zone": "najena",
+    "keep": "magician",
+    "item": "Torn Page of Mastery Fire",
+    "count": 4,
+    "minutes": 60,
+    "retryMin": 120
+  },
+  {
+    "id": "mag-mastery-wind",
+    "group": "G2",
+    "kind": "errand",
+    "zone": "najena",
+    "keep": "magician",
+    "item": "Torn Page of Mastery Wind",
+    "count": 4,
+    "minutes": 60,
+    "retryMin": 120
+  },
+  {
+    "id": "mag-mastery-earth",
+    "group": "G2",
+    "kind": "errand",
+    "zone": "najena",
+    "keep": "magician",
+    "item": "Torn Page of Mastery Earth",
+    "count": 4,
+    "minutes": 60,
+    "retryMin": 120
+  },
+  {
+    "id": "mag-mastery-water",
+    "group": "G2",
+    "kind": "errand",
+    "zone": "najena",
+    "keep": "magician",
+    "item": "Torn Page of Mastery Water",
+    "count": 4,
+    "minutes": 60,
+    "retryMin": 120
+  },
+  {
+    "id": "clr-gimblox",
+    "group": "G1",
+    "zone": "soldunga",
+    "keep": "Lord Gimblox",
+    "item": "Lord Gimblox's Signet Ring",
+    "count": 8,
+    "retryMin": 16
+  },
+  {
+    "id": "clr-bergurgle",
+    "group": "G1",
+    "zone": "lakerathe",
+    "keep": "Lord Bergurgle",
+    "item": "Lord Bergurgle's Crown",
+    "count": 8,
+    "retryMin": 25
+  },
+  {
+    "id": "pal-hilt",
+    "group": "G1",
+    "zone": "mistmoore",
+    "keep": "Xicotl",
+    "item": "Glowing Sword Hilt",
+    "count": 4,
+    "retryMin": 30
+  },
+  {
+    "id": "war-heart",
+    "group": "G1",
+    "zone": "permafrost",
+    "keep": "goblin wizard",
+    "item": "Heart of Frost",
+    "count": 5,
+    "camp": false,
+    "retryMin": 60
+  },
+  {
+    "id": "war-sapphire",
+    "group": "G1",
+    "zone": "swampofnohope",
+    "keep": "Soblohg",
+    "item": "Black Sapphire",
+    "count": 5,
+    "camp": false,
+    "retryMin": 60
   }
 ]

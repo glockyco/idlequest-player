@@ -1030,7 +1030,7 @@ test("a hand-in step that fails twice ends the task, wakes a script and gives th
   }
 });
 
-test("a hunt task fights gray enemies through Enemy Targets as the named character, with the party, until the item drops", async () => {
+test("a hunt task fights gray enemies through Enemy Targets with the leader, until the item drops", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
@@ -1049,14 +1049,12 @@ test("a hunt task fights gray enemies through Enemy Targets as the named charact
         }, 4000);
       },
     });
-    f.party.companions.splice(0); // a switch leaves the new character alone
-    f.bot.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as: "Edroun", waitMin: 1 });
+    f.bot.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", waitMin: 1 });
     await runToEnd(f);
-    expect(f.recruited.slice(0, 2)).toEqual([10, 1]); // the rest of the group, its leader too, joins Edroun for the hunt
     expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "got Power of Wind" });
     expect(selected).toEqual([[59144]]);
     expect(f.moves).toEqual(["mistmoore"]);
-    expect(f.commands).toEqual(["session.camp", "session.enterWorld Edroun", "session.camp", "session.enterWorld Me"]);
+    expect(f.commands).toEqual([]); // no character switch
     expect(onArrival.at(-1)).toBe(false);
   } finally {
     vi.useRealTimers();

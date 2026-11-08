@@ -14,6 +14,9 @@ export const DEFAULTS = {
   minStonesPerMember: 2,
   // A tab gets at most one coordinator task in this window, so a failing task cannot loop.
   taskGapMin: 20,
+  // Hunts and camps take a tab away from its own hunting, so they get at most this share of a tab's
+  // last hour until the value model weighs a piece against the XP it costs.
+  huntShare: 0.15,
 };
 
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
@@ -21,19 +24,27 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
 /**
  * The tasks to queue now. Inputs:
- * - `tabs`: `[{ label, group, members: [{ name, level }], task: { kind, status } | null, gameHour }]`,
+ * - `tabs`: `[{ label, group, members: [{ name, level }], task: { kind, status } | null, errand, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
- * - `opportunities`: data/opportunities.json, `[{ id, group, as, zone, keep, item, when, retryMin }]`.
- * - `owned`: item names an opportunity's `as` character already holds, `{ [id]: true }`.
+ * - `opportunities`: data/opportunities.json, `[{ id, group, kind, zone, keep, item, count, camp, when, retryMin, points }]`,
+ *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
+ *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
+ * - `owned`: opportunities whose item the account holds in `count` copies, `{ [id]: true }`.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab.
  */
 export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, history = [], cfg = DEFAULTS }) {
   const out = [];
-  const busy = new Set(tabs.filter((t) => t.task?.status === "running").map((t) => t.label));
-  const recent = (label) => history.some((h) => h.label === label && now - h.t < cfg.taskGapMin * 60000);
+  const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
+  // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
+  // any other task holds its tab for `taskGapMin`, so a failing task cannot loop.
+  const recent = (label) => history.some((h) => h.label === label && !h.nextAt && now - h.t < cfg.taskGapMin * 60000);
   const free = (t) => !busy.has(t.label) && !recent(t.label) && !out.some((o) => o.label === t.label);
+
+  // Minutes of the last hour each tab spent on the coordinator's hunts, by their recorded length
+  // (a task still running counts five minutes).
+  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? 300000), 0);
 
   // Epic and quest pieces first: each belongs to one group and waits for its time of day.
   for (const o of opportunities) {
@@ -43,8 +54,13 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
-    if (last && now - last.t < (o.retryMin ?? 30) * 60000) continue;
-    out.push({ label: tab.label, kind: "hunt", id: o.id, spec: { zone: o.zone, keep: o.keep, item: o.item, ...(o.as ? { as: o.as } : {}), waitMin: 0, minutes: o.minutes ?? 20 }, why: `${o.item} for ${o.as ?? o.group}` });
+    // Come back when the last hunt said its points respawn, or after `retryMin` without that.
+    if (last && now < (last.nextAt ?? last.t + (o.retryMin ?? 30) * 60000)) continue;
+    if (o.kind !== "errand" && huntMs(tab.label) >= cfg.huntShare * 3600000) continue;
+    // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
+    // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
+    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
+    out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${o.group}` });
   }
 
   // Lightstones go to the group with the lowest levels, where they buy the most levels and which

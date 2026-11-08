@@ -5,7 +5,7 @@ import { decide } from "../tools/lib/coordinator.mjs";
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
 const tab = (label: string, group: string, level: number, extra = {}) => ({ label, group, members: team(label, level), task: null, gameHour: 12, ...extra });
-const page = { id: "p3", group: "G1", as: "Dom", zone: "gukbottom", keep: "ghoul", item: "Page 3", retryMin: 30 };
+const page = { id: "p3", group: "G1", zone: "gukbottom", keep: "ghoul", item: "Page 3", retryMin: 30 };
 
 test("stones go to the lowest free group only once there are two a member", () => {
   const tabs = [tab("A", "G1", 40), tab("B", "G10", 8), tab("C", "G7", 9)];
@@ -22,11 +22,36 @@ test("stones go to the lowest free group only once there are two a member", () =
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
-  expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", as: "Dom", waitMin: 0 } }]);
+  expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);
   expect(decide({ now: NOW, tabs, opportunities: [page], owned: { p3: true } })).toEqual([]);
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, when: "night" }] })).toEqual([]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, { gameHour: 21 })], opportunities: [{ ...page, when: "night" }] })).toHaveLength(1);
   const history = [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3" }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history })).toEqual([]);
   expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history })).toHaveLength(1);
+});
+
+test("a hunt that reported its next respawn comes back then, earlier or later than the retry interval", () => {
+  const tabs = [tab("A", "G1", 40)];
+  const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt }];
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: hunted(NOW + 60000) })).toEqual([]);
+  // Five minutes after a hunt that set its return time, the 20 minute gap does not hold the tab.
+  const soon = [{ t: NOW - 5 * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW - 1000 }];
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: soon })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) })).toMatchObject([{ spec: { points: [7] } }]);
+});
+
+test("hunts stop for a tab once they took its share of the last hour", () => {
+  const tabs = [tab("A", "G1", 40)];
+  const ring = { ...page, id: "ring" };
+  const busy = [6, 4].map((m) => ({ t: NOW - m * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW + 3600000, ms: 4.5 * 60000 }));
+  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy })).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy.slice(0, 1) })).toHaveLength(1);
+});
+
+test("an errand opportunity queues an errand, and a tab on an errand gets no other task", () => {
+  const pages = { id: "m1", group: "G2", kind: "errand", zone: "najena", keep: "magician", item: "Page" };
+  expect(decide({ now: NOW, tabs: [tab("B", "G2", 17)], opportunities: [pages] })).toMatchObject([{ kind: "errand", spec: { zone: "najena", keep: "magician", minutes: 60 } }]);
+  const busy = [tab("B", "G2", 17, { errand: { zone: "nektulos" } }), tab("C", "G7", 20)];
+  expect(decide({ now: NOW, tabs: busy, opportunities: [pages], stock: { "Greater Lightstone": 12 } })).toMatchObject([{ label: "C", kind: "handIn" }]);
 });
