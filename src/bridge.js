@@ -416,6 +416,8 @@
   // Read-only subscription; never replaces a client callback.
   let lastChatId = stores.chat.getState().nextId - 1;
   const unsubChat = stores.chat.subscribe((state) => {
+    // Camping clears the chat and numbers its messages from 1 again.
+    if (state.nextId - 1 < lastChatId) lastChatId = 0;
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
