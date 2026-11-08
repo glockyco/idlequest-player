@@ -629,10 +629,6 @@
     cb.setMaxLevelDiff(l.maxLevelDiff);
   };
   const sameLimits = (cb, l) => cb.minCon === l.minCon && cb.maxCon === l.maxCon && cb.maxLevelDiff === l.maxLevelDiff;
-  // Remedies, errands, camps and the guard change AutoLevel's limits for a reason that passes, and
-  // without a way back the limits drifted: groups hunted at blue for hours after one crowded
-  // minute. The limits return to `limits` once nothing holds them: no errand or task, no tightening
-  // by the guard, which returns by itself after a quiet hour, and no widening within `widenMin`.
   // The options live per character on the server, so a character switch brings the new
   // character's own. Each setting flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`).
   const keepOptions = (cb) => {
@@ -644,9 +640,20 @@
       }
     }
   };
+  // Remedies, errands, camps and the guard change AutoLevel's limits for a reason that passes, and
+  // without a way back the limits drifted: groups hunted at blue for hours after one crowded
+  // minute. The limits return to `limits` once nothing holds them: no errand or task and no
+  // widening within `widenMin`. The guard's tightening holds only the cap, which it returns by
+  // itself after a quiet hour, so meanwhile the cons follow the target and the guard returns to it.
   const keepLimits = (i, cb) => {
-    const l = config.limits;
-    if (!l || state.errand || state.task?.status === "running" || i.guard?.preferred || now() - (state.widenedAt ?? 0) < config.widenMin * 60000 || sameLimits(cb, l)) return;
+    const t = config.limits;
+    if (!t || state.errand || state.task?.status === "running" || now() - (state.widenedAt ?? 0) < config.widenMin * 60000) return;
+    const g = i.guard?.preferred;
+    if (g && (g.minCon !== t.minCon || g.maxCon !== t.maxCon || g.maxLevelDiff !== t.maxLevelDiff)) i.guard.preferred = { ...t };
+    // The client sets the highest con from the cap (docs/client-internals.md: 1 or 2 give Yellow),
+    // so under a tightened cap the max con is the client's, not the target's.
+    const l = g ? { minCon: t.minCon, maxCon: cb.maxCon, maxLevelDiff: Math.min(t.maxLevelDiff, cb.maxLevelDiff) } : t;
+    if (sameLimits(cb, l)) return;
     log(`AutoLevel limits back to con ${l.minCon}..${l.maxCon}, cap ${l.maxLevelDiff} from ${cb.minCon}..${cb.maxCon}, cap ${cb.maxLevelDiff}`);
     setLimits(cb, l);
   };

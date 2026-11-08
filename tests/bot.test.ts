@@ -293,6 +293,15 @@ test("widened limits return to the target limits after widenMin, and a move star
     await p.bot.tick();
     expect([p.combat.minCon, p.combat.maxCon, p.combat.maxLevelDiff]).toEqual([10, 13, 5]);
 
+    // With the guard holding a tightened cap, the cons follow the target and the cap stays, and the
+    // guard's return goes to the target.
+    Object.assign(p.combat, { minCon: 4, maxLevelDiff: 3 });
+    p.guard.preferred = { minCon: 4, maxCon: 13, maxLevelDiff: 5 };
+    await p.bot.tick();
+    expect([p.combat.minCon, p.combat.maxLevelDiff, p.guard.preferred]).toEqual([10, 3, { minCon: 10, maxCon: 13, maxLevelDiff: 5 }]);
+    p.guard.preferred = null;
+    p.combat.maxLevelDiff = 5;
+
     // A party that widened and then moves hunts the new zone at the target limits.
     p.combat.minCon = 4;
     p.bot.state.widenedAt = Date.now();
