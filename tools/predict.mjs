@@ -6,6 +6,9 @@
 //   bun tools/predict.mjs --level 25 --zone permafrost   per-NPC breakdown of one zone (regex on short or long name)
 //   bun tools/predict.mjs --level 29 --spells [--zone unrest]  compare nuke/tactic policies
 //   bun tools/predict.mjs --check                        model vs the measured runs
+//   More flags: --con 10,13 (AutoLevel's minimum and maximum con, instead of --min-diff and --max-diff), --crowd N
+//   (other groups hunting the same spawns), --detour, --dps-curve '[[1,0.5],[14,0.4],[18,1]]' or off, --mana-exp,
+//   --no-depletion. bun tools/calibrate.mjs measures the model against the live runs and refits these.
 // Model, per zone:
 //   1. Candidates. Every spawn point (spawn2 version 0) holds one NPC of its spawn group, drawn by
 //      spawnentry chance. An NPC is a candidate when its level is in [P+min-diff, P+max-diff] and not
@@ -13,7 +16,7 @@
 //      Di = -3 up to level 12, then one lower every 4 levels. A point counts for the share of its
 //      chance mass that is candidates.
 //   2. Party DPS against an NPC is --dps, measured against a same-level mob, scaled as (P/--dps-level)^--dps-exp
-//      for the leader's level, then split into a melee share and a spell share (--spell-share). Melee is
+//      for the leader's level and by the DEFAULTS.dpsCurve multiplier below level 18, then split into a melee share and a spell share (--spell-share). Melee is
 //      scaled by the client's hit chance and AC mitigation at the NPC's level against the same-level case
 //      (main.pretty.js ap/kt/bt/ep/Tt). Spells are scaled by the client's resist model (BYHOoN7B.js Ss/Qm).
 //      NPCs with special ability 19 lose the melee share, those with 23 lose the non-magical part of it
@@ -23,18 +26,24 @@
 //      attacks per round from attack_count or the double attack chance, per attack_delay.
 //   4. After a kill everyone refills 2.5% of max HP/mana per 0.6 s. Recovery is the slowest of the
 //      tank's HP (damage taken), the healer's mana (healing the damage) and the lead caster's mana
-//      (--mana-per-sec for each second of fight), plus --overhead seconds of readiness wait.
-//   5. Walking is the mean distance from a candidate point to its nearest other candidate divided by --speed.
+//      (--mana-per-sec for each second of fight, scaled down below --dps-level by --mana-exp), plus --overhead seconds
+//      of readiness wait.
+//   5. Walking is --detour times the mean distance from a candidate point to its nearest other candidate, divided by --speed.
+//      Every kill empties its point until the respawn, so the nearest live candidate is 1/sqrt(f) times as far,
+//      with f the alive share of the candidate points over the stay. The party's own kills lower f, and so do
+//      those of --crowd other groups hunting the same candidates (--no-depletion turns it off).
 //   6. Kills per hour is 3600 over the mean of kill + recovery + walk + overhead. It cannot exceed
-//      the spawn rate: candidate mass x 3600 / respawn, plus the initial stock spread over --stay minutes.
-//      The ranked XP/h uses the smaller of the two.
+//      the spawn rate: candidate mass x 3600 / respawn, plus the initial stock spread over --stay minutes,
+//      shared with the --crowd other groups. The ranked XP/h uses the smaller of the two.
 //   7. XP per kill for the leader is 120 x NPC level^2 x zone multiplier x leader level / sum of party
 //      levels, at most 11% of a level (3000 x level^2).
 //
 // Left out: wandering and named spawns beyond their chance, NPC spells and procs, enrage and rampage
 // timing (counted as a fixed extra damage), crowd control, pets as separate damage dealers, loot and
-// platinum, other players taking spawns, spawn conditions and content flags, zone line travel and
-// the time to reach the zone. The calibration runs are in the README.
+// platinum, other players than the account's own groups taking spawns, escapes and deaths (1 to 4% of the
+// time in stretches of 20 minutes or more, 13% at levels 1 to 4 in tools/fights.mjs), spawn conditions and
+// content flags, zone line travel and the time to reach the zone. The calibration runs are in the README and
+// tools/calibrate.mjs measures the model against every live run, per level band and zone.
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
@@ -44,15 +53,19 @@ const raw = (n) => (has(n) ? args[args.indexOf(`--${n}`) + 1] : undefined);
 const num = (n, d) => (raw(n) === undefined ? d : Number(raw(n)));
 const list = (n, d) => (raw(n) === undefined ? d : raw(n).split(",").map(Number));
 
-// Fitted against the two measured runs (README, "Predicting XP per hour"). `bun tools/predict.mjs --check` prints the fit.
-const DEFAULTS = {
-  dps: 49, // party damage per second against a same-level mob at --dps-level
+// Fitted in two steps. Level 21 to 29: the three measured runs (README, "Predicting XP per hour"), which
+// `bun tools/predict.mjs --check` prints (XP/h within 7%). Levels 1 to 20: the live stretches of
+// `bun tools/calibrate.mjs --fit`, which also refits the walk and the mana spend below. dps and overhead sit between
+// the three runs (best blocks) and group 1's 20-minute stretches at 15 to 34 (measured about 10% under the model).
+export const DEFAULTS = {
+  dps: 52, // party damage per second against a same-level mob at --dps-level
   dpsLevel: 24, // leader level --dps was measured at
   dpsExp: 0.5, // DPS grows with the leader's level to this power
   spellShare: 0.3, // share of party damage from spells (the rest is melee and pets)
   nukeResist: "fr", // resist stat the spell share rolls against: mr, fr, cr, dr, pr
-  overhead: 2, // seconds per kill of readiness wait, target selection and engage
-  manaPerSec: 10, // mana the lead caster spends per fight second
+  overhead: 1.5, // seconds per kill of readiness wait, target selection and engage. Measured idle is 1 to 3 s.
+  manaPerSec: 10, // mana the lead caster spends per fight second at --dps-level
+  manaExp: 0.57, // below --dps-level the spend scales with (P/--dps-level)^this, as the spells' costs do. Fitted to the recovery seconds of levels 1 to 14, where a constant spend gave twice the measured.
   // Pools at --dps-level, scaled linearly with the party level. At 31 to 32 the linear rule is within
   // 5% of group 1's tank HP (1478), healer mana (765) and caster mana (863).
   tankHp: 1060,
@@ -64,23 +77,38 @@ const DEFAULTS = {
   magicMelee: 1,
   healCost: 0.25, // healer mana per HP of damage taken
   tankAc: 200, // the tank's mitigation AC as the client uses it (an assumption)
-  speed: 35, // units per second while moving
+  speed: 35, // units per second while moving. Measured 37 to 38 at levels 1 to 13 and 42 to 48 for group 1 at 33 and up, so speed is not the lever.
+  detour: 2.5, // walked distance over the straight line to the nearest candidate point. Fitted to the move seconds of 85 stretches at every level (measured 2.4 to 2.5 whichever levels are fitted): the party walks around terrain and past dead points the nearest-point rule does not know.
+  // Multiplier on the party damage below level 18, as [level, multiplier] knots, flat below the first and linear
+  // between. Fitted to the fight seconds and XP/h of group 1 at levels 3 to 20 and groups 2 to 12 at 1 to 14 (66
+  // stretches of 20 minutes or more, 35 h, Crushbone left out): the party deals about half of the (P/24)^0.5 curve
+  // up to level 14 (0.53 at level 1, 0.42 at 14) and the full curve from 18. Between 14 and 18 only group 1's
+  // Kurn's Tower stretches (15 to 17) tell, and they fit the straight line.
+  dpsCurve: [
+    [1, 0.53],
+    [14, 0.42],
+    [18, 1],
+  ],
   stay: 60, // minutes spent in the zone, which spreads the initial stock
 };
-const cfgFromFlags = (P) => ({
+// --con 10,13 gives the AutoLevel minimum and maximum con instead of --min-diff and --max-diff.
+const conFlag = has("con") ? (([a, b]) => (P) => conLimits(P, a, b))(list("con")) : null;
+export const cfgFromFlags = (P) => ({
   level: P,
   // The bot runs AutoLevel from Blue up, so every non-green enemy is a candidate and only the con
   // rule sets the lower edge. A tighter --min-diff drops the kills 4 to 8 levels below the leader
   // that the party makes at 22 to 31.
-  minDiff: num("min-diff", -99),
-  maxDiff: num("max-diff", 5),
+  minDiff: num("min-diff", conFlag?.(P).minDiff ?? -99),
+  maxDiff: num("max-diff", conFlag?.(P).maxDiff ?? 5),
+  dpsCurve: has("dps-curve") ? (raw("dps-curve") === "off" ? null : JSON.parse(raw("dps-curve"))) : DEFAULTS.dpsCurve,
+  depletion: !has("no-depletion"),
   dps: num("dps", DEFAULTS.dps),
   dpsLevel: num("dps-level", DEFAULTS.dpsLevel),
   dpsExp: num("dps-exp", DEFAULTS.dpsExp),
   spellShare: num("spell-share", DEFAULTS.spellShare),
   nukeResist: (raw("nuke-resist") ?? DEFAULTS.nukeResist).toUpperCase(),
   overhead: num("overhead", DEFAULTS.overhead),
-  manaPerSec: num("mana-per-sec", DEFAULTS.manaPerSec),
+  manaPerSec: num("mana-per-sec", DEFAULTS.manaPerSec * Math.min(1, P / DEFAULTS.dpsLevel) ** num("mana-exp", DEFAULTS.manaExp)),
   tankHp: num("tank-hp", (DEFAULTS.tankHp * P) / DEFAULTS.dpsLevel),
   healerManaPool: num("healer-mana-pool", (DEFAULTS.healerManaPool * P) / DEFAULTS.dpsLevel),
   casterManaPool: num("caster-mana-pool", (DEFAULTS.casterManaPool * P) / DEFAULTS.dpsLevel),
@@ -88,12 +116,15 @@ const cfgFromFlags = (P) => ({
   healCost: num("heal-cost", DEFAULTS.healCost),
   tankAc: num("tank-ac", DEFAULTS.tankAc),
   speed: num("speed", DEFAULTS.speed),
+  detour: num("detour", DEFAULTS.detour),
+  crowd: num("crowd", 0),
   stay: num("stay", DEFAULTS.stay),
   partyLevels: list("party-levels", null),
 });
 
 const content = raw("content") ?? process.env.IQ_CONTENT ?? `${homedir()}/src/github.com/brynnb/idlequest-content`;
 const REGEN_PER_SEC = 0.025 / 0.6; // wiki "Companions": 2.5% of max HP/mana every 0.6 s
+const MIN_ALIVE = 0.04; // floor of the alive share of candidate points
 const LINK = 70; // aggro radius plus a margin to join, as tools/zones.mjs
 const ARRIVAL = 150;
 const HIGH = 8; // NPCs this many levels above the leader are danger
@@ -101,6 +132,14 @@ const HIGH = 8; // NPCs this many levels above the leader are danger
 // ---------------------------------------------------------------- client formulas
 // Level -> lowest non-green offset, OK.pretty.js Di().
 const conOffset = (p) => (p <= 12 ? -3 : p <= 57 ? -4 - Math.floor((Math.max(p, 14) - 14) / 4) : -15);
+// The level range AutoLevel pulls from for a minimum and maximum con (con values: 2 green, 4 blue, 10 white,
+// 15 yellow, 13 red), as offsets from the leader's level. Blue starts at the lowest non-green level, white is
+// the leader's own level, and the maximum con sets the level cap (white 0, yellow 2, red 5, where yellow
+// reaches 3, 4 or 5 levels up above level 50, 53 and 56). OSTsR53r.js g21/v21 and setMaxCon.
+export const conLimits = (P, minCon = 4, maxCon = 13) => ({
+  minDiff: minCon >= 10 ? 0 : -99,
+  maxDiff: maxCon === 10 ? 0 : maxCon === 15 ? (P > 56 ? 5 : P > 53 ? 4 : P > 50 ? 3 : 2) : 5,
+});
 const skillOf = (l) => (Math.trunc(l) > 50 ? 250 : Math.min(210, Math.max(1, Math.trunc(l)) * 5)); // main.pretty.js j5
 const accuracy = (a, extra = 0, mod = 0) => ((2 * a + 7 + extra + 10) * 121 / 100) * Math.max(0, 100 + mod) / 100; // kt(a, a, extra, mod) for NPCs, kt(skill, skill) for players
 const avoidance = (def, agi) => Math.max(0, (def * 400) / 225 + 10 + ((Math.min(255, Math.max(1, agi)) - 40) * 800) / 3600); // bt
@@ -194,7 +233,7 @@ const parseSpecials = (s) =>
       .filter(Boolean),
   );
 
-async function loadZones(pattern) {
+export async function loadZones(pattern) {
   const gameZones = new Set(Object.keys(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(norm));
   // The snapshot holds classic and later copies of some zones under one long name (oot and
   // oceanoftears). The live client's zone list (data/live-zones.json) decides which copy exists.
@@ -204,7 +243,7 @@ async function loadZones(pattern) {
   for await (const z of rows("zone")) {
     if (z.version !== 0 || zones.has(z.short_name)) continue;
     if (re ? !(re.test(z.short_name) || re.test(z.long_name)) : !has("all") && !(gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name))) continue;
-    zones.set(z.short_name, { short: z.short_name, name: z.long_name, zem: Number(z.zone_exp_multiplier), safe: { x: z.safe_x, y: z.safe_y }, points: [] });
+    zones.set(z.short_name, { short: z.short_name, id: z.zoneidnumber, name: z.long_name, zem: Number(z.zone_exp_multiplier), safe: { x: z.safe_x, y: z.safe_y }, points: [] });
   }
   const groups = new Map(); // group -> points
   for await (const s of rows("spawn2")) {
@@ -260,7 +299,7 @@ function npcModel(n, c) {
   const nonMagicImmune = n.specials.has("immune-nonmagic-melee");
   const magicImmune = n.specials.has("immune-magic");
   const meleePart = meleeImmune ? 0 : nonMagicImmune ? melee * c.magicMelee : melee;
-  const dps = c.dps * Math.pow(P / c.dpsLevel, c.dpsExp) * (meleePart + (magicImmune ? 0 : spell));
+  const dps = c.dps * Math.pow(P / c.dpsLevel, c.dpsExp) * curveAt(c.dpsCurve, P) * (meleePart + (magicImmune ? 0 : spell));
   const kill = dps > 0 ? n.hp / dps : Infinity;
   // NPC damage against the tank.
   const A = accuracy(skillOf(n.level), n.accuracy);
@@ -279,6 +318,19 @@ function npcModel(n, c) {
   const taken = tankDps * kill;
   const recovery = Number.isFinite(kill) ? Math.max(Math.min(1, taken / c.tankHp), Math.min(1, (kill * c.manaPerSec) / c.casterManaPool), Math.min(1, (taken * c.healCost) / c.healerManaPool)) / REGEN_PER_SEC : 0;
   return { dps, kill, tankDps, taken, recovery, melee, spell, meleeImmune: meleeImmune || (nonMagicImmune && c.magicMelee < 1), magicImmune };
+}
+// Piecewise-linear multiplier over the leader level from [level, multiplier] knots, flat beyond the ends.
+function curveAt(knots, P) {
+  if (!knots) return 1;
+  if (P <= knots[0][0]) return knots[0][1];
+  for (let i = 1; i < knots.length; i++) {
+    if (P <= knots[i][0]) {
+      const [x0, y0] = knots[i - 1];
+      const [x1, y1] = knots[i];
+      return y0 + ((y1 - y0) * (P - x0)) / (x1 - x0);
+    }
+  }
+  return knots.at(-1)[1];
 }
 const meleeFactorCache = new Map();
 function meleeFactor(L, P, ac = 0) {
@@ -341,6 +393,7 @@ function prepare(z, P, minDiff, maxDiff) {
     cand: cand.length,
     mass,
     nn: mass ? nn / mass : 0,
+    tbar: mass ? cand.reduce((a, p) => a + p.w * p.respawn, 0) / mass : 0, // mean respawn seconds of a candidate point
     rate: cand.reduce((a, p) => a + (p.w * 3600) / p.respawn, 0),
     exposed: mass ? exposed / mass : 0,
     arrival: high.filter((h) => Math.hypot(h.x - z.safe.x, h.y - z.safe.y) <= ARRIVAL).length,
@@ -349,7 +402,7 @@ function prepare(z, P, minDiff, maxDiff) {
   return prep;
 }
 
-function evalZone(z, c) {
+export function evalZone(z, c) {
   const P = c.level;
   const pr = prepare(z, P, c.minDiff, c.maxDiff);
   const { mass } = pr;
@@ -372,16 +425,32 @@ function evalZone(z, c) {
   const killable = out.npcs.filter((e) => Number.isFinite(e.kill));
   if (!killable.length) return out;
   const norm_ = (f) => killable.reduce((a, e) => a + e.share * f(e), 0) / share;
-  const walk = pr.nn / c.speed;
   const kill = norm_((e) => e.kill);
   const recovery = norm_((e) => e.recovery);
-  const cycle = kill + recovery + walk + c.overhead;
-  const combatKh = 3600 / cycle;
+  // Walking is the distance to the nearest candidate that is alive. Every kill empties a point for its respawn
+  // time, so of the candidate points a share f is alive, on average over the stay, and the nearest live one is
+  // 1/sqrt(f) times as far as the nearest point (points scattered at random). The party's kills and the
+  // --crowd other groups' kills lower f, and f depends on the walk, so the walk is solved by iteration.
+  const stayS = c.stay * 60;
+  const deadSeconds = c.depletion === false ? 0 : stayS > pr.tbar ? pr.tbar * (1 - pr.tbar / (2 * stayS)) : stayS / 2;
+  const crowd = c.crowd ?? 0;
+  let f = 1;
+  let walk = 0;
+  let cycle = 0;
+  let combatKh = 0;
+  for (let i = 0; i < 60; i++) {
+    walk = (pr.nn * c.detour) / Math.sqrt(f) / c.speed;
+    cycle = kill + recovery + walk + c.overhead;
+    combatKh = 3600 / cycle;
+    const next = Math.min(1, Math.max(MIN_ALIVE, 1 - ((combatKh / 3600) * (1 + crowd) * deadSeconds) / mass));
+    f = (f + next) / 2;
+  }
   const rate = pr.rate;
-  const spawnKh = rate + (mass * 60) / c.stay;
+  const spawnKh = (rate + (mass * 60) / c.stay) / (1 + crowd);
   const xpKill = norm_((e) => e.xp);
   const { exposed, arrival, nn } = pr;
   Object.assign(out, {
+    alive: f,
     kill,
     recovery,
     walk,
@@ -592,21 +661,24 @@ function printZone(r, c) {
   }
 }
 
-if (!has("check") && !has("fit") && raw("level") === undefined) {
-  console.error("usage: bun tools/predict.mjs --level N [--top 15] [--zone regex] [--min-diff -3] [--max-diff 5] [--dps ..] [--overhead ..] [--check]\nflags are documented in the README and at the top of tools/predict.mjs");
-  process.exit(2);
-}
-const zones = await loadZones(has("check") || has("fit") ? "^(permafrost|guktop|unrest)$" : raw("zone"));
-if (has("fit")) fit(zones);
-else if (has("check")) printCheck(zones);
-else if (has("spells")) printSpells(zones, cfgFromFlags(num("level", NaN)));
-else {
-  const c = cfgFromFlags(num("level", NaN));
-  const results = [...zones.values()].map((z) => evalZone(z, c));
-  if (has("zone")) for (const r of results) printZone(r, c);
+if (import.meta.main) await main();
+async function main() {
+  if (!has("check") && !has("fit") && raw("level") === undefined) {
+    console.error("usage: bun tools/predict.mjs --level N [--top 15] [--zone regex] [--min-diff -3] [--max-diff 5] [--dps ..] [--overhead ..] [--check]\nflags are documented in the README and at the top of tools/predict.mjs");
+    process.exit(2);
+  }
+  const zones = await loadZones(has("check") || has("fit") ? "^(permafrost|guktop|unrest)$" : raw("zone"));
+  if (has("fit")) fit(zones);
+  else if (has("check")) printCheck(zones);
+  else if (has("spells")) printSpells(zones, cfgFromFlags(num("level", NaN)));
   else {
-    const ranked = results.filter((r) => r.xph > 0).sort((a, b) => b.xph - a.xph);
-    if (has("json")) console.log(JSON.stringify(ranked.map(({ npcs, ...r }) => r), null, 2));
-    else printTable(ranked, c, num("top", 15));
+    const c = cfgFromFlags(num("level", NaN));
+    const results = [...zones.values()].map((z) => evalZone(z, c));
+    if (has("zone")) for (const r of results) printZone(r, c);
+    else {
+      const ranked = results.filter((r) => r.xph > 0).sort((a, b) => b.xph - a.xph);
+      if (has("json")) console.log(JSON.stringify(ranked.map(({ npcs, ...r }) => r), null, 2));
+      else printTable(ranked, c, num("top", 15));
+    }
   }
 }
