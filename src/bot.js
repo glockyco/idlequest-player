@@ -157,11 +157,13 @@
 
   /**
    * Carried items that can be sold, cheapest loss first. Skips containers, NO DROP and NO RENT
-   * items, items without a merchant price, `keepItemIds`, reagents of the leader's class spells, equipped items, the cursor and bags
-   * marked No Sell, whose copies count as kept.
+   * items, items without a merchant price, `keepItemIds`, reagents of the leader's class spells,
+   * equipped items, the cursor and bags marked No Sell, whose copies count as kept.
    * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
    * with `cheap`, single items whose merchant price is at most `junkMaxCopper`, lowest total value
-   * first. Dearer single items are left for hand-downs or a person to review.
+   * first. Quest turn-in items (`window.iq.questItems`, from tools/quest-items.mjs) are never sold
+   * as cheap singles, because these sales bypass the client's Keep Epic Quest Items. Dearer single
+   * items are left for hand-downs or a person to review.
    */
   const surplus = (i, cheap = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -170,6 +172,7 @@
     const kept = new Map();
     const groups = new Map();
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
+    const questItems = new Set(i.questItems ?? []);
     for (const r of inv) {
       const loose = r.bag === 0 && r.slot >= 22 && r.slot <= 29;
       if (!loose && !(r.bag >= 23 && r.bag <= 30)) continue;
@@ -186,7 +189,7 @@
     const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
     const keepName = new RegExp(config.keepNamePattern, "i");
     const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
-    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "");
+    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !questItems.has(r.itemid);
     const extra = [];
     const single = [];
     for (const [id, rows] of groups) {

@@ -174,7 +174,8 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
   table with `bun tools/extract-opcodes.ts .re/js/main.pretty.js data/opcodes.json` and the
   leader's spell table with `bun install && bun tools/class-spells.mjs`, which loads the client's
   bundles under a DOM shim. Then check that the bridge and the bot still install (see
-  Troubleshooting).
+  Troubleshooting). After a content snapshot update, regenerate the quest turn-in items the bot
+  keeps with `bun tools/quest-items.mjs`.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
   before opening the Travel window. The bot's pause is renewed while the work runs. If the script

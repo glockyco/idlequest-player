@@ -291,6 +291,14 @@ test("cleanup sells extra copies first, then cheap singles, and keeps food, rese
   expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer"]);
 });
 
+test("cleanup keeps the last copy of a quest turn-in item and sells its extra copies", async () => {
+  const { bot, me, iq } = await install();
+  const item = (slot: number, itemid: number, Name: string, price: number) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0 } });
+  Object.assign(me, { inventory: [item(0, 16539, "Hill Giant Toes", 200), item(1, 16539, "Hill Giant Toes", 200), item(2, 1, "Rusty Mace", 100)] });
+  Object.assign(iq, { questItems: [16539] });
+  expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
+});
+
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
   const empty = "No available enemies found in this zone.";
   const tightened = await install();
