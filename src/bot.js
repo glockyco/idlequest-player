@@ -73,6 +73,11 @@
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
+    // AutoLevel's con and level limits, { minCon, maxCon, maxLevelDiff }, that the party returns to
+    // after a zone change, an errand, and `widenMin` minutes after a remedy widened them (`keepLimits`).
+    // null leaves the limits as they are.
+    limits: null,
+    widenMin: 20,
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
     rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
     rezReservePp: 100, // platinum a paid resurrection must leave for spells
@@ -579,25 +584,43 @@
       return "restarted AutoLevel";
     },
     // Undo what narrowed the limits: the guard's tightening first, then a minimum con above blue.
+    // `keepLimits` returns them to `limits` after `widenMin`.
     widen: (i, cb) => {
       const p = i.guard?.preferred;
       if (p) {
         i.guard.preferred = null;
-        cb.setMaxCon(p.maxCon);
-        cb.setMinCon(p.minCon);
-        cb.setMaxLevelDiff(p.maxLevelDiff);
+        setLimits(cb, p);
+        state.widenedAt = now();
         restartAutoLevel(cb);
         return `back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff} from before the guard tightened them`;
       }
       if (cb.minCon > 4) {
         const was = cb.minCon;
         cb.setMinCon(4);
+        state.widenedAt = now();
         restartAutoLevel(cb);
         return `lowered minimum con from ${was} to blue (4)`;
       }
       return null;
     },
     move: async (i, cb, why) => (nextZone(i) && (await rotate(i, why)) ? "moved to another rotation zone" : null),
+  };
+  // The setters overwrite each other in this order (docs/client-internals.md).
+  const setLimits = (cb, l) => {
+    cb.setMaxCon(l.maxCon);
+    cb.setMinCon(l.minCon);
+    cb.setMaxLevelDiff(l.maxLevelDiff);
+  };
+  const sameLimits = (cb, l) => cb.minCon === l.minCon && cb.maxCon === l.maxCon && cb.maxLevelDiff === l.maxLevelDiff;
+  // Remedies, errands, camps and the guard change AutoLevel's limits for a reason that passes, and
+  // without a way back the limits drifted: groups hunted at blue for hours after one crowded
+  // minute. The limits return to `limits` once nothing holds them: no errand or task, no tightening
+  // by the guard, which returns by itself after a quiet hour, and no widening within `widenMin`.
+  const keepLimits = (i, cb) => {
+    const l = config.limits;
+    if (!l || state.errand || state.task?.status === "running" || i.guard?.preferred || now() - (state.widenedAt ?? 0) < config.widenMin * 60000 || sameLimits(cb, l)) return;
+    log(`AutoLevel limits back to con ${l.minCon}..${l.maxCon}, cap ${l.maxLevelDiff} from ${cb.minCon}..${cb.maxCon}, cap ${cb.maxLevelDiff}`);
+    setLimits(cb, l);
   };
   const watchIdle = async (i, cb) => {
     const a = i.activity?.();
@@ -1243,15 +1266,15 @@
   const moveTo = async (i, dest, why) => {
     if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
     const cb = i.stores.combat.getState();
-    const limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
+    // A new zone starts from the target limits: a widening was for the zone the party leaves.
+    const limits = config.limits ?? { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     log(`moving to ${dest}: ${why}`);
     cb.setIsRunning(false);
     try {
       const name = await i.changeZone(dest);
       const c = i.stores.combat.getState();
-      c.setMaxCon(limits.maxCon);
-      c.setMinCon(limits.minCon);
-      c.setMaxLevelDiff(limits.maxLevelDiff);
+      setLimits(c, limits);
+      state.widenedAt = 0;
       c.startAutoLevel();
       alert("rotate", `moved to ${name}: ${why}`);
       return true;
@@ -1324,12 +1347,7 @@
   const endErrand = (i, why, failed) => {
     const e = state.errand;
     state.errand = null;
-    if (e.widened) {
-      const cb = () => i.stores.combat.getState();
-      cb().setMaxCon(e.limits.maxCon);
-      cb().setMinCon(e.limits.minCon);
-      cb().setMaxLevelDiff(e.limits.maxLevelDiff);
-    }
+    if (e.widened) setLimits(i.stores.combat.getState(), config.limits ?? e.limits);
     // The visit clock restarts, so the rate rule judges the zone without the errand.
     state.zoneSince = now();
     state.zoneBestRate = 0;
@@ -1615,6 +1633,7 @@
       await watchRate(i);
       keepParty(i, cb);
       await watchIdle(i, cb);
+      keepLimits(i, cb);
       avoidTargets(i);
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);

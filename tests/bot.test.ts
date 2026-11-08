@@ -266,6 +266,37 @@ test("the remedy table widens a crowded party's limits, then moves it, and wakes
   }
 });
 
+test("widened limits return to the target limits after widenMin, and a move starts from them", async () => {
+  vi.useFakeTimers();
+  try {
+    const p = await install();
+    p.bot.config.rotation = ["guktop", "permafrost"];
+    p.bot.config.limits = { minCon: 10, maxCon: 13, maxLevelDiff: 5 };
+    p.combat.currentZone = 65;
+    Object.assign(p.combat, { minCon: 10, maxCon: 13, maxLevelDiff: 5 });
+    Object.assign(p.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
+    await p.bot.tick();
+    expect(p.combat.minCon).toBe(4);
+    Object.assign(p.activity, { act: "fight", why: null, since: Date.now() });
+    vi.advanceTimersByTime(19 * 60000);
+    await p.bot.tick();
+    expect(p.combat.minCon).toBe(4);
+    vi.advanceTimersByTime(2 * 60000);
+    await p.bot.tick();
+    expect([p.combat.minCon, p.combat.maxCon, p.combat.maxLevelDiff]).toEqual([10, 13, 5]);
+
+    // A party that widened and then moves hunts the new zone at the target limits.
+    p.combat.minCon = 4;
+    p.bot.state.widenedAt = Date.now();
+    Object.assign(p.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
+    p.bot.state.idleCase = { why: "crowded", rung: 1, at: Date.now() - 61000 };
+    await p.bot.tick();
+    expect([p.moves, p.combat.minCon]).toEqual([["permafrost"], 10]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("account characters missing from the party are asked to rejoin", async () => {
   const { bot, recruited } = await install([10, 11, 12]);
   expect(bot.state.alerts.map((a) => a.kind)).toContain("rejoin");
