@@ -36,7 +36,7 @@
       },
       companions: {
         find: ["companions", "summonPet", "addWarrior"],
-        actions: ["addCleric", "addRogue", "dismissPet", "transferHeldItem", "controlAccountCharacter", "requestAccountCharacterAvailability", "loadBotItemsAndRecalc"],
+        actions: ["addCleric", "addRogue", "dismissPet", "transferHeldItem", "controlAccountCharacter", "requestAccountCharacterAvailability", "loadBotItemsAndRecalc", "releaseAccountCharactersForCamp"],
         state: ["botInventories", "botCombatDataMap", "botComputedStats"],
       },
       skills: { find: ["skills", "setInCombat"], actions: [], state: ["inCombat"] },
@@ -44,7 +44,9 @@
       roster: { find: ["characters", "enterWorld", "deleteCharacter"], actions: [], state: [] },
       chat: { find: ["messages", "addMessage", "lastTellSender"], actions: [], state: ["nextId"] },
       staticData: { find: ["zones", "races", "classes", "deities"], actions: [], state: [] },
-      raid: { find: ["setGroupCommand", "isRaidOpen"], actions: [], state: ["raidModeActive"] },
+      raid: { find: ["setGroupCommand", "isRaidOpen"], actions: ["openRaid", "closeRaid", "endRaid", "addGuildMembers", "setAllCommand"], state: ["raidModeActive", "combatActive", "leaderDead", "lifecyclePending", "roster", "engagedEnemies", "eventLog"] },
+      // The Raid Time section's quote and expiry, which raid mode reads before it starts a fight.
+      raidTime: { find: ["priceCopper", "renewalAttemptedFor"], actions: [], state: ["expiresAtMs", "busy", "error"] },
       merchant: { find: ["merchants", "selectedMerchant", "merchantItems"], actions: [], state: [] },
       partyTactics: { find: ["meleeByCharacterId", "setTactic"], actions: [], state: ["overridesByCharacterId"] },
       partySpells: { find: ["castingPreferences", "setPetPreference"], actions: ["setTactic", "setCastingPreferences"], state: ["overridesByCompanion"] },
@@ -67,6 +69,7 @@
       autoBank: ["courier-based banking fees"], // the Auto Bank macro's courier to the tradeskill bank
       autoPlace: ["Auto-placing"], // puts the cursor item into the bags
       zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
+      raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
       // What a click on an NPC sends, (npcId, name). Bun reformats the sources it loads, so the pattern allows spaces.
       hail: /^function [\w$]+\(\s*e,\s*t,\s*n\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*e,\s*t,\s*n\s*\);?\s*\}$/,
     };
@@ -1093,6 +1096,96 @@
       const k = byName ? `character:${byName.characterId}` : /^\d+$/.test(String(who)) ? `character:${who}` : `bot:${me.id}:${who}`;
       stores.partySpells.getState().setTactic(k, key, value);
       return { key: k, overrides: stores.partySpells.getState().overridesByCompanion[k] };
+    },
+    /**
+     * The raid window's own actions (docs/client-internals.md, "Running a raid from a script").
+     * Each checks its effect and throws when the client refused, with the client's reason where
+     * it gives one. The bot's raid task decides roster, target and when to stop.
+     */
+    raid: {
+      /** Raid mode, the fight, the roster and the engaged enemies, for a script to follow a raid. */
+      state() {
+        const r = stores.raid.getState();
+        return {
+          active: Boolean(r.raidModeActive),
+          open: Boolean(r.isRaidOpen),
+          view: r.view ?? null,
+          combat: Boolean(r.combatActive),
+          leaderDead: Boolean(r.leaderDead),
+          pending: Boolean(r.lifecyclePending),
+          error: r.lifecycleError ?? null,
+          leaderDamage: r.leaderDamageDone ?? 0,
+          roster: (r.roster ?? []).map((m) => ({ id: m.id, characterId: m.source?.characterId ?? null, name: m.name ?? m.source?.name ?? null, level: m.level, hp: m.hp, maxHp: m.maxHp, alive: m.alive !== false, damage: m.damageDone ?? 0 })),
+          enemies: (r.engagedEnemies ?? []).map((e) => ({ id: e.spawnInstanceId, name: e.name ?? e.npcName ?? null, level: e.level ?? null, hp: e.hp ?? e.curHp ?? null, maxHp: e.maxHp ?? null })),
+          log: (r.eventLog ?? []).slice(-30).map((e) => (typeof e === "string" ? e : (e.text ?? e.message ?? JSON.stringify(e)))),
+        };
+      },
+      /** The account's raid time: the price of an hour in platinum and when the bought time ends. Only reads. */
+      async time() {
+        const ok = await clientFn("raidTime")("status", false);
+        const t = stores.raidTime.getState();
+        return { ok, pricePp: (t.priceCopper ?? 0) / 1000, expiresAt: t.expiresAtMs || 0, active: (t.expiresAtMs ?? 0) > Date.now() + (t.clockOffsetMs ?? 0), error: t.error || null };
+      },
+      /** Buy one hour of raid time, as the Raid Time section's Start Raid button does, if it costs at most `maxPp`. */
+      async buyHour(maxPp) {
+        const before = await this.time();
+        if (!before.pricePp) throw new Error(`no raid price: ${before.error ?? "the status request failed"}`);
+        if (before.pricePp > maxPp) throw new Error(`an hour of raid time costs ${before.pricePp}pp, more than ${maxPp}pp`);
+        const ok = await clientFn("raidTime")("start", false);
+        const after = stores.raidTime.getState();
+        if (!ok || !(after.expiresAtMs > before.expiresAt)) throw new Error(`raid time not bought: ${after.error || "no reply"}`);
+        return { pricePp: before.pricePp, expiresAt: after.expiresAtMs };
+      },
+      /**
+       * Start Raid in the party panel: release the account characters from the party, open the
+       * raid window and turn raid mode on, which needs a leader of level 46 or more and raid time.
+       * When raid mode does not start, the window closes again and the party stays released.
+       */
+      async open() {
+        await stores.companions.getState().releaseAccountCharactersForCamp();
+        stores.raid.getState().openRaid();
+        if (!stores.raid.getState().raidModeActive) {
+          stores.raid.getState().closeRaid();
+          throw new Error(`raid mode did not start (leader level ${stores.character.getState().characterProfile?.level}, raid time ${stores.raidTime.getState().expiresAtMs > Date.now() ? "bought" : "not bought"})`);
+        }
+        return this.state();
+      },
+      /** Add account characters by id, four at a time like Add All. Resolves with the character ids in the roster. */
+      async recruit(characterIds) {
+        const r = stores.raid.getState();
+        await r.addGuildMembers(characterIds, r.leaderLevel ?? stores.character.getState().characterProfile.level);
+        return stores.raid.getState().roster.map((m) => m.source?.characterId).filter((id) => id != null);
+      },
+      /**
+       * Every raid member attacks the leader's target (`combat.targetNPC`, set by the Enemy Targets
+       * action, which only targets in raid mode): an NPC above level 50 or an engaged enemy.
+       */
+      attack() {
+        const npc = stores.combat.getState().targetNPC;
+        if (!npc?.spawnInstanceId) throw new Error("the leader has no target");
+        stores.raid.getState().setAllCommand("attacking", npc);
+        if (!stores.raid.getState().combatActive) throw new Error(`the raid did not attack ${npc.name}: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
+        return this.state();
+      },
+      /** The daily raid bosses of the current zone (`DailyRaidBossesRequest`), or with `bossKey` summon that boss. */
+      async bosses(bossKey) {
+        const p = stores.character.getState().characterProfile;
+        const r = await socket.sendCorrelatedJsonRequest(1222, 1223, { characterId: p.id, zoneId: stores.combat.getState().currentZone, ...(bossKey ? { bossKey } : {}) }, 10000);
+        if (!r?.success) throw new Error(r?.error || "the daily boss list did not load");
+        return { resetsRemaining: r.resetsRemaining, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
+      },
+      /** End Raid: abandon a running fight first (`StopCombat`), as the button does, then leave raid mode. */
+      async end() {
+        const r = stores.raid.getState();
+        if (r.raidModeActive && (r.combatActive || r.leaderDead || r.lifecyclePending)) {
+          const service = Object.values(mods).flatMap((m) => Object.values(m)).find((v) => typeof v?.abandonRaid === "function");
+          if (!service) throw new Error("client raid service not found");
+          if (!(await service.abandonRaid())) throw new Error(`the raid was not abandoned: ${stores.raid.getState().lifecycleError ?? "no reason given"}`);
+        } else if (r.raidModeActive) r.endRaid();
+        stores.raid.getState().closeRaid();
+        if (stores.raid.getState().raidModeActive) throw new Error("raid mode is still on");
+        return this.state();
+      },
     },
     /** Tag every following sample, so configurations can be compared with `analyze.mjs --label`. */
     setLabel(l) {

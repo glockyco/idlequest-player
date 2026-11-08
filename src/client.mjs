@@ -408,6 +408,18 @@ export async function attach(tab) {
       return handle.runTask("hunt", opts, timeoutMs);
     },
 
+    /**
+     * Fight one raid target with the bot's in-page task (`iqBot.raid`): the leader and `members`
+     * (account character names) against `target`, a regular expression for an enemy above level
+     * 50 in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()` in the page. It buys an hour
+     * of raid time only when none is left and it costs at most `maxPp`, e.g. `{ members, target:
+     * "Nagafen", zone: "soldungb", maxPp: 2500 }`. Resolves with the finished task, whose `fight`
+     * holds the outcome, duration and each member's damage and survival, or throws with it.
+     */
+    async raid({ timeoutMs = 3600000, ...opts }) {
+      return handle.runTask("raid", opts, timeoutMs);
+    },
+
     /** Start the bot's task `kind` with `spec` and wait for its end. Resolves with the done task, or throws with it. */
     async runTask(kind, spec, timeoutMs = 3600000) {
       await tab.evaluate((k, json) => window.iqBot[k](JSON.parse(json)), kind, JSON.stringify(spec));
@@ -672,47 +684,18 @@ export async function attach(tab) {
     },
 
     /**
-     * The raid time the active character's account holds, read with the raid window's own
-     * `RaidAccess` request (opcode 1236, action "status"), which only reads. Resolves with the price
-     * of an hour in platinum, the expiry, whether it renews by itself, and the server's error text
-     * when there is one. See docs/client-internals.md, "Running a raid from a script".
+     * The account's raid time through the Raid Time section's own request (`iq.raid.time` in the
+     * page), which only reads: the price of an hour in platinum, the expiry in ms and whether time
+     * is left. See docs/client-internals.md, "Running a raid from a script".
      */
-    async raidTime() {
-      return tab.evaluate(async () => {
-        const p = window.iq.stores.character.getState().characterProfile;
-        const r = await window.iq.socket.sendCorrelatedJsonRequest(1236, 1236, { characterId: p.id, action: "status", autoRenew: false }, 10000);
-        return {
-          ok: Boolean(r?.success),
-          pricePlatinum: Number.isFinite(r?.priceCopper) ? r.priceCopper / 1000 : null,
-          expiresAt: r?.expiresAtMs ? new Date(r.expiresAtMs).toISOString() : null,
-          active: Boolean(r?.expiresAtMs && r.expiresAtMs > (r.serverNowMs ?? Date.now())),
-          autoRenew: Boolean(r?.autoRenew),
-          error: r?.error ?? null,
-        };
-      });
-    },
+    raidTime: () => tab.evaluate(() => window.iq.raid.time()),
 
     /**
-     * The daily raid bosses of the current zone, read with the Resets tab's request (opcode 1222
-     * without a `bossKey`, which only lists, answered on 1223). Resolves with the resets left, the
-     * next reset and each boss's key, name, zone and status, or with the server's error, such as
-     * "Daily raid bosses unlock at level 46.".
+     * The daily raid bosses of the current zone (`iq.raid.bosses` in the page): the resets left,
+     * the next reset and each boss's key, name, zone and status. Throws with the server's reason,
+     * such as "Daily raid bosses unlock at level 46.".
      */
-    async dailyBosses() {
-      return tab.evaluate(async () => {
-        const p = window.iq.stores.character.getState().characterProfile;
-        const zoneId = window.iq.stores.combat.getState().currentZone;
-        const r = await window.iq.socket.sendCorrelatedJsonRequest(1222, 1223, { characterId: p.id, zoneId }, 10000);
-        return {
-          ok: Boolean(r?.success),
-          error: r?.error ?? null,
-          resetsRemaining: r?.resetsRemaining ?? null,
-          resetLimit: r?.resetLimit ?? null,
-          nextResetAt: r?.nextResetAtMs ? new Date(r.nextResetAtMs).toISOString() : null,
-          bosses: (r?.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status ?? "available", disabledReason: b.disabledReason ?? null })),
-        };
-      });
-    },
+    dailyBosses: () => tab.evaluate(() => window.iq.raid.bosses()),
 
     /** The bot's compact report: level, XP/hour, bag space, AutoLevel, recent actions and alerts after `sinceSeq`. */
     botReport: (sinceSeq = 0) => tab.evaluate((s) => window.iqBot.report(s), sinceSeq),

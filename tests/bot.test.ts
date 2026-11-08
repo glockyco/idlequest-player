@@ -1109,3 +1109,76 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
     vi.useRealTimers();
   }
 });
+
+// The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
+// and ends in a kill or a wipe.
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000 } = {}) {
+  const calls: string[] = [];
+  const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
+  (f.iq as unknown as { raid: object }).raid = {
+    time: async () => (calls.push("time"), { active: timeLeft, pricePp }),
+    buyHour: async (maxPp: number) => {
+      calls.push(`buy ${maxPp}`);
+      if (pricePp > maxPp) throw new Error("too dear");
+      timeLeft = true;
+      return { pricePp };
+    },
+    open: async () => (calls.push("open"), (r.active = true)),
+    recruit: async (ids: number[]) => {
+      calls.push(`recruit ${ids.join(",")}`);
+      r.roster = [{ name: "Tagujazolu", damage: 0, alive: true }, { name: "Edroun", damage: 0, alive: true }];
+      return ids;
+    },
+    attack: () => {
+      calls.push(`attack ${f.combat.targetNPC?.name}`);
+      r.combat = true;
+      setTimeout(() => {
+        r.combat = false;
+        r.roster = r.roster.map((m) => ({ ...m, damage: 500, alive: outcome === "killed" }));
+        if (outcome === "killed") f.targets.splice(0);
+        else r.leaderDead = true;
+      }, fightMs);
+    },
+    state: () => ({ combat: r.combat, leaderDead: r.leaderDead, roster: r.roster, log: [] }),
+    end: async () => (calls.push("end"), (r.active = false)),
+  };
+  f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55 } as { spawnInstanceId: number; name: string });
+  Object.assign(f.runtime, { selectEnemyTarget: () => (f.combat.targetNPC = { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
+  return calls;
+}
+
+test("a raid task buys time when none is left, recruits, kills its target and ends the raid", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f);
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500 });
+    await runToEnd(f);
+    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "attack Lord_Nagafen", "end"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2 } });
+    expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid task records a wipe, and without raid time it stops before releasing the party", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, outcome: "wiped" });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    await runToEnd(f);
+    expect(calls).toEqual(["time", "open", "recruit 10", "attack Lord_Nagafen", "end"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "wiped", alive: 0 } });
+
+    const g = await install([10, 20]);
+    const none = fakeRaid(g, { pricePp: 3000 });
+    g.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", maxPp: 2500 });
+    await runToEnd(g);
+    expect(g.bot.state.task.status).toBe("failed");
+    expect(none).not.toContain("open");
+  } finally {
+    vi.useRealTimers();
+  }
+});

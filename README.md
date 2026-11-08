@@ -43,8 +43,9 @@ await iq.setLeader("Tagujazolu");                  // lead the group with anothe
 await iq.switchCharacter("Edroun");                // play another character for a while; the bot switches back when its pause ends
 await iq.handIn({ members: [{ name: "Edroun", counts: { "Greater Lightstone": 2 } }] });  // the bot's task: each member hands in at Smith Tv`ysa, then back to the leader
 await iq.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", waitMin: 3 });  // gray drops through Enemy Targets
-await iq.raidTime();                                // price of a raid hour in platinum, expiry, auto-renew (read only)
+await iq.raidTime();                                // price of a raid hour in platinum, expiry (read only)
 await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
+await iq.raid({ members: ["Domeyafun", "Edroun"], target: "Nagafen", zone: "soldungb", maxPp: 2500 });  // the bot's raid task: one fight, then back to leveling
 ```
 
 A new leveling group comes from a `planned` entry in `data/roster.json`. `createGroup` opens the

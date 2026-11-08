@@ -225,7 +225,7 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - Kerafyrm (resolved): his open-world spawn is disabled on the live server, so the roster is not sized for him. The daily list is unread until a character reaches 46.
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
 - Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
-- Open: the server's raid-time price at level 46 to 60 (2,000 pp an hour with the highest character at 7 and at 35), whether the server caps raid size, which bosses the daily list offers, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
+- Open: the server's raid-time price at level 46 to 60 (2,000 pp an hour with the highest character at 7, 35 and 41), whether the server caps raid size, which bosses the daily list offers, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
 
 ## Revisit when
 

@@ -120,7 +120,7 @@ The client displays a separate Raid Time purchase, priced per hour from the acco
 
 The server supplies `priceCopper`. The client validates and displays it, rather than computing a level-based price locally. Purchases log "one hour" and the server's `chargedCopper`. Source: `.re/js/main.pretty.js:70792-70848`.
 
-The server quotes 2,000 platinum an hour with the highest character at level 7 and again at level 35 (`RaidAccess` 1236 with `action: "status"`, which only reads the quote). The price at level 46 or higher has not been read, and the hearsay quote of 10,000 is not a verified tier. An hour of raid time covers every kill of a day, the two free resets and a casino potion, so the price is small next to the income of several groups at 46 or higher.
+The server quotes 2,000 platinum an hour with the highest character at level 7, 35 and 41 (`RaidAccess` 1236 with `action: "status"`, which only reads the quote). The price at level 46 or higher has not been read, and the hearsay quote of 10,000 is not a verified tier. An hour of raid time covers every kill of a day, the two free resets and a casino potion, so the price is small next to the income of several groups at 46 or higher.
 
 The daily boss list (`DailyRaidBossesRequest` 1222, `{ characterId, zoneId }`) answers "Daily raid bosses unlock at level 46." for a lower character, so the bosses it offers are read once a character reaches 46. Also, "two free summons" is not evidence that raid combat time is free. The sources expose separate summon and time mechanisms. Sources: <https://idlequest.net/wiki/raiding>, "Daily raid resets", `.re/js/main.pretty.js:70810-70848`.
 

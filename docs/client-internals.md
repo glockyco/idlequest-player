@@ -431,7 +431,11 @@ leader stays at the dialog and AutoLevel stays stopped.
 ### Running a raid from a script
 
 Read from the release in `.re/releases/20261108T004644-064bc896/pretty/` (`OST` OSTsR53r.js, `CVE`
-CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). Nothing here has run against the live game yet.
+CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). The bridge's `iq.raid` wraps these steps and the
+bot's raid task (`iqBot.raid`, `iq.raid()` in the SDK) runs them in order. With a leader below 46,
+the status read, the daily boss list's refusal, a refused Start Raid (the party is released, the
+window closes again and the bot rejoins the party) and a task without raid time have run live.
+Buying time, recruiting, attacking and ending a fight have not.
 
 - Start: the party panel's Start Raid (`CVE` 415903) releases the account companions
   (`releaseAccountCharactersForCamp`, "Your party has been disbanded."), then calls the raid store's
@@ -442,7 +446,9 @@ CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). Nothing here has run against
   expectedExpiresAtMs }`, where `action` is `status` (read only), `start`, `renew` or `settings`
   (`OST` 70810). `operationId` is one UUID per purchase attempt, reused on retry. The reply carries
   `priceCopper`, `expiresAtMs`, `serverNowMs`, `autoRenew` and `chargedCopper`. The button is "Start
-  Raid for Nk" in the Raid Time section of the combat view (`CVE` 9082-9105).
+  Raid for Nk" in the Raid Time section of the combat view (`CVE` 9082-9105). Its request function
+  (`M11`, `OST` 70820) keeps the quote and expiry in a store (`i2`), which raid mode reads before a
+  fight, so a script calls that function (`raidTime` in the bridge) and not the bare request.
 - Recruits: `addGuildMember(characterId, leaderLevel)` (`OST` 71607) loads the character's snapshot
   with `GuildRaidCharacterProjectionRequest` (1194) and appends it. It refuses during combat and for
   characters outside the account and guild. Only the recruit list hides characters below 46, and
@@ -453,7 +459,9 @@ CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). Nothing here has run against
 - Attack: `setAllCommand("attacking", target)` (`OST` 71957-71990) prepares the roster and calls
   `beginCombatForTarget(target)` (`OST` 72063). That needs raid time, a non-empty validated roster,
   and an NPC of level 51 or more or an engaged enemy, then sets `openingTarget`. A watcher sends
-  `StartCombat` (1025) with `singleFight: true` for that target (`CVE` 5770, `0ea` 44025).
+  `StartCombat` (1025) with `singleFight: true` for that target (`CVE` 5770, `0ea` 44025). Without
+  a target argument it attacks the leader's target, `combat.targetNPC`, which the Enemy Targets
+  action sets in raid mode (`selectEnemyTarget` with the NPC type id).
 - Daily bosses: `DailyRaidBossesRequest` (1222) with `{ characterId, zoneId }` lists them, and the
   same request with `bossKey` summons one (`CVE` 415155). The reply holds `resetsRemaining`,
   `nextResetAtMs` and `bosses[{ key, name, zoneName, status, availableAtMs, expiresAtMs,
@@ -462,13 +470,14 @@ CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). Nothing here has run against
   ..."), and a kill sends `CombatClientEnd` (1113) with `victory` and `raidMemberCount`, answered
   by `CombatEnded` (1029) and the loot in the RAID LOOT tab. A dead leader goes through
   `RaidLeaderLifecycle` (1226) and can still command the raid. A wipe releases the leader.
-- End: End Raid calls the combat service's `abandonRaid()` (`0ea` 42793), which sends `StopCombat`
-  (1026) and then the store's `endRaid()`. Nothing brings the party back or restarts AutoLevel
-  afterwards, so a script recruits its companions again and starts AutoLevel itself.
+- End: End Raid calls the combat service's `abandonRaid()` (`0ea` 42793, the module's
+  `combatService` export), which sends `StopCombat` (1026) and then the store's `endRaid()`.
+  Nothing brings the party back or restarts AutoLevel afterwards. The bot's party and AutoLevel
+  keepers do that once the raid task ends.
 - State for scripts (`stores.raid`): `raidModeActive`, `isRaidOpen`, `view` (`setup` or `combat`),
   `combatActive`, `leaderDead`, `roster[]` (`source.characterId`, `level`, `hp`, `maxHp`, `alive`,
   `damageDone`, `hate`), `engagedEnemies[]`, `focusTarget`, `openingTarget` and `eventLog`. DOM test
   ids: `raid-setup-panel`, `raid-recruit-<characterId>`, `raid-member-<id>` and `raid-loot-window`.
-- Open until a level 46 leader tries it: the price and what `start` returns, whether the server
-  refuses recruits below 46 or caps the roster, the daily boss keys, and whether a raid stays
-  active after a wipe.
+- Open until a level 46 leader tries it: what `start` returns, whether the server refuses recruits
+  below 46 or caps the roster, the daily boss keys, the kill line's wording in raid mode, and
+  whether a raid stays active after a wipe.
