@@ -1235,3 +1235,36 @@ test("a quest runs its steps in order for each member and stops at a step whose 
     vi.useRealTimers();
   }
 });
+
+test("a quest running when the bot is reinstalled goes on under the new install", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    let note = 0;
+    let answering = false; // the old install's walk never arrives
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Wax Sealed Note" ? note : 0),
+      talkToNpc: () => (answering ? Promise.resolve((note = 1)) : new Promise(() => {})),
+      giveToNpc: async () => {},
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "freporte", npc: "Kargek Redblade", say: ["favor"], expect: "Wax Sealed Note" }] });
+    for (let k = 0; k < 20; k++) {
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    expect(f.bot.state.task.step).toBe("talk to Kargek Redblade");
+    answering = true;
+    const g = globalThis as unknown as FakeGlobals;
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    const bot = g.iqBot!;
+    clearInterval(bot.timerId);
+    clearInterval(bot.fastTimerId);
+    await runToEnd({ ...f, bot });
+    expect(bot.state.task).toMatchObject({ status: "done", members: [{ done: true }] });
+    expect(bot.state.actions.map((a) => a.text)).toContainEqual(expect.stringContaining("resumed after a reinstall"));
+  } finally {
+    vi.useRealTimers();
+  }
+});

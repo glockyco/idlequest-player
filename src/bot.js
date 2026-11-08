@@ -1013,8 +1013,8 @@
         for (const [item, n] of Object.entries(need)) {
           while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
         }
-        // The walk to the NPC can cross a large zone (Tenal Redblade in East Karana), so it gets four minutes.
-        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? [], { timeoutMs: 240000 }), 270000);
+        // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
+        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
         if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
         if (s.each) {
           const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);
@@ -1264,14 +1264,16 @@
         }
       }
     };
+    // Only the task's current runner settles it: an older one, left by a reinstall, just stops.
+    const mine = () => state.task === task && task.runner === runner;
     (async () => {
       try {
         await TASKS[task.kind](iq(), task, step);
-        task.status = "done";
+        if (mine()) task.status = "done";
       } catch (e) {
-        if (task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e) });
+        if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e) });
       } finally {
-        if (state.task === task && task.runner === runner) {
+        if (mine()) {
           task.endedAt = now();
           alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : ""}; ${taskSummary(task)}`, task.status === "failed");
           state.pauseUntil = 0;
@@ -1996,5 +1998,23 @@
   window.iqBot = bot;
   if (window.iq) window.iq.bot = bot;
   log(`installed (tick ${config.tickSec}s, restart after ${config.restartAfterSec}s, sell below ${config.minFreeSlots} free slots)`);
+  // A task that ran under the previous install goes on under this one from its recorded progress
+  // (docs/plans/controller.md, principle 6), because the old runner's bridge stopped with the
+  // reinstall. The old runner stops at its next step, since the task names a new runner. A raid
+  // ends instead: its steps from the start would recruit a running raid again.
+  if (state.task?.status === "running") {
+    const task = state.task;
+    setTimeout(() => {
+      if (state.task !== task || task.status !== "running") return;
+      if (task.kind === "raid") {
+        Object.assign(task, { status: "stopped", endedAt: now() });
+        iq()?.raid?.end().catch(() => {});
+        alert("task", `raid stopped by a reinstall at "${task.step}"`, true);
+        return;
+      }
+      log(`task ${task.kind}: resumed after a reinstall at "${task.step}"`);
+      runTask(task);
+    }, 2000);
+  }
   return { installed: true, config };
 })();

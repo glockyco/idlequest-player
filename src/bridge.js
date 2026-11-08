@@ -289,6 +289,9 @@
   for (const r of events) r.ses ??= session - 1;
   const SAMPLE_MAX = 90000; // 25 h at 1 Hz
   const EVENT_MAX = 60000;
+  // An older install's jobs read positions and chat from its own sampler, which stops here, so they
+  // are told to stop too: their next pause throws, and a bot task that ran them resumes on this one.
+  window.iq?.dispose?.();
   if (window.iq?.samplerId) clearInterval(window.iq.samplerId);
   if (window.iq?.unsubChat) window.iq.unsubChat();
 
@@ -733,7 +736,8 @@
   // its dialogue, trade items to it with Give Items, pull an item from another account character
   // with Inventory Search, and sell what the cursor holds. They can take minutes, so scripts start
   // them as jobs (below), and the bot's tasks call them directly.
-  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  let disposed = false;
+  const pause = (ms) => new Promise((r, reject) => setTimeout(() => (disposed ? reject(new Error("the bridge was reinstalled")) : r()), ms));
   const looseName = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   const itemName = (row) => row.itemDetails?.Name ?? row.itemDetails?.name;
   const inBags = (row) => row.bag > 0 || (row.bag === 0 && row.slot >= 22 && row.slot <= 29);
@@ -768,19 +772,27 @@
    * Walk to quest NPC `name` in this zone and open its dialogue, which arriving does for most
    * quest NPCs. A walk cut short by a fight or a blocked path is repeated, and when the party
    * stands near the NPC without a dialogue (Smith Tv`ysa in South Ro) the client's hail opens it.
-   * Then each of `keywords` is clicked in turn. Resolves with the NPC's lines, its options and
-   * whether Give Items is available.
+   * `timeoutMs` counts only the time the party does not move, because a walk across a large zone
+   * (Tenal Redblade lies 7,000 units from the East Karana entry) takes minutes. Then each of
+   * `keywords` is clicked in turn. Resolves with the NPC's lines, its options and whether Give
+   * Items is available.
    */
   const talkToNpc = async (name, keywords = [], { timeoutMs = 120000 } = {}) => {
     await walkTowards(name);
     let still = 0;
     let walks = 1;
-    let hailed = false;
-    for (const end = Date.now() + timeoutMs; !dialogueOpen(); ) {
+    let hailedAt = 0;
+    let was = null;
+    for (let end = Date.now() + timeoutMs; !dialogueOpen(); ) {
       if (Date.now() > end) throw new Error(`the dialogue of ${name} did not open`);
       await pause(1000);
-      still = lastPos?.st === "run" ? 0 : still + 1;
-      if (still < 6 || hailed || dialogueLoading()) continue;
+      // A run against an obstacle keeps the run state, so a party that has not moved counts as still.
+      const moved = was && lastPos ? Math.hypot(lastPos.x - was.x, lastPos.y - was.y) > 2 : true;
+      was = lastPos ? { x: lastPos.x, y: lastPos.y } : null;
+      still = lastPos?.st === "run" && moved ? 0 : still + 1;
+      if (!still) end = Date.now() + timeoutMs;
+      // A hail that opened nothing is repeated after 15 seconds.
+      if (still < 6 || Date.now() - hailedAt < 15000 || dialogueLoading()) continue;
       const spawn = spawnOf(name);
       const distance = spawn && lastPos ? Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y) : null;
       // A trade from afar is refused, so a stop short of the NPC walks again before hailing.
@@ -790,7 +802,7 @@
         await walkTowards(name);
         continue;
       }
-      hailed = true;
+      hailedAt = Date.now();
       // The zone's NPC list can lag a zone change, while the spawn list arrives with the zone.
       const listed = (stores.combat.getState().currentZoneNPCs ?? []).find((n) => looseName(n.name).includes(looseName(name)));
       const npc = listed ? { id: listed.id, name: listed.name } : spawn && { id: spawn.npcId ?? spawn.id, name: spawn.name };
@@ -1047,6 +1059,10 @@
     clientFn,
     carried,
     talkToNpc,
+    /** Stop this install's running jobs, as a newer install of the bridge does. */
+    dispose() {
+      disposed = true;
+    },
     giveToNpc,
     handInEach,
     pullItem,
