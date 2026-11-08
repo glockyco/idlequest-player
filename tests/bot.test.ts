@@ -195,15 +195,16 @@ test("chat lines that the bot's own alerts repeat are read once", async () => {
   expect(events.length).toBeLessThan(10);
 });
 
-test("a party member's death wakes an attached script, a pet's does not", async () => {
+test("single deaths are notes, and the sixth party death within an hour wakes a script once", async () => {
   const { bot, say } = await install();
   say("Tagujazolu has been slain!", "DEATH");
-  say("Kekab has been slain!", "DEATH");
+  for (let k = 0; k < 6; k++) say("Kekab has been slain!", "DEATH"); // a pet's deaths do not count
   await bot.tick();
-  expect(bot.state.alerts.map((a) => [a.text, a.wake])).toEqual([
-    ["Tagujazolu has been slain!", true],
-    ["Kekab has been slain!", false],
-  ]);
+  expect(bot.state.alerts.filter((a) => a.wake)).toEqual([]);
+  for (let k = 0; k < 6; k++) say("Tagujazolu has been slain!", "DEATH");
+  await bot.tick();
+  await bot.tick();
+  expect(bot.state.alerts.filter((a) => a.wake).map((a) => a.kind)).toEqual(["deaths"]);
 });
 
 test("frequent waits for an enemy raise a crowded alert, a few do not", async () => {

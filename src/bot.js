@@ -37,6 +37,7 @@
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
     stallMin: 10, // AutoLevel running without XP this long raises an alert
+    deathsPerHourAlert: 6, // party deaths within an hour that wake a script; single deaths are notes
     stuckRestartMin: 3, // running, out of combat and without XP this long: restart AutoLevel (0 = never)
     routeStuckSec: 8, // after "No usable route", no engage, cast or kill this long: restart AutoLevel
     readyStuckSec: 30, // "Waiting for party to be ready" this long with everyone full: restart AutoLevel
@@ -98,6 +99,8 @@
     crowdAlertAt: 0,
     noEnemies: [], // times of "No available enemies found in this zone"
     noEnemiesAlertAt: 0,
+    deaths: [], // times of party deaths
+    deathAlertAt: 0,
     rejoinAt: 0,
     releaseChecked: null, // client release the page was last compared with the stored one
     releaseProbeAt: 0, // when the site was last asked which client release it serves
@@ -301,8 +304,8 @@
     state.offSince ??= now();
     // When another player holds the chosen target, the client gives it up with "Looking for another
     // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
-    // is the client's, not a person's, so it restarts at once.
-    const contested = state.abandonAt && now() - state.abandonAt < 30000 && state.abandonAt >= state.offSince - 5000;
+    // is the client's, not a person's, so it restarts at the next tick, within a minute of the line.
+    const contested = state.abandonAt && now() - state.abandonAt < 60000;
     if (contested) {
       state.abandonAt = null;
       cb.startAutoLevel();
@@ -353,8 +356,11 @@
         state.upkeepAfter = Math.max(state.upkeepAfter, now() + 60000);
       } else if (e.type === "chore" && /bought spells/.test(text)) state.upkeepDue = true;
       else if ((m = /^(.+?) has been slain!/.exec(text)) || /^You have been slain/.test(text)) {
+        // The game and the bot recover from a death by themselves (respawn, rejoin), so one death
+        // is a note. A run of them points at a zone or limits that need changing (`watchDeaths`).
         const who = m?.[1] ?? "You";
-        alert("death", text, who === "You" || names.has(who));
+        alert("death", text, false);
+        if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text });
       } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
       else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
       else if (/^(No usable route|Route blocked)\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
@@ -362,7 +368,9 @@
       else if (/^You (engage .+ in combat|begin casting)|^You have defeated/.test(text)) state.routeRecoverAt = state.readyWaitAt = null;
       else if (/^No available enemies found in this zone/.test(text)) state.noEnemies.push(e.t ?? now());
       else if (/Looking for another target\.$/.test(text)) state.abandonAt = e.t ?? now();
-      else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, true);
+      // A lowered cap and a timed-out escape are the guard working. Only an AutoLevel it could not
+      // restart needs someone.
+      else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, /did NOT restart/.test(text));
     }
   };
 
@@ -378,6 +386,13 @@
       const short = sp.free < config.minFreeSlots || !!sp.cursor;
       alert("lootFull", `${state.lootFails.length} item(s) left on corpses in 10 minutes (${items}); ${sp.free} bag slots free${sp.cursor ? `, cursor holds ${sp.cursor}` : ""}`, short);
     }
+  };
+
+  const watchDeaths = () => {
+    state.deaths = (state.deaths ?? []).filter((d) => d.t > now() - 3600000);
+    if (state.deaths.length < config.deathsPerHourAlert || now() - (state.deathAlertAt ?? 0) < 3600000) return;
+    state.deathAlertAt = now();
+    alert("deaths", `${state.deaths.length} deaths in the last hour, the last: ${state.deaths.at(-1).text}`, true);
   };
 
   // The client's auto-place call, which puts the cursor item into the first place that fits.
@@ -1109,6 +1124,7 @@
       shareZone(i);
       await watchCursor(i);
       watchLoot(i);
+      watchDeaths();
       if (inRaid(i)) {
         watchMemory();
         state.lastError = null;
