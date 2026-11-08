@@ -10,47 +10,59 @@
   },
   {
     "id": "mag-mastery-fire",
-    "group": "G2",
     "kind": "errand",
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Fire",
     "count": 4,
     "minutes": 60,
-    "retryMin": 120
+    "retryMin": 120,
+    "levels": [
+      11,
+      21
+    ]
   },
   {
     "id": "mag-mastery-wind",
-    "group": "G2",
     "kind": "errand",
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Wind",
     "count": 4,
     "minutes": 60,
-    "retryMin": 120
+    "retryMin": 120,
+    "levels": [
+      11,
+      21
+    ]
   },
   {
     "id": "mag-mastery-earth",
-    "group": "G2",
     "kind": "errand",
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Earth",
     "count": 4,
     "minutes": 60,
-    "retryMin": 120
+    "retryMin": 120,
+    "levels": [
+      11,
+      21
+    ]
   },
   {
     "id": "mag-mastery-water",
-    "group": "G2",
     "kind": "errand",
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Water",
     "count": 4,
     "minutes": 60,
-    "retryMin": 120
+    "retryMin": 120,
+    "levels": [
+      11,
+      21
+    ]
   },
   {
     "id": "clr-gimblox",

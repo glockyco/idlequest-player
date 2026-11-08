@@ -264,6 +264,7 @@ export function snapshotInPage(a) {
     out.roster = roster.map((r) => ({ id: r.id, name: r.name, level: r.level, class: cls[r.class] ?? null, race: races[r.race] ?? null }));
     const zone = (sd.zones ?? []).find((z) => z.zoneidnumber === cb.currentZone);
     out.zone = zone ? (zone.longName ?? zone.shortName) : (cb.currentZone ?? null);
+    out.zoneShort = zone?.shortName ?? null;
     out.autoLevel = { running: Boolean(cb.isRunning), mode: cb.automatedCombatMode, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     out.activity = iq.activity?.() ?? null;
     out.gameHour = iq.gameHour?.() ?? null;
@@ -401,7 +402,7 @@ class Daemon {
     const groupOf = rosterGroups();
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     let opportunities = [];
     try {

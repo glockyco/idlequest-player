@@ -24,10 +24,10 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
 /**
  * The tasks to queue now. Inputs:
- * - `tabs`: `[{ label, group, members: [{ name, level }], task: { kind, status } | null, errand, gameHour }]`,
+ * - `tabs`: `[{ label, group, members: [{ name, level }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
- * - `opportunities`: data/opportunities.json, `[{ id, group, kind, zone, keep, item, count, camp, when, retryMin, points }]`,
+ * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count, camp, when, retryMin, points }]`,
  *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
  * - `owned`: opportunities whose item the account holds in `count` copies, `{ [id]: true }`.
@@ -48,10 +48,16 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // (a task still running counts five minutes).
   const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? 300000), 0);
 
-  // Epic and quest pieces first: each belongs to one group and waits for its time of day.
+  // Epic and quest pieces first. An opportunity names its group, or `levels` for any free group
+  // whose mean level lies inside, preferring one already in the zone, because NO DROP pieces move
+  // between account characters. It waits for its time of day.
   for (const o of opportunities) {
     if (owned[o.id]) continue;
-    const tab = tabs.find((t) => t.group === o.group);
+    // Pieces from the same enemies (the four Mastery pages) need one group on them, not four.
+    if (o.kind === "errand" && (tabs.some((t) => t.errand?.zone === o.zone && t.errand?.keep === o.keep) || out.some((a) => a.spec?.zone === o.zone && a.spec?.keep === o.keep))) continue;
+    const tab = o.levels
+      ? tabs.filter((t) => free(t) && t.members.length && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      : tabs.find((t) => t.group === o.group);
     if (!tab || !free(tab)) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
@@ -62,7 +68,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
-    out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${o.group}` });
+    out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
 
   // A farm goes to the groups with the lowest mean level inside its `levels`, whose own hunting

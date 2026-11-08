@@ -68,3 +68,19 @@ test("a farm keeps at most maxGroups groups, the lowest in its levels, and fills
   // A farming group that outgrew the levels stops.
   expect(decide({ now: NOW, tabs: [tab("E", "G9", 16, { errand: farming })], farms: [wisps] })).toMatchObject([{ label: "E", kind: "stopErrand" }]);
 });
+
+test("an opportunity with levels goes to a free group inside them, one already in the zone first", () => {
+  const pages = { id: "m1", levels: [11, 21], kind: "errand", zone: "najena", keep: "magician", item: "Page" };
+  const tabs = [tab("A", "G1", 41), tab("B", "G5", 12), tab("C", "G2", 18, { zone: "najena" }), tab("D", "G9", 13)];
+  expect(decide({ now: NOW, tabs, opportunities: [pages] })).toMatchObject([{ label: "C", kind: "errand", why: "Page for G2" }]);
+  const elsewhere = tabs.map((t) => ({ ...t, zone: "warrens" }));
+  expect(decide({ now: NOW, tabs: elsewhere, opportunities: [pages] })).toMatchObject([{ label: "B" }]);
+});
+
+test("errands for pieces from the same enemies go to one group", () => {
+  const page = (id: string) => ({ id, levels: [11, 21], kind: "errand", zone: "najena", keep: "magician", item: id });
+  const tabs = [tab("B", "G5", 12), tab("D", "G9", 13)];
+  expect(decide({ now: NOW, tabs, opportunities: [page("p1"), page("p2")] })).toHaveLength(1);
+  const busy = [tab("B", "G5", 12, { errand: { zone: "najena", keep: "magician" } }), tab("D", "G9", 13)];
+  expect(decide({ now: NOW, tabs: busy, opportunities: [page("p1")] })).toEqual([]);
+});
