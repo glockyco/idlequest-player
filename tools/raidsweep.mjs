@@ -4,12 +4,17 @@
 //   bun tools/raidsweep.mjs --name <sweep> [--bosses resolve|<id,...>] [--levels 46,50,55,60]
 //     [--base tools/raidsim/rosters/groups-1-3.json] [--group warrior,cleric,cleric,shaman,necromancer,necromancer]
 //     [--extra 0,3,6] [--seeds 6] [-- <raidsim flags, e.g. --heal-mode all-balanced>]
+//   bun tools/raidsweep.mjs --name <sweep> --report
 //
 // A roster is the --base members plus N extra groups of the --group classes, all at the level of
 // the row. Each configuration runs once: raidsim's JSON goes to runs/jobs/<sweep>/<key>.json and a
 // summary row to runs/jobs/<sweep>/summary.jsonl, so a rerun after an interruption only runs what
 // is missing. Runs are sequential because each raidsim run already spreads its fights over the
 // cores it may use. The table at the end lists every configuration of the sweep.
+//
+// --report reads summary.jsonl without running anything and ranks the extra-group compositions of the
+// sweep: for each one the mean share of boss HP left and the deaths per fight over the rows it has,
+// lower is stronger, with kills and mean seconds per boss and level.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
@@ -34,6 +39,36 @@ const name = opt("name");
 if (!name) {
   console.error("raidsweep: --name <sweep> is required (results go to runs/jobs/<sweep>/)");
   process.exit(1);
+}
+
+if (args.includes("--report")) {
+  const path = join(here, "runs/jobs", name, "summary.jsonl");
+  if (!existsSync(path)) {
+    console.error(`raidsweep: no results in ${path}`);
+    process.exit(1);
+  }
+  const rows = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const short = (n) => n.replace(/#/g, "").replace(/_/g, " ").replace(/ the Warder$/, "");
+  const byGroup = new Map();
+  for (const r of rows) {
+    const key = `${r.group.join(",")} ${r.flags.join(" ")}`.trim();
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push(r);
+  }
+  const ranked = [...byGroup.entries()].map(([key, rs]) => ({
+    key,
+    rs,
+    left: rs.reduce((a, r) => a + r.hpLeftPct, 0) / rs.length,
+    deaths: rs.reduce((a, r) => a + r.deathsPerFight, 0) / rs.length,
+    sec: rs.reduce((a, r) => a + r.meanSec, 0) / rs.length,
+  })).sort((a, b) => a.left - b.left || a.sec - b.sec || a.deaths - b.deaths);
+  const cells = [...new Set(rows.map((r) => `${short(r.bossName)} ${r.level}/${r.members}`))];
+  console.log(`Sweep ${name}: ${rows.length} rows, compositions ranked by mean boss HP left, then mean seconds\n`);
+  for (const g of ranked) {
+    console.log(`${g.left.toFixed(1).padStart(5)}% left  ${String(Math.round(g.sec)).padStart(4)} s  ${g.deaths.toFixed(1).padStart(4)} deaths  ${g.key}  (${g.rs.length}/${cells.length} rows)`);
+    console.log(`         ${g.rs.map((r) => `${short(r.bossName)} ${r.level}/${r.members}: ${r.kills}/${r.seeds} ${Math.round(r.meanSec)}s ${r.hpLeftPct.toFixed(0)}%`).join(" | ")}`);
+  }
+  process.exit(0);
 }
 const bosses = opt("bosses", "resolve") === "resolve" ? RESOLVE : list(opt("bosses")).map(Number);
 const levels = list(opt("levels", "46,50,55,60")).map(Number);
