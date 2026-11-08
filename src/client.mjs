@@ -843,7 +843,7 @@ export async function attach(tab) {
 // Calls that change the game or the bot. Each top-level call is written to the `interventions`
 // table of runs/iq.db, which `iqd status` shows under "Latest notes", so what a script changed and
 // when stays on record next to the attention items it answered.
-const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "setLeader", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach"];
+const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "setLeader", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach", "handIn", "hunt", "raid"];
 let interventionsDb = null;
 function logActions(handle, tab) {
   let depth = 0;
