@@ -384,6 +384,7 @@
       escalateAfter: 3, // escapes in an hour before the guard gets more careful
       minLevelDiff: 1, // tightening lowers the level cap one step per escape, not below this
       retreatZone: null, // short name to leave to, or null to re-enter the current zone
+      loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
       avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
       ...guardPrev?.config,
     },
@@ -477,7 +478,14 @@
     const leader = stores.character.getState().characterProfile.level;
     guard.trips = guard.trips.filter((t) => t.t > Date.now() - 3600000);
     let limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
-    const target = cfg.retreatZone;
+    // Re-entering puts the party at the zone's safe spot. When a mob camps there, the party is in
+    // the same fight seconds later and re-entry repeats every six seconds, so a second escape
+    // within `loopSec` leaves for another zone of the bot's rotation instead.
+    const last = guard.trips.at(-1);
+    const looping = last && last.zone === cb.currentZone && Date.now() - last.t < cfg.loopSec * 1000;
+    const here = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName;
+    const elsewhere = (window.iqBot?.config?.rotation ?? []).find((z) => z !== here) ?? null;
+    const target = cfg.retreatZone ?? (looping ? elsewhere : null);
     // A mob inside AutoLevel's own level range means our pulls are too hard, and a lower cap
     // helps. A wanderer far above the cap joins whatever we pull, and lower limits would not keep
     // it away, so escaping is all the guard does about those. Whether the zone still pays is for
@@ -491,7 +499,7 @@
     }
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
-    guardNote(`leaving: ${reason}`);
+    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`);
     // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
     // the same dangerous mob would join again, every few seconds. The client skips spawns it has
     // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they

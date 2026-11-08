@@ -65,6 +65,8 @@
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
+    respawnAfterSec: 20, // a dead leader takes the free respawn at the bind point after this long (0 = never)
+    outsideRotationSec: 60, // a party this long in a zone outside `rotation` moves to its first zone (0 = never)
     releaseProbeMin: 10, // ask the site this often whether a newer client release is served (0 = never)
   };
   let saved = {};
@@ -270,12 +272,32 @@
   // so during a raid the bot only reports: no AutoLevel restarts, rejoins, rotation, errands, gem
   // changes, target skips, cures or sales.
   const inRaid = (i) => Boolean(i.stores.raid?.getState?.().raidModeActive);
+  // A dead leader waits on the Resurrection window, and AutoLevel cannot run until it answers.
+  // The free respawn at the bind point costs no XP while Death XP Loss is off (its default).
+  const leaderDead = (i) => !(i.stores.character.getState().characterProfile?.curHp > 0);
+  const watchDeath = (i) => {
+    if (!leaderDead(i)) {
+      state.deadSince = null;
+      return;
+    }
+    state.deadSince ??= now();
+    if (now() - state.deadSince < config.respawnAfterSec * 1000) return;
+    const near = (el, re) => {
+      for (let k = 0; el && k < 5; k++, el = el.parentElement) if (re.test(el.textContent ?? "")) return true;
+      return false;
+    };
+    const free = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Free" && near(b, /Respawn at bind/i));
+    if (!free) return;
+    free.click();
+    state.deadSince = now();
+    alert("respawn", "the leader was dead; took the free respawn at the bind point");
+  };
   const keepAutoLevel = (i, cb) => {
     if (cb.isRunning) {
       state.offSince = null;
       return;
     }
-    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected) return;
+    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i)) return;
     state.offSince ??= now();
     if (now() - state.offSince < config.restartAfterSec * 1000) return;
     cb.startAutoLevel();
@@ -728,6 +750,14 @@
   };
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
   const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
+  // A party outside its rotation, after a respawn at the bind point, a new band row or a fresh
+  // start in a home city, moves to the rotation's first zone after `outsideRotationSec`.
+  const watchOutside = async (i) => {
+    const list = config.rotation ?? [];
+    if (!list.length || state.errand || !config.outsideRotationSec || list.includes(zoneShort(i))) return;
+    if (now() - (state.zoneSince ?? now()) < config.outsideRotationSec * 1000) return;
+    await moveTo(i, list[0], `${zoneShort(i)} is not in the rotation`);
+  };
   const nextZone = (i) => {
     const list = config.rotation ?? [];
     if (!list.length) return null;
@@ -1044,8 +1074,10 @@
         return;
       }
       watchCrowding(i);
+      if (config.respawnAfterSec > 0) watchDeath(i);
       await watchErrand(i);
       await watchNoEnemies(i);
+      await watchOutside(i);
       await watchRate(i);
       keepParty(i);
       watchXp(i, cb);
