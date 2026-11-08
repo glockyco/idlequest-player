@@ -447,36 +447,40 @@
   //   healer  a Cleric is below `healerManaPct` mana while someone is below `healerHpPct` HP
   const guardPrev = window.iq?.guard;
   if (guardPrev?.timerId) clearInterval(guardPrev.timerId);
+  const GUARD_DEFAULTS = {
+    enabled: true,
+    levelGap: 8,
+    hitsToKill: 3,
+    hitFromLevel: 6,
+    healerManaPct: 10,
+    healerHpPct: 50,
+    escalateAfter: 3, // escapes in an hour before the guard gets more careful
+    minLevelDiff: 1, // tightening lowers the level cap one step per escape, not below this
+    retreatZone: null, // short name to leave to, or null to re-enter the current zone
+    loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
+    avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
+    // The engaged list also holds mobs of the encounter that stand idle without a target, and
+    // city guards and sentinels that fight other NPCs ("npc:<id>"). Both set off most level
+    // escapes at low levels. With this on, the level and hit triggers only count mobs that
+    // target, chase or hate the leader, a companion or a pet.
+    fightingOnly: true,
+    // At leader levels 1 to 8 most fights against mobs that hit someone from 6 or 7 levels up
+    // ended in a death (tools/fights.mjs), so there a mob fighting the party counts from
+    // `levelGapLow`.
+    lowLevelMax: 8,
+    levelGapLow: 6,
+    // From level 5 the leader's death costs level squared times 666.67 XP. In the recorded
+    // fights this rule fired before most leader deaths and rarely in fights that were won.
+    dyingHpPct: 50,
+    dyingSec: 4,
+    dyingWindowSec: 6,
+  };
+  // Only the settings changed with `setGuard` carry over to the next install, so a changed
+  // default reaches every tab with the next attach.
+  const guardOverrides = guardPrev?.overrides ?? {};
   const guard = {
-    config: {
-      enabled: true,
-      levelGap: 8,
-      hitsToKill: 3,
-      hitFromLevel: 6,
-      healerManaPct: 10,
-      healerHpPct: 50,
-      escalateAfter: 3, // escapes in an hour before the guard gets more careful
-      minLevelDiff: 1, // tightening lowers the level cap one step per escape, not below this
-      retreatZone: null, // short name to leave to, or null to re-enter the current zone
-      loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
-      avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
-      // The engaged list also holds mobs of the encounter that stand idle without a target, and
-      // city guards and sentinels that fight other NPCs ("npc:<id>"). Both set off most level
-      // escapes at low levels. With this on, the level and hit triggers only count mobs that
-      // target, chase or hate the leader, a companion or a pet.
-      fightingOnly: true,
-      // At leader levels 1 to 8 most fights against mobs that hit someone from 6 or 7 levels up
-      // ended in a death (tools/fights.mjs), so there a mob fighting the party counts from
-      // `levelGapLow`.
-      lowLevelMax: 8,
-      levelGapLow: 6,
-      // From level 5 the leader's death costs level squared times 666.67 XP. In the recorded
-      // fights this rule fired before most leader deaths and rarely in fights that were won.
-      dyingHpPct: 50,
-      dyingSec: 4,
-      dyingWindowSec: 6,
-      ...guardPrev?.config,
-    },
+    config: { ...GUARD_DEFAULTS, ...guardOverrides },
+    overrides: guardOverrides,
     phase: "watching", // watching | leaving
     preferred: guardPrev?.preferred ?? null, // limits to return to after a quiet hour, once tightened
     trips: guardPrev?.trips ?? [],
@@ -484,15 +488,23 @@
     hp: [], // the leader's HP once a second over the last 10 s, for the dying trigger
     timerId: null,
   };
-  // Settings an older install carried over that this one no longer reads.
-  delete guard.config.safeLimits;
-  delete guard.config.fallbackZone;
   const guardApi = {
     /** The guard's settings, its phase and the escapes of the last hour. */
-    guardStatus: () => ({ config: guard.config, phase: guard.phase, trips: guard.trips }),
-    /** Change guard settings, e.g. `{ levelGap: 6 }`, `{ retreatZone: "lfaydark" }` or `{ enabled: false }`. */
+    guardStatus: () => ({ config: guard.config, overrides: guard.overrides, phase: guard.phase, trips: guard.trips }),
+    /**
+     * Change guard settings, e.g. `{ levelGap: 6 }`, `{ retreatZone: "lfaydark" }` or
+     * `{ enabled: false }`. `null` restores a setting's default.
+     */
     setGuard(partial) {
-      Object.assign(guard.config, partial);
+      for (const [k, v] of Object.entries(partial)) {
+        if (v === null) {
+          delete guard.overrides[k];
+          guard.config[k] = GUARD_DEFAULTS[k];
+        } else {
+          guard.overrides[k] = v;
+          guard.config[k] = v;
+        }
+      }
       return guard.config;
     },
     /** Make the guard leave once, as if `reason` had fired, to test the escape. No setting changes. */

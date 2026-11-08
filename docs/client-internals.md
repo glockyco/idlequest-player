@@ -243,9 +243,11 @@ own level range lowers the level cap by one (not below `minLevelDiff`), because 
 too hard, and a quiet hour restores the earlier limits. Escapes from wanderers above the cap change
 nothing, because lower limits would not keep them away. Whether a zone still pays with its escapes
 is for the measured XP per hour to decide: `analyze.mjs` counts escapes and the seconds they cost.
-`guardStatus()` shows the phase and recent escapes, `setGuard({...})` changes the settings and
-`testGuard()` forces one escape without touching a setting. Each escape is a `guard` line in the
-event log.
+`guardStatus()` shows the phase, the settings changed from `GUARD_DEFAULTS` and recent escapes,
+`setGuard({...})` changes settings (`null` restores a default) and `testGuard()` forces one escape
+without touching a setting. Only changed settings carry over when the bridge is installed again, so
+a new default reaches every tab with the next attach. Each escape is a `guard` line in the event
+log.
 
 ## In-page chores
 
