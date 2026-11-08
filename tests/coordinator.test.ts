@@ -105,3 +105,22 @@ test("a quest chain takes a tab before a camp would", () => {
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
   expect(decide({ now: NOW, tabs, quests, opportunities: [page] })).toMatchObject([{ label: "A", kind: "quest" }]);
 });
+
+test("an experiment gives arm A the setting and arm B the other in the first block, swaps, then ends on the other", async () => {
+  const { experimentSettings } = await import("../tools/lib/coordinator.mjs");
+  const x = { id: "con", a: ["G4"], b: ["G5"], blockMin: 90, setting: { limits: { minCon: 10 } }, without: { limits: { minCon: 4 } } };
+  const first = experimentSettings({ now: NOW, experiments: [x] });
+  expect(first.events).toEqual([{ id: "con", kind: "start", start: NOW }]);
+  expect(first.settings).toEqual({ G4: x.setting, G5: x.without });
+  expect([...first.held]).toEqual(["G4", "G5"]);
+  const second = experimentSettings({ now: NOW + 100 * 60000, experiments: [x], started: { con: NOW } });
+  expect([second.settings, second.events]).toEqual([{ G4: x.without, G5: x.setting }, []]);
+  const after = experimentSettings({ now: NOW + 181 * 60000, experiments: [x], started: { con: NOW } });
+  expect([after.settings, after.events, after.held.size]).toEqual([{ G4: x.without, G5: x.without }, [{ id: "con", kind: "end", start: NOW }], 0]);
+  expect(experimentSettings({ now: NOW + 200 * 60000, experiments: [x], started: { con: NOW }, ended: { con: NOW } }).events).toEqual([]);
+  // A held group's errand stops, whatever it hunts for.
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "najena", keep: "magician" } })], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
+  // A farm skips a held group and stops it when it farms.
+  const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "nektulos", keep: "wisp" } })], farms: [farm], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
+});

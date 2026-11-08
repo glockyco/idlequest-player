@@ -327,7 +327,11 @@ back when the camp says its points respawn, a held camp after 15 minutes, and ot
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who do not carry its reward, one task per tab, and a chain that
-stopped part way goes on after the last reward the member carries. A tab gets at most one coordinator task in
+stopped part way goes on after the last reward the member carries. Each experiment in
+`data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
+`without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
+the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at
+the end iqd registers a job with the `tools/crossover.mjs` command that reads the result. A tab gets at most one coordinator task in
 20 minutes, and none while a task or errand runs or a pause holds. Its tasks are logged as
 interventions by `coordinator`, apart from manual ones, and the dashboard's Coordinator section
 shows its last pass.

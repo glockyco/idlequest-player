@@ -36,10 +36,12 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, steps, retryMin } }`, and `holders`,
  *   the account characters that carry each quest's reward, `{ [id]: [name] }`.
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
+ * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
+ *   errands by level range, because both change the limits the arms compare.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, gear = null, history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -50,6 +52,9 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // Minutes of the last hour each tab spent on the coordinator's hunts, by their recorded length
   // (a task still running counts five minutes).
   const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? 300000), 0);
+
+  // A group an experiment holds plays only what its arm sets, so an errand it runs stops.
+  for (const t of tabs) if (held.has(t.group) && t.errand) out.push({ label: t.label, kind: "stopErrand", id: null, spec: null, why: `an experiment holds ${t.group}` });
 
   // Quest chains (data/quests.json) come first, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
@@ -74,7 +79,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     // Pieces from the same enemies (the four Mastery pages) need one group on them, not four.
     if (o.kind === "errand" && (tabs.some((t) => t.errand?.zone === o.zone && t.errand?.keep === o.keep) || out.some((a) => a.spec?.zone === o.zone && a.spec?.keep === o.keep))) continue;
     const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      ? tabs.filter((t) => free(t) && t.members.length && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
     if (!tab || !free(tab)) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
@@ -94,10 +99,10 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // zone wait for the enemies the others hold: three wisp groups in Nektulos lost 11 to 20% of their
   // time that way. A farming group that left the levels or is beyond the cap stops.
   for (const f of farms) {
-    const fits = (t) => mean(t) >= f.levels[0] && mean(t) <= f.levels[1];
+    const fits = (t) => mean(t) >= f.levels[0] && mean(t) <= f.levels[1] && !held.has(t.group);
     const on = tabs.filter((t) => t.errand?.zone === f.zone && t.errand?.keep === f.keep).sort((a, b) => mean(a) - mean(b));
     const stay = on.filter(fits).slice(0, f.maxGroups);
-    for (const t of on) if (!stay.includes(t)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
+    for (const t of on) if (!stay.includes(t) && !out.some((o) => o.label === t.label)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${held.has(t.group) ? "an experiment holds the group" : fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
     const join = tabs.filter((t) => free(t) && t.members.length && fits(t)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
     for (const t of join) out.push({ label: t.label, kind: "errand", id: f.id, spec: { zone: f.zone, keep: f.keep, minutes: f.minutes }, why: `${f.id} for ${t.group}, mean level ${mean(t).toFixed(1)}` });
   }
@@ -124,3 +129,37 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
 }
 
 const mean = (t) => t.members.reduce((a, m) => a + (m.level ?? 0), 0) / Math.max(1, t.members.length);
+
+/**
+ * The bot settings experiments ask for now (data/experiments.json, docs/plans/controller.md,
+ * principle 7). An experiment is a two-period crossover as tools/crossover.mjs reads it:
+ * `{ id, a: [group], b: [group], blockMin, setting, without }`. In the first block arm A plays
+ * with `setting` and arm B with `without`, in the second block the other way round, and then every
+ * group of it keeps `without` until the experiment leaves the file. `started` maps an experiment
+ * id to the time it started, which the caller keeps. Returns `{ settings: { [group]: partial },
+ * events: [{ id, kind: "start" | "end", start }], held: Set of the groups an experiment
+ * holds }`, where `held` groups get no farms, because a farm changes what the arms compare.
+ * `ended` maps an experiment id to the time its end was reported.
+ */
+export function experimentSettings({ now, experiments = [], started = {}, ended = {} }) {
+  const settings = {};
+  const events = [];
+  const held = new Set();
+  for (const x of experiments) {
+    const start = started[x.id] ?? now;
+    if (started[x.id] == null) events.push({ id: x.id, kind: "start", start });
+    const block = Math.floor((now - start) / (x.blockMin * 60000));
+    const set = (groups, s) => {
+      for (const g of groups) settings[g] = { ...settings[g], ...s };
+    };
+    if (block >= 2) {
+      set([...x.a, ...x.b], x.without);
+      if (ended[x.id] == null) events.push({ id: x.id, kind: "end", start });
+      continue;
+    }
+    for (const g of [...x.a, ...x.b]) held.add(g);
+    set(x.a, block === 0 ? x.setting : x.without);
+    set(x.b, block === 0 ? x.without : x.setting);
+  }
+  return { settings, events, held };
+}

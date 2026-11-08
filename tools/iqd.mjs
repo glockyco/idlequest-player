@@ -376,6 +376,13 @@ export function jobInPage(a) {
   return window.iq.jobs[a.id] ?? null;
 }
 
+/** Set the bot settings of `a.s` that differ, and return the names of those that changed. */
+export function applySettingsInPage(a) {
+  const changed = Object.keys(a.s).filter((k) => JSON.stringify(window.iqBot.config[k]) !== JSON.stringify(a.s[k]));
+  if (changed.length) window.iqBot.set(Object.fromEntries(changed.map((k) => [k, a.s[k]])));
+  return changed;
+}
+
 /** Give the bot the items the roster gear plan wants kept, which its cleanup never sells. */
 export function setGearKeepInPage(a) {
   window.iqBot.set({ gearKeepIds: a.ids });
@@ -492,8 +499,9 @@ class Daemon {
       if (task.nextAt) h.nextAt = task.nextAt;
       if (task.endedAt) h.ms = task.endedAt - task.startedAt;
     }
+    const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, gear, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -508,6 +516,47 @@ class Daemon {
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
     state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     metaSet(this.db, "coordinator", state);
+  }
+
+  /**
+   * Experiments from data/experiments.json (`experimentSettings` in tools/lib/coordinator.mjs): each
+   * pass sets the arms' bot settings for the current block, records the start and the end in the
+   * coordinator's state, and at the end registers a job with the crossover command that reads the
+   * result. Returns the groups the experiments hold.
+   */
+  async experimentPass(now, tabs, state) {
+    const { experimentSettings } = await import("./lib/coordinator.mjs");
+    let experiments = [];
+    try {
+      experiments = JSON.parse(await readFile(join(REPO, "data/experiments.json"), "utf8"));
+    } catch {
+      return new Set();
+    }
+    const ex = (state.experiments ??= { started: {}, ended: {} });
+    const { settings, events, held } = experimentSettings({ now, experiments, started: ex.started, ended: ex.ended });
+    const note = (text) => {
+      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, null, text);
+      this.log(`coordinator: ${text}`);
+    };
+    for (const e of events) {
+      const x = experiments.find((y) => y.id === e.id);
+      if (e.kind === "start") {
+        ex.started[e.id] = e.start;
+        note(`experiment ${e.id} started: A ${x.a.join(",")}, B ${x.b.join(",")}, blocks of ${x.blockMin} min`);
+      } else {
+        ex.ended[e.id] = now;
+        const cmd = `bun tools/crossover.mjs --start ${e.start} --block ${x.blockMin} --a ${x.a.join(",")} --b ${x.b.join(",")}`;
+        const job = this.db.query("INSERT INTO jobs (purpose, command, output, started) VALUES (?, ?, ?, ?) RETURNING id").get(`experiment ${e.id}: read the crossover and record it in the plans`, cmd, null, now).id;
+        note(`experiment ${e.id} ended, job #${job}: ${cmd}`);
+      }
+    }
+    for (const t of tabs) {
+      const s = settings[t.group];
+      if (!s) continue;
+      const changed = await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s }), { timeout: 10000 }).catch(() => []);
+      if (changed?.length) this.log(`experiment settings for ${t.group}: ${changed.join(", ")}`);
+    }
+    return held;
   }
 
   /**
