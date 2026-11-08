@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { decide } from "../tools/lib/coordinator.mjs";
+import { assignZones, decide } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -139,4 +139,35 @@ test("a member part way through a quest runs it without a copy of what it needs"
   const tabs = [{ ...tab("A", "G4", 14), members: ["N1", "N2"].map((name) => ({ name, level: 14, class: "Necromancer" })) }];
   expect(decide({ now: NOW, tabs, quests, have: { Head: 0 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2"] } }]);
   expect(decide({ now: NOW, tabs, quests, have: { Head: 1 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2", "N1"] } }]);
+});
+
+const ROWS = [[14, ["warrens", "kurn", "runnyeye", "najena", "guktop"]]];
+const measured = (xph: Record<string, number>) => Object.fromEntries(Object.entries(xph).map(([z, v]) => [z, { 15: { s: 3600, xp: v, t: NOW } }]));
+const RATES = measured({ kurn: 800000, runnyeye: 600000, warrens: 580000, najena: 420000 });
+
+test("a group moves to the best zone only once it is worth the margin more than its own", () => {
+  // Kurn is 38% better than Warrens, so Warrens leaves the rotation, and the unmeasured Upper Guk
+  // ranks as the median measured zone, after Runnyeye by row order.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "warrens" })], rows: ROWS, rates: RATES })).toMatchObject([{ label: "A", rotation: ["kurn", "runnyeye", "guktop"] }]);
+  // Kurn 13% better than Runnyeye keeps the group where it is.
+  const close = measured({ kurn: 680000, runnyeye: 600000, warrens: 580000, najena: 420000 });
+  const [a] = assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye" })], rows: ROWS, rates: close });
+  expect(a.rotation).toContain("runnyeye");
+  // A rotation that is already right is not set again.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye", rotation: a.rotation })], rows: ROWS, rates: close })).toEqual([]);
+});
+
+test("the lowest group takes the best zone first, and the next counts it as crowded", () => {
+  const tabs = [tab("B", "G4", 16, { zone: "najena" }), tab("A", "G3", 15, { zone: "warrens" })];
+  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });
+  expect(out.find((z) => z.label === "A")!.rotation[0]).toBe("kurn");
+  expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
+});
+
+test("busy and held groups keep their rotation and count for the zone they are in", () => {
+  const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye" }), tab("B", "G4", 15, { zone: "najena" })];
+  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, held: new Set(["G5"]) });
+  expect(out.map((z) => z.label)).toEqual(["B"]);
+  // Kurn and Runnyeye each hold a group, so Upper Guk and Warrens rank first.
+  expect(out[0].rotation.slice(0, 2)).toEqual(["guktop", "warrens"]);
 });

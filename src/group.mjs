@@ -96,6 +96,9 @@ export async function signIn(tab, { timeoutMs = 120000 } = {}) {
 /** Platinum of a Manage Money cell such as "3,563 pp". */
 const platinum = (cell) => Number(String(cell ?? "").replace(/[^0-9]/g, "")) || 0;
 const readRoster = async () => JSON.parse(await readFile(ROSTER, "utf8"));
+// The band row's zones at a leader level, the rotation until the coordinator ranks them
+// (`assignZones` in tools/lib/coordinator.mjs).
+const bandRow = async (level) => [...(JSON.parse(await readFile(new URL("../data/band-rotations.json", import.meta.url), "utf8")).sort((a, b) => b[0] - a[0]).find(([min]) => level >= min)?.[1] ?? [])];
 /** The roster as the file keeps it: one line per group. */
 export function formatRoster(r) {
   const line = (g) => JSON.stringify(g).replace(/,"/g, ', "').replace(/":/g, '": ').replace(/^\{/, "{ ").replace(/\}$/, " }");
@@ -214,9 +217,8 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
     if (!cb.autoUpgradeCompanionsEnabled) cb.toggleAutoUpgradeCompanions();
   });
   await iq.applyRoleTactics();
-  // The bot orders a band row by how few of this browser's other groups hunt each zone. From here
-  // it keeps the leader active and the members in the party by itself.
-  const rotation = await tab.evaluate(() => window.iqBot.leastUsed([...(window.iq.bandRotations ?? []).find(([min]) => min <= 1)[1]]));
+  // From here the bot keeps the leader active and the members in the party by itself.
+  const rotation = await bandRow(1);
   await iq.setBot({ rotation, leaderId: ids[leader], enabled: true });
   await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({ minCon: 10, maxCon: 13 });
@@ -248,7 +250,7 @@ export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowe
   await iq.setBot({ enabled: true });
   const sw = await iq.setLeader(leader, { members: rest });
   const level = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.level);
-  const rotation = await tab.evaluate((lvl) => window.iqBot.leastUsed([...((window.iq.bandRotations ?? []).find(([min]) => lvl >= min)?.[1] ?? [])]), level);
+  const rotation = await bandRow(level);
   if (rotation.length) await iq.setBot({ rotation });
   if (rotation.length && !rotation.includes(await zoneShort(tab))) await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({});

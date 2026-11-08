@@ -72,8 +72,7 @@ then goes to all of them. The old code a step replaces is deleted in the same st
 4. The remedy table for idle causes. The stuck restarts, the crowding count, the XP stall and the
    empty-zone handling go.
 5. The coordinator: done for lightstones, quests, epic hunts and errands, farms with a group cap,
-   the roster gear pass, crossover experiments from data and code deploys. Open: zone assignment
-   from measured rates and coin allocation, after which the zone counts in the browser's shared
-   storage and the band row changes at level-up go.
+   the roster gear pass, crossover experiments from data, code deploys and zone rotations from
+   measured rates. Open: coin allocation.
 6. The value model and the safety decision fitted from the fight logs. The guard's fixed triggers
    become its inputs.

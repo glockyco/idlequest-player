@@ -402,43 +402,6 @@ test("cleanup keeps the last copy of a quest turn-in item and sells its extra co
   expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
 });
 
-test("a level-up sets the rotation from the injected band table", async () => {
-  const { bot, iq, say } = await install();
-  Object.assign(iq, { bandRotations: [[31, ["soldunga", "unrest"]], [22, ["permafrost"]]] });
-  bot.config.rotation = ["permafrost"];
-  say("You have gained a level! Welcome to level 31!");
-  await bot.tick();
-  expect(bot.config.rotation).toEqual(["soldunga", "unrest"]);
-});
-
-test("a level-up starts the new band row where the fewest other groups of the browser hunt", async () => {
-  const { bot, iq, say } = await install();
-  const store = new Map<string, string>([
-    ["iqBot.zone.Other1", JSON.stringify({ zone: "soldunga", level: 31, t: Date.now() })],
-    ["iqBot.zone.Other2", JSON.stringify({ zone: "soldunga", level: 32, t: Date.now() })],
-    // An entry older than five minutes belongs to a group that is gone.
-    ["iqBot.zone.Gone", JSON.stringify({ zone: "unrest", level: 31, t: Date.now() - 600000 })],
-  ]);
-  const g = globalThis as unknown as { localStorage?: unknown };
-  g.localStorage = {
-    get length() {
-      return store.size;
-    },
-    key: (k: number) => [...store.keys()][k] ?? null,
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-  };
-  try {
-    Object.assign(iq, { bandRotations: [[31, ["soldunga", "unrest"]], [22, ["permafrost"]]] });
-    bot.config.rotation = ["permafrost"];
-    say("You have gained a level! Welcome to level 31!");
-    await bot.tick();
-    expect(bot.config.rotation).toEqual(["unrest", "soldunga"]);
-  } finally {
-    delete g.localStorage;
-  }
-});
-
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
   const empty = { act: "idle", why: "noEnemies", since: Date.now() };
   const tightened = await install();

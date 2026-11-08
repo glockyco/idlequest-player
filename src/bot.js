@@ -77,7 +77,6 @@
     rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
-    autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
     // AutoLevel's con and level limits, { minCon, maxCon, maxLevelDiff }, that the party returns to
     // after a zone change, an errand, and `widenMin` minutes after a remedy widened them (`keepLimits`).
     // null leaves the limits as they are.
@@ -481,10 +480,8 @@
       const text = e.text ?? "";
       recordFight(i, text, e.t ?? now());
       let m;
-      if ((m = /^You have gained a level! Welcome to level (\d+)/.exec(text))) {
-        const lvl = Number(m[1]);
+      if (/^You have gained a level! Welcome to level \d+/.test(text)) {
         alert("levelUp", text, true);
-        applyBandRotation(lvl);
         // The game reminds about missing merchant spells right after a level-up and the chore buys
         // them, so give that a minute before choosing gems.
         state.upkeepDue = true;
@@ -1416,62 +1413,26 @@
   // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
   // next one when "No available enemies" persists, or when the last 10 minutes earned less than
   // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
-  // The band rows (`window.iq.bandRotations`, from data/band-rotations.json, shared with
-  // tools/gear.mjs) set `rotation` at each level-up. docs/plans/leveling-plan.md gives the evidence
-  // for each row.
-  // Every group's bot reads the same rows, and groups in one zone contest the same enemies ("That
-  // target is already engaged by another player"). The game tabs of one browser share
-  // localStorage, so each bot records its zone there every tick, and a band row and the next zone
-  // are chosen by how few other groups of this browser hunt there, in row order on a tie.
-  const ZONE_PREFIX = "iqBot.zone.";
-  const shareZone = (i) => {
-    const me = i.stores.character.getState().characterProfile;
-    const zone = i.stores.staticData?.getState?.().zones?.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
-    if (me?.name && zone && typeof localStorage !== "undefined") localStorage.setItem(ZONE_PREFIX + me.name, JSON.stringify({ zone, level: me.level, t: now() }));
-  };
-  const occupancy = (zone) => {
-    if (typeof localStorage === "undefined") return 0;
-    const self = ZONE_PREFIX + (iq()?.stores.character.getState().characterProfile?.name ?? "");
-    let n = 0;
-    for (let k = 0; k < localStorage.length; k++) {
-      const key = localStorage.key(k);
-      if (!key?.startsWith(ZONE_PREFIX) || key === self) continue;
-      try {
-        const v = JSON.parse(localStorage.getItem(key));
-        if (v.zone === zone && now() - v.t < 300000) n++;
-      } catch {}
-    }
-    return n;
-  };
-  const leastUsed = (list) => list.map((z, k) => ({ z, k, n: occupancy(z) })).sort((a, b) => a.n - b.n || a.k - b.k).map((x) => x.z);
-  const applyBandRotation = (lvl) => {
-    if (!config.autoBandRotation || !(config.rotation ?? []).length) return;
-    const row = (iq()?.bandRotations ?? []).find(([min]) => lvl >= min)?.[1];
-    if (!row || JSON.stringify([...row].sort()) === JSON.stringify([...config.rotation].sort())) return;
-    const band = leastUsed(row);
-    config.rotation = [...band];
-    saved.rotation = [...band];
-    sessionStorage.setItem(KEY, JSON.stringify(saved));
-    log(`updated rotation for level ${lvl}: ${band.join(", ")}`);
-  };
+  // The coordinator sets `rotation`: the band row's zones at the leader's level with the most
+  // measured XP per hour, best first, a zone other groups hunt in counting for less
+  // (`assignZones` in tools/lib/coordinator.mjs).
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
   const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
-  // A party outside its rotation, after a respawn at the bind point, a new band row or a fresh
+  // A party outside its rotation, after a respawn at the bind point, a new rotation or a fresh
   // start in a home city, moves to the rotation's first zone after `outsideRotationSec`.
   const watchOutside = async (i) => {
     const list = config.rotation ?? [];
     if (!list.length || state.errand || !config.outsideRotationSec || list.includes(zoneShort(i))) return;
     if (now() - (state.zoneSince ?? now()) < config.outsideRotationSec * 1000) return;
-    await moveTo(i, leastUsed(list)[0], `${zoneShort(i)} is not in the rotation`);
+    await moveTo(i, list[0], `${zoneShort(i)} is not in the rotation`);
   };
   const nextZone = (i) => {
     const here = zoneShort(i);
     const others = (config.rotation ?? []).filter((z) => z !== here);
     if (!others.length) return null;
     const k = (config.rotation ?? []).indexOf(here);
-    // Row order from the zone after this one, so ties keep the old cycling.
-    const ordered = [...others.filter((z) => config.rotation.indexOf(z) > k), ...others.filter((z) => config.rotation.indexOf(z) < k)];
-    return leastUsed(ordered)[0];
+    // Rotation order from the zone after this one.
+    return [...others.filter((z) => config.rotation.indexOf(z) > k), ...others.filter((z) => config.rotation.indexOf(z) < k)][0];
   };
   const moveTo = async (i, dest, why) => {
     if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
@@ -1825,7 +1786,6 @@
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
       scanEvents(i);
       watchZone(i, cb);
-      shareZone(i);
       await watchCursor(i);
       watchLoot(i);
       watchDeaths(i);
@@ -1896,8 +1856,6 @@
     surplus: () => surplus(iq(), true),
     /** The gems the upkeep would set for the leader's class, in gem order: [{gem, role, id, name, level}]. */
     spellPlan: () => spellPlan(iq()),
-    /** The zones of `list` ordered by how few other groups of this browser hunt there now. */
-    leastUsed: (list) => leastUsed(list),
     /** The resurrection the bot would buy from `offers` ({ percent, price } in pp) with `coinPp` carried, or null to respawn. */
     recoveryChoice: (offers, coinPp) => recoveryChoice(offers, coinPp),
     /** Run the bag cleanup now, also during a pause, as below `minFreeSlots`. Resolves with the free slots after. */

@@ -335,9 +335,20 @@ carries. A step talks to its `npc` with `say` keywords, gives it `give`, hands i
 `without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at
 the end iqd registers a job with the `tools/crossover.mjs` command that reads the result. A tab gets at most one coordinator task in
-20 minutes, and none while a task or errand runs or a pause holds. Its tasks are logged as
-interventions by `coordinator`, apart from manual ones, and the dashboard's Coordinator section
-shows its last pass.
+20 minutes, and none while a task or errand runs or a pause holds.
+
+The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
+leader's level in `data/band-rotations.json`, best first by the XP per hour measured there at levels
+within two of the leader's (`tools/lib/rates.mjs`). Only time a group hunted alone in its zone,
+outside tasks and errands, counts, and older time weighs less, halving every 24 hours. iqd keeps
+the rates in the db's meta key `rates`, built once from `runs/live/*/samples.jsonl` and grown from
+every new sample. A zone with little time there ranks near the row's median, so it gets tried, and a
+zone another group hunts in counts for less. A group stays in its zone until another zone is worth
+20% more, and the bot moves along its rotation by itself when a zone runs dry. A row is the list of
+zones that are safe and worth trying at its levels, so a zone joins a row there.
+
+The coordinator's tasks and zone changes are logged as interventions by `coordinator`, apart from
+manual ones, and the dashboard's Coordinator section shows its last pass.
 
 `run --recover` deploys the bridge and bot to every tab whose installed code differs from the
 repository's (`codeVersion` in `src/install.mjs`, outside raids), and brings back a game tab that is

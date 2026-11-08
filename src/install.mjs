@@ -15,18 +15,17 @@ const here = new URL(".", import.meta.url);
  * `codeVersion`, so the collector can tell a tab that runs older code.
  */
 export async function installExpressions() {
-  const [bridge, bot, opcodes, classSpells, questItems, bandRotations] = await Promise.all([
+  const [bridge, bot, opcodes, classSpells, questItems] = await Promise.all([
     readFile(new URL("bridge.js", here), "utf8"),
     readFile(new URL("bot.js", here), "utf8"),
     readFile(new URL("../data/opcodes.json", here), "utf8"),
     readFile(new URL("../data/class-spells.json", here), "utf8"),
     readFile(new URL("../data/quest-items.json", here), "utf8"),
-    readFile(new URL("../data/band-rotations.json", here), "utf8"),
   ]);
   const code = [
     bridge,
     `window.iq.setOpcodeNames(${opcodes})`,
-    `(() => { window.iq.classSpells = ${classSpells}; window.iq.questItems = ${questItems}; window.iq.bandRotations = ${bandRotations}; })()`,
+    `(() => { window.iq.classSpells = ${classSpells}; window.iq.questItems = ${questItems}; })()`,
     bot,
   ];
   return [...code, `window.iq.code = ${JSON.stringify(version(code))}`];

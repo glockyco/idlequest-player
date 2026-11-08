@@ -378,12 +378,17 @@
     }
     const [act, why = null] = lab;
     if (activity?.act !== act || activity?.why !== why) activity = { act, why, since: t };
+    // A task or an errand changes what the party fights, so the measured zone rates leave that
+    // time out (tools/lib/rates.mjs).
+    const bot = window.iqBot?.state;
+    const busy = bot?.errand ? "errand" : (bot?.pauseUntil ?? 0) > t ? "task" : null;
     return {
       ses: session,
       seq: ++seqs.sample,
       t,
       act,
       ...(why ? { why } : {}),
+      ...(busy ? { busy } : {}),
       lvl: p.level,
       xp: p.experienceProgress?.current ?? null, // absolute XP, continuous across levels
       zone: cb.currentZone,
@@ -647,12 +652,12 @@
     let limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     // Re-entering puts the party at the zone's safe spot. When a mob camps there, the party is in
     // the same fight seconds later and re-entry repeats every six seconds, so a second escape
-    // within `loopSec` leaves for the rotation zone fewest other groups hunt (`iqBot.leastUsed`).
+    // within `loopSec` leaves for the best other zone of the rotation, which lists the best first.
     const last = guard.trips.at(-1);
     const looping = last && last.zone === cb.currentZone && Date.now() - last.t < cfg.loopSec * 1000;
     const here = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName;
     const others = (window.iqBot?.config?.rotation ?? []).filter((z) => z !== here);
-    const elsewhere = (window.iqBot?.leastUsed?.(others) ?? others)[0] ?? null;
+    const elsewhere = others[0] ?? null;
     const target = cfg.retreatZone ?? (looping ? elsewhere : null);
     // A mob inside AutoLevel's own level range means our pulls are too hard, and a lower cap
     // helps. A wanderer far above the cap joins whatever we pull, and lower limits would not keep

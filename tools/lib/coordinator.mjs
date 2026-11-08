@@ -3,6 +3,7 @@
 // returns the tasks to queue, and tools/iqd.mjs gathers the inputs and queues the tasks in the
 // pages through the bot's own task API. It never plays a step itself.
 import { stoneShares } from "../../src/group.mjs";
+import { estimate } from "./rates.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
 /** XP Smith Tv`ysa pays for each stone (docs/guide.md). */
@@ -138,6 +139,60 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
 }
 
 const mean = (t) => t.members.reduce((a, m) => a + (m.level ?? 0), 0) / Math.max(1, t.members.length);
+
+export const ZONE_DEFAULTS = {
+  // Zones in a rotation: the bot hunts the first and moves along when a zone runs dry.
+  keep: 3,
+  // Hours of the row's median rate a zone's own measurement is weighed against, so a zone with
+  // little time there ranks near the median and gets tried, and its own rate takes over with time.
+  priorHours: 0.5,
+  // Another group in the zone takes about half a group's share of its enemies (tools/calibrate.mjs).
+  crowdWeight: 0.5,
+  // A group leaves its zone for one worth this share more.
+  margin: 0.2,
+};
+
+/**
+ * Each group's zone rotation (docs/plans/controller.md, principle 4): the `keep` zones of the band
+ * row at its leader's level (`rows`, data/band-rotations.json) with the most measured XP per hour
+ * (`rates`, tools/lib/rates.mjs), best first. The bot stays in a zone of its rotation and moves
+ * along it when the zone runs dry, and moves to the first zone when its own is not in the
+ * rotation. A group's own zone stays in the rotation until the best zone is worth `margin` more,
+ * so measurement noise does not move groups back and forth. Groups are assigned from the lowest
+ * level up, because the slowest group sets the account's time to 60, and a zone is worth a
+ * `crowdWeight` share less for each group that hunts there already. A zone's measured rate is
+ * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
+ * zone with little time there ranks near the median and gets tried. Busy groups and groups an
+ * experiment holds keep their rotation and count for the zone they are in. Returns
+ * `[{ label, rotation, why }]` for the rotations that change.
+ */
+export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set(), cfg = ZONE_DEFAULTS }) {
+  const out = [];
+  const crowd = new Map();
+  const occupy = (zone) => zone && crowd.set(zone, (crowd.get(zone) ?? 0) + 1);
+  const fixed = (t) => t.task?.status === "running" || t.errand || held.has(t.group);
+  for (const t of tabs) if (fixed(t)) occupy(t.zone);
+  for (const t of [...tabs].filter((x) => !fixed(x)).sort((a, b) => mean(a) - mean(b))) {
+    const level = t.members[0]?.level ?? 0;
+    const row = [...rows].sort((a, b) => b[0] - a[0]).find(([min]) => level >= min)?.[1] ?? [];
+    if (!row.length) continue;
+    const zones = row.map((z, k) => ({ z, k, e: estimate(rates, z, level, now) }));
+    const solid = zones.filter((m) => m.e?.hours >= cfg.priorHours);
+    const known = (solid.length ? solid : zones.filter((m) => m.e)).map((m) => m.e.xph).sort((a, b) => a - b);
+    const median = known.length ? known[Math.floor(known.length / 2)] : 1;
+    const xph = (e) => (e ? (e.hours * e.xph + cfg.priorHours * median) / (e.hours + cfg.priorHours) : median);
+    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: xph(m.e) / (1 + cfg.crowdWeight * (crowd.get(m.z) ?? 0)) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    const own = ranked.find((m) => m.z === t.zone);
+    const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
+    const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
+    const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
+    occupy(stay ? t.zone : rotation[0]);
+    if (JSON.stringify(rotation) === JSON.stringify(t.rotation ?? [])) continue;
+    const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);
+    out.push({ label: t.label, rotation, why: `level ${level}: ${shown.join(", ")}` });
+  }
+  return out;
+}
 
 /**
  * The bot settings experiments ask for now (data/experiments.json, docs/plans/controller.md,

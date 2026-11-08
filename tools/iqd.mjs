@@ -8,12 +8,13 @@
 // own task API, which plays the steps.
 // Usage: see `iqd help` and the "Monitoring" section of the README.
 import { Database } from "bun:sqlite";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
+import { accumulate, zoneNames } from "./lib/rates.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -241,6 +242,7 @@ export function snapshotInPage(a) {
         enabled: bot.config.enabled,
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
+        rotation: bot.config.rotation ?? [],
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep } : null,
         task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
@@ -454,11 +456,11 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     let opportunities = [];
     try {
@@ -521,9 +523,62 @@ class Daemon {
         this.log(`coordinator: ${a.label} ${a.kind} not queued: ${e.message}`);
       }
     }
+    // Zone rotations by measured XP per hour. A tab given a task this pass keeps its rotation.
+    const rates = await this.loadRates();
+    const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
+    const tasked = new Set(actions.map((a) => a.label));
+    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, held })) {
+      const tab = tabs.find((t) => t.label === z.label);
+      const changed = await this.relay.evaluate(tab.targetId, call(applySettingsInPage, { s: { rotation: z.rotation } }), { timeout: 10000 }).catch(() => []);
+      if (!changed?.length) continue;
+      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, z.label, `zone: ${z.rotation.join(", ")} for ${tab.group}, ${z.why}`);
+      this.log(`coordinator: ${z.label} zone: ${z.rotation.join(", ")}, ${z.why}`);
+    }
+    metaSet(this.db, "rates", rates);
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
     state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     metaSet(this.db, "coordinator", state);
+  }
+
+  /**
+   * The measured zone rates (tools/lib/rates.mjs), kept in the db's meta key `rates` and grown by
+   * `exportRows`. Without them, the first call reads every leader's recorded samples once, and a
+   * minute counts as alone when no other leader recorded samples in that zone in that minute.
+   */
+  async loadRates() {
+    this.zoneNames ??= await zoneNames();
+    if (this.rates) return this.rates;
+    const saved = metaGet(this.db, "rates");
+    if (saved) return (this.rates = saved);
+    const dir = join(this.runs, "live");
+    const read = async (leader) => {
+      const out = [];
+      const text = await readFile(join(dir, leader, "samples.jsonl"), "utf8").catch(() => "");
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        try {
+          const s = JSON.parse(line);
+          out.push({ ses: s.ses, t: s.t, act: s.act, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone });
+        } catch {
+          /* a line cut short by a crash */
+        }
+      }
+      return out;
+    };
+    const leaders = await readdir(dir).catch(() => []);
+    const minute = (s) => `${Math.floor(s.t / 60000)}:${s.zone}`;
+    const seen = new Map(); // minute and zone -> the leader seen there, or null for several
+    for (const leader of leaders) {
+      for (const s of await read(leader)) {
+        const k = minute(s);
+        if (!seen.has(k)) seen.set(k, leader);
+        else if (seen.get(k) !== leader) seen.set(k, null);
+      }
+    }
+    const rates = {};
+    for (const leader of leaders) accumulate(rates, await read(leader), { zoneOf: (id) => this.zoneNames.get(id), alone: (s) => seen.get(minute(s)) === leader });
+    this.log(`zone rates: read the samples of ${leaders.length} leaders`);
+    return (this.rates = rates);
   }
 
   /**
@@ -784,6 +839,7 @@ class Daemon {
       if (got.samples.length) {
         await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
+        this.addRates(tr, got.samples);
       }
       if (got.events.length) {
         await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
@@ -791,6 +847,19 @@ class Daemon {
       }
       if (!got.more) return;
     }
+  }
+
+  /**
+   * Add a tab's new samples to the zone rates, with the pair across two drains. The group counts as
+   * alone while no other tab's latest sample of the last two minutes lies in its zone.
+   */
+  addRates(tr, samples) {
+    const last = samples.at(-1);
+    if (this.rates && this.zoneNames) {
+      const others = [...this.trackers.values()].filter((o) => o !== tr && o.lastSample && last.t - o.lastSample.t < 120000).map((o) => o.lastSample.zone);
+      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), alone: (s) => !others.includes(s.zone) });
+    }
+    tr.lastSample = last;
   }
 
   async loop() {

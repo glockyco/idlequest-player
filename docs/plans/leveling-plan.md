@@ -95,7 +95,7 @@ Measure during normal play: label the blocks and compare them with `analyze.mjs`
 ## Bot roadmap
 
 1. Done: AutoLevel keeper with pause deadlines, restarts after hung route recoveries and readiness waits, bag cleanup with Auto Bank, cursor watch, party rejoin, spells and pets after level-ups, zone rotation, target skipping, alerts and `watch`.
-2. Done: the band rows in `data/band-rotations.json` set the rotation at each level-up, so a band change needs no agent.
+2. Done: the coordinator sets each group's rotation from the band rows in `data/band-rotations.json`, ranked by the XP per hour measured in each zone, so a band change needs no agent.
 3. Next: hand weapons and gear to the party member who gains most, and never sell an item that is an upgrade for someone.
-4. Done: the band rows from 1 to 60 follow `tools/predict.mjs` on live zones. Next: measured rates for the rows from 38.
+4. Done: the band rows from 1 to 60 follow `tools/predict.mjs` on live zones, and the coordinator ranks each row's zones by measured rates.
 5. Next: the bot and the SDK move to the [controller design](controller.md) one step at a time. Steps 1 and 2 (activity labels, the stall rule, the leader reconciler and the pause as a lease) and the hand-in task of step 3 run on every group.
