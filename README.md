@@ -84,10 +84,15 @@ Scouting without stopping AutoLevel: `tools/zone-snapshots.mjs` builds the same 
 from the content snapshot (one most-likely NPC per spawn point). Blackburrow, the Qeynos Aqueduct
 and Greater Faydark came out within about 10% of live scouts in candidates and nearest-candidate
 distance at level 5. Toxxulia Forest did not: the snapshot has two zones with that name (`tox` and
-`toxxulia`), `tox` shows 114 candidates against 86 live, and only `toxxulia` matches the live
-scout. Check a zone live before committing to it. `tools/zones.mjs` skips zones the game does not
-have (`data/idlequest-zones.json`, from the wiki, with each zone's XP multiplier), but it matches
-them by long name, so both Toxxulia rows pass.
+`toxxulia`), `tox` shows 114 candidates against 86 live, and only `toxxulia` matched the live
+scout before the client's zone list changed. Check a zone live before committing to it.
+`tools/zones.mjs` skips zones the game does not have (`data/idlequest-zones.json`, from the wiki,
+with each zone's XP multiplier), but it matches them by long name, so both Toxxulia rows pass.
+`tools/predict.mjs` and `tools/gear.mjs` also require the short name to be in
+`data/live-zones.json`, the live client's zone list. Zone changes and the bot's rotation use those
+names. Refresh the file when a zone change fails with "zone not found":
+`JSON.stringify(window.iq.stores.staticData.getState().zones.map((z) => z.shortName).sort())` in a
+game tab.
 
 ```sh
 bun tools/zone-snapshots.mjs runs/zones-content "."          # all zones, about 10 seconds

@@ -89,8 +89,9 @@ async function* rows(table) {
 }
 const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
 const gameZones = new Set(Object.keys(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(norm));
+const liveZones = new Set(JSON.parse(await readFile(new URL("../data/live-zones.json", import.meta.url), "utf8")));
 const zoneName = new Map();
-for await (const z of rows("zone")) if (gameZones.has(norm(z.long_name))) zoneName.set(z.short_name, z.long_name);
+for await (const z of rows("zone")) if (gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name)) zoneName.set(z.short_name, z.long_name);
 
 // ---- Candidate items ---------------------------------------------------------------------------
 const cands = new Map(); // id -> item with slot names and score

@@ -196,11 +196,14 @@ const parseSpecials = (s) =>
 
 async function loadZones(pattern) {
   const gameZones = new Set(Object.keys(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(norm));
+  // The snapshot holds classic and later copies of some zones under one long name (oot and
+  // oceanoftears). The live client's zone list (data/live-zones.json) decides which copy exists.
+  const liveZones = new Set(JSON.parse(await readFile(new URL("../data/live-zones.json", import.meta.url), "utf8")));
   const re = pattern ? new RegExp(pattern, "i") : null;
   const zones = new Map();
   for await (const z of rows("zone")) {
     if (z.version !== 0 || zones.has(z.short_name)) continue;
-    if (re ? !(re.test(z.short_name) || re.test(z.long_name)) : !has("all") && !gameZones.has(norm(z.long_name))) continue;
+    if (re ? !(re.test(z.short_name) || re.test(z.long_name)) : !has("all") && !(gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name))) continue;
     zones.set(z.short_name, { short: z.short_name, name: z.long_name, zem: Number(z.zone_exp_multiplier), safe: { x: z.safe_x, y: z.safe_y }, points: [] });
   }
   const groups = new Map(); // group -> points

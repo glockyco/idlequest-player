@@ -1,6 +1,6 @@
 [
-  [48, ["oceanoftears", "kedge", "highkeep"]],
-  [44, ["kaesora", "soltemple", "oceanoftears"]],
+  [48, ["highkeep", "soltemple", "kedge"]],
+  [44, ["kaesora", "soltemple", "droga"]],
   [38, ["soldunga", "kaesora", "paw"]],
   [34, ["soldunga", "kaesora", "unrest"]],
   [31, ["soldunga", "unrest", "paw"]],
@@ -9,6 +9,6 @@
   [22, ["permafrost", "runnyeye", "guktop"]],
   [18, ["warrens", "permafrost", "runnyeye"]],
   [14, ["warrens", "kurn", "runnyeye"]],
-  [8, ["warrens", "crushbone", "steamfontmts"]],
-  [1, ["misty", "toxxulia"]]
+  [8, ["warrens", "kurn", "crushbone"]],
+  [1, ["misty", "tox"]]
 ]
