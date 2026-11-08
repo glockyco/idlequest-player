@@ -1182,3 +1182,46 @@ test("a raid task records a wipe, and without raid time it stops before releasin
     vi.useRealTimers();
   }
 });
+
+test("a quest runs its steps in order for each member and stops at a step whose reward did not come", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const held = (f.iq as unknown as { carried: (i: string) => number }).carried;
+    const bags: Record<string, Record<string, number>> = {};
+    const mine = () => (bags[f.sheet.characterProfile.name] ??= {});
+    const talks: string[] = [];
+    // Kargek gives the note for the keywords, Oknoggin the lute for the note, unless he is gone.
+    let oknoggin = true;
+    Object.assign(f.iq, {
+      carried: (item: string) => (mine()[item] ?? 0) + held(item),
+      talkToNpc: async (npc: string, say: string[]) => {
+        talks.push(`${f.sheet.characterProfile.name} ${npc} ${say.join(",")}`);
+        if (npc === "Kargek Redblade" && say.includes("favor")) mine()["Wax Sealed Note"] = 1;
+      },
+      giveToNpc: async (items: string[]) => {
+        for (const x of items) mine()[x] = (mine()[x] ?? 0) - 1;
+        if (oknoggin) mine()["Tiny Lute"] = 1;
+      },
+    });
+    const steps = [
+      { zone: "freporte", npc: "Kargek Redblade", say: ["scabbard", "favor"], expect: "Wax Sealed Note" },
+      { zone: "feerrott", npc: "Oknoggin Stonesmacker", give: ["Wax Sealed Note"], expect: "Tiny Lute" },
+    ];
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", members: [{ name: "Tagujazolu", done: true, at: 2 }] });
+    expect(talks).toEqual(["Tagujazolu Kargek Redblade scabbard,favor", "Tagujazolu Oknoggin Stonesmacker "]);
+    expect(f.moves).toEqual(["freporte", "feerrott"]);
+
+    oknoggin = false;
+    f.bot.quest({ members: ["Edroun"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "failed", members: [{ name: "Edroun", done: false, at: 1 }] });
+    expect(f.bot.state.task.error).toContain("did not get Tiny Lute");
+  } finally {
+    vi.useRealTimers();
+  }
+});

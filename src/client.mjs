@@ -396,6 +396,17 @@ export async function attach(tab) {
     },
 
     /**
+     * Run quest `steps` for each of `members` with the bot's in-page task (`iqBot.quest`), each
+     * while it is the active character. A step is `{ zone, npc, say, give, each, expect }`: travel,
+     * pull what it hands over from any account character, talk with `say` keywords, give `give` in
+     * one trade or hand in `each` per item, then check that `expect` is carried. Resolves with the
+     * finished task, or throws with it.
+     */
+    async quest({ timeoutMs = 3600000, ...opts }) {
+      return handle.runTask("quest", opts, timeoutMs);
+    },
+
+    /**
      * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the
      * same enemies) with the bot's in-page task (`iqBot.hunt`), for drops from enemies AutoLevel
      * does not pull, such as gray ones, e.g. `{ zone: "mistmoore", keep: "gypsy dancer", item:
@@ -843,7 +854,7 @@ export async function attach(tab) {
 // Calls that change the game or the bot. Each top-level call is written to the `interventions`
 // table of runs/iq.db, which `iqd status` shows under "Latest notes", so what a script changed and
 // when stays on record next to the attention items it answered.
-const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "setLeader", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach", "handIn", "hunt", "raid"];
+const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "setLeader", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach", "handIn", "quest", "hunt", "raid"];
 let interventionsDb = null;
 function logActions(handle, tab) {
   let depth = 0;

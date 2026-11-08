@@ -988,24 +988,41 @@
     const r = await i.pullItem(item);
     if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
   };
-  // Hand items to a quest NPC for each member while it is the active character, because only the
-  // active character gets the reward: Smith Tv`ysa in South Ro pays 274,400 XP for a Greater
-  // Lightstone and 137,200 for a Lightstone, as often as one is handed in.
-  const handInTask = async (i, task, step) => {
+  // A quest runs its `steps` for each member while that member is the active character, because
+  // quest NPCs answer and reward the character in front of them. A step travels to its zone, pulls
+  // the items it hands over from whoever on the account holds them, then talks to its NPC with
+  // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
+  // `handInEach` does, and checks that the member then carries `expect`. A hand-in is a quest of one
+  // `each` step per member. Entering the world puts a character where it last stood, and the zone
+  // store can lag the switch, so every step travels.
+  const questTask = async (i, task, step) => {
     for (const m of task.members) {
       if (m.done) continue;
       const t0 = now();
       await step(`stop for ${m.name}`, () => calm(i), 75000);
       await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
-      // Entering the world puts the character where it last stood, and the zone store can lag the
-      // switch, so the member always travels.
-      await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
-      for (const [item, n] of Object.entries(m.counts)) {
-        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+      for (const [k, s] of m.steps.entries()) {
+        if (k < (m.at ?? 0)) continue;
+        await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
+        const need = { ...(s.each ?? {}) };
+        for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
+        for (const [item, n] of Object.entries(need)) {
+          while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+        }
+        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 150000);
+        if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
+        if (s.each) {
+          const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);
+          Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
+        }
+        if (s.expect) {
+          for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) await sleep(500);
+          if (i.carried(s.expect) < 1) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc}`);
+        }
+        m.at = k + 1;
       }
-      const r = await step(`hand in for ${m.name}`, () => i.handInEach(task.npc, m.counts), 300000);
-      Object.assign(m, { done: true, trades: r.trades, items: r.items, xp: r.xp, sec: Math.round((now() - t0) / 1000) });
-      log(`hand-in: ${m.name} gave ${r.items} items in ${r.trades} trades for ${r.xp} XP in ${m.sec} s`);
+      Object.assign(m, { done: true, sec: Math.round((now() - t0) / 1000) });
+      log(`quest: ${m.name} done in ${m.sec} s${m.xp ? `, ${m.items} items for ${m.xp} XP` : ""}`);
     }
   };
   // A directed hunt fights the enemies its `keep` pattern names through the Enemy Targets action,
@@ -1210,13 +1227,20 @@
       await raid.end().catch((e) => log(`task raid: end raid failed: ${e?.message ?? e}`));
     }
   };
-  const TASKS = { handIn: handInTask, hunt: huntTask, raid: raidTask };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask };
+  const startQuest = (kind, members, name = kind) => {
+    if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+    if (!members.length) throw new Error(`a ${kind} needs members`);
+    for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
+    state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
+    return { ...runTask(state.task) };
+  };
   const taskSummary = (task) =>
     task.kind === "hunt"
       ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
       : task.kind === "raid"
         ? (task.result ?? `${task.target ?? task.bossKey}, no fight`)
-        : (task.members ?? []).map((m) => `${m.name} ${m.done ? `${m.items} items ${m.xp} XP` : "not done"}`).join(", ");
+        : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   const runTask = (task) => {
     const runner = Math.random().toString(36).slice(2);
     Object.assign(task, { runner, status: "running", heartbeat: now() });
@@ -1771,18 +1795,28 @@
     switchTo: (who) => ({ ...switchTo(iq(), who) }),
     /**
      * Hand items to a quest NPC for several account characters, each while it is the active
-     * character, as a task in the page (`handInTask`). `members` lists `{ name, counts }`, such
-     * as `{ name: "Mashidond", counts: { "Greater Lightstone": 2 } }`, and a member short of an
-     * item pulls it from another account character first. The default NPC is Smith Tv`ysa in
-     * South Ro. Returns a copy of the task, which `state.task` keeps up to date.
+     * character, as a quest task (`questTask`) of one step per member. `members` lists `{ name,
+     * counts }`, such as `{ name: "Mashidond", counts: { "Greater Lightstone": 2 } }`, and a member
+     * short of an item pulls it from another account character first. The default NPC is Smith
+     * Tv`ysa in South Ro, who pays 274,400 XP for a Greater Lightstone and 137,200 for a Lightstone.
+     * Returns a copy of the task, which `state.task` keeps up to date.
      */
     handIn({ members, npc = "Tv`ysa", zone = "sro" }) {
-      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
-      if (!members?.length) throw new Error("a hand-in needs members");
-      for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
-      state.task = { id: `handIn-${now().toString(36)}`, kind: "handIn", npc, zone, startedAt: now(), members: members.map((m) => ({ name: m.name, counts: { ...m.counts }, done: false })) };
+      const task = startQuest("handIn", members.map((m) => ({ name: m.name, steps: [{ zone, npc, each: { ...m.counts } }] })));
       log(`task handIn: ${members.map((m) => `${m.name} ${Object.entries(m.counts).map(([k, v]) => `${v} ${k}`).join(" and ")}`).join(", ")} to ${npc} in ${zone}`);
-      return { ...runTask(state.task) };
+      return task;
+    },
+    /**
+     * Run quest `steps` for each of `members` (names), each while it is the active character, as a
+     * task in the page (`questTask`). A step is `{ zone, npc, say, give, each, expect }`, such as
+     * `{ zone: "freporte", npc: "Kargek Redblade", say: ["scabbard", "favor"], expect: "Wax Sealed
+     * Note" }`. Returns a copy of the task, which `state.task` keeps up to date.
+     */
+    quest({ members, steps, name = "quest" }) {
+      if (!steps?.length) throw new Error("a quest needs steps");
+      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps })), name);
+      log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
+      return task;
     },
     /**
      * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the same enemies) through the Enemy Targets action, as a

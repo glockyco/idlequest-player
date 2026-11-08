@@ -1,0 +1,41 @@
+{
+  "warrior-epic-1": {
+    "class": "Warrior",
+    "reward": "Totem of the Freezing War",
+    "steps": [
+      {
+        "zone": "freporte",
+        "npc": "Kargek Redblade",
+        "say": [
+          "scabbard",
+          "favor"
+        ],
+        "expect": "Wax Sealed Note"
+      },
+      {
+        "zone": "feerrott",
+        "npc": "Oknoggin Stonesmacker",
+        "give": [
+          "Wax Sealed Note"
+        ],
+        "expect": "Tiny Lute"
+      },
+      {
+        "zone": "freporte",
+        "npc": "Kargek Redblade",
+        "give": [
+          "Tiny Lute"
+        ],
+        "expect": "Redblade's Legacy"
+      },
+      {
+        "zone": "eastkarana",
+        "npc": "Tenal Redblade",
+        "give": [
+          "Redblade's Legacy"
+        ],
+        "expect": "Totem of the Freezing War"
+      }
+    ]
+  }
+}
