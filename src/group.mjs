@@ -347,16 +347,9 @@ export async function stoneRound(iq, { from = null, count = Infinity, maxMembers
           await makeRoom();
           for (const s of STONES) for (let j = 0; j < want[s]; j++) await iq.pullItem({ itemName: s, from: holder });
         }
-        let trades = 0;
-        let xp = 0;
-        for (const s of STONES) {
-          if (!want[s]) continue;
-          const r = await iq.turnInEach({ npc: "Tv`ysa", itemNames: [s], max: want[s] });
-          trades += r.trades;
-          xp += r.xp;
-        }
-        done[m] = { trades, xp, sec: Math.round((Date.now() - t0) / 1000) };
-        log(`${g.id}: ${m} handed in ${trades} stones for ${xp} XP in ${done[m].sec}s`);
+        const r = await iq.turnInEach({ npc: "Tv`ysa", counts: want });
+        done[m] = { stones: r.items, trades: r.trades, xp: r.xp, sec: Math.round((Date.now() - t0) / 1000) };
+        log(`${g.id}: ${m} handed in ${r.items} stones in ${r.trades} trades for ${r.xp} XP in ${done[m].sec}s`);
       }
     } finally {
       if ((await active()) !== leader) await iq.switchCharacter(leader);

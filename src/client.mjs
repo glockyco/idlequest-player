@@ -562,15 +562,21 @@ export async function attach(tab) {
     },
 
     /**
-     * Hand every carried copy of `itemNames` to a quest NPC one per trade, for repeatable
-     * single-item quests such as Smith Tv`ysa's lightstones in South Ro (`{ npc: "Tv`ysa",
-     * itemNames: ["Greater Lightstone", "Lightstone"] }`). Only the active character gets the
-     * reward. A reward item the NPC puts on the cursor is sold right away with `sellReward`, because
-     * a held cursor blocks the next trade, looting and the bot's cleanup. Returns the trades made
-     * and the XP the chat reported. Run inside `pausedAutoLevel`.
+     * Hand carried items to a quest NPC for repeatable single-item quests, up to `counts[name]`
+     * copies of each name. Each trade holds one copy of every name still due, because a script that
+     * checks each item separately pays every one of them in the same trade: Smith Tv`ysa in South
+     * Ro gave 411,600 XP for a Greater Lightstone and a Lightstone together (`{ npc: "Tv`ysa",
+     * counts: { "Greater Lightstone": 3, Lightstone: 2 } }`). Two copies of one name in a trade pay
+     * once, and the NPC returns the second. Only the active character gets the reward. A reward
+     * item the NPC puts on the cursor is sold right away with `sellReward`, because a held cursor
+     * blocks the next trade, looting and the bot's cleanup. Returns the trades made, the items
+     * handed in and the XP the chat reported. Run inside `pausedAutoLevel`.
      */
-    async turnInEach({ npc, itemNames, max = Infinity, sellReward = true }) {
-      const carried = async (name) => (await handle.inventory()).filter((r) => r.name === name && (r.loc === "bag" || r.loc === "general")).reduce((s, r) => s + (r.quantity || 1), 0);
+    async turnInEach({ npc, counts, sellReward = true }) {
+      const carriedAll = async () => {
+        const inv = await handle.inventory();
+        return Object.fromEntries(Object.keys(counts).map((n) => [n, inv.filter((r) => r.name === n && (r.loc === "bag" || r.loc === "general")).reduce((s, r) => s + (r.quantity || 1), 0)]));
+      };
       const clearCursor = () =>
         tab.evaluate(async () => {
           const row = (window.iq.stores.character.getState().characterProfile.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
@@ -580,54 +586,61 @@ export async function attach(tab) {
             .find((v) => typeof v === "function" && Function.prototype.toString.call(v).includes("Sale confirmation was interrupted"));
           return (await sell(0, 30))?.message ?? null;
         });
+      const due = { ...counts };
       let trades = 0;
+      let items = 0;
       let xp = 0;
       let talked = false;
-      for (const name of itemNames) {
-        let left = await carried(name);
-        while (left > 0 && trades < max) {
-          if (!talked) {
+      for (;;) {
+        const have = await carriedAll();
+        const names = Object.keys(due).filter((n) => due[n] > 0 && have[n] > 0).slice(0, 4);
+        if (!names.length) break;
+        if (!talked) {
+          await handle.talkToNpc(npc);
+          talked = true;
+        }
+        const seq0 = await tab.evaluate(() => window.iq.seqs.event);
+        const give = async () => {
+          try {
+            return await handle.turnInQuest(npc, names, { talk: false, closeNote: false });
+          } catch (e) {
+            // The dialogue closed between trades: walk and hail again once.
+            if (!/Give Items button/.test(String(e.message))) throw e;
             await handle.talkToNpc(npc);
-            talked = true;
+            return handle.turnInQuest(npc, names, { talk: false, closeNote: false });
           }
-          const seq0 = await tab.evaluate(() => window.iq.seqs.event);
-          const give = async () => {
-            try {
-              return await handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
-            } catch (e) {
-              // The dialogue closed between trades: walk and hail again once.
-              if (!/Give Items button/.test(String(e.message))) throw e;
-              await handle.talkToNpc(npc);
-              return handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
-            }
-          };
+        };
+        const taken = async () => {
+          const now = await carriedAll();
+          return names.filter((n) => now[n] < have[n]);
+        };
+        await give();
+        if (sellReward) await clearCursor();
+        let got = await taken();
+        if (!got.length) {
+          // A trade from too far away comes back. Walk up again and give once more.
+          await handle.talkToNpc(npc);
           await give();
           if (sellReward) await clearCursor();
-          let now = await carried(name);
-          if (now >= left) {
-            // A trade from too far away comes back. Walk up again and give once more.
-            await handle.talkToNpc(npc);
-            await give();
-            if (sellReward) await clearCursor();
-            now = await carried(name);
-            if (now >= left) throw new Error(`the trade of ${name} to ${npc} was not taken`);
+          got = await taken();
+          if (!got.length) throw new Error(`the trade of ${names.join(" and ")} to ${npc} was not taken`);
+        }
+        for (const n of got) due[n]--;
+        trades++;
+        items += got.length;
+        // The XP line can trail the trade window by a moment.
+        for (let w = 0; w < 6; w++) {
+          const add = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s).reduce((sum, e) => sum + Number(/You gain experience!+ \((\d+)\)/.exec(e.text)?.[1] ?? 0), 0), seq0);
+          if (add > 0) {
+            xp += add;
+            break;
           }
-          trades++;
-          // The XP line can trail the trade window by a moment.
-          for (let w = 0; w < 6; w++) {
-            const got = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s).reduce((sum, e) => sum + Number(/You gain experience!+ \((\d+)\)/.exec(e.text)?.[1] ?? 0), 0), seq0);
-            if (got > 0) {
-              xp += got;
-              break;
-            }
-            await sleep(500);
-          }
-          left = now;
+          await sleep(500);
         }
       }
       // The trade window opens the inventory, which hides the AutoLevel button.
       await handle.clearWindows();
-      return { trades, xp };
+      return { trades, items, xp };
     },
 
     /**
