@@ -12,17 +12,23 @@ These rules are for agents that play the account with this repository. [README.m
 ## Session start
 
 1. Start the session in this repository so these instructions load.
-2. Adopt the game tab without navigating it, because navigation logs the game out:
+2. Adopt the game tab without navigating it, because navigation logs the game out. The tab's name and target can change between sessions, so list them first with `browser.targets({ app: { relay: true } })`:
 
    ```js
-   const tab = await browser.open({ name: "iq", app: { relay: true, target: "idlequest.net/play" } }); // never pass a url
+   const tab = await browser.open({ name: "iq", app: { relay: true, target: "idlequest.net/play" } }); // never pass a url to an adopted tab
    const { attach } = await import("/Users/glockyco/src/github.com/glockyco/idlequest-player/src/client.mjs");
    const iq = await attach(tab);
    await iq.botReport();
    ```
 
-3. If the tab shows the login form, stop and ask for a sign-in. If the tab cannot be reached, for example after its renderer crashed, the bot is gone with the page and `watch` fails instead of alerting. Do not reload the tab yourself: stop and ask for a reload and a sign-in.
-4. After a sign-in the party holds no account characters. The bot asks the characters in its `partyIds` setting to rejoin once it is attached. The ids are the numeric `characterId` of each companion (`iq.roster()` shows them as `character-<id>`). The setting is saved in the browser, so set it again with `iq.setBot({ partyIds: [...] })` only when the party changes.
+3. Recover on your own. Never wait for a person while the game can be played:
+   - No idlequest page in the target list, a tab that cannot be reached, or a login page that stays on "Preparing game engine…": open a tab of your own with `browser.open({ name: "iq-<n>", app: { relay: true }, url: "https://idlequest.net/play", persist: true })`. It opens visible, so the engine loads. A hidden tab never finishes "Preparing game engine…" and keeps CONNECT disabled. Chrome detaches the relay from a tab when a password manager's autofill menu opens in it, and then hides the tab until its URL changes.
+   - On the login form, sign in from `~/.config/idlequest/email` and `~/.config/idlequest/password` (mode 600, outside the repository) without printing the values. Never focus or click the inputs and never use `tab.fill`, because focusing opens the autofill menu, which detaches the tab. Set each value with the native `HTMLInputElement` value setter and dispatch an `input` event inside `tab.evaluate`, then `tab.click('role/button[name="CONNECT"]')` and wait for "SELECT A CHARACTER".
+   - At character select the list shows eight characters per page. Press "Next page" until the leader's button appears, click it, then ENTER WORLD.
+   - Never reload a game tab. A reload turns a broken session into a login page. If fights stop being confirmed ("The combat request could not be confirmed") while the socket is connected, open a new tab and sign in there.
+   - Never delete or create characters while a group plays: the world session stopped confirming fights right after deletions. Do it at character select.
+   - Ask for help only if the login files are missing or the server rejects the login.
+4. After a sign-in the party holds no account characters. The bot asks the characters in its `partyIds` setting to rejoin once it is attached. The ids are the numeric `characterId` of each companion (`iq.roster()` shows them as `character-<id>`). The setting is saved in the tab's session storage, which survives reloads of that tab. Set it again with `iq.setBot({ partyIds: [...] })` when the party changes or in a new tab. `iq.switchCharacter` sets it.
 
 ## Unattended loop
 
