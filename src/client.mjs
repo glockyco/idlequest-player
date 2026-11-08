@@ -417,7 +417,7 @@ export async function attach(tab) {
     },
 
     /**
-     * Fight the enemies whose names match `keep` in `zone` through the Enemy Targets action with
+     * Fight the enemies whose names match `keep` in `zone` (one zone or a list of zones with the same enemies) through the Enemy Targets action with
      * the bot's in-page task (`iqBot.hunt`), for drops from enemies AutoLevel does not pull, such
      * as gray ones, e.g. `{ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as:
      * "Domeyafun", waitMin: 3 }`. `as` makes that character fight and loot, for NO DROP pieces.
