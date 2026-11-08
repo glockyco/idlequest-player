@@ -321,7 +321,7 @@
       else if ((m = /^(.+?) has been slain!/.exec(text)) || /^You have been slain/.test(text)) {
         const who = m?.[1] ?? "You";
         alert("death", text, who === "You" || names.has(who));
-      } else if (/inventory is full, you could not loot/i.test(text)) state.lootFails.push(e.t ?? now());
+      } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
       else if (/^Waiting for an available enemy/.test(text)) state.enemyWaits.push(e.t ?? now());
       else if (/^(No usable route|Route blocked)\. Recovering near/.test(text)) state.routeRecoverAt = e.t ?? now();
       else if (/^Waiting for party to be ready/.test(text)) state.readyWaitAt = e.t ?? now();
@@ -331,12 +331,17 @@
     }
   };
 
+  // A container needs a free general slot, so "inventory is full" also appears with free bag
+  // slots when every general slot holds a bag. That loses only the container, so it wakes nobody
+  // unless the bags are short of space or the cursor is taken.
   const watchLoot = (i) => {
-    state.lootFails = state.lootFails.filter((t) => t > now() - 600000);
+    state.lootFails = state.lootFails.filter((f) => f.t > now() - 600000);
     if (state.lootFails.length && now() - state.lootAlertAt > 1800000) {
       state.lootAlertAt = now();
       const sp = i.bagSpace();
-      alert("lootFull", `${state.lootFails.length} item(s) left on corpses in 10 minutes; ${sp.free} bag slots free${sp.cursor ? `, cursor holds ${sp.cursor}` : ""}`, true);
+      const items = [...new Set(state.lootFails.map((f) => f.item))].join(", ");
+      const short = sp.free < config.minFreeSlots || !!sp.cursor;
+      alert("lootFull", `${state.lootFails.length} item(s) left on corpses in 10 minutes (${items}); ${sp.free} bag slots free${sp.cursor ? `, cursor holds ${sp.cursor}` : ""}`, short);
     }
   };
 
