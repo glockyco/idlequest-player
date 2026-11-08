@@ -1,5 +1,6 @@
 // Runs src/bot.js against a fake game page. Run with `bun test`.
 import { expect, test, vi } from "bun:test";
+import generatedSpells from "../data/class-spells.json";
 
 interface PageEvent {
   ses: number;
@@ -22,7 +23,7 @@ interface Bot {
   upkeep(reason: string): Promise<string>;
   fastTick(): void;
   surplus(): { name: string }[];
-  spellPlan(): { id: number; name: string; level: number }[];
+  spellPlan(): { gem: number; role: string; id: number; name: string; level: number }[];
   errand(opts: { zone: string; keep: string; item: string; minutes?: number; minCon?: number } | null): Promise<string>;
 }
 interface FakeGlobals {
@@ -32,12 +33,30 @@ interface FakeGlobals {
   iqBot?: Bot;
 }
 
+// The client's per-class spell table as tools/class-spells.mjs writes it, reduced to what the bot reads.
+interface TableSpell {
+  spellId: number;
+  category: number;
+  minLevel: number;
+  targetType: number;
+  name: string;
+  hp: number;
+  reagents: { id: number; count: number }[];
+  tags: string[];
+}
+interface ClassTable {
+  healThreshold: number;
+  spells: TableSpell[];
+}
+type SpellTable = Record<string, ClassTable | null>;
+const generated: SpellTable = generatedSpells;
+
 const store = (state: object) => ({ getState: () => state });
 
 async function install(partyIds: number[] = []) {
   const recruited: number[] = [];
   // The active character and one companion, at full HP and mana unless a test changes them.
-  const me = { id: 1, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 }, curHp: 300, maxHp: 300, mana: 200, maxMana: 200 };
+  const me = { id: 1, class: 0, name: "Me", level: 14, inventory: [], experienceProgress: { current: 1 }, curHp: 300, maxHp: 300, mana: 200, maxMana: 200 };
   const tank = { name: "Tagujazolu", companionType: 2, characterId: 10, curHp: 500, maxHp: 500, curMana: 0, maxMana: 0 };
   // An enchanter who knows Cancel Magic, at full HP and mana.
   const ench = { id: "character-20", name: "Edroun", companionType: 2, characterId: 20, level: 22, curHp: 200, maxHp: 200, curMana: 300, maxMana: 300 };
@@ -90,12 +109,13 @@ async function install(partyIds: number[] = []) {
   const kills: { t: number; xp: number; enemy: string }[] = [];
   const moves: string[] = [];
   // Item rows in the bags, by name.
-  const bag: { name: string }[] = [];
+  const bag: { id?: number; name: string; quantity?: number }[] = [];
   // The spellbook and the party, which the upkeep test fills in.
   const book = {
     scribedSpells: [] as { spellId: number; spell: { name: string } }[],
     memorizedSpells: [] as { gemSlot: number; spellId: number }[],
     memorizeSpell: async (_id: number, _gem: number) => true,
+    unmemorizeSpell: async (_gem: number) => {},
   };
   const dismissed: string[] = [];
   const party = {
@@ -110,7 +130,9 @@ async function install(partyIds: number[] = []) {
   g.localStorage = { getItem: () => null, setItem: () => {} };
   g.window = globalThis;
   g.iqBot = undefined;
-  g.iq = {
+  const iq = {
+    // The client's spell table by class id, which the tests that plan gems fill in.
+    classSpells: {} as SpellTable,
     events,
     seqs,
     session: 1,
@@ -145,6 +167,7 @@ async function install(partyIds: number[] = []) {
       partySpells: store({ overridesByCompanion: { "character:20": { cure: false } } }),
     },
   };
+  g.iq = iq;
   eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
   const bot = g.iqBot;
   if (!bot) throw new Error("bot.js did not install window.iqBot");
@@ -154,7 +177,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -438,24 +461,139 @@ test("a root that outlasts a fight is dispelled only when that saves time, and c
   }
 });
 
+// ---- Gem plans and pets for every class --------------------------------------------------
+
+const MAGICIAN = 13;
+const scribe = (book: { scribedSpells: { spellId: number; spell: { name: string } }[] }, ids: number[]) => {
+  book.scribedSpells = ids.map((spellId) => ({ spellId, spell: { name: `spell ${spellId}` } }));
+};
+// The ids of a class's table up to a level.
+const tableIds = (table: SpellTable, classId: number, level: number) => (table[classId]?.spells ?? []).filter((s) => s.minLevel <= level).map((s) => s.spellId);
+
+test("a Magician at level 31 keeps its pet, nuke and pet heal, and nothing the client does not cast", async () => {
+  const { iq, bot, me, book } = await install();
+  iq.classSpells = generated;
+  Object.assign(me, { class: MAGICIAN, level: 31 });
+  // Learned Magician spells, two of them (a level 34 pet heal and a level 60 nuke) outside the
+  // client's auto-cast table for Magicians.
+  scribe(book, [574, 113, 1505, 3584, 2118]);
+  expect(bot.spellPlan().map((s) => s.id)).toEqual([574, 113, 1505]);
+});
+
+// Gem, role and spell id at level 31 with everything learned. The gem of a role is fixed by the
+// class's budget, so a Shaman's gem 0 waits for its first pet spell and a Cleric has none.
+const EXPECTED: Record<number, [number, string, number][]> = {
+  2: [[0, "nuke", 329], [1, "heal", 15], [2, "heal", 12]],
+  10: [[1, "nuke", 508], [2, "heal", 15], [3, "heal", 12], [4, "control", 506], [5, "dot", 434]],
+  14: [[0, "pet", 686], [1, "nuke", 350], [2, "control", 185], [3, "dot", 450]],
+  11: [[0, "pet", 441], [1, "nuke", 204], [2, "control", 2542], [3, "lifetap", 524], [4, "dot", 451]],
+};
+
+for (const [classId, name] of [[2, "Cleric"], [10, "Shaman"], [14, "Enchanter"], [11, "Necromancer"]] as const) {
+  test(`a ${name} at level 31 gets a plan of spells from its own table only`, async () => {
+    const { iq, bot, me, book } = await install();
+    iq.classSpells = generated;
+    Object.assign(me, { class: classId, level: 31 });
+    // Everything the class has learned by level 31, and every Magician spell as a decoy.
+    scribe(book, [...tableIds(generated, classId, 31), ...tableIds(generated, MAGICIAN, 31)]);
+    const plan = bot.spellPlan();
+    const own = new Set(tableIds(generated, classId, 31));
+    expect(plan.length).toBeGreaterThan(2);
+    expect(plan.every((p) => own.has(p.id))).toBe(true);
+    expect(new Set(plan.map((p) => p.gem)).size).toBe(plan.length);
+    expect(plan.map((p) => [p.gem, p.role, p.id])).toEqual(EXPECTED[classId]);
+  });
+}
+test("a Warrior, Monk or Rogue has no spell table and an empty plan", async () => {
+  for (const classId of [1, 7, 9]) {
+    const { iq, bot, me, book } = await install();
+    iq.classSpells = generated;
+    Object.assign(me, { class: classId, level: 31 });
+    scribe(book, tableIds(generated, MAGICIAN, 31));
+    expect(bot.spellPlan()).toEqual([]);
+  }
+});
+
+test("a Bard has three gems, all songs from its own table", async () => {
+  const { iq, bot, me, book } = await install();
+  iq.classSpells = generated;
+  Object.assign(me, { class: 8, level: 31 });
+  scribe(book, [...tableIds(generated, 8, 31), ...tableIds(generated, MAGICIAN, 31)]);
+  const plan = bot.spellPlan();
+  const own = new Set(tableIds(generated, 8, 31));
+  expect(plan.map((p) => [p.gem, p.role, p.id])).toEqual([[0, "buff", 2603], [1, "buff", 715], [2, "buff", 712]]);
+  expect(plan.every((p) => own.has(p.id))).toBe(true);
+});
+
+test("a role keeps the gem of a spell it already holds when a better one is learned", async () => {
+  vi.useFakeTimers();
+  try {
+    const { iq, bot, me, book, combat } = await install();
+    iq.classSpells = generated;
+    Object.assign(me, { class: 2, level: 34 });
+    scribe(book, [329, 15, 12, 9]);
+    book.memorizedSpells = [{ gemSlot: 0, spellId: 329 }, { gemSlot: 1, spellId: 15 }, { gemSlot: 2, spellId: 12 }];
+    const memorized: number[][] = [];
+    book.memorizeSpell = async (id: number, gem: number) => {
+      memorized.push([id, gem]);
+      return true;
+    };
+    Object.assign(combat, { isPlayerSitting: true, isSpellbookOpen: true, setPlayerSitting: () => {}, toggleSpellbook: () => {} });
+    // Greater Healing stays in gem 1 and Superior Healing replaces the lesser heal in gem 2.
+    expect(bot.spellPlan().map((p) => [p.gem, p.id])).toEqual([[0, 329], [1, 15], [2, 9]]);
+    await settle(bot.upkeep("test"));
+    expect(memorized).toEqual([[9, 2]]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a class without a spell table keeps its gems and its pets", async () => {
+  const { iq, bot, me, book, party, dismissed } = await install();
+  iq.classSpells = generated;
+  Object.assign(me, { class: 1, level: 31 });
+  scribe(book, tableIds(generated, MAGICIAN, 31));
+  book.memorizedSpells = [{ gemSlot: 0, spellId: 497 }];
+  party.companions.push({ id: "pet-1", name: "Zonobtik", companionType: 1, petOwnerCharacterId: 1, level: 20 });
+  expect(await bot.upkeep("test")).toBe("nothing to change");
+  expect(book.memorizedSpells).toEqual([{ gemSlot: 0, spellId: 497 }]);
+  expect(dismissed).toEqual([]);
+});
+
+// Runs a pending upkeep to its end under fake timers.
+async function settle<T>(run: Promise<T>): Promise<T> {
+  for (let k = 0; k < 60; k++) {
+    vi.advanceTimersByTime(500);
+    for (let j = 0; j < 5; j++) await Promise.resolve();
+  }
+  return run;
+}
+
+// A leader of a pet class, level 31, with its old pet and a newly learned summon.
+async function petLeader(classId: number, oldSummon: number, newSummon: number, memorize: boolean) {
+  const page = await install();
+  page.iq.classSpells = generated;
+  Object.assign(page.me, { class: classId, level: 31 });
+  scribe(page.book, [oldSummon, newSummon]);
+  page.book.memorizedSpells = [{ gemSlot: 0, spellId: oldSummon }];
+  page.book.memorizeSpell = async (id: number, gem: number) => {
+    if (!memorize) return false;
+    page.book.memorizedSpells = page.book.memorizedSpells.filter((m) => m.gemSlot !== gem);
+    page.book.memorizedSpells.push({ gemSlot: gem, spellId: id });
+    return true;
+  };
+  Object.assign(page.combat, { isPlayerSitting: true, isSpellbookOpen: true, setPlayerSitting: () => {}, toggleSpellbook: () => {} });
+  page.party.companions.push({ id: "pet-1", name: "Zonobtik", companionType: 1, petOwnerCharacterId: 1, level: 24 });
+  return page;
+}
+
 test("upkeep keeps our pet when the new summon could not be memorized", async () => {
   vi.useFakeTimers();
   try {
-    const { bot, combat, book, party, dismissed } = await install();
     // Lesser Summoning: Water in gem 0 and Summoning: Water newly learned; memorizing fails, as it
     // does when the character cannot sit.
-    book.scribedSpells = [{ spellId: 497, spell: { name: "Lesser Summoning: Water" } }, { spellId: 570, spell: { name: "Summoning: Water" } }];
-    book.memorizedSpells = [{ gemSlot: 0, spellId: 497 }];
-    book.memorizeSpell = async () => false;
-    Object.assign(combat, { isPlayerSitting: true, isSpellbookOpen: true, setPlayerSitting: () => {}, toggleSpellbook: () => {} });
-    party.companions.push({ id: "pet-1", name: "Zonobtik", companionType: 1, petOwnerCharacterId: 1, level: 20 });
-
-    const run = bot.upkeep("test");
-    for (let k = 0; k < 40; k++) {
-      vi.advanceTimersByTime(500);
-      for (let j = 0; j < 5; j++) await Promise.resolve();
-    }
-    const result = await run;
+    const { bot, dismissed } = await petLeader(MAGICIAN, 497, 570, false);
+    const result = await settle(bot.upkeep("test"));
     expect(dismissed).toEqual([]);
     expect(result).toContain("kept pet Zonobtik");
   } finally {
@@ -463,10 +601,50 @@ test("upkeep keeps our pet when the new summon could not be memorized", async ()
   }
 });
 
-test("the upkeep plans only spells the client lets the leader cast", async () => {
-  const { bot, book } = await install();
-  // Learned Magician spells, two of them (a level 34 pet heal and a level 60 nuke) outside the
-  // client's auto-cast table for Magicians.
-  book.scribedSpells = [574, 113, 1505, 3584, 2118].map((spellId) => ({ spellId, spell: { name: `spell ${spellId}` } }));
-  expect(bot.spellPlan().map((s) => s.id)).toEqual([574, 113, 1505]);
+test("a Necromancer replaces its pet by the new summon only when the reagent is in the bags", async () => {
+  vi.useFakeTimers();
+  try {
+    // Haunting Corpse to Summon Dead, which needs Bone Chips.
+    const without = await petLeader(11, 493, 441, true);
+    const kept = await settle(without.bot.upkeep("test"));
+    expect(without.book.memorizedSpells).toEqual([{ gemSlot: 0, spellId: 441 }]);
+    expect(without.dismissed).toEqual([]);
+    expect(kept).toContain("kept pet Zonobtik");
+
+    const withChips = await petLeader(11, 493, 441, true);
+    withChips.bag.push({ id: 13073, name: "Bone Chips", quantity: 5 });
+    const replaced = await settle(withChips.bot.upkeep("test"));
+    expect(withChips.dismissed).toEqual(["pet-1"]);
+    expect(replaced).toContain("replaced pet Zonobtik");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a Cleric never replaces a pet, whatever it learns", async () => {
+  vi.useFakeTimers();
+  try {
+    const { iq, bot, me, book, combat, party, dismissed } = await install();
+    iq.classSpells = generated;
+    Object.assign(me, { class: 2, level: 31 });
+    scribe(book, [329, 15]);
+    book.memorizeSpell = async () => true;
+    Object.assign(combat, { isPlayerSitting: true, isSpellbookOpen: true, setPlayerSitting: () => {}, toggleSpellbook: () => {} });
+    party.companions.push({ id: "pet-1", name: "Zonobtik", companionType: 1, petOwnerCharacterId: 1, level: 24 });
+    const result = await settle(bot.upkeep("test"));
+    expect(result).toContain("gem 0 Wrath");
+    expect(dismissed).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("cleanup keeps the reagents of the leader's class spells", async () => {
+  const { iq, bot, me } = await install();
+  const chips = (slot: number) => ({ bag: 23, slot, itemid: 13073, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name: "Bone Chips", price: 15, nodrop: 1, norent: 1, itemtype: 0 } });
+  Object.assign(me, { class: 11, inventory: [chips(0), chips(1)] });
+  // With no table the copy beyond the first and the cheap single both count as surplus.
+  expect(bot.surplus().map((s) => s.name)).toEqual(["Bone Chips", "Bone Chips"]);
+  iq.classSpells = generated;
+  expect(bot.surplus()).toEqual([]);
 });

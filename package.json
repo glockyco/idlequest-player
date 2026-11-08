@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4"
+  }
+}

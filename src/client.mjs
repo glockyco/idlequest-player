@@ -36,13 +36,18 @@ async function lastCursor(path) {
  * `clickAt`, `fill`, `type` and `waitForSelector` for page evaluation and the game's UI controls.
  */
 export async function attach(tab) {
-  const [bridge, bot, opcodes] = await Promise.all([
+  const [bridge, bot, opcodes, classSpells] = await Promise.all([
     readFile(new URL("bridge.js", here), "utf8"),
     readFile(new URL("bot.js", here), "utf8"),
     readFile(new URL("../data/opcodes.json", here), "utf8").then(JSON.parse),
+    readFile(new URL("../data/class-spells.json", here), "utf8").then(JSON.parse),
   ]);
   await tab.evaluate(bridge);
   await tab.evaluate((table) => window.iq.setOpcodeNames(table), opcodes);
+  // The bot's gem plan reads the client's per-class spell table from window.iq.classSpells.
+  await tab.evaluate((table) => {
+    window.iq.classSpells = table;
+  }, classSpells);
   await tab.evaluate(bot);
 
   const handle = {

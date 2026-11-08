@@ -34,7 +34,7 @@ const r = await iq.watch({ minutes: 50, sinceSeq: seq, exportDir: "runs/<date>-l
 
 | Alert | Response |
 | --- | --- |
-| `levelUp` | Take a screenshot for the diary at milestones. Check that new spells were bought and check the plan for the new level. The bot memorizes the best summon, `nukeGems` nukes (default 1) and the pet heal into the leader's first gems and replaces the leader's older pet only when the leader is a Magician, because `ROLES` in `src/bot.js` lists Magician spells only. For any other leader class, memorize by hand with `iq.scribeAndMemorize`. Companions' pets are replaced for every owner class. |
+| `levelUp` | Take a screenshot for the diary at milestones. Check that new spells were bought and check the plan for the new level. The bot fills the leader's gems with the best learned spell of each role from the client's auto-cast table for its class (`data/class-spells.json`, see `iqBot.spellPlan()`) and replaces the leader's pet once a new summon is memorized and its reagent is in the bags. Warrior, Monk and Rogue leaders cast nothing, so their gems are left alone. Companions' pets are replaced for every owner class. |
 | `death` | Read the chat around it. If the guard did not leave, tighten the AutoLevel limits or change zone, and record the decision. |
 | `lootFull` | Check `iq.bagSpace()` and `iqBot.surplus()` in the page, then free space or raise `minFreeSlots`. Items left on a corpse are gone after 7.5 minutes, or 25 minutes for enemies of level 55 and above (wiki, Loot & Inventory). |
 | `cursor` | An item sits on the cursor. The bot puts it away after three minutes. If it cannot, free a general slot or place the item by hand until `bagSpace().cursor` is null. |

@@ -149,7 +149,7 @@ The leader casts only its memorized spells from the client's static table for it
 
 In a raid the leader adds its class package instead of its scribed spells (`n8`). Warrior, Monk and Rogue leaders add nothing, which costs nothing if recruits cover every buff line, and an Enchanter or Shaman leader adds a haste of 40 to 70% without scribing. A recruit gives the same haste only if it has the spell scribed, and the two do not stack. Which class should lead raids therefore depends on which buff lines the scribed recruits leave open. That is a measurement: compare the raid's buff list with and without the leader's package.
 
-Open for the bot: group 1 is led by its Magician today because the bot's upkeep covers Magician spells only. That is a bot limitation to remove (a class-agnostic upkeep is being built), not a reason to keep the Magician in front.
+Group 1 is still led by its Magician. The bot's upkeep now plans gems for every class, so whether the Warrior should lead group 1 is a measurement: an hour each way at the same level, compared with `analyze.mjs`.
 
 ### After the raid test
 
@@ -182,4 +182,4 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - Group 2 has leveled for two hours: compare its XP per hour, recovery time and root and cure waits with group 1's at the same levels. If a Druid and Cleric healing pair or a group without a Bard or Enchanter does as well, reduce the Cleric and haste duplicates in group 3.
 - Raid fights show the limit: move groups 4 to 6 toward Clerics and Warriors when healing or tanking runs out first, and toward the best measured damage slots when fights run long.
 - A second session is approved: level two groups at once.
-- The bot's spell upkeep covers every class: group 1 can swap its leader to the Warrior without losing the Magician's pet and spell upkeep.
+- Group 1's leader has been switched for an hour: keep the Warrior in front if the party's XP per hour and recovery improve.

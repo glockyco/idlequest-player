@@ -171,8 +171,10 @@ last. Compare configurations by label, with similar level and enemy mix, and nev
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
   `.re/js/*.pretty.js` are the bundles from https://idlequest.net/assets/ formatted with the
   prettier installed in `.re/`. After a client release, refresh them and regenerate the opcode
-  table with `bun tools/extract-opcodes.ts .re/js/main.pretty.js data/opcodes.json`. Then check that
-  the bridge and the bot still install (see Troubleshooting).
+  table with `bun tools/extract-opcodes.ts .re/js/main.pretty.js data/opcodes.json` and the
+  leader's spell table with `bun install && bun tools/class-spells.mjs`, which loads the client's
+  bundles under a DOM shim. Then check that the bridge and the bot still install (see
+  Troubleshooting).
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
   before opening the Travel window. The bot's pause is renewed while the work runs. If the script
