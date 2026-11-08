@@ -166,7 +166,7 @@ export const ZONE_DEFAULTS = {
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
  * zone with little time there ranks near the median and gets tried. Busy groups and groups an
  * experiment holds keep their rotation and count for the zone they are in. Returns
- * `[{ label, rotation, why }]` for the rotations that change.
+ * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
 export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set(), cfg = ZONE_DEFAULTS }) {
   const out = [];
@@ -189,7 +189,8 @@ export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set()
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
-    if (JSON.stringify(rotation) === JSON.stringify(t.rotation ?? [])) continue;
+    // Order alone moves no group, so a rotation with the same zones stays as it is.
+    if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) continue;
     const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);
     out.push({ label: t.label, rotation, why: `level ${level}: ${shown.join(", ")}` });
   }

@@ -159,8 +159,8 @@ test("a group moves to the best zone only once it is worth the margin more than 
   const close = measured({ kurn: 680000, runnyeye: 600000, warrens: 580000, najena: 420000 });
   const [a] = assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye" })], rows: ROWS, rates: close });
   expect(a.rotation).toContain("runnyeye");
-  // A rotation that is already right is not set again.
-  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye", rotation: a.rotation })], rows: ROWS, rates: close })).toEqual([]);
+  // A rotation with the right zones is not set again, whatever their order.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye", rotation: [...a.rotation].reverse() })], rows: ROWS, rates: close })).toEqual([]);
 });
 
 test("the lowest group takes the best zone first, and the next counts it as crowded", () => {
