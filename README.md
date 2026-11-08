@@ -316,8 +316,8 @@ starts `run` without it.
 `run --coordinate` also makes iqd the coordinator of `docs/plans/controller.md`. Every five minutes
 it reads the account's lightstones and the items of `data/opportunities.json` with Inventory
 Search and queues tasks through each bot's own task API (`tools/lib/coordinator.mjs` decides). A
-batch of at least two stones per member goes to the free group with the lowest levels as a
-hand-in. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
+batch of at least two stones per member goes to the group with the lowest levels as a hand-in,
+also when it farms: the hand-in ends its farm errand, which the next pass gives back. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
 copies the roster needs, `when` of `night` or `day`, and `kind`) runs for its group until the
 account holds those copies: an
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt

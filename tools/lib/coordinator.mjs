@@ -125,9 +125,11 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   }
 
   // Lightstones go to the group with the lowest levels, where they buy the most levels and which
-  // sets the account's time to level 60.
+  // sets the account's time to level 60. That is often a farming group, whose farm the hand-in
+  // interrupts: the farm itself feeds the lowest groups, so it must not keep them from the stones.
   const total = STONES.reduce((a, s) => a + (stock[s] ?? 0), 0);
-  const candidates = tabs.filter((t) => free(t) && t.members.length).sort((a, b) => mean(a) - mean(b));
+  const farming = (t) => farms.some((f) => t.errand?.zone === f.zone && t.errand?.keep === f.keep);
+  const candidates = tabs.filter((t) => (free(t) || (farming(t) && t.task?.status !== "running" && !recent(t.label) && !out.some((o) => o.label === t.label))) && t.members.length).sort((a, b) => mean(a) - mean(b));
   const target = candidates[0];
   if (target && total >= cfg.minStonesPerMember * target.members.length) {
     const levels = Object.fromEntries(target.members.map((m) => [m.name, m.level]));

@@ -1342,6 +1342,8 @@
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (!members.length) throw new Error(`a ${kind} needs members`);
     for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
+    // A task takes the tab, so a running errand ends here, as finished and not failed.
+    if (state.errand) endErrand(iq(), `${kind} task took the tab`, false);
     state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
     return { ...runTask(state.task) };
   };
