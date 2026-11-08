@@ -120,7 +120,7 @@ Everything else is raid or late.
 
 ## Ranking by value and effort
 
-Value is what the finished item adds to the account that nothing else supplies, read from item, spell and wiki data. Effort counts the late kills, respawn lockouts and errand hours in the class sections. Each epic is class-locked and almost every piece is NO DROP, so a second character of the same class repeats the whole chain. The order is an inference. The Magician's epic is listed apart from the ranking: the goal names Domeyafun at level 60 with the Orb of Mastery, and that is the only reason it is a goal item. The table gives it no other priority.
+Value is what the finished item adds to the account that nothing else supplies, read from item, spell and wiki data. Effort counts the late kills, respawn lockouts and errand hours in the class sections. Each epic is class-locked and almost every piece is NO DROP, so a second character of the same class repeats the whole chain. The order is an inference.
 
 | Rank | Epic (roster) | Value | Effort | Note |
 | ---: | --- | --- | --- | --- |
@@ -131,14 +131,14 @@ Value is what the finished item adds to the account that nothing else supplies, 
 | 5 | Bard (3), Singing Short Sword | Medium. Hp +100, CHA +20, resists +10, proc Dance of the Blade (group target, attack speed +55%, STR +30, attack +30, proc level 46) (`S`) | Very high. Phinigel, two dragon scales, Fear Amygdalans, Warlord, Undead Bard then Trakanon L65 | Needed for only one Bard in the raid (`inf`) |
 | 6 | Enchanter (3), Staff of the Serpent | Medium. Click Speed of the Shissar: haste +66%, 30 minutes, single target, level 50. Clicks do not expire in IdleQuest, so one click holds (`S`, `W`). Stacking with the Enchanter's own haste is unknown | Very high. Six named kills, three with 3-day lockouts and one with 16 h, 12 to 14 h of errands | The Lower Guk camps are the longest non-raid part |
 | 7 | Shaman (2), Spear of Fate | Low. Hp 30, mana 70, WIS 20. The click Curse of the Spirits decodes to no combat effect (`S`) | High, and the cheapest of the high ones. One L54 kill if the Rak route works | Do it when the party is 50 or higher and Lord Rak is spawnable |
-| 8 | Monk (2), Celestial Fists | Medium. Hp +100, AC +15, click 40% haste, attack +40, AC +40 for 3 ticks (`S`) | Very high. Five boss kills, a robe sub-quest of about 6 h | |
-| 9 | Paladin (1), Fiery Defender, and Shadow Knight (1), Innoruuk's Curse | Medium. Tank weapons with procs (Holy Shock 155 magic and a stun, Soul Consumption 50 magic) (`S`) | Very high. Many 3-day lockouts and L55 to 60 kills | Raid Resolve makes tank count the lever, not one weapon |
-| 10 | Druid (1), Nature Walkers Scimitar | Low. Mana 90, WIS 20, click Wrath of Nature (55 damage per tick, up to 30 ticks) (`S`) | Very high, plus five ingredients with no source in the snapshot | Possibly impossible from data alone |
-| 11 | Necromancer (2), Scythe | Low to medium. Click about 1,200 damage over 16 ticks (`S`) | Very high. Three planes, Slime Blood about 11 days expected | |
-| 12 | Wizard (1), Staff of the Four | Low to medium. INT 25, mana 100, 800-point absorb rune (`S`) | Very high. 175,000 hp golem, 12 h and 72 h targets, about 1,850 pp | |
-| Goal | Magician (5), Orb of Mastery | The goal names it. The Orb summons the epic elemental pet, and recasting does not refill the orb's charge (`W`) | Very high. Phinigel, Captain Rottgrime, Magi P`Tasa in Plane of Hate, the Crown in Plane of Sky, Neh, Undertow, Slixin, Tarbul | Most late targets are shared with the Warrior, Bard, Necromancer, Ranger and Wizard chains |
+| 8 | Magician (1), Orb of Mastery | Medium. The click summons a level 49 pet with 4,000 hp and 52 to 67 damage every 1.7 s, about twice the raw melee of the level 60 Water pet (22 to 81 every 2.8 s, `npc_types` 598 and 612). The Orb adds INT 20, STR 15, STA 10, DEX 5 and mana 100. It has one charge, and recasting does not refill it (`S`, `W`), so whether a lost epic pet can be replaced is unverified | Very high. Phinigel, Captain Rottgrime, Magi P`Tasa in Plane of Hate, the Crown in Plane of Sky, Neh, Undertow, Slixin, Tarbul | Most late targets are shared with the Warrior, Bard, Necromancer, Ranger and Wizard chains. The cheap pieces are already in the bags |
+| 9 | Monk (2), Celestial Fists | Medium. Hp +100, AC +15, click 40% haste, attack +40, AC +40 for 3 ticks (`S`) | Very high. Five boss kills, a robe sub-quest of about 6 h | |
+| 10 | Paladin (1), Fiery Defender, and Shadow Knight (1), Innoruuk's Curse | Medium. Tank weapons with procs (Holy Shock 155 magic and a stun, Soul Consumption 50 magic) (`S`) | Very high. Many 3-day lockouts and L55 to 60 kills | Raid Resolve makes tank count the lever, not one weapon |
+| 11 | Druid (1), Nature Walkers Scimitar | Low. Mana 90, WIS 20, click Wrath of Nature (55 damage per tick, up to 30 ticks) (`S`) | Very high, plus five ingredients with no source in the snapshot | Possibly impossible from data alone |
+| 12 | Necromancer (2), Scythe | Low to medium. Click about 1,200 damage over 16 ticks (`S`) | Very high. Three planes, Slime Blood about 11 days expected | |
+| 13 | Wizard (1), Staff of the Four | Low to medium. INT 25, mana 100, 800-point absorb rune (`S`) | Very high. 175,000 hp golem, 12 h and 72 h targets, about 1,850 pp | |
 
-Order of pursuit for the current party (Warrior, Cleric, Bard, Shaman, Enchanter, Magician) follows the ranking: Cleric, Warrior, Bard, Enchanter, Shaman. The Magician's chain runs alongside because the goal names it, and its late targets overlap the other chains above. Start the cheap pieces during leveling, and plan the 46 to 56 raid work around the shared targets above.
+Order of pursuit for the current party (Warrior, Cleric, Bard, Shaman, Enchanter, Magician) follows the ranking: Cleric, Warrior, Bard, Enchanter, Shaman, Magician. Start the cheap pieces during leveling, and plan the 46 to 56 raid work around the shared targets above, because one kill there can advance several chains.
 
 ### Rotation changes
 
