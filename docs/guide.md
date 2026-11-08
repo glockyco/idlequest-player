@@ -41,6 +41,7 @@ New characters start with no weapon equipped and with their eight general slots 
 2. Free the general slots: enter the world as each new character (`iq.switchCharacter`), sell what sells, and pack the rest (starter food, the note, the starred starter weapon and bandages, which cannot be sold) into the starter `Backpack*`. Starter spell scrolls are already scribed.
 3. Weapons: buy one per member from a weapons merchant and give it with `iq.giveItem(name, member, true)`. Tyeg Envil in West Freeport sells a Two Handed Sword (22 pp, Paladin and other plate melee) and a Warhammer (6 pp, Cleric, Druid, Shaman). Nothing there fits a Necromancer. The merchant item's class bits are in `item.classes`.
 4. Bags: disable the bot first (`iq.setBot({ enabled: false })`), because its cleanup sells a surplus Backpack, and a bag cannot go inside a bag, so each purchase needs a free top-level slot. Buy one Backpack, give it with `iq.giveItem("Backpack", member, false)`, and repeat until the member reports a full inventory. Check a purchase by the inventory, not the last chat line, because the food auto-buy writes chat in between. Enable the bot again afterwards.
+5. Once every member has a weapon, set AutoLevel's minimum con to White (`minCon: 10`). Kill XP grows with the square of the enemy's level, and at Blue a level 3 party kept spending fights on level 1 rats worth 20 XP. The bot lowers the minimum again by itself when no enemies remain.
 
 ## First hour of a new group
 

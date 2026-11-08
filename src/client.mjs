@@ -433,9 +433,10 @@ export async function attach(tab) {
     async switchCharacter(name, { atSelect } = {}) {
       const before = await tab.evaluate(() => {
         const s = window.iq.stores;
-        const me = s.character.getState().characterProfile;
+        const inWorld = s.screen.getState().currentScreen === "game";
         return {
-          leaderId: me.id,
+          inWorld,
+          leaderId: inWorld ? s.character.getState().characterProfile?.id ?? null : null,
           chars: (s.roster.getState().characters ?? []).map((c) => ({ id: c.id, name: c.name })),
           partyIds: window.iqBot?.config.partyIds ?? [],
         };
@@ -443,15 +444,17 @@ export async function attach(tab) {
       const target = before.chars.find((c) => c.name.toLowerCase() === String(name).toLowerCase());
       if (!target) throw new Error(`no account character named ${name}`);
       if (target.id === before.leaderId) throw new Error(`${target.name} is already the active character`);
-      const party = [...new Set([...before.partyIds, before.leaderId])].filter((id) => id !== target.id);
+      const party = [...new Set([...before.partyIds, ...(before.leaderId ? [before.leaderId] : [])])].filter((id) => id !== target.id);
       const until = async (what, timeoutMs, fn, ...args) => {
         for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) if (await tab.evaluate(fn, ...args)) return;
         throw new Error(`timed out waiting for ${what}`);
       };
       return handle.pausedAutoLevel(async () => {
-        await until("the fight to end", 120000, () => !window.iq.stores.skills.getState().inCombat);
-        await handle.clearWindows();
-        await tab.click('role/button[name="Camp" exact]');
+        if (before.inWorld) {
+          await until("the fight to end", 120000, () => !window.iq.stores.skills.getState().inCombat);
+          await handle.clearWindows();
+          await tab.click('role/button[name="Camp" exact]');
+        }
         await until("character select", 90000, () => window.iq.stores.screen.getState().currentScreen === "characterSelect");
         if (atSelect) await atSelect();
         const listed = () => tab.evaluate((n) => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === n), target.name);
@@ -460,7 +463,16 @@ export async function attach(tab) {
           await tab.click('role/button[name="Next page" exact]');
           await sleep(800);
         }
-        await tab.click(`role/button[name="${target.name}" exact]`);
+        // The list stays covered by a transition overlay for a moment after camping.
+        for (let k = 0; ; k++) {
+          try {
+            await tab.click(`role/button[name="${target.name}" exact]`);
+            break;
+          } catch (e) {
+            if (k >= 15) throw e;
+            await sleep(1000);
+          }
+        }
         await tab.click('role/button[name="ENTER WORLD" exact]');
         await until(`${target.name} in the world`, 180000, (id) => {
           const s = window.iq.stores;
