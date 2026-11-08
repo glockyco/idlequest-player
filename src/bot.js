@@ -1020,8 +1020,75 @@
       log(`hand-in: ${m.name} gave ${r.items} items in ${r.trades} trades for ${r.xp} XP in ${m.sec} s`);
     }
   };
-  const TASKS = { handIn: handInTask };
-  const taskSummary = (task) => (task.members ?? []).map((m) => `${m.name} ${m.done ? `${m.items} items ${m.xp} XP` : "not done"}`).join(", ");
+  // A directed hunt fights the enemies its `keep` pattern names through the Enemy Targets action,
+  // the way a click on that list does with "attack on arrival": the client walks to the closest
+  // alive spawn of those NPCs and starts the fight there (`selectEnemyTarget`,
+  // docs/client-internals.md). AutoLevel never pulls enemies that con gray, so this is how a party
+  // far above them gets their drops, and with `as` the character who must loot a NO DROP piece
+  // does the fighting. It ends when `item` is in the bags, when none of those enemies has been up
+  // for `waitMin` minutes, or after `minutes`, and the bot then restores the tab as after every
+  // task.
+  const KILL_LINE = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
+  const killedSince = (i, wanted, t0) => {
+    const evs = i.events ?? [];
+    for (let k = evs.length - 1; k >= 0 && evs[k].t >= t0; k--) {
+      const m = KILL_LINE.exec(evs[k].text ?? "");
+      if (m && wanted.test(m[1])) return true;
+    }
+    return false;
+  };
+  const directedKill = async (i, wanted) => {
+    const rt = runtime(i);
+    if (!rt?.selectEnemyTarget) throw new Error("the client's Enemy Targets action was not found");
+    const cb = () => i.stores.combat.getState();
+    const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? ""));
+    if (!alive.length) return "none";
+    for (let k = 0; k < 30 && (rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null); k++) await sleep(1000);
+    if (cb().isRunning) cb().setIsRunning(false);
+    if (!cb().enemyTargetAttackOnArrival) cb().setEnemyTargetAttackOnArrival(true);
+    const t0 = now();
+    rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
+    for (let k = 0; k < 150; k++) {
+      await sleep(1000);
+      if (killedSince(i, wanted, t0)) {
+        await sleep(3000); // the loot settles
+        return "killed";
+      }
+      const busy = i.stores.skills.getState().inCombat || rt.combatApproach?.attempt || rt.buffPhaseActive;
+      if (!busy && now() - t0 > 15000) return "lost";
+    }
+    return "lost";
+  };
+  const huntTask = async (i, task, step) => {
+    const wanted = enemyPattern(task.keep);
+    const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
+    try {
+      await step("stop", () => calm(i), 75000);
+      if (task.as) await step(`switch to ${task.as}`, () => becomeActive(i, task.as), 200000);
+      await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+      task.kills = 0;
+      let seen = now();
+      while (now() < task.startedAt + task.minutes * 60000) {
+        if (task.item && hasItem(i, task.item)) return void (task.result = `got ${task.item}`);
+        const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted), 200000);
+        if (r === "killed") {
+          task.kills++;
+          seen = now();
+        } else if (r === "none") {
+          if (now() - seen >= task.waitMin * 60000) return void (task.result = `none of ${task.keep} up`);
+          await sleep(10000);
+        }
+      }
+      task.result = task.item && hasItem(i, task.item) ? `got ${task.item}` : "time is up";
+    } finally {
+      i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
+    }
+  };
+  const TASKS = { handIn: handInTask, hunt: huntTask };
+  const taskSummary = (task) =>
+    task.kind === "hunt"
+      ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
+      : (task.members ?? []).map((m) => `${m.name} ${m.done ? `${m.items} items ${m.xp} XP` : "not done"}`).join(", ");
   const runTask = (task) => {
     const runner = Math.random().toString(36).slice(2);
     Object.assign(task, { runner, status: "running", heartbeat: now() });
@@ -1593,6 +1660,22 @@
       for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
       state.task = { id: `handIn-${now().toString(36)}`, kind: "handIn", npc, zone, startedAt: now(), members: members.map((m) => ({ name: m.name, counts: { ...m.counts }, done: false })) };
       log(`task handIn: ${members.map((m) => `${m.name} ${Object.entries(m.counts).map(([k, v]) => `${v} ${k}`).join(" and ")}`).join(", ")} to ${npc} in ${zone}`);
+      return { ...runTask(state.task) };
+    },
+    /**
+     * Fight the enemies whose names match `keep` in `zone` through the Enemy Targets action, as a
+     * task in the page (`huntTask`), for drops from enemies AutoLevel does not pull, such as gray
+     * ones. `as` names the character who fights and loots, for NO DROP pieces. The task ends when
+     * `item` is in the bags, when none of those enemies was up for `waitMin` minutes, or after
+     * `minutes`. Returns a copy of the task, which `state.task` keeps up to date.
+     */
+    hunt({ zone, keep, item = null, as = null, minutes = 20, waitMin = 0 }) {
+      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      if (!zone || !keep) throw new Error("a hunt needs zone and keep");
+      new RegExp(keep);
+      if (as && !findCharacter(iq(), as)) throw new Error(`no account character ${as}`);
+      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, as, minutes, waitMin, startedAt: now() };
+      log(`task hunt: ${keep} in ${zone}${item ? ` for ${item}` : ""}${as ? ` as ${as}` : ""}, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
     /** Stop the running task after its current step. The bot then gives the tab back to its leader. */

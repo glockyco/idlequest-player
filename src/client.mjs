@@ -413,14 +413,31 @@ export async function attach(tab) {
      * task, or throws with the task when it failed.
      */
     async handIn({ members, npc, zone, timeoutMs = 3600000 }) {
-      await tab.evaluate((spec) => window.iqBot.handIn(JSON.parse(spec)), JSON.stringify({ members, ...(npc ? { npc } : {}), ...(zone ? { zone } : {}) }));
+      return handle.runTask("handIn", { members, ...(npc ? { npc } : {}), ...(zone ? { zone } : {}) }, timeoutMs);
+    },
+
+    /**
+     * Fight the enemies whose names match `keep` in `zone` through the Enemy Targets action with
+     * the bot's in-page task (`iqBot.hunt`), for drops from enemies AutoLevel does not pull, such
+     * as gray ones, e.g. `{ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as:
+     * "Domeyafun", waitMin: 3 }`. `as` makes that character fight and loot, for NO DROP pieces.
+     * The tab goes back to its leader when the task ends. Resolves with the finished task, or
+     * throws with the task when it failed.
+     */
+    async hunt({ timeoutMs = 3600000, ...opts }) {
+      return handle.runTask("hunt", opts, timeoutMs);
+    },
+
+    /** Start the bot's task `kind` with `spec` and wait for its end. Resolves with the done task, or throws with it. */
+    async runTask(kind, spec, timeoutMs = 3600000) {
+      await tab.evaluate((k, json) => window.iqBot[k](JSON.parse(json)), kind, JSON.stringify(spec));
       let task = null;
       for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
         await sleep(5000);
         task = await tab.evaluate(() => window.iqBot.state.task && JSON.parse(JSON.stringify(window.iqBot.state.task)));
         if (task?.status !== "running") break;
       }
-      if (task?.status !== "done") throw Object.assign(new Error(`hand-in ${task?.status ?? "lost"}${task?.error ? ` at "${task.step}": ${task.error}` : ""}`), { task });
+      if (task?.status !== "done") throw Object.assign(new Error(`${kind} ${task?.status ?? "lost"}${task?.error ? ` at "${task.step}": ${task.error}` : ""}`), { task });
       return task;
     },
 

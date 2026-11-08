@@ -42,6 +42,7 @@ await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, re
 await iq.setLeader("Tagujazolu");                  // lead the group with another member for good; the bot switches and regroups
 await iq.switchCharacter("Edroun");                // play another character for a while; the bot switches back when its pause ends
 await iq.handIn({ members: [{ name: "Edroun", counts: { "Greater Lightstone": 2 } }] });  // the bot's task: each member hands in at Smith Tv`ysa, then back to the leader
+await iq.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as: "Domeyafun", waitMin: 3 });  // gray drops through Enemy Targets, as the looter
 await iq.raidTime();                                // price of a raid hour in platinum, expiry, auto-renew (read only)
 await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
 ```

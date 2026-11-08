@@ -1058,3 +1058,34 @@ test("a hand-in step that fails twice ends the task, wakes a script and gives th
     vi.useRealTimers();
   }
 });
+
+test("a hunt task fights gray enemies through Enemy Targets as the named character until the item drops", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const selected: number[][] = [];
+    const onArrival: boolean[] = [];
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: false, setEnemyTargetAttackOnArrival: (v: boolean) => onArrival.push(v) });
+    f.targets.push({ spawnInstanceId: 4, npcId: 59144, name: "a_gypsy_dancer", level: 24 } as { spawnInstanceId: number; name: string });
+    Object.assign(f.runtime, {
+      selectEnemyTarget: (ids: number[]) => {
+        selected.push(ids);
+        setTimeout(() => {
+          f.say("You have defeated a gypsy dancer, but gain no experience.");
+          f.bag.push({ name: "Power of Wind" });
+          f.targets.splice(0);
+        }, 4000);
+      },
+    });
+    f.bot.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", as: "Edroun", waitMin: 1 });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "got Power of Wind" });
+    expect(selected).toEqual([[59144]]);
+    expect(f.moves).toEqual(["mistmoore"]);
+    expect(f.commands).toEqual(["session.camp", "session.enterWorld Edroun", "session.camp", "session.enterWorld Me"]);
+    expect(onArrival.at(-1)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
