@@ -35,7 +35,7 @@ A new group does not have to start empty. Before switching leaders (<https://idl
 
 ## Kit for new characters
 
-New characters start with no weapon equipped and with their eight general slots full of starter items, which the client does not show for companions. Kit every member before the first hunt:
+New characters start with no weapon equipped and with their eight general slots full of starter items. Inventory Search on the macro bar lists every character's carried items, bags and banks, and the inspect window shows any character's equipment. Kit every member before the first hunt:
 
 1. Coin: Manage Money (`iq.manageMoney({ transferFrom })`) moves an earlier character's whole balance to the new leader.
 2. Free the general slots and arm the character: enter the world as each new character (`iq.switchCharacter`, which brings the party along and keeps the zone) and run `iq.kitStarter()`. It puts the starred starter weapon into the empty primary slot and packs the other general-slot items (starter food, the note, bandages, auto-bought food) into the starter `Backpack*`. Starter spell scrolls are already scribed.
