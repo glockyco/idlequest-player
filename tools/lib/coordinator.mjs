@@ -155,6 +155,8 @@ export const ZONE_DEFAULTS = {
   crowdWeight: 0.5,
   // A group leaves its zone for one worth this share more.
   margin: 0.2,
+  // A rotation set this recently stays, so the group can arrive before the crowds shift again.
+  settleMin: 10,
 };
 
 /**
@@ -163,7 +165,8 @@ export const ZONE_DEFAULTS = {
  * (`rates`, tools/lib/rates.mjs), best first. The bot stays in a zone of its rotation and moves
  * along it when the zone runs dry, and moves to the first zone when its own is not in the
  * rotation. A group stays in its zone, and keeps its rotation, until the best zone is worth
- * `margin` more, so measurement noise and shifting crowds do not move groups back and forth. Groups are assigned from the lowest
+ * `margin` more, so measurement noise and shifting crowds do not move groups back and forth.
+ * A rotation set within `settleMin` (`rotationSetAt`) stays while the group travels to it. Groups are assigned from the lowest
  * level up, because the slowest group sets the account's time to 60, and a zone is worth a
  * `crowdWeight` share less for each group that hunts there already. A zone's measured rate is
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
@@ -197,7 +200,13 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
     // zones matter only once the bot leaves this one, and the pass after that move ranks them anew,
     // so shifting crowds do not rewrite the rotation every pass.
     const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.every((z) => row.includes(z)) && t.rotation.includes(t.zone);
-    if (stay && rotationInRow) continue;
+    // The bot moves through its rotation as spawns run out, so the rotation is judged by its best zone.
+    const rotationBest = Math.max(0, ...ranked.filter((m) => (t.rotation ?? []).includes(m.z)).map((m) => m.value));
+    if (rotationInRow && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
+    if (t.rotationSetAt && now - t.rotationSetAt < cfg.settleMin * 60000 && (t.rotation ?? []).every((z) => row.includes(z))) {
+      occupy(t.rotation[0]);
+      continue;
+    }
     // Order alone moves no group, so a rotation with the same zones stays as it is.
     if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) continue;
     const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);

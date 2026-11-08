@@ -187,8 +187,16 @@ test("a group that stays keeps its rotation, and one that should move gets a new
   // A zone that left the band row, or a group that should move, gets a new rotation.
   const old = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "befallen"] });
   expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })).toHaveLength(1);
+  // A group in its rotation's weaker zone keeps it while the rotation's best zone is within the margin.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })).toEqual([]);
   const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
   expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+});
+
+test("a rotation set within the settle time stays while the group travels", () => {
+  const travelling = tab("A", "G3", 15, { zone: "kerraridge", rotation: ["najena", "warrens", "runnyeye"], rotationSetAt: NOW - 5 * 60000 });
+  expect(assignZones({ now: NOW, tabs: [travelling], rows: ROWS, rates: RATES })).toEqual([]);
+  expect(assignZones({ now: NOW, tabs: [{ ...travelling, rotationSetAt: NOW - 15 * 60000 }], rows: ROWS, rates: RATES })).toHaveLength(1);
 });
 
 test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share", () => {
