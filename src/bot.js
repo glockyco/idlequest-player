@@ -235,6 +235,10 @@
     if (sold) log(`sold ${sold} surplus item(s) for ${copper} copper (${names.join(", ")}); ${i.bagSpace().free} slots free`);
   };
 
+  // Raid mode turns AutoLevel off and the leader commands each fight (main.pretty.js:72297-72300),
+  // so during a raid the bot only reports: no AutoLevel restarts, rejoins, rotation, errands, gem
+  // changes, target skips, cures or sales.
+  const inRaid = (i) => Boolean(i.stores.raid?.getState?.().raidModeActive);
   const keepAutoLevel = (i, cb) => {
     if (cb.isRunning) {
       state.offSince = null;
@@ -960,6 +964,11 @@
       watchZone(i, cb);
       await watchCursor(i);
       watchLoot(i);
+      if (inRaid(i)) {
+        watchMemory();
+        state.lastError = null;
+        return;
+      }
       watchCrowding(i);
       await watchErrand(i);
       await watchNoEnemies(i);
@@ -989,7 +998,7 @@
       const i = iq();
       if (!i?.stores) return;
       const cb = i.stores.combat.getState();
-      if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading) return;
+      if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || inRaid(i)) return;
       avoidTargets(i);
       keepAutoAttack(i, cb);
       dispelRoots(i, cb);

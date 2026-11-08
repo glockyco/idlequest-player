@@ -400,7 +400,8 @@
   };
   guard.timerId = setInterval(() => {
     const cbNow = stores.combat.getState();
-    if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading) return;
+    // Raid bosses stand far above the leader by design, and the raid controls command each fight.
+    if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading || stores.raid?.getState?.().raidModeActive) return;
     // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
     const danger = guard.force ? { reason: guard.force } : guardDanger();
     guard.force = null;

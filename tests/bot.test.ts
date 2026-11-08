@@ -63,6 +63,8 @@ async function install(partyIds: number[] = []) {
   // Active effects by entity id, as the client's effects registry holds them; `root` marks a root.
   const effects = new Map<string, { effectId: string; spellId: number; casterLevel: number; remainingTicks: number; root: boolean }[]>();
   const skills = { inCombat: false };
+  // The raid store's mode flag, which a test can switch on.
+  const raid = { raidModeActive: false };
   // Tactic changes the bot made, as [who, key, value].
   const tactics: [string, string, unknown][] = [];
   const autoLevel = { stops: 0, starts: 0 };
@@ -165,6 +167,7 @@ async function install(partyIds: number[] = []) {
       skills: store(skills),
       spellbook: store(book),
       partySpells: store({ overridesByCompanion: { "character:20": { cure: false } } }),
+      raid: store(raid),
     },
   };
   g.iq = iq;
@@ -177,7 +180,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -420,6 +423,27 @@ test("a pull standing at its target with Auto Attack off gets Auto Attack, and o
     await waitFor(10);
     expect(runtime.presses).toBe(1);
     expect(bot.state.alerts.filter((a) => a.kind === "autoAttack").length).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("in raid mode the bot leaves AutoLevel off, and restarts it after the raid", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bot, combat, raid, autoLevel } = await install();
+    raid.raidModeActive = true;
+    combat.isRunning = false;
+    await bot.tick();
+    vi.advanceTimersByTime(120000);
+    await bot.tick();
+    expect(autoLevel.starts).toBe(0);
+
+    raid.raidModeActive = false;
+    await bot.tick();
+    vi.advanceTimersByTime(120000);
+    await bot.tick();
+    expect(autoLevel.starts).toBe(1);
   } finally {
     vi.useRealTimers();
   }
