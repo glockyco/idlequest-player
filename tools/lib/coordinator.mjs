@@ -35,10 +35,11 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
  * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, steps, retryMin } }`, and `holders`,
  *   the account characters that carry each quest's reward, `{ [id]: [name] }`.
+ * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, gear = null, history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -98,6 +99,13 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     for (const t of on) if (!stay.includes(t)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
     const join = tabs.filter((t) => free(t) && t.members.length && fits(t)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
     for (const t of join) out.push({ label: t.label, kind: "errand", id: f.id, spec: { zone: f.zone, keep: f.keep, minutes: f.minutes }, why: `${f.id} for ${t.group}, mean level ${mean(t).toFixed(1)}` });
+  }
+
+  // Gear moves need no character switch and no travel, so one tab carries them all out: the free
+  // tab with the lowest levels, whose hunting the minutes cost least.
+  if (gear?.moves?.length) {
+    const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => mean(a) - mean(b))[0];
+    if (t) out.push({ label: t.label, kind: "gear", spec: { moves: gear.moves }, why: `${gear.moves.length} gear moves for ${new Set(gear.moves.map((m) => m.to)).size} characters` });
   }
 
   // Lightstones go to the group with the lowest levels, where they buy the most levels and which

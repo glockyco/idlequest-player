@@ -14,10 +14,6 @@ const METHODS = ["status", "roster", "inventory", "bagSpace", "chatTail", "talk"
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Item kinds for `searchAccount`. A search lists at most 200 rows, so it asks for kinds of armor,
-// jewelry and weapons one at a time.
-const SURVEY_WORDS = ["Bracer", "Ring", "Mask", "Cloak", "Cape", "Boots", "Shoes", "Gloves", "Gauntlets", "Helm", "Cap", "Robe", "Tunic", "Breastplate", "Leggings", "Pants", "Sleeves", "Vambraces", "Belt", "Girdle", "Earring", "Necklace", "Amulet", "Choker", "Shield", "Sword", "Dagger", "Staff", "Mace", "Axe", "Spear", "Bow", "Hammer", "Club", "Wand", "Mantle", "Shoulder", "Collar", "Veil", "Band", "Stud", "Armor", "Coif", "Skullcap", "Wristband", "Greaves", "Jerkin", "Shirt", "Hood", "Scimitar", "Blade", "Rapier", "Flail", "Warhammer", "Knife", "Fist", "Totem", "Idol", "Charm", "Medallion", "Pendant", "Bandolier", "Sash", "Gorget", "Brooch", "Torque", "Circlet", "Crown"];
-
 /**
  * Last (session, seq) pair in a JSONL file, or zeros if the file is missing or empty. The page
  * numbers rows from 1 again after every reload, so `seq` alone cannot say what was exported.
@@ -194,41 +190,6 @@ export async function attach(tab) {
       }
       const platinum = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.platinum);
       return { bought, platinum };
-    },
-
-    /**
-     * Survey the account's items with Inventory Search's own request (opcode 1241, action
-     * "search"): one search per word, merged by owner and item instance. A search returns at most
-     * 200 rows, so the words are item kinds rather than letters. Rows name the owner, its class and
-     * level, the item, and where it is ("Carried", "Equipped", a bank). `save` writes the rows to a
-     * file of the repository (relative paths). Read-only. Resolves with the rows.
-     */
-    async searchAccount({ words = SURVEY_WORDS, save = "runs/state/account-items.json" } = {}) {
-      await tab.evaluate((ws) => {
-        const p = window.iq.stores.character.getState().characterProfile;
-        const job = (window.iq.accountSearch = { done: false, rows: [], capped: [] });
-        (async () => {
-          const seen = new Map();
-          for (const q of ws) {
-            const r = await window.iq.socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: q }, 8000);
-            if (r?.more) job.capped.push(q);
-            for (const m of r?.matches ?? []) seen.set(`${m.characterId}:${m.itemInstanceId}:${m.bankKind ?? ""}`, m);
-            await new Promise((res) => setTimeout(res, 250));
-          }
-          job.rows = [...seen.values()];
-          job.done = true;
-        })().catch((e) => Object.assign(job, { done: true, error: String(e?.message ?? e) }));
-      }, words);
-      let job;
-      for (;;) {
-        await sleep(3000);
-        job = await tab.evaluate(() => ({ done: window.iq.accountSearch.done, error: window.iq.accountSearch.error ?? null, capped: window.iq.accountSearch.capped }));
-        if (job.done) break;
-      }
-      if (job.error) throw new Error(`account search failed: ${job.error}`);
-      const rows = await tab.evaluate(() => window.iq.accountSearch.rows);
-      if (save) await writeFile(repoPath(save), JSON.stringify(rows));
-      return rows;
     },
 
     /**

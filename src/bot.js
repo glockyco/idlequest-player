@@ -36,6 +36,7 @@
     // Never sold, besides the reagents of the leader's own spells. Lightstones (10300) and Greater
     // Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
+    gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
     // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
     keepItemTypes: [14, 15], // never sold as cheap single items: food and drink
@@ -186,7 +187,7 @@
 
   /**
    * Carried items that can be sold, cheapest loss first. Skips containers, NO DROP and NO RENT
-   * items, items without a merchant price, `keepItemIds`, reagents of the leader's class spells,
+   * items, items without a merchant price, `keepItemIds`, the gear plan's `gearKeepIds`, reagents of the leader's class spells,
    * equipped items, the cursor and bags marked No Sell, whose copies count as kept.
    * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
    * with `cheap`, single items whose merchant price is at most `junkMaxCopper`, lowest total value
@@ -211,7 +212,7 @@
         kept.set(r.itemid, (kept.get(r.itemid) ?? 0) + 1);
         continue;
       }
-      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || reagents.has(r.itemid)) continue;
+      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || config.gearKeepIds.includes(r.itemid) || reagents.has(r.itemid)) continue;
       if (!groups.has(r.itemid)) groups.set(r.itemid, []);
       groups.get(r.itemid).push(r);
     }
@@ -565,7 +566,7 @@
       // quest NPC hands back.
       const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
       const d = row?.itemDetails;
-      if (still && i.bagSpace().free === 0 && d && d.price > 0 && d.price <= config.junkMaxCopper && d.nodrop !== 0 && !config.keepItemIds.includes(row.itemid) && !(i.questItems ?? []).includes(row.itemid)) {
+      if (still && i.bagSpace().free === 0 && d && d.price > 0 && d.price <= config.junkMaxCopper && d.nodrop !== 0 && !config.keepItemIds.includes(row.itemid) && !config.gearKeepIds.includes(row.itemid) && !(i.questItems ?? []).includes(row.itemid)) {
         const s = await sellAt(0, 30);
         log(`sold cursor item ${held} because the bags are full: ${s?.message ?? "no reply"}`);
       }

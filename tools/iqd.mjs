@@ -316,6 +316,8 @@ export function drainInPage(a) {
   return { samples: s.rows, events: e.rows, more: s.more || e.more };
 }
 
+// The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
+const GEAR_EVERY_MIN = 60;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
 /** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only. */
@@ -338,6 +340,45 @@ export function setGroupInPage(a) {
   if (window.iqBot.config.leaderId != null || idOf(a.leader) == null) return false;
   window.iqBot.set({ leaderId: idOf(a.leader), partyIds: a.members.map(idOf).filter((id) => id != null) });
   return true;
+}
+
+/**
+ * The worn and carried items of the tab's leader and account companions, which the client holds
+ * for its party (the character sheet and `botInventories`), so the gear plan needs no search.
+ * Rows carry the item id and instance, where the item is and the holder's class, race and level.
+ */
+export function inventoryInPage() {
+  const S = window.iq.stores;
+  const p = S.character.getState().characterProfile;
+  const cs = S.companions.getState();
+  const chars = S.roster?.getState?.().characters ?? [];
+  const races = Object.fromEntries((S.staticData.getState().races ?? []).map((r) => [r.id, r.name]));
+  const who = [{ id: p.id, name: p.name, class: p.class?.id ?? p.class, race: p.race?.id ?? p.race, level: p.level, inv: p.inventory ?? [] }];
+  for (const c of cs.companions ?? []) {
+    const r = chars.find((x) => x.id === c.characterId);
+    if (r) who.push({ id: r.id, name: r.name, class: r.class, race: r.race, level: c.level ?? r.level, inv: cs.botInventories?.[`character-${r.id}`] ?? [] });
+  }
+  return who.flatMap((w) =>
+    w.inv
+      .filter((x) => x.itemid && !(x.bag === 0 && x.slot === 30))
+      .map((x) => ({ characterId: w.id, characterName: w.name, class: w.class, race: races[w.race] ?? null, level: w.level, itemId: x.itemid, itemName: x.itemDetails?.Name ?? x.itemDetails?.name ?? null, itemInstanceId: x.itemInstanceId, location: x.bag === 0 && x.slot <= 21 ? "Equipped" : "Carried", slot: x.slot, bag: x.bag, blockReason: "" })),
+  );
+}
+
+/** Start bridge job `a.name` with `a.args` and return its id (the bridge keeps it in `window.iq.jobs`). */
+export function startJobInPage(a) {
+  return window.iq.job(a.name, ...a.args);
+}
+
+/** The state of bridge job `a.id`: done, ok, result and error. */
+export function jobInPage(a) {
+  return window.iq.jobs[a.id] ?? null;
+}
+
+/** Give the bot the items the roster gear plan wants kept, which its cleanup never sells. */
+export function setGearKeepInPage(a) {
+  window.iqBot.set({ gearKeepIds: a.ids });
+  return a.ids.length;
 }
 
 // ---- Recorder files -----------------------------------------------------------------------------
@@ -450,7 +491,8 @@ class Daemon {
       if (task.nextAt) h.nextAt = task.nextAt;
       if (task.endedAt) h.ms = task.endedAt - task.startedAt;
     }
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, history: state.history });
+    const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, gear, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -465,6 +507,42 @@ class Daemon {
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
     state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     metaSet(this.db, "coordinator", state);
+  }
+
+  /**
+   * The roster gear pass, every `GEAR_EVERY_MIN`: worn items and the leaders' bags from every
+   * party's own inventories, the companions' carried items from Inventory Search (`searchItems` in
+   * the bridge), then the plan of tools/lib/gear-plan.mjs. The items the plan wants kept go to every
+   * bot, and the moves go to the coordinator's policy, which queues them as one gear task. The
+   * survey is saved to runs/state/account-items.json for tools/handdown.mjs.
+   */
+  async gearPass(now, tabs) {
+    if (now - (this.gearAt ?? 0) < GEAR_EVERY_MIN * 60000) return null;
+    this.gearAt = now;
+    const { planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
+    const party = [];
+    for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
+    const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
+    let job = null;
+    for (let k = 0; k < 90 && !job?.done; k++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      job = await this.relay.evaluate(tabs[0].targetId, call(jobInPage, { id }), { timeout: 10000 });
+    }
+    if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
+    const survey = mergeSurvey(party, job.result.rows);
+    await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
+    this.items ??= new Map();
+    const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
+    if (missing.size) {
+      const { rows } = await import("./lib/gear-data.mjs");
+      const { contentRoot } = await import("./lib/content.mjs");
+      for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
+    }
+    const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
+    const { moves, wanted } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf) });
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, { ids: wanted }), { timeout: 10000 }).catch(() => {});
+    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${wanted.length} kept${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
+    return { moves };
   }
 
   async triggers() {

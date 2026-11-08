@@ -269,22 +269,15 @@ rules on the fights the guard did not leave. `--dump` prints one JSON object per
 bun tools/fights.mjs
 ```
 
-`tools/handdown.mjs` plans hand-me-downs: armor and jewelry that one character carries and another
-can wear better, scored with `tools/gear.mjs`'s stat score for the receiver. It reads an Inventory
-Search survey of the whole account (`iq.searchAccount()` writes `runs/state/account-items.json`
-with one search per item word over opcode 1241, which lists carried, banked and equipped items with
-their owners), races from the iqd database and item stats from the content snapshot. Carry a move
-out in the receiver's group tab: `iq.pullItem` presses Inventory Search's Transfer button for the
-owner, then `iq.equipFromBags` puts it on the leader or `iq.giveItem(name, member, true)` on a
-companion. Survey again before the next round, because the plan reads the survey, not the game.
-
-```js
-await iq.searchAccount();                                              // in any game tab
-// bun tools/handdown.mjs --min-gain 5 --json, then per move in the receiver's tab:
-await iq.pullItem({ itemName: "Icy Greaves", from: "Ewbanaqoa" });
-await iq.equipFromBags("Icy Greaves", 18);                             // leader, empty legs slot
-await iq.giveItem("Ringmail Boots", "Arwendrel", true);                // companion
-```
+The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
+and slot where it adds most: armor and jewelry as a set by `tools/gear.mjs`'s stat score, with the
+client's haste and regeneration caps, and the main hand by damage over delay. `iqd run --coordinate`
+runs it every hour: worn items and the leaders' bags come from each party's own inventories, the
+companions' carried items from Inventory Search, and the moves run as one gear task
+(`iqBot.gear`), which pulls each item from its holder and gives it equipped to its receiver, in the
+party or not. The items the plan finds to be an upgrade for anyone go to every bot as
+`gearKeepIds`, which its cleanup never sells. iqd saves the survey to
+`runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 
 ## Monitoring
 

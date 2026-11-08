@@ -994,6 +994,29 @@
     const lines = events.filter((x) => x.seq > since && /equips|transfer|give|cannot|space/i.test(x.text ?? "")).map((x) => x.text);
     return { ok: Boolean(ok), lines };
   };
+  /**
+   * Inventory Search's own request (opcode 1241, action "search", read-only) for each of `words`,
+   * four at a time, merged by owner, item instance and bank. A search matches names anywhere and
+   * lists at most 200 rows, so the words are item kinds and name parts. Resolves with the rows and
+   * the words whose search was cut off at 200.
+   */
+  const searchItems = async (words) => {
+    const p = stores.character.getState().characterProfile;
+    const seen = new Map();
+    const capped = [];
+    const todo = [...new Set(words)];
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        while (todo.length) {
+          const query = todo.shift();
+          const r = await socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query }, 8000);
+          if (r?.more) capped.push(query);
+          for (const m of r?.matches ?? []) seen.set(`${m.characterId}:${m.itemInstanceId}:${m.bankKind ?? ""}`, m);
+        }
+      }),
+    );
+    return { rows: [...seen.values()], capped };
+  };
   /** Close windows that hide the right-hand buttons: Done and Close buttons, merchant, Path To, the quest dialogue and the combat macro bar. */
   const closeWindows = async () => {
     // Toggles flip a window, so they run once, before the buttons are clicked.
@@ -1014,7 +1037,7 @@
   // job: `job(name, ...args)` starts one of JOBS and returns its id at once, and `jobs[id]` holds
   // its progress and result. The last 20 jobs are kept.
   const jobs = window.iq?.jobs ?? {};
-  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, closeWindows, sellCursor };
+  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, searchItems, closeWindows, sellCursor };
   const job = (name, ...args) => {
     const fn = JOBS[name];
     if (!fn) throw new Error(`no job named ${name}`);

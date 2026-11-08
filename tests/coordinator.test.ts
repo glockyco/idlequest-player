@@ -92,3 +92,10 @@ test("a quest chain runs for the members of its class who lack the reward", () =
   expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] } })).toMatchObject([{ label: "B", kind: "quest", spec: { members: ["Thal"] } }]);
   expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] }, history: [{ t: NOW - 60 * 60000, label: "B", kind: "quest", id: "w1" }] })).toEqual([]);
 });
+
+test("gear moves go to the free tab with the lowest levels", () => {
+  const tabs = [tab("A", "G1", 41), tab("B", "G5", 12, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
+  const moves = [{ item: "Cloak", from: "X", to: "Y", slot: "back" }];
+  expect(decide({ now: NOW, tabs, gear: { moves } })).toMatchObject([{ label: "C", kind: "gear", spec: { moves } }]);
+  expect(decide({ now: NOW, tabs, gear: { moves: [] } })).toEqual([]);
+});
