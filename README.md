@@ -226,6 +226,25 @@ for most. It is the side-by-side view for comparing class mixes and checking a c
 
 ```sh
 bun tools/groups.mjs --last 60
+bun tools/groups.mjs --since 1794140961654 --until 1794143661654   # one block of an experiment
+```
+
+`tools/crossover.mjs` reads a two-period crossover across groups: arm A runs a setting in the
+first block and arm B in the second, so each group is compared with itself and the period effect
+cancels between the arms. It prints both blocks per group and the setting's effect on XP per hour
+(as a ratio), escapes and deaths per hour, each with an interval of two standard errors.
+
+```sh
+bun tools/crossover.mjs --start 1794140961654 --block 45 --a G2,G4,G6 --b G3,G5,G7 --label fightingOnly
+```
+
+`tools/fights.mjs` splits every recorded run into fights and reports what the guard's escapes and
+the deaths cost, which danger signals predicted deaths (the level gap of mobs that hit someone,
+incoming damage against the victim's HP, the number of mobs) and a replay of candidate escape
+rules on the fights the guard did not leave. `--dump` prints one JSON object per fight.
+
+```sh
+bun tools/fights.mjs
 ```
 
 `tools/handdown.mjs` plans hand-me-downs: armor and jewelry that one character carries and another
