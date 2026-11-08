@@ -163,7 +163,13 @@ A hard per-account creation cap is unverified. Neither the read wiki's Overview/
 
 ### Two sessions on one account
 
-The wiki says automated adventuring requires leaving the game running and is not offline progression. It explains same-account companion progression and independent raid copies, but does not state whether two sessions may actively run two different characters from the same account at once. The raid roster plan records the observation that two browser sessions on the same account stay in the game world together without disconnecting each other when they control different characters ([raid roster](raid-roster.md#resolved-and-open-questions)). That is an observation, not a wiki or client rule, and the research behind this document ran no concurrency experiment. A second session in a background tab would run as a hidden tab, which the leveling plan lists as a possible 3 to 4 times slowdown ([leveling plan](leveling-plan.md#levers-ranked)). Sources: <https://idlequest.net/wiki/overview>, <https://idlequest.net/wiki/companions>, <https://idlequest.net/wiki/raiding>, and <https://idlequest.net/wiki/experience-and-zones>, "Party experience".
+The wiki explains same-account companion progression and independent raid copies, but does not say whether several sessions may run different characters of one account at once. Three sessions do: each plays its own group in a visible relay tab signed in from the local login, and none disconnects the others ([raid roster](raid-roster.md#resolved-and-open-questions)). A hidden tab never finishes loading the game, so every session needs a visible tab. Sources: <https://idlequest.net/wiki/overview>, <https://idlequest.net/wiki/companions>, <https://idlequest.net/wiki/raiding>.
+
+## 6. Experience boosts
+
+- The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). Players report that the potion now affects the whole group. No item in that client or in the content snapshot casts it, so its source and price are not known.
+- The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
+- A group-wide doubling would double that group's XP for 30 minutes, more than any zone or tactic change measured so far. Find its source in game (merchant categories "Potions", the casino, rewards) before planning around it.
 
 ## Five highest-value actions
 
