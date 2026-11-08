@@ -81,14 +81,16 @@
       }
     };
 
-    /** Finds the stores, the socket, the dispatcher, the dialogue module and the client functions among the loaded modules `{ file: exports }`. */
+    /** Finds the stores, the socket, the dispatcher, the dialogue module, the game clock and the client functions among the loaded modules `{ file: exports }`. */
     function discover(mods) {
       const stores = {};
       let socket = null;
+      let clock = null; // the game's time of day, which night-only spawns and spells follow
       const fns = [];
       for (const m of Object.values(mods)) {
         for (const v of Object.values(m)) {
           if (typeof v === "function") fns.push(v);
+          if (!clock && v && typeof v === "object" && typeof v.getTimeOfDay === "function" && typeof v.isSynchronized === "boolean") clock = v;
           if (!socket && v && typeof v === "object" && SOCKET.find.every((k) => k in v) && typeof v.sendJsonRequest === "function") {
             socket = v;
             continue;
@@ -105,11 +107,11 @@
       const dialogue = Object.values(mods).find(isDialogue) ?? null;
       const sources = fns.map((f) => [f, Function.prototype.toString.call(f)]);
       const functions = Object.fromEntries(Object.entries(FUNCTIONS).map(([name, needle]) => [name, sources.find(([, src]) => matches(needle, src))?.[0] ?? null]));
-      return { stores, socket, command, dialogue, functions };
+      return { stores, socket, command, dialogue, clock, functions };
     }
 
     /** One row `{ kind, name, ok }` for every part of the surface, in a fixed order. */
-    function audit({ stores, socket, command, dialogue, functions }) {
+    function audit({ stores, socket, command, dialogue, clock, functions }) {
       const rows = [];
       const row = (kind, name, ok) => rows.push({ kind, name, ok: Boolean(ok) });
       row("socket", "socket", socket);
@@ -126,6 +128,7 @@
       }
       row("dispatcher", "dispatcher", command);
       row("module", "dialogue", dialogue);
+      row("module", "clock", clock);
       for (const name of Object.keys(FUNCTIONS)) row("function", `fn.${name}`, functions?.[name]);
       return rows;
     }
@@ -192,8 +195,8 @@
     }
   }
 
-  const { stores, socket, command, dialogue, functions } = CLIENT_SURFACE.discover(mods);
-  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue, functions });
+  const { stores, socket, command, dialogue, clock, functions } = CLIENT_SURFACE.discover(mods);
+  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue, clock, functions });
   /** The client function `name` of `CLIENT_SURFACE`'s FUNCTIONS, or an error naming it. */
   const clientFn = (name) => {
     const f = functions[name];
@@ -986,6 +989,12 @@
     activity: () => activity,
     /** True when the leader and every living companion and pet are at full HP and mana. */
     partyFull,
+    /**
+     * The game's hour of day, 0 to 24, or null before the server synchronized the clock. The
+     * client counts 5 to 20 as day (`main.pretty.js` spell time rules), and at the server's usual
+     * rate of 0.01 game hours per real second a game day lasts 40 minutes.
+     */
+    gameHour: () => (clock?.isSynchronized ? clock.getTimeOfDay() : null),
     /**
      * Seconds of each activity over the last `ms` of samples, keyed `act` or `act/why` for travel
      * and idle, e.g. `{ fight: 300, approach: 120, "idle/crowded": 90 }`.

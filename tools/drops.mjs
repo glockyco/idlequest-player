@@ -12,6 +12,7 @@
 //   spawn%    chance that a spawn point of the group puts this NPC up when it respawns
 //   points    spawn points that can hold the NPC in the zone
 //   respawn   seconds between respawns at a spawn point (smallest seen)
+//   when      always, or night or day for points that spawn only then (iq.gameHour() gives the game's hour, night is 20 to 5)
 //   rare      spawn% under 20 (the NPC shares a group with more common ones) or a `#` named NPC
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -101,8 +102,17 @@ for await (const s of rows("spawnentry")) {
     groupsNeeded.add(s.spawngroupID);
   }
 }
-const points = new Map(); // group -> [{zone, respawn}]
-for await (const sp of rows("spawn2")) if (groupsNeeded.has(sp.spawngroupID)) (points.get(sp.spawngroupID) ?? points.set(sp.spawngroupID, []).get(sp.spawngroupID)).push({ zone: sp.zone, respawn: sp.respawntime });
+// A spawn point with a `_condition` spawns only while that zone condition is on, such as Kithicor's
+// night (spawn_conditions, switched by spawn_events). The report names the condition's time of day.
+const conditionName = new Map();
+for await (const c of rows("spawn_conditions")) conditionName.set(`${c.zone}:${c.id}`, c.name);
+const timeOf = (zone, cond) => {
+  if (!cond) return null;
+  const name = conditionName.get(`${zone}:${cond}`) ?? `condition ${cond}`;
+  return /night/i.test(name) ? "night" : /day/i.test(name) ? "day" : name;
+};
+const points = new Map(); // group -> [{zone, respawn, when}]
+for await (const sp of rows("spawn2")) if (groupsNeeded.has(sp.spawngroupID)) (points.get(sp.spawngroupID) ?? points.set(sp.spawngroupID, []).get(sp.spawngroupID)).push({ zone: sp.zone, respawn: sp.respawntime, when: timeOf(sp.zone, sp._condition) });
 
 // ---- Report ------------------------------------------------------------------------------------
 const agg = new Map(); // item|npc name|zone -> merged row, so level variants of one NPC type show once
@@ -111,9 +121,10 @@ for (const [npcId, drops] of wanted) {
   const byZone = new Map();
   for (const { group, chance } of groupsOf.get(npcId) ?? []) {
     for (const p of points.get(group) ?? []) {
-      const z = byZone.get(p.zone) ?? { points: 0, respawn: Infinity, spawn: 0 };
+      const z = byZone.get(p.zone) ?? { points: 0, respawn: Infinity, spawn: 0, when: new Set() };
       z.points++;
       z.respawn = Math.min(z.respawn, p.respawn);
+      z.when.add(p.when ?? "always");
       // A group whose entries all have chance 0 always spawns its single NPC.
       z.spawn = Math.max(z.spawn, groupTotal.get(group) ? chance / groupTotal.get(group) : 1);
       byZone.set(p.zone, z);
@@ -124,7 +135,7 @@ for (const [npcId, drops] of wanted) {
     for (const [item, p] of drops) {
       const key = `${item}|${npc.name}|${zone}`;
       const r = agg.get(key);
-      const row = { item: itemNames.get(item) ?? item, npc: npc.name, lo: npc.level, hi: npc.level, zone: zoneName.get(zone) ?? zone, drop: p, spawn: z.spawn, points: z.points, respawn: z.respawn, rare: z.spawn < 0.2 || npc.name.startsWith("#") };
+      const row = { item: itemNames.get(item) ?? item, npc: npc.name, lo: npc.level, hi: npc.level, zone: zoneName.get(zone) ?? zone, drop: p, spawn: z.spawn, points: z.points, respawn: z.respawn, when: new Set(z.when), rare: z.spawn < 0.2 || npc.name.startsWith("#") };
       if (!r) agg.set(key, row);
       else {
         r.lo = Math.min(r.lo, row.lo);
@@ -133,6 +144,7 @@ for (const [npcId, drops] of wanted) {
         r.drop = Math.max(r.drop, row.drop);
         r.spawn = Math.max(r.spawn, row.spawn);
         r.respawn = Math.min(r.respawn, row.respawn);
+        for (const w of row.when) r.when.add(w);
         r.rare ||= row.rare;
       }
     }
@@ -142,11 +154,11 @@ const lines = [...agg.values()];
 // Best first: higher chance to get the item per kill, then more spawn points.
 lines.sort((a, b) => b.drop * b.spawn - a.drop * a.spawn || b.points - a.points);
 console.log(`${lines.length} sources${lines.length > limit ? `, top ${limit}` : ""}\n`);
-console.log("item".padEnd(30) + "npc".padEnd(30) + "lvl".padStart(7) + "  zone".padEnd(34) + "drop%".padStart(7) + "spawn%".padStart(8) + "points".padStart(7) + "respawn".padStart(8) + "  rare");
+console.log("item".padEnd(30) + "npc".padEnd(30) + "lvl".padStart(7) + "  zone".padEnd(34) + "drop%".padStart(7) + "spawn%".padStart(8) + "points".padStart(7) + "respawn".padStart(8) + "  when".padEnd(14) + "rare");
 for (const l of lines.slice(0, limit)) {
   const lvl = l.lo === l.hi ? String(l.lo) : `${l.lo}-${l.hi}`;
   console.log(
     String(l.item).slice(0, 29).padEnd(30) + l.npc.replace(/_/g, " ").slice(0, 29).padEnd(30) + lvl.padStart(7) + ("  " + l.zone).slice(0, 33).padEnd(34) +
-      (l.drop * 100).toFixed(1).padStart(7) + (l.spawn * 100).toFixed(0).padStart(8) + String(l.points).padStart(7) + String(Number.isFinite(l.respawn) ? l.respawn : "-").padStart(8) + (l.rare ? "  yes" : ""),
+      (l.drop * 100).toFixed(1).padStart(7) + (l.spawn * 100).toFixed(0).padStart(8) + String(l.points).padStart(7) + String(Number.isFinite(l.respawn) ? l.respawn : "-").padStart(8) + ("  " + [...l.when].sort().join("/")).padEnd(14) + (l.rare ? "yes" : ""),
   );
 }
