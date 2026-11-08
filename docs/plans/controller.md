@@ -51,7 +51,7 @@ of a constant per symptom.
 | --- | --- | --- |
 | Hunt | AutoLevel in the assigned zone, with priority enemies when an errand applies | Never; it is what every other task returns to |
 | Errand | Travel, then Hunt with the errand's enemies first | Item in the bags, deadline, or the party leaves the zone |
-| Hand-in | Travel to the NPC, then for each member: become active, pull its share, walk, trade | All shares handed in, or a step fails twice, then the leader becomes active again |
+| Hand-in | For each member: let the fight end, become active, travel to the NPC's zone, pull the member's share from whoever holds it, walk to the NPC and trade | All shares handed in, or a step fails twice; then the pause ends and the bot restores the leader |
 | Recovery | Choose a resurrection or the free respawn, get coin if one is worth buying, return to the zone | The leader is alive in its zone |
 
 ## Migration

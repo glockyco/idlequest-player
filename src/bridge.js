@@ -21,7 +21,7 @@
     const STORES = {
       combat: {
         find: ["startAutoLevel", "setAutomatedCombatMode", "currentZone"],
-        actions: ["setMinCon", "setMaxCon", "setMaxLevelDiff", "setIsRunning", "setPlayerSitting", "toggleSpellbook", "toggleNote", "toggleMerchantList", "openManageMoney", "closeManageMoney", "setCombatSkillMacrosOpen", "toggleAutoUpgradeCompanions"],
+        actions: ["setMinCon", "setMaxCon", "setMaxLevelDiff", "setIsRunning", "setPlayerSitting", "toggleSpellbook", "toggleNote", "toggleMerchantList", "openManageMoney", "closeManageMoney", "openInventorySearch", "closeInventorySearch", "setCombatSkillMacrosOpen", "toggleAutoUpgradeCompanions"],
         state: ["isRunning", "isZoneLoading", "isPlayerSitting", "isSpellbookOpen", "isNoteOpen", "isMerchantListOpen", "isCombatSkillMacrosOpen", "isAutoAttacking", "isAutoAttackEnabled", "currentZoneNPCs", "engagedMobs", "minCon", "maxCon", "maxLevelDiff", "noAutoSellBagInstanceIds", "automatedCombatMode", "companionAggression", "activeCombatTargetSpawnInstanceId", "targetNPC"],
       },
       character: {
@@ -60,6 +60,17 @@
     const DISPATCHER = "command-error";
     // The dialogue functions of `talk`, found by their minified export names.
     const isDialogue = (m) => typeof m.l === "function" && typeof m.j === "function" && typeof m.s === "function";
+    // Client functions, found by pieces of their source because the release build renames exports:
+    // every string of a list must occur in it, or a RegExp must match all of it.
+    const FUNCTIONS = {
+      sell: ["Sale confirmation was interrupted"], // the sale the Sell Item button and merchant windows send, (bag, slot)
+      autoBank: ["courier-based banking fees"], // the Auto Bank macro's courier to the tradeskill bank
+      autoPlace: ["Auto-placing"], // puts the cursor item into the bags
+      zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
+      // What a click on an NPC sends, (npcId, name). Bun reformats the sources it loads, so the pattern allows spaces.
+      hail: /^function [\w$]+\(\s*e,\s*t,\s*n\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*e,\s*t,\s*n\s*\);?\s*\}$/,
+    };
+    const matches = (needle, src) => (needle instanceof RegExp ? needle.test(src) : needle.every((s) => src.includes(s)));
 
     const isStore = (v) => typeof v === "function" && typeof v.getState === "function" && typeof v.subscribe === "function";
     const stateOf = (store) => {
@@ -70,12 +81,14 @@
       }
     };
 
-    /** Finds the stores, the socket, the dispatcher and the dialogue module among the loaded modules `{ file: exports }`. */
+    /** Finds the stores, the socket, the dispatcher, the dialogue module and the client functions among the loaded modules `{ file: exports }`. */
     function discover(mods) {
       const stores = {};
       let socket = null;
+      const fns = [];
       for (const m of Object.values(mods)) {
         for (const v of Object.values(m)) {
+          if (typeof v === "function") fns.push(v);
           if (!socket && v && typeof v === "object" && SOCKET.find.every((k) => k in v) && typeof v.sendJsonRequest === "function") {
             socket = v;
             continue;
@@ -88,13 +101,15 @@
           }
         }
       }
-      const command = Object.values(mods).flatMap((m) => Object.values(m)).find((v) => typeof v === "function" && String(v).includes(`"${DISPATCHER}"`)) ?? null;
+      const command = fns.find((v) => String(v).includes(`"${DISPATCHER}"`)) ?? null;
       const dialogue = Object.values(mods).find(isDialogue) ?? null;
-      return { stores, socket, command, dialogue };
+      const sources = fns.map((f) => [f, Function.prototype.toString.call(f)]);
+      const functions = Object.fromEntries(Object.entries(FUNCTIONS).map(([name, needle]) => [name, sources.find(([, src]) => matches(needle, src))?.[0] ?? null]));
+      return { stores, socket, command, dialogue, functions };
     }
 
     /** One row `{ kind, name, ok }` for every part of the surface, in a fixed order. */
-    function audit({ stores, socket, command, dialogue }) {
+    function audit({ stores, socket, command, dialogue, functions }) {
       const rows = [];
       const row = (kind, name, ok) => rows.push({ kind, name, ok: Boolean(ok) });
       row("socket", "socket", socket);
@@ -111,6 +126,7 @@
       }
       row("dispatcher", "dispatcher", command);
       row("module", "dialogue", dialogue);
+      for (const name of Object.keys(FUNCTIONS)) row("function", `fn.${name}`, functions?.[name]);
       return rows;
     }
 
@@ -134,6 +150,7 @@
       STORES,
       SOCKET,
       DISPATCHER,
+      FUNCTIONS,
       ASSET_RE,
       discover,
       audit,
@@ -175,8 +192,14 @@
     }
   }
 
-  const { stores, socket, command, dialogue } = CLIENT_SURFACE.discover(mods);
-  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue });
+  const { stores, socket, command, dialogue, functions } = CLIENT_SURFACE.discover(mods);
+  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue, functions });
+  /** The client function `name` of `CLIENT_SURFACE`'s FUNCTIONS, or an error naming it. */
+  const clientFn = (name) => {
+    const f = functions[name];
+    if (!f) throw new Error(`client function ${name} not found`);
+    return f;
+  };
   const missingStores = surfaceReport.filter((r) => !r.ok && (r.kind === "store" || r.kind === "socket")).map((r) => r.name);
   if (missingStores.length) throw new Error(`bridge: could not find ${missingStores.join(", ")}`);
   // Anything else the SDK calls that this client lacks is reported, not fatal: the rest keeps working.
@@ -518,7 +541,6 @@
   const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
   // Minified export names change with every client release, so search every export by content.
   const allExports = () => Object.values(mods).flatMap((m) => Object.values(m));
-  const zoneChanger = () => allExports().find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
   // The combat runtime singleton: the chunk export whose instance has the live combat scene. The
   // activity sampler asks every second, so the export is kept once found.
   let runtimeExport = null;
@@ -586,7 +608,7 @@
     const cb = stores.combat.getState();
     const zones = stores.staticData.getState().zones;
     const dest = shortName ? zones.find((z) => z.shortName === shortName) : zones.find((z) => z.zoneidnumber === cb.currentZone);
-    const change = zoneChanger();
+    const change = functions.zoneChange;
     if (!dest || !change) throw new Error(`zone change function or zone ${shortName ?? cb.currentZone} not found`);
     await change(dest);
     const t0 = Date.now();
@@ -686,6 +708,250 @@
     }
   }, 1000);
 
+  // ---- Quest NPCs and items -----------------------------------------------------------------
+  // Checked actions on the game's own windows: walk to a quest NPC with the Path To list and open
+  // its dialogue, trade items to it with Give Items, pull an item from another account character
+  // with Inventory Search, and sell what the cursor holds. They can take minutes, so scripts start
+  // them as jobs (below), and the bot's tasks call them directly.
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const looseName = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const itemName = (row) => row.itemDetails?.Name ?? row.itemDetails?.name;
+  const inBags = (row) => row.bag > 0 || (row.bag === 0 && row.slot >= 22 && row.slot <= 29);
+  /** Copies of `name` in the active character's bags and general slots. */
+  const carried = (name) => (stores.character.getState().characterProfile?.inventory ?? []).filter((x) => inBags(x) && itemName(x) === name).reduce((s, x) => s + (x.quantity || 1), 0);
+  const buttonByText = (re, root = document) => [...root.querySelectorAll("button")].find((b) => re.test((b.textContent ?? "").trim())) ?? null;
+  const giveItemsReady = () => {
+    const b = buttonByText(/^Give Items$/i);
+    return b && !b.disabled ? b : null;
+  };
+  const dialogueLoading = () => [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
+  const dialogueOpen = () => !dialogueLoading() && (document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0 || Boolean(giveItemsReady()));
+  const spawnOf = (name) => (zoneSpawns?.spawns ?? []).find((x) => looseName(x.name).includes(looseName(name))) ?? null;
+  const pathToRow = (name) => [...document.querySelectorAll(".merchant-name")].map((el) => el.parentElement).find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && looseName(p.querySelector(".merchant-name")?.textContent).includes(looseName(name)));
+  /** Click `name`'s row in the Path To list, which walks there. */
+  const walkTowards = async (name) => {
+    const cb = () => stores.combat.getState();
+    // Right after a zone change the list can still show the old zone or be empty, so it is opened afresh once.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt && cb().isMerchantListOpen) cb().toggleMerchantList();
+      if (attempt) await pause(500);
+      if (!cb().isMerchantListOpen) cb().toggleMerchantList();
+      for (let k = 0; k < 40; k++) {
+        const row = pathToRow(name);
+        if (row) return row.click();
+        await pause(300);
+      }
+    }
+    throw new Error(`quest NPC "${name}" is not in the Path To list`);
+  };
+  /**
+   * Walk to quest NPC `name` in this zone and open its dialogue, which arriving does for most
+   * quest NPCs. A walk cut short by a fight or a blocked path is repeated, and when the party
+   * stands near the NPC without a dialogue (Smith Tv`ysa in South Ro) the client's hail opens it.
+   * Then each of `keywords` is clicked in turn. Resolves with the NPC's lines, its options and
+   * whether Give Items is available.
+   */
+  const talkToNpc = async (name, keywords = [], { timeoutMs = 120000 } = {}) => {
+    await walkTowards(name);
+    let still = 0;
+    let walks = 1;
+    let hailed = false;
+    for (const end = Date.now() + timeoutMs; !dialogueOpen(); ) {
+      if (Date.now() > end) throw new Error(`the dialogue of ${name} did not open`);
+      await pause(1000);
+      still = lastPos?.st === "run" ? 0 : still + 1;
+      if (still < 6 || hailed || dialogueLoading()) continue;
+      const spawn = spawnOf(name);
+      const distance = spawn && lastPos ? Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y) : null;
+      // A trade from afar is refused, so a stop short of the NPC walks again before hailing.
+      if (distance != null && distance > 40 && walks < 4) {
+        walks++;
+        still = 0;
+        await walkTowards(name);
+        continue;
+      }
+      hailed = true;
+      // The zone's NPC list can lag a zone change, while the spawn list arrives with the zone.
+      const listed = (stores.combat.getState().currentZoneNPCs ?? []).find((n) => looseName(n.name).includes(looseName(name)));
+      const npc = listed ? { id: listed.id, name: listed.name } : spawn && { id: spawn.npcId ?? spawn.id, name: spawn.name };
+      if (!npc) throw new Error(`${name} is not in this zone`);
+      await clientFn("hail")(npc.id, String(npc.name).replace(/_/g, " "));
+    }
+    for (const kw of keywords) {
+      const opt = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].find((b) => looseName(b.textContent).includes(looseName(kw)));
+      if (!opt) throw new Error(`dialogue option "${kw}" not found on ${name}`);
+      opt.click();
+      await pause(300);
+      for (let k = 0; k < 40 && !dialogueOpen(); k++) await pause(400);
+    }
+    return {
+      npcName: name,
+      dialogues: [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim()),
+      options: [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].map((el) => el.textContent.trim()),
+      canGive: Boolean(giveItemsReady()),
+    };
+  };
+  /**
+   * Trade up to four carried items (`items`, one slot each) to the NPC whose dialogue is open,
+   * with its Give Items window. Resolves with the NPC's last lines and the chat lines the trade
+   * brought. `closeNote: false` leaves the dialogue open for the next trade.
+   */
+  const giveToNpc = async (items, { closeNote = true } = {}) => {
+    if (!items.length || items.length > 4) throw new Error("a trade takes 1 to 4 items");
+    const since = seqs.event;
+    const open = giveItemsReady();
+    if (!open) throw new Error("Give Items is not available");
+    open.click();
+    let win = null;
+    for (let k = 0; k < 20 && !(win = document.querySelector('[data-testid="quest-give-window"]')); k++) await pause(200);
+    if (!win) throw new Error("the Give Items window did not open");
+    const slots = [...win.querySelectorAll('[data-testid^="quest-give-slot-"]')].map((el) => Number(el.getAttribute("data-testid").replace("quest-give-slot-", "")));
+    const ch = () => stores.character.getState();
+    for (let k = 0; k < items.length; k++) {
+      const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
+      if (!found) throw new Error(`no ${items[k]} in the bags`);
+      ch().moveItemToSlot({ bag: found.bag, slot: found.slot }, { bag: 0, slot: slots[k] });
+      await pause(800);
+    }
+    const give = buttonByText(/^Give$/i, win);
+    if (!give || give.disabled) throw new Error("the Give button is disabled");
+    give.click();
+    for (let k = 0; k < 30 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(300);
+    await pause(600);
+    const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
+    if (closeNote && stores.combat.getState().isNoteOpen) stores.combat.getState().toggleNote();
+    return { dialogues: dialogues.slice(-2), lines: events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest|level/i.test(e.text)).map((e) => e.text) };
+  };
+  /** Sell what the cursor holds with the client's own sale. Resolves with its reply, or null for an empty cursor. */
+  const sellCursor = async () => {
+    const held = (stores.character.getState().characterProfile?.inventory ?? []).some((x) => x.bag === 0 && x.slot === 30);
+    return held ? ((await clientFn("sell")(0, 30))?.message ?? "sold") : null;
+  };
+  /**
+   * After a trade: a reward the NPC put on the cursor is sold, because a held cursor blocks the
+   * next trade, and an item of the trade that came back is put into the bags again.
+   */
+  const clearCursorAfterTrade = async (traded) => {
+    const row = (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+    if (!row) return null;
+    if (traded.includes(itemName(row))) return clientFn("autoPlace")();
+    return (await clientFn("sell")(0, 30))?.message ?? "sold";
+  };
+  /**
+   * Hand carried items to quest NPC `name`, up to `counts[item]` copies of each, for repeatable
+   * single-item quests. Each trade holds one copy of every item still due, because the NPC's script
+   * pays each of them in the same trade, while two copies of one item pay once (Smith Tv`ysa in
+   * South Ro gave 411,600 XP for a Greater Lightstone and a Lightstone together). Only the active
+   * character gets the reward, and the chat does not report it, so the XP is read from the
+   * character's XP counter. Resolves with the trades, the items handed in and the XP gained.
+   */
+  const handInEach = async (name, counts) => {
+    const xpNow = () => stores.character.getState().characterProfile?.experienceProgress?.current ?? 0;
+    const xp0 = xpNow();
+    const due = { ...counts };
+    let trades = 0;
+    let items = 0;
+    await talkToNpc(name);
+    for (;;) {
+      const have = Object.fromEntries(Object.keys(due).map((n) => [n, carried(n)]));
+      const names = Object.keys(due).filter((n) => due[n] > 0 && have[n] > 0).slice(0, 4);
+      if (!names.length) break;
+      const trade = async () => {
+        if (!giveItemsReady()) await talkToNpc(name); // the dialogue closed between trades
+        await giveToNpc(names, { closeNote: false });
+        await clearCursorAfterTrade(names);
+        await pause(500);
+        return names.filter((n) => carried(n) < have[n]);
+      };
+      let got = await trade();
+      // A trade from too far away comes back: walk up again and give once more.
+      if (!got.length) {
+        await talkToNpc(name);
+        got = await trade();
+      }
+      if (!got.length) throw new Error(`the trade of ${names.join(" and ")} to ${name} was not taken`);
+      for (const n of got) due[n]--;
+      trades++;
+      items += got.length;
+    }
+    // The counter can trail the last trade by a moment.
+    for (let k = 0; k < 6 && items && xpNow() === xp0; k++) await pause(500);
+    await closeWindows();
+    return { trades, items, xp: xpNow() - xp0 };
+  };
+  /**
+   * Pull one carried or banked `item` of another account character (`from`, or the first one the
+   * window lists) to the active character with Inventory Search's Transfer button. Needs a free
+   * bag slot. Resolves with the window's reply, the giver and whether the item arrived.
+   */
+  const pullItem = async (item, { from = null, timeoutMs = 20000 } = {}) => {
+    const cb = () => stores.combat.getState();
+    cb().openInventorySearch();
+    try {
+      let panel = null;
+      for (let k = 0; k < 25 && !(panel = document.querySelector('[data-testid="inventory-search-panel"]')); k++) await pause(200);
+      if (!panel) throw new Error("Inventory Search did not open");
+      const input = panel.querySelector("input");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, item);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const me = stores.character.getState().characterProfile?.name;
+      const prefix = `Transfer ${item} from `;
+      const usable = (b) => {
+        const l = b.getAttribute("aria-label") ?? "";
+        return !b.disabled && l.startsWith(prefix) && (from ? l === prefix + from : l !== prefix + me);
+      };
+      const end = Date.now() + timeoutMs;
+      let btn = null;
+      while (Date.now() < end && !(btn = [...panel.querySelectorAll("button")].find(usable))) await pause(300);
+      if (!btn) throw new Error(`no transferable ${item}${from ? ` on ${from}` : ""}`);
+      const giver = btn.getAttribute("aria-label").slice(prefix.length);
+      const before = carried(item);
+      btn.click();
+      // The window first shows "Transferring item…", then the result.
+      let reply = null;
+      while (Date.now() < end && (!reply || /…$|^Transferring/.test(reply) || (!panel.querySelector('[role="alert"]') && carried(item) === before))) {
+        await pause(300);
+        reply = panel.querySelector('[role="status"]')?.textContent || panel.querySelector('[role="alert"]')?.textContent || null;
+      }
+      return { reply, from: giver, got: carried(item) > before };
+    } finally {
+      cb().closeInventorySearch();
+    }
+  };
+  /** Close windows that hide the right-hand buttons: Done and Close buttons, merchant, Path To, the quest dialogue and the combat macro bar. */
+  const closeWindows = async () => {
+    // Toggles flip a window, so they run once, before the buttons are clicked.
+    const s = stores.combat.getState();
+    if (s.isCombatSkillMacrosOpen) s.setCombatSkillMacrosOpen(false);
+    if (s.isNoteOpen) s.toggleNote();
+    if (s.isMerchantListOpen) s.toggleMerchantList();
+    for (let k = 0; k < 4; k++) {
+      const open = [...document.querySelectorAll("button")].filter((b) => /^(done|close)$/i.test(b.textContent.trim()));
+      if (!open.length) return;
+      open.forEach((b) => b.click());
+      await pause(600);
+    }
+  };
+
+  // ---- Jobs ---------------------------------------------------------------------------------
+  // One script call into the page may last about 30 s, so a script starts a longer action as a
+  // job: `job(name, ...args)` starts one of JOBS and returns its id at once, and `jobs[id]` holds
+  // its progress and result. The last 20 jobs are kept.
+  const jobs = window.iq?.jobs ?? {};
+  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, closeWindows, sellCursor };
+  const job = (name, ...args) => {
+    const fn = JOBS[name];
+    if (!fn) throw new Error(`no job named ${name}`);
+    const id = `${name}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const j = (jobs[id] = { id, name, startedAt: Date.now(), done: false, ok: null, result: null, error: null });
+    for (const old of Object.keys(jobs).slice(0, -20)) delete jobs[old];
+    fn(...args).then(
+      (result) => Object.assign(j, { done: true, ok: true, result }),
+      (e) => Object.assign(j, { done: true, ok: false, error: String(e?.message ?? e) }),
+    );
+    return id;
+  };
+
   const iq = {
     version: 1,
     mods,
@@ -736,6 +1002,17 @@
     },
     ...guardApi,
     changeZone,
+    /** The client function `name` of `surface.FUNCTIONS`, such as `clientFn("sell")(bag, slot)`. */
+    clientFn,
+    carried,
+    talkToNpc,
+    giveToNpc,
+    handInEach,
+    pullItem,
+    sellCursor,
+    closeWindows,
+    job,
+    jobs,
     samplerId,
     unsubChat,
     get zoneSpawns() {

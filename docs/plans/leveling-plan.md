@@ -97,4 +97,4 @@ Measure during normal play: label the blocks and compare them with `analyze.mjs`
 2. Done: the band rows in `data/band-rotations.json` set the rotation at each level-up, so a band change needs no agent.
 3. Next: hand weapons and gear to the party member who gains most, and never sell an item that is an upgrade for someone.
 4. Done: the band rows from 1 to 60 follow `tools/predict.mjs` on live zones. Next: measured rates for the rows from 38.
-5. Next: the bot and the SDK move to the [controller design](controller.md) one step at a time. Step 1, the activity labels and the stall rule, runs on every group.
+5. Next: the bot and the SDK move to the [controller design](controller.md) one step at a time. Steps 1 and 2 (activity labels, the stall rule, the leader reconciler and the pause as a lease) and the hand-in task of step 3 run on every group.

@@ -116,6 +116,7 @@
     switching: null, // { id, name, startedAt, done, ok, message } of the last character switch
     switchFails: 0, // failed switches in a row
     switchRetryAt: 0, // the leader is not switched to again before this time
+    task: null, // the last task: { id, kind, status, step, startedAt, endedAt, error, ... }
     releaseChecked: null, // client release the page was last compared with the stored one
     releaseProbeAt: 0, // when the site was last asked which client release it serves
     remoteRelease: null, // the newer release already alerted about
@@ -152,34 +153,14 @@
     log(`${wake ? "alert" : "note"} ${kind}: ${text}`);
   };
 
-  // Client functions are found by text they contain, because the release build renames exports.
-  // `tools/check-client.mjs` reads this table to see whether a new client still has them.
-  const CLIENT_FN = {
-    sell: "Sale confirmation was interrupted",
-    autoBank: "courier-based banking fees",
-    autoPlace: "Auto-placing",
-  };
-  const findClientFn = (needle) => {
-    for (const m of Object.values(iq().mods)) {
-      for (const v of Object.values(m)) {
-        if (typeof v === "function" && Function.prototype.toString.call(v).includes(needle)) return v;
-      }
-    }
-    throw new Error(`client function containing "${needle}" not found`);
-  };
-
   // The client's own sale call: it sends ShopPlayerSell for the item at (bag, slot), the request the
-  // Sell Item button sends for the cursor and a merchant window sends for a selected item.
-  let sellAtFn = null;
-  const sellAt = (bag, slot) => {
-    sellAtFn ??= findClientFn(CLIENT_FN.sell);
-    return sellAtFn(bag, slot);
-  };
+  // Sell Item button sends for the cursor and a merchant window sends for a selected item. Client
+  // functions come from the bridge (`surface.FUNCTIONS` in src/bridge.js).
+  const sellAt = (bag, slot) => iq().clientFn("sell")(bag, slot);
   // The call behind the Auto Bank macro: a banker courier arrives and sends crafting ingredients
   // and spell scrolls to the tradeskill bank. Nothing is sold or destroyed. It takes the scene's
   // world-interaction port, which the client hands to its UI through a React context, so it is
   // read from the provider's props in the React tree. It reports in chat and returns nothing.
-  let autoBankFn = null;
   const interactionPort = () => {
     for (const el of document.querySelectorAll("body *")) {
       const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
@@ -191,8 +172,7 @@
     throw new Error("world interaction port not found");
   };
   const autoBank = async () => {
-    autoBankFn ??= findClientFn(CLIENT_FN.autoBank);
-    await autoBankFn("banker", interactionPort());
+    await iq().clientFn("autoBank")("banker", interactionPort());
     return null;
   };
 
@@ -489,11 +469,7 @@
   };
 
   // The client's auto-place call, which puts the cursor item into the first place that fits.
-  let autoPlaceFn = null;
-  const autoPlace = () => {
-    autoPlaceFn ??= findClientFn(CLIENT_FN.autoPlace);
-    return autoPlaceFn();
-  };
+  const autoPlace = () => iq().clientFn("autoPlace")();
 
   const watchCursor = async (i) => {
     const held = i.bagSpace().cursor;
@@ -728,17 +704,6 @@
   // one build until it reloads, so the bot compares this page's release with the last one the tab
   // or the browser saw, and it asks the site every few minutes which build a reload would load.
   const RELEASE_KEY = "iqBot.release";
-  const missingClientFns = (i) => {
-    const lost = [];
-    for (const [name, needle] of Object.entries(CLIENT_FN)) {
-      try {
-        findClientFn(needle);
-      } catch {
-        lost.push(`fn.${name}`);
-      }
-    }
-    return lost;
-  };
   const watchRelease = async (i) => {
     if (!i.release) return;
     if (state.releaseChecked !== i.release) {
@@ -751,7 +716,8 @@
       } catch {
         /* storage unavailable */
       }
-      const missing = [...(i.missingApi ?? []), ...missingClientFns(i)];
+      // The bridge's surface audit covers the stores, the socket and the client functions.
+      const missing = i.missingApi ?? [];
       const changed = last && last !== i.release;
       if (changed || missing.length) {
         alert("clientUpdate", `${changed ? `client changed from ${last} to ${i.release}` : `client ${i.release}`}; ${missing.length ? `it lacks ${missing.join(", ")}, which the SDK uses` : "it has everything the SDK uses"}. Run tools/check-client.mjs and read the diff (tools/client-snapshot.mjs --diff)`, true);
@@ -921,6 +887,95 @@
     if (now() < state.switchRetryAt) return true;
     switchTo(i, Number(want));
     return true;
+  };
+
+  // ---- Tasks --------------------------------------------------------------------------------
+  // Work of several steps runs here, in the page, so a script only starts it and reads its
+  // progress (docs/plans/controller.md). A task holds the pause while it runs, each step for as
+  // long as that step may take. Its end, whether it finished, failed or was stopped, ends the
+  // pause, so the bot restores the leader, the party, the zone and AutoLevel at once. A step that
+  // fails is tried once more before the task gives up. `state.task` keeps the last task.
+  class TaskStopped extends Error {}
+  const withTimeout = (p, ms, what) => Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)))]);
+  const activeName = (i) => (i.stores.screen.getState().currentScreen === "game" ? (i.stores.character.getState().characterProfile?.name ?? null) : null);
+  /** Stop AutoLevel and let the fight at hand end. */
+  const calm = async (i) => {
+    i.stores.combat.getState().setIsRunning(false);
+    for (let k = 0; k < 70 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
+    if (i.stores.skills.getState().inCombat) throw new Error("the fight did not end");
+  };
+  const becomeActive = async (i, name) => {
+    // A switch already under way for someone else finishes first.
+    for (let k = 0; k < 2 && activeName(i) !== name; k++) {
+      const job = switchTo(i, name);
+      while (!job.done) await sleep(1000);
+      if (!job.ok) throw new Error(job.message);
+    }
+    if (activeName(i) !== name) throw new Error(`${name} did not become active`);
+  };
+  const pullOne = async (i, item) => {
+    if (i.bagSpace().free < 2) await sellSurplus(i, true);
+    const r = await i.pullItem(item);
+    if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
+  };
+  // Hand items to a quest NPC for each member while it is the active character, because only the
+  // active character gets the reward: Smith Tv`ysa in South Ro pays 274,400 XP for a Greater
+  // Lightstone and 137,200 for a Lightstone, as often as one is handed in.
+  const handInTask = async (i, task, step) => {
+    for (const m of task.members) {
+      if (m.done) continue;
+      const t0 = now();
+      await step(`stop for ${m.name}`, () => calm(i), 75000);
+      await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
+      // Entering the world puts the character where it last stood, and the zone store can lag the
+      // switch, so the member always travels.
+      await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+      for (const [item, n] of Object.entries(m.counts)) {
+        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+      }
+      const r = await step(`hand in for ${m.name}`, () => i.handInEach(task.npc, m.counts), 300000);
+      Object.assign(m, { done: true, trades: r.trades, items: r.items, xp: r.xp, sec: Math.round((now() - t0) / 1000) });
+      log(`hand-in: ${m.name} gave ${r.items} items in ${r.trades} trades for ${r.xp} XP in ${m.sec} s`);
+    }
+  };
+  const TASKS = { handIn: handInTask };
+  const taskSummary = (task) => (task.members ?? []).map((m) => `${m.name} ${m.done ? `${m.items} items ${m.xp} XP` : "not done"}`).join(", ");
+  const runTask = (task) => {
+    const runner = Math.random().toString(36).slice(2);
+    Object.assign(task, { runner, status: "running", heartbeat: now() });
+    const step = async (label, fn, timeoutMs) => {
+      for (let attempt = 1; ; attempt++) {
+        if (state.task !== task || task.runner !== runner || task.status !== "running") throw new TaskStopped();
+        Object.assign(task, { step: label, heartbeat: now() });
+        state.pauseUntil = Math.max(state.pauseUntil, now() + timeoutMs + 60000);
+        state.pauseReason = `task ${task.kind}: ${label}`;
+        try {
+          return await withTimeout(fn(), timeoutMs, label);
+        } catch (e) {
+          if (e instanceof TaskStopped || attempt >= 2) throw e;
+          log(`task ${task.kind}: ${label} failed, trying once more: ${e?.message ?? e}`);
+          await sleep(3000);
+        }
+      }
+    };
+    (async () => {
+      try {
+        await TASKS[task.kind](iq(), task, step);
+        task.status = "done";
+      } catch (e) {
+        if (task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e) });
+      } finally {
+        if (state.task === task && task.runner === runner) {
+          task.endedAt = now();
+          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : ""}; ${taskSummary(task)}`, task.status === "failed");
+          state.pauseUntil = 0;
+          state.pauseReason = null;
+          state.restartNow ??= `the ${task.kind} task`;
+          setTimeout(tick, 500);
+        }
+      }
+    })();
+    return task;
   };
 
   const watchZone = (i, cb) => {
@@ -1339,8 +1394,15 @@
         state.lastError = null;
         return;
       }
-      await watchCrowding(i);
       if (config.respawnAfterSec > 0) await watchDeath(i);
+      watchMemory();
+      // A pause holds the tab for a script or a task: until it ends, the bot changes neither the
+      // zone, the party, AutoLevel and its targets nor the gems and the bags.
+      if (now() < state.pauseUntil) {
+        state.lastError = null;
+        return;
+      }
+      await watchCrowding(i);
       await watchErrand(i);
       await watchNoEnemies(i);
       await watchOutside(i);
@@ -1349,7 +1411,6 @@
       await watchXp(i, cb);
       avoidTargets(i);
       keepAutoLevel(i, cb);
-      watchMemory();
       await upkeepIfDue(i);
       await sellSurplus(i);
       state.lastError = null;
@@ -1412,6 +1473,26 @@
      * up to date. Hold a pause while another character than `leaderId` should stay active.
      */
     switchTo: (who) => ({ ...switchTo(iq(), who) }),
+    /**
+     * Hand items to a quest NPC for several account characters, each while it is the active
+     * character, as a task in the page (`handInTask`). `members` lists `{ name, counts }`, such
+     * as `{ name: "Mashidond", counts: { "Greater Lightstone": 2 } }`, and a member short of an
+     * item pulls it from another account character first. The default NPC is Smith Tv`ysa in
+     * South Ro. Returns a copy of the task, which `state.task` keeps up to date.
+     */
+    handIn({ members, npc = "Tv`ysa", zone = "sro" }) {
+      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      if (!members?.length) throw new Error("a hand-in needs members");
+      for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
+      state.task = { id: `handIn-${now().toString(36)}`, kind: "handIn", npc, zone, startedAt: now(), members: members.map((m) => ({ name: m.name, counts: { ...m.counts }, done: false })) };
+      log(`task handIn: ${members.map((m) => `${m.name} ${Object.entries(m.counts).map(([k, v]) => `${v} ${k}`).join(" and ")}`).join(", ")} to ${npc} in ${zone}`);
+      return { ...runTask(state.task) };
+    },
+    /** Stop the running task after its current step. The bot then gives the tab back to its leader. */
+    stopTask() {
+      if (state.task?.status === "running") state.task.status = "stopped";
+      return state.task && { ...state.task };
+    },
 
     /**
      * Hunt only enemies whose names match `keep` (a regular expression) in `zone` until an item

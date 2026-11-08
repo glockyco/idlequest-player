@@ -20,9 +20,9 @@ game server, so the client only sends a request.
   imports, so any client change changes it, and the set of loaded files cannot serve instead
   because it grows as screens open. `CLIENT_SURFACE` in `src/bridge.js` is the one list of what
   the SDK needs from a build (stores, the actions and state keys it uses, the socket methods, the
-  command dispatcher and the dialogue functions), and `tools/check-client.mjs` runs its discovery
-  on a saved release, together with the client functions the bot finds by text (`CLIENT_FN` in
-  `src/bot.js`).
+  command dispatcher, the dialogue functions and the client functions found by pieces of their
+  source, such as the sale and the hail), and `tools/check-client.mjs` runs its discovery on a
+  saved release.
 
 ## Transport
 

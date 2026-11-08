@@ -20,14 +20,6 @@ export async function loadSurface() {
   return new Function(`${block}\nreturn CLIENT_SURFACE;`)();
 }
 
-/** The bot's table of client function needles (`CLIENT_FN` in src/bot.js). */
-export async function loadBotFunctions() {
-  const src = await readFile(join(repo, "src/bot.js"), "utf8");
-  const table = /const CLIENT_FN = (\{[\s\S]*?\n  \});/.exec(src)?.[1];
-  if (!table) throw new Error("src/bot.js has no CLIENT_FN table");
-  return new Function(`return ${table};`)();
-}
-
 /** The release string a bundle sends as `client_release`, found through the constant it names. */
 export function clientReleaseOf(bundleText) {
   const name = /client_release:\s*([\w$]+)/.exec(bundleText)?.[1];
@@ -81,15 +73,11 @@ export async function loadBundles(dirArg) {
   return { mods, failed, files };
 }
 
-/** Rows `{ kind, name, ok }` for the bridge surface and the bot's client functions. */
+/** Rows `{ kind, name, ok }` for the bridge's client surface, its client functions included. */
 export async function checkRelease(dir) {
   const surface = await loadSurface();
-  const botFns = await loadBotFunctions();
   const loaded = await loadBundles(dir);
-  const found = surface.discover(loaded.mods);
-  const rows = surface.audit(found);
-  const fnSource = Object.values(loaded.mods).flatMap((m) => Object.values(m)).filter((v) => typeof v === "function").map((f) => Function.prototype.toString.call(f));
-  for (const [name, needle] of Object.entries(botFns)) rows.push({ kind: "function", name: `fn.${name}`, ok: fnSource.some((s) => s.includes(needle)) });
+  const rows = surface.audit(surface.discover(loaded.mods));
   return { rows, ...loaded };
 }
 

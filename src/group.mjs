@@ -277,82 +277,22 @@ export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowe
   return { tab: name, leader, zone: s.zone, party: sw.party, missing: sw.missing };
 }
 
-const STONES = ["Greater Lightstone", "Lightstone"];
 /**
- * Hand lightstones to Smith Tv`ysa in South Ro, an even share for every member of the active
- * character's group, each while that member is the active character, because only the active
- * character gets a hand-in's XP (274,400 for a Greater Lightstone, 137,200 for a Lightstone).
- * With `from`, the active character first pulls up to `count` stones (Greater Lightstones first)
- * from that character, such as a higher group's leader that farms them with a gray errand. The
- * active character holds the stones and hands in its share first. Then each other member becomes
- * the active character, which puts the party where that member last stood, so the party travels
- * to South Ro again, pulls the member's share from the holder with Inventory Search and hands it
- * in. The group's leader becomes active again at the end, also after an error. `iq` is an
- * attached handle on the group's tab. `maxMembers` ends the round after that many members, so a
- * long round runs in parts. Returns the trades and XP per member.
+ * Deal lightstones among a group's `members` for `iq.handIn`: Greater Lightstones first,
+ * round-robin from the lowest level in `levels` (names to levels), so shares differ by at most one
+ * stone and the extra ones go where a level costs least. `stones` holds the counts, such as
+ * `{ "Greater Lightstone": 8, Lightstone: 3 }`. Returns `[{ name, counts }]` for the members that
+ * get any, lowest level first.
  */
-export async function stoneRound(iq, { from = null, count = Infinity, maxMembers = Infinity, log = console.log } = {}) {
-  const active = () => iq.tab.evaluate(() => window.iq.stores.character.getState().characterProfile.name);
-  const holder = await active();
-  const g = (await readRoster()).groups.find((x) => x.members?.includes(holder));
-  if (!g) throw new Error(`${holder} is in no group of data/roster.json`);
-  const leader = g.members[0];
-  const carried = (inv, name) => inv.filter((r) => r.name === name && (r.loc === "bag" || r.loc === "general")).reduce((s, r) => s + (r.quantity || 1), 0);
-  // A transfer needs a free bag slot, and the bot's cleanup is paused during the round.
-  const makeRoom = () => iq.tab.evaluate(() => window.iqBot?.cleanup?.());
-  if (from) {
-    // Each stone takes a bag slot until it is handed in, so the pulls keep two slots free.
-    await makeRoom();
-    let pulled = 0;
-    for (const s of STONES) {
-      while (pulled < count && (await iq.bagSpace()).free > 2) {
-        const before = carried(await iq.inventory(), s);
-        try {
-          await iq.pullItem({ itemName: s, from });
-        } catch {
-          break; // `from` carries no more of this stone
-        }
-        if (carried(await iq.inventory(), s) <= before) break;
-        pulled++;
-      }
-    }
-    log(`${g.id}: pulled ${pulled} stones from ${from}`);
-  }
-  const inv = await iq.inventory();
-  // Deal the stones round-robin, Greater Lightstones first and the lowest-level members first, so
-  // shares differ by at most one stone and the extra ones go where a level costs least.
-  const levels = await iq.tab.evaluate(() => {
-    const p = window.iq.stores.character.getState().characterProfile;
-    return Object.fromEntries([[p.name, p.level], ...(window.iq.stores.companions.getState().companions ?? []).map((c) => [c.name, c.level])]);
-  });
-  const order = [...g.members].sort((a, b) => (levels[a] ?? 99) - (levels[b] ?? 99) || (a === holder ? -1 : b === holder ? 1 : 0));
-  const share = Object.fromEntries(order.map((m) => [m, Object.fromEntries(STONES.map((s) => [s, 0]))]));
+export function stoneShares(members, levels, stones) {
+  const order = [...members].sort((a, b) => (levels[a] ?? 99) - (levels[b] ?? 99));
+  const share = Object.fromEntries(order.map((m) => [m, {}]));
   let k = 0;
-  for (const s of STONES) for (let j = 0; j < carried(inv, s); j++) share[order[k++ % order.length]][s]++;
-  if (!k) return { leader, trades: 0, members: {} };
-  log(`${g.id}: ${k} stones for ${order.length} members`);
-  const done = {};
-  await iq.pausedAutoLevel(async () => {
-    try {
-      for (const m of order) {
-        const want = share[m];
-        if (!STONES.some((s) => want[s] > 0)) continue;
-        // Long rounds are run in parts, because a script call cannot outlast the page tool.
-        if (Object.keys(done).length >= maxMembers) break;
-        const t0 = Date.now();
-        if (m !== (await active())) await iq.switchCharacter(m);
-        if ((await zoneShort(iq.tab)) !== "sro") await iq.travelTo("sro");
-        if (m !== holder) {
-          await makeRoom();
-          for (const s of STONES) for (let j = 0; j < want[s]; j++) await iq.pullItem({ itemName: s, from: holder });
-        }
-        const r = await iq.turnInEach({ npc: "Tv`ysa", counts: want });
-        done[m] = { stones: r.items, trades: r.trades, xp: r.xp, sec: Math.round((Date.now() - t0) / 1000) };
-        log(`${g.id}: ${m} handed in ${r.items} stones in ${r.trades} trades for ${r.xp} XP in ${done[m].sec}s`);
-      }
-    } finally {
-      if ((await active()) !== leader) await iq.switchCharacter(leader);
+  for (const s of ["Greater Lightstone", "Lightstone"]) {
+    for (let j = 0; j < (stones[s] ?? 0); j++) {
+      const m = order[k++ % order.length];
+      share[m][s] = (share[m][s] ?? 0) + 1;
     }
-  });
-  return { leader, trades: k, members: done };
+  }
+  return order.filter((m) => Object.keys(share[m]).length).map((m) => ({ name: m, counts: share[m] }));
 }

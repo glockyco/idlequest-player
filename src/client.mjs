@@ -87,22 +87,24 @@ export async function attach(tab) {
 
     /** Close windows that hide the right-hand buttons: Done/Close buttons, merchant, Path To, the quest dialogue and the combat macro bar. */
     async clearWindows() {
-      // Toggles flip a window, so they run once, before the buttons are clicked.
-      await tab.evaluate(() => {
-        const s = window.iq.stores.combat.getState();
-        if (s.isCombatSkillMacrosOpen) s.setCombatSkillMacrosOpen(false);
-        if (s.isNoteOpen) s.toggleNote();
-        if (s.isMerchantListOpen) s.toggleMerchantList();
-      });
-      for (let i = 0; i < 4; i++) {
-        const n = await tab.evaluate(() => {
-          const d = [...document.querySelectorAll("button")].filter((b) => /^(done|close)$/i.test(b.textContent.trim()));
-          d.forEach((b) => b.click());
-          return d.length;
-        });
-        if (!n) return;
-        await sleep(600);
+      return handle.runJob("closeWindows", []);
+    },
+
+    /**
+     * Run the bridge action `name` (`JOBS` in src/bridge.js) as a page job with `args` and wait
+     * for its result, because one page call may last only about 30 seconds.
+     */
+    async runJob(name, args = [], timeoutMs = 300000) {
+      const id = await tab.evaluate((n, a) => window.iq.job(n, ...a), name, args);
+      for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
+        await sleep(1000);
+        const j = await tab.evaluate((k) => window.iq.jobs[k] ?? null, id);
+        if (!j) throw new Error(`job ${id} is gone (was the bridge installed again?)`);
+        if (!j.done) continue;
+        if (!j.ok) throw new Error(j.error);
+        return j.result;
       }
+      throw new Error(`${name} did not finish within ${Math.round(timeoutMs / 1000)} s`);
     },
 
     /**
@@ -287,47 +289,13 @@ export async function attach(tab) {
     },
 
     /**
-     * Pull one carried or banked item of another account character to the active character with
-     * the Inventory Search window: search the item's name, press the row's Transfer button for
-     * `from`, and read the window's reply. The active character needs a free bag slot. Resolves
-     * with the reply text, or throws when no transferable row names that owner.
+     * Pull one carried or banked item of another account character (`from`, or the first one
+     * Inventory Search lists) to the active character with the window's Transfer button (the
+     * bridge's `pullItem`). The active character needs a free bag slot. Resolves with the
+     * window's reply, the giver and whether the item arrived.
      */
-    async pullItem({ itemName, from, timeoutMs = 20000 }) {
-      return tab.evaluate(
-        async (item, who, ms) => {
-          const sleep = (t) => new Promise((r) => setTimeout(r, t));
-          const cb = () => window.iq.stores.combat.getState();
-          cb().openInventorySearch();
-          let panel = null;
-          for (let k = 0; k < 25 && !(panel = document.querySelector('[data-testid="inventory-search-panel"]')); k++) await sleep(200);
-          if (!panel) throw new Error("Inventory Search did not open");
-          const input = panel.querySelector("input");
-          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, item);
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          const label = `Transfer ${item} from ${who}`;
-          const end = Date.now() + ms;
-          let btn = null;
-          while (Date.now() < end && !(btn = [...panel.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label && !b.disabled))) await sleep(300);
-          if (!btn) {
-            cb().closeInventorySearch();
-            throw new Error(`no transferable ${item} on ${who}`);
-          }
-          btn.click();
-          // The window first shows "Transferring item…", then the result.
-          const have = () => window.iq.stores.character.getState().characterProfile.inventory.filter((x) => x.itemDetails?.name === item).length;
-          const before = have();
-          let reply = null;
-          while (Date.now() < end && (!reply || /…$|^Transferring/.test(reply) || (!panel.querySelector('[role="alert"]') && have() === before))) {
-            await sleep(300);
-            reply = panel.querySelector('[role="status"]')?.textContent || panel.querySelector('[role="alert"]')?.textContent || null;
-          }
-          cb().closeInventorySearch();
-          return reply;
-        },
-        itemName,
-        from,
-        timeoutMs,
-      );
+    async pullItem({ itemName, from = null }) {
+      return handle.runJob("pullItem", [itemName, { from }]);
     },
 
     /**
@@ -406,241 +374,54 @@ export async function attach(tab) {
     },
 
     /**
-     * Walk to a quest NPC in the current zone through the Path To window, open the dialogue
-     * panel, optionally click each matching option in `keywords`, and return the NPC's lines
-     * and remaining options. Run inside `pausedAutoLevel`. Arriving opens the dialogue for most
-     * quest NPCs. When the party stands still without it (Smith Tv`ysa in South Ro), the client's
-     * own hail call opens it, the request a click on the NPC sends.
+     * Walk to a quest NPC in the current zone, open its dialogue, click each matching option in
+     * `keywords`, and return the NPC's lines, its remaining options and whether Give Items is
+     * available (the bridge's `talkToNpc`, run as a page job). Run inside `pausedAutoLevel`.
      */
     async talkToNpc(npcName, keywords = []) {
-      await tab.evaluate(async (targetName) => {
-        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-        const cb = window.iq.stores.combat.getState();
-        if (!cb.isMerchantListOpen) cb.toggleMerchantList();
-        const norm = (s) => String(s ?? "").replace(/_/g, " ").trim().toLowerCase();
-        let row = null;
-        for (let k = 0; k < 20 && !row; k++) {
-          await sleep(250);
-          row = [...document.querySelectorAll(".merchant-name")]
-            .map((el) => el.parentElement)
-            .find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && norm(p.querySelector(".merchant-name")?.textContent).includes(norm(targetName)));
-        }
-        if (!row) throw new Error(`quest NPC "${targetName}" not found in Path To list`);
-        row.click();
-      }, npcName);
-      // The walk can take a minute in a large zone, longer than one page call may last.
-      const state = () =>
-        tab.evaluate(() => ({
-          open: document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0 || [...document.querySelectorAll("button")].some((b) => /^Give Items$/i.test((b.textContent ?? "").trim()) && !b.disabled),
-          loading: [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim())),
-          moving: window.iq.samples?.at?.(-1)?.pst === "run",
-        }));
-      // Distance from the active character to the NPC's spawn point, from the zone's spawn list.
-      const distance = () =>
-        tab.evaluate((targetName) => {
-          const norm = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-          const spawns = Array.isArray(window.iq.zoneSpawns) ? window.iq.zoneSpawns : Object.values(window.iq.zoneSpawns ?? {});
-          const npc = spawns.find((x) => norm(x.name).includes(norm(targetName)));
-          const me = window.iq.samples?.at?.(-1);
-          return npc && me?.x != null ? Math.hypot(me.x - npc.x, me.y - npc.y) : null;
-        }, npcName);
-      const rewalk = () =>
-        tab.evaluate((targetName) => {
-          const cb = window.iq.stores.combat.getState();
-          if (!cb.isMerchantListOpen) cb.toggleMerchantList();
-          const norm = (s) => String(s ?? "").replace(/_/g, " ").trim().toLowerCase();
-          [...document.querySelectorAll(".merchant-name")]
-            .map((el) => el.parentElement)
-            .find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && norm(p.querySelector(".merchant-name")?.textContent).includes(norm(targetName)))
-            ?.click();
-        }, npcName);
-      let idle = 0;
-      let hailed = false;
-      let walks = 1;
-      for (let k = 0; k < 60; k++) {
-        await sleep(2000);
-        const s = await state();
-        if (s.open && !s.loading) break;
-        idle = s.moving ? 0 : idle + 1;
-        if (idle < 3 || hailed || s.loading) continue;
-        // A fight on the way or a blocked path can stop the walk short, and a trade from afar is
-        // refused, so walk again before hailing.
-        const d = await distance();
-        if (d != null && d > 40 && walks < 4) {
-          walks++;
-          idle = 0;
-          await rewalk();
-          continue;
-        }
-        hailed = true;
-        await tab.evaluate(async (targetName) => {
-          const norm = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-          const npc = (window.iq.stores.combat.getState().currentZoneNPCs ?? []).find((n) => norm(n.name).includes(norm(targetName)));
-          const hail = Object.values(window.iq.mods ?? {})
-            .flatMap((m) => Object.values(m))
-            .find((f) => typeof f === "function" && /^function \w+\(e,t,n=\{\}\)\{return \w+\(e,t,n\)\}$/.test(Function.prototype.toString.call(f)));
-          if (!npc || !hail) throw new Error(`cannot hail ${targetName}: ${npc ? "client hail call not found" : "NPC not in this zone"}`);
-          await hail(npc.id, npc.name.replace(/_/g, " "));
-        }, npcName);
-      }
-      return tab.evaluate(
-        async (targetName, kws) => {
-          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          const norm = (s) => String(s ?? "").replace(/_/g, " ").trim().toLowerCase();
-          const waitDialogue = async () => {
-            for (let k = 0; k < 40; k++) {
-              await sleep(400);
-              const loading = [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
-              const hasContent = document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0;
-              const giveBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
-              if (!loading && (hasContent || (giveBtn && !giveBtn.disabled))) return;
-            }
-          };
-          for (const kw of kws) {
-            const opt = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].find((b) => norm(b.textContent).includes(norm(kw)));
-            if (!opt) throw new Error(`dialogue option "${kw}" not found on ${targetName}`);
-            opt.click();
-            await sleep(300);
-            await waitDialogue();
-          }
-          const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
-          const options = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].map((el) => el.textContent.trim());
-          const giveBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
-          return { npcName: targetName, dialogues, options, canGive: Boolean(giveBtn && !giveBtn.disabled) };
-        },
-        npcName,
-        keywords,
-      );
+      return handle.runJob("talkToNpc", [npcName, keywords]);
     },
 
     /**
-     * Walk to a quest NPC in the current zone, open the Give Items trade window, place up to four
-     * carried items (`itemNames`) into the trade slots, click Give, and return the NPC's reply and
-     * any reward chat lines. Run inside `pausedAutoLevel`. `talk: false` skips the walk when the
-     * dialogue is already open, and `closeNote: false` leaves it open for the next trade.
+     * Trade up to four carried items (`itemNames`) to a quest NPC with its Give Items window and
+     * return the NPC's reply and the chat lines the trade brought. `talk: false` skips the walk
+     * when the dialogue is already open, and `closeNote: false` leaves it open for the next
+     * trade. Run inside `pausedAutoLevel`.
      */
     async turnInQuest(npcName, itemNames = [], { talk = true, closeNote = true } = {}) {
-      if (!itemNames.length || itemNames.length > 4) throw new Error("turnInQuest takes 1 to 4 item names");
       if (talk) await handle.talkToNpc(npcName);
-      return tab.evaluate(
-        async (items, close) => {
-          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          const since = window.iq.seqs.event;
-          const giveItemsBtn = [...document.querySelectorAll("button")].find((b) => /^Give Items$/i.test((b.textContent ?? "").trim()));
-          if (!giveItemsBtn || giveItemsBtn.disabled) throw new Error("Give Items button is not available on this NPC");
-          giveItemsBtn.click();
-          let win = null;
-          for (let k = 0; k < 20 && !win; k++) {
-            await sleep(200);
-            win = document.querySelector('[data-testid="quest-give-window"]');
-          }
-          if (!win) throw new Error("quest-give-window did not open");
-          const slots = [...win.querySelectorAll('[data-testid^="quest-give-slot-"]')].map((el) => Number(el.getAttribute("data-testid").replace("quest-give-slot-", "")));
-          const ch = () => window.iq.stores.character.getState();
-          const inv = () => ch().characterProfile?.inventory ?? [];
-          for (let k = 0; k < items.length; k++) {
-            const want = items[k];
-            const found = inv().find((x) => (x.bag >= 1 || (x.bag === 0 && x.slot >= 22 && x.slot <= 29)) && x.itemDetails?.name === want);
-            if (!found) throw new Error(`item "${want}" not found in bags`);
-            ch().moveItemToSlot({ bag: found.bag, slot: found.slot }, { bag: 0, slot: slots[k] });
-            await sleep(800);
-          }
-          const giveBtn = [...win.querySelectorAll("button")].find((b) => /^Give$/i.test((b.textContent ?? "").trim()));
-          if (!giveBtn || giveBtn.disabled) throw new Error("Give button in quest-give-window is disabled");
-          giveBtn.click();
-          for (let k = 0; k < 30 && document.querySelector('[data-testid="quest-give-window"]'); k++) await sleep(300);
-          await sleep(600);
-          const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
-          const cb = window.iq.stores.combat.getState();
-          if (close && cb.isNoteOpen) cb.toggleNote();
-          const lines = window.iq.events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest|level/i.test(e.text)).map((e) => e.text);
-          return { ok: true, dialogues: dialogues.slice(-2), lines };
-        },
-        itemNames,
-        closeNote,
-      );
+      return { ok: true, ...(await handle.runJob("giveToNpc", [itemNames, { closeNote }])) };
     },
 
     /**
      * Hand carried items to a quest NPC for repeatable single-item quests, up to `counts[name]`
-     * copies of each name. Each trade holds one copy of every name still due, because a script that
-     * checks each item separately pays every one of them in the same trade: Smith Tv`ysa in South
-     * Ro gave 411,600 XP for a Greater Lightstone and a Lightstone together (`{ npc: "Tv`ysa",
-     * counts: { "Greater Lightstone": 3, Lightstone: 2 } }`). Two copies of one name in a trade pay
-     * once, and the NPC returns the second. Only the active character gets the reward. A reward
-     * item the NPC puts on the cursor is sold right away with `sellReward`, because a held cursor
-     * blocks the next trade, looting and the bot's cleanup. Returns the trades made, the items
-     * handed in and the XP the chat reported. Run inside `pausedAutoLevel`.
+     * copies of each, one copy of every name per trade (the bridge's `handInEach`, which says
+     * why). Only the active character gets the reward. Returns the trades made, the items handed
+     * in and the XP the chat reported. Run inside `pausedAutoLevel`; for several characters use
+     * `handIn`.
      */
-    async turnInEach({ npc, counts, sellReward = true }) {
-      const carriedAll = async () => {
-        const inv = await handle.inventory();
-        return Object.fromEntries(Object.keys(counts).map((n) => [n, inv.filter((r) => r.name === n && (r.loc === "bag" || r.loc === "general")).reduce((s, r) => s + (r.quantity || 1), 0)]));
-      };
-      const clearCursor = () =>
-        tab.evaluate(async () => {
-          const row = (window.iq.stores.character.getState().characterProfile.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
-          if (!row) return null;
-          const sell = Object.values(window.iq.mods)
-            .flatMap((m) => Object.values(m))
-            .find((v) => typeof v === "function" && Function.prototype.toString.call(v).includes("Sale confirmation was interrupted"));
-          return (await sell(0, 30))?.message ?? null;
-        });
-      const due = { ...counts };
-      let trades = 0;
-      let items = 0;
-      let xp = 0;
-      let talked = false;
-      for (;;) {
-        const have = await carriedAll();
-        const names = Object.keys(due).filter((n) => due[n] > 0 && have[n] > 0).slice(0, 4);
-        if (!names.length) break;
-        if (!talked) {
-          await handle.talkToNpc(npc);
-          talked = true;
-        }
-        const seq0 = await tab.evaluate(() => window.iq.seqs.event);
-        const give = async () => {
-          try {
-            return await handle.turnInQuest(npc, names, { talk: false, closeNote: false });
-          } catch (e) {
-            // The dialogue closed between trades: walk and hail again once.
-            if (!/Give Items button/.test(String(e.message))) throw e;
-            await handle.talkToNpc(npc);
-            return handle.turnInQuest(npc, names, { talk: false, closeNote: false });
-          }
-        };
-        const taken = async () => {
-          const now = await carriedAll();
-          return names.filter((n) => now[n] < have[n]);
-        };
-        await give();
-        if (sellReward) await clearCursor();
-        let got = await taken();
-        if (!got.length) {
-          // A trade from too far away comes back. Walk up again and give once more.
-          await handle.talkToNpc(npc);
-          await give();
-          if (sellReward) await clearCursor();
-          got = await taken();
-          if (!got.length) throw new Error(`the trade of ${names.join(" and ")} to ${npc} was not taken`);
-        }
-        for (const n of got) due[n]--;
-        trades++;
-        items += got.length;
-        // The XP line can trail the trade window by a moment.
-        for (let w = 0; w < 6; w++) {
-          const add = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s).reduce((sum, e) => sum + Number(/You gain experience!+ \((\d+)\)/.exec(e.text)?.[1] ?? 0), 0), seq0);
-          if (add > 0) {
-            xp += add;
-            break;
-          }
-          await sleep(500);
-        }
+    async turnInEach({ npc, counts }) {
+      return handle.runJob("handInEach", [npc, counts], 600000);
+    },
+
+    /**
+     * Hand items to a quest NPC for several account characters, each while it is the active
+     * character, with the bot's in-page task (`iqBot.handIn`): `members` lists `{ name, counts }`,
+     * and a member short of an item pulls it from another account character first. The default
+     * NPC is Smith Tv`ysa in South Ro. The task holds the bot's pause and gives the tab back to
+     * its leader when it ends, also when this script stops waiting. Resolves with the finished
+     * task, or throws with the task when it failed.
+     */
+    async handIn({ members, npc, zone, timeoutMs = 3600000 }) {
+      await tab.evaluate((spec) => window.iqBot.handIn(JSON.parse(spec)), JSON.stringify({ members, ...(npc ? { npc } : {}), ...(zone ? { zone } : {}) }));
+      let task = null;
+      for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
+        await sleep(5000);
+        task = await tab.evaluate(() => window.iqBot.state.task && JSON.parse(JSON.stringify(window.iqBot.state.task)));
+        if (task?.status !== "running") break;
       }
-      // The trade window opens the inventory, which hides the AutoLevel button.
-      await handle.clearWindows();
-      return { trades, items, xp };
+      if (task?.status !== "done") throw Object.assign(new Error(`hand-in ${task?.status ?? "lost"}${task?.error ? ` at "${task.step}": ${task.error}` : ""}`), { task });
+      return task;
     },
 
     /**

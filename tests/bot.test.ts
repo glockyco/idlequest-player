@@ -915,3 +915,76 @@ test("failed switches back off and the third in a row wakes a script", async () 
     vi.useRealTimers();
   }
 });
+
+// Bags per character for the hand-in tests, and fake bridge actions that use them the way the
+// game does: a pull adds one item to the active character, a hand-in takes what is due.
+function handInPage(f: Awaited<ReturnType<typeof install>>, held: Record<string, Record<string, number>>, pull: { ok: boolean }) {
+  const given: string[] = [];
+  const mine = () => (held[f.sheet.characterProfile.name] ??= {});
+  Object.assign(f.iq, {
+    carried: (item: string) => mine()[item] ?? 0,
+    pullItem: async (item: string) => {
+      if (!pull.ok) return { got: false, from: "Tagujazolu", reply: "Transfer failed." };
+      mine()[item] = (mine()[item] ?? 0) + 1;
+      return { got: true, from: "Tagujazolu", reply: "Transferred." };
+    },
+    handInEach: async (_npc: string, counts: Record<string, number>) => {
+      let items = 0;
+      for (const [k, n] of Object.entries(counts)) {
+        const g = Math.min(n, mine()[k] ?? 0);
+        mine()[k] = (mine()[k] ?? 0) - g;
+        items += g;
+      }
+      given.push(`${f.sheet.characterProfile.name} ${items}`);
+      return { trades: items, items, xp: items * 274400 };
+    },
+  });
+  return given;
+}
+const runToEnd = async (f: Awaited<ReturnType<typeof install>>) => {
+  for (let k = 0; k < 400 && f.bot.state.task?.status === "running"; k++) {
+    vi.advanceTimersByTime(500);
+    await flush();
+  }
+  // The task's end hands the tab to the bot, which switches back to its leader.
+  vi.advanceTimersByTime(1000);
+  await flush();
+  await f.bot.tick();
+  await flush();
+};
+
+test("a hand-in task serves each member in turn and then gives the tab back to the leader", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const given = handInPage(f, { Tagujazolu: { "Greater Lightstone": 1 } }, { ok: true });
+    f.bot.handIn({ members: [{ name: "Tagujazolu", counts: { "Greater Lightstone": 1 } }, { name: "Edroun", counts: { "Greater Lightstone": 2 } }] });
+    await runToEnd(f);
+    expect(f.bot.state.task?.status).toBe("done");
+    expect(given).toEqual(["Tagujazolu 1", "Edroun 2"]);
+    expect(f.moves).toEqual(["sro", "sro"]);
+    expect(f.commands).toEqual(["session.camp", "session.enterWorld Tagujazolu", "session.camp", "session.enterWorld Edroun", "session.camp", "session.enterWorld Me"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a hand-in step that fails twice ends the task, wakes a script and gives the tab back", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const given = handInPage(f, {}, { ok: false });
+    f.bot.handIn({ members: [{ name: "Edroun", counts: { "Greater Lightstone": 1 } }] });
+    await runToEnd(f);
+    expect(f.bot.state.task?.status).toBe("failed");
+    expect(given).toEqual([]);
+    const woken = f.bot.state.alerts.filter((a) => a.kind === "task" && a.wake);
+    expect(woken.length).toBe(1);
+    expect(woken[0].text).toContain("Transfer failed.");
+    expect(f.sheet.characterProfile.name).toBe("Me");
+  } finally {
+    vi.useRealTimers();
+  }
+});

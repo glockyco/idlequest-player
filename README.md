@@ -41,6 +41,7 @@ await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con va
 await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, restart if it was running
 await iq.setLeader("Tagujazolu");                  // lead the group with another member for good; the bot switches and regroups
 await iq.switchCharacter("Edroun");                // play another character for a while; the bot switches back when its pause ends
+await iq.handIn({ members: [{ name: "Edroun", counts: { "Greater Lightstone": 2 } }] });  // the bot's task: each member hands in at Smith Tv`ysa, then back to the leader
 await iq.raidTime();                                // price of a raid hour in platinum, expiry, auto-renew (read only)
 await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
 ```
@@ -343,7 +344,7 @@ names the running client and `iq.missingApi` lists the missing parts.
 2. `bun tools/check-client.mjs [release dir]` runs the bridge's discovery on the saved bundles
    and prints PASS or FAIL for every store, action, state key, dispatcher and client function the
    SDK and the bot use. It exits with 1 on a FAIL. Fix each FAIL in `CLIENT_SURFACE`
-   (`src/bridge.js`) or `CLIENT_FN` (`src/bot.js`) before attaching.
+   (`src/bridge.js`) before attaching.
 3. `bun tools/client-snapshot.mjs --diff <old> <new>` lists what changed by names that survive
    minification: text and message templates, enum members such as option ids, action names, zone
    names and renamed bundles. Arguments are release ids or directories.
@@ -369,11 +370,13 @@ names the running client and `iq.missingApi` lists the missing parts.
   turn-in items the bot keeps with `bun tools/quest-items.mjs`.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end,
-  then sends the Travel window's zone change, which teleports at once. The bot's pause is renewed while the work runs. If the script
-  dies, the pause runs out within two minutes and the bot starts AutoLevel again a minute later.
+  then sends the Travel window's zone change, which teleports at once. The bot's pause is renewed
+  while the work runs. If the script dies, the pause runs out within two minutes and the bot
+  restores the leader, the party, the zone and AutoLevel at once.
 - Long work belongs in the page: start it there, keep its progress on `window`, and poll it with
-  short `tab.evaluate` calls, as `iq.errand` does. An omp browser tab fails a call that runs about
-  30 seconds or longer (not verified against the omp source).
+  short `tab.evaluate` calls. The bridge's `iq.job(name, ...args)` runs its NPC and item actions
+  that way, and the bot runs multi-step work as tasks. An omp browser tab fails a call that runs
+  about 30 seconds or longer (not verified against the omp source).
 - Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions
   that a player cannot use.
 
@@ -385,9 +388,9 @@ names the running client and `iq.missingApi` lists the missing parts.
   client no longer has.
 - `opcode table not loaded`: the bridge was evaluated without `attach`. Call `attach(tab)`, which
   loads `data/opcodes.json`.
-- `client function containing "..." not found` in `iqBot.report().recent` (as `tick failed`): the
-  bot finds the client's sell, Auto Bank and auto-place calls by a text they contain (`CLIENT_FN`
-  in `src/bot.js`), and a release changed that text. Bag cleanup stops until the text is updated.
+- `client function ... not found` in `iqBot.report().recent` (as `tick failed`), or `fn.<name>` in
+  `iq.missingApi`: the bridge finds the client's sale, Auto Bank, auto-place, zone change and hail
+  calls by pieces of their source (`FUNCTIONS` in `CLIENT_SURFACE`), and a release changed them.
 - The world sticks on the loading screen: something replaced `socket.onJson` or another callback
   slot. Reload and sign in, and wrap instance methods instead.
 - AutoLevel stays off: `iq.botReport()` shows `paused` with a reason and an end time, and
