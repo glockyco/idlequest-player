@@ -6,34 +6,28 @@ This is mostly read-only research, not a report of game tests. The measured numb
 
 The public wiki is a JavaScript application. Reading its page URLs returns an HTML shell. Its published module contains the actual Markdown for all eight articles, including Overview, Companions, Experience & Zones, Loot & Inventory, Raiding, and Tradeskills. The article text below was read from that module, not inferred from search snippets. Sources: <https://idlequest.net/wiki>, <https://idlequest.net/assets/DoZSjMzU.js:545-1478>, and the module's article registry at line 1609.
 
-Three requested quantities remain unverified because the available sources do not expose them: the AA ability/rank catalog, the server's level-to-hourly-raid-price formula (and the price at level 46 or higher), and a server-enforced limit on characters or raid size. Platinum per hour is measured only as gross coin pickup from level 8 to 31 (section 4), and there is no market-sales dataset. These limits are identified in the relevant sections rather than filled with P99 assumptions.
+Two requested quantities remain unverified because the available sources do not expose them: the server's level-to-hourly-raid-price formula (and the price at level 46 or higher), and a server-enforced limit on characters or raid size. Platinum per hour is measured only as gross coin pickup from level 8 to 31 (section 4), and there is no market-sales dataset. These limits are identified in the relevant sections rather than filled with P99 assumptions.
 
 ## 1. Alternate Advancement
 
-### Unlock, earnings, and purchase costs
+### Catalog, costs and requests
 
-- The client defines the AA unlock level as 46, progress per point as 75,000,000 XP, and training price as 2,000 platinum. Its training UI says each rank costs 1 AA point plus that platinum price. Sources: `.re/js/engine.pretty.js:19363-19365,408215-408220`.
-- XP allocation is per character, from 0% through 100%, in 5-percentage-point increments. The UI has Party and Account tabs, individual allocations, and party-wide 0% and 100% actions. Sources: `.re/js/engine.pretty.js:408038-408047,408090-408125,408189-408204`.
-- Same-account companions can have their own AA allocation and training target. Default bot companions have a disabled allocation control and the explicit message "Default companions do not earn AA." Sources: `.re/js/engine.pretty.js:407699-407715,408150-408175`.
-- Separate player and party-companion rules can temporarily force AA allocation to 0% below a chosen level. The saved percentage resumes at that level. Sources: `.re/js/engine.pretty.js:407966-407995,408063-408069`.
-- The exact current unlock, XP-per-point, abilities, maximum ranks, descriptions, and owned ranks also arrive in a server response. The UI does not contain a local ability catalog. It requests advancement state and renders `H.abilities`, `fe.maxRank`, and `fe.description`. Consequently the constants above are client evidence, while actual offered ranks and any server override remain unverified. Sources: `.re/js/engine.pretty.js:407475-407482,407824-407834,407933-407937,408224-408260`.
+The server sends the catalog with the window's own request, which works at any level: `sendCorrelatedJsonRequest(1237, 1238, { action: "get", scope: "account", hostCharacterId })` (`CVEP2_Ra.js:407750-408080` in `.re/releases/20261108T004644-064bc896/pretty/`). A reply is saved in `runs/state/aa-catalog.json`. It unlocks at 46 and counts to 60, a point costs 75,000,000 XP, and the client asks 2,000 platinum per rank from the character's carried coin.
 
-### What is implemented in the client, and class priorities
+| Ability (id) | Ranks | Per rank |
+| --- | ---: | --- |
+| Innate Strength, Stamina, Agility, Dexterity, Intelligence, Wisdom, Charisma (50001 to 50007) | 5 each | +2 of the stat |
+| Innate Magic, Cold, Fire, Poison, Disease Protection (50008 to 50012) | 5 each | +2 of the resist |
+| Innate Run Speed (50013) | 3 | 8, 14, 21% faster running, not stacking with speed buffs |
+| Innate Regeneration (50014) | 3 | +1 HP per tick |
+| Innate Metabolism (50015) | 3 | food and drink last 10, 25, 50% longer |
+| Innate Lung Capacity (50016) | 3 | 10, 25, 50% more breath |
 
-The ordinary stat calculation consumes AA bonuses to STR, STA, DEX, AGI, INT, WIS, CHA, five elemental/disease/poison resists, HP regeneration, and run speed. Run speed uses the greater of the spell movement bonus and AA speed, not their sum. AA lung capacity also extends the breath limit. These are supported bonus fields, not verified ability names or per-rank values. Sources: `.re/js/main.pretty.js:21845-21879,21928-21952,21963-21968,22022-22027` and `.re/js/engine.pretty.js:458308-458312`.
+All 72 ranks cost 5.4 billion XP and 144,000 platinum per character. The same request with `action` `"purchase"` (`abilityId`, `expectedRank`, `expectedCostPlatinum`) trains a rank, `"allocate"` (`allocation` 0 to 100 in steps of 5, `targets` of `{ characterId, leaseId }`) sets the XP share of the active character and its account companions, and `"levelRule"` (`ruleScope` `"player"` or `"companions"`, `levelRule: { enabled, level }`, `expectedRulesRevision`) pauses the share below a level and resumes the saved share there. Default companions earn no AA. The bonuses enter the ordinary stat calculation (`Bt`, `OSTsR53r.js:21853-22029`), run speed as the greater of spell speed and AA speed, and breath through `airCapacitySeconds`.
 
-| Character | Conditional priority when the server offers the relevant general ability | Basis |
-| --- | --- | --- |
-| Domeyafun, Magician | INT for mana when below the effective cap. Then survival through STA, resists, and HP regeneration. Do not budget for an assumed pet-DPS AA. | AA INT and STA enter ordinary stats. Mana uses INT for class 13. No pet-DPS AA is established by the inspected AA consumers. `.re/js/main.pretty.js:20417-20431,20448-20452,20563-20585,21845-21879,22022-22027`. |
-| Tagujazolu, Warrior | STA and encounter resists for tank survival. Consider AGI or STR only after checking the resulting tank stats. | STA enters HP, AGI enters defense calculations, STR enters offense. `.re/js/main.pretty.js:20563-20574,21854-21867,21901-21923,21999-22003`. |
-| Ewbanaqoa, Cleric | WIS for mana when below the effective cap, then survival. | Class 2 uses WIS in the mana formula. `.re/js/main.pretty.js:20417-20431,20448-20452,20576-20585,21872-21875`. |
-| Ugfeu, Bard | Survival first, especially STA, resists, and HP regeneration. This is a recommendation, not an established optimal AA build. | These bonus fields affect the character. Bard songs stop on death, unlike other ordinary raid support. `.re/js/main.pretty.js:21854-21859,21928-21952,22022-22027` and <https://idlequest.net/wiki/raiding>, "How raid members work". |
-| Qigaa, Shaman | WIS for mana when below the effective cap, then STA, resists, and HP regeneration. | Class 10 uses WIS. `.re/js/main.pretty.js:20417-20431,20448-20452,20576-20585,21854-21859,22022-22027`. |
-| Edroun, Enchanter | INT for mana when below the effective cap, then survival. Do not buy CHA solely on an unverified claim about an AA's charm benefit. | Class 14 uses INT. CHA is a supported stat bonus, but this research did not establish the server's offered CHA rank effects or a charm-specific AA. `.re/js/main.pretty.js:20417-20431,20448-20452,20576-20585,21868-21879`. |
+### When and what to train
 
-The base ordinary stat cap is 255, modified by applicable cap bonuses. Mana gains per casting-stat point are halved above 200 in the client formula. Buying an already capped stat is therefore not automatically useful. Sources: `.re/js/main.pretty.js:21063,21821-21823,21894-21900,20576-20585`.
-
-Recommendation: preserve level XP while assembling the roster rather than assuming AA should begin immediately at 46. Training costs platinum as well as XP. At 2.5M XP per hour (measured at levels 29 to 31) one AA point of 75,000,000 XP takes about 30 hours of full allocation for one character (estimate, since the rate at 46 is not measured). The temporary allocation rules can preserve a desired setting while leveling. The exact best allocation and per-class purchase order cannot be calculated without the server ability catalog. Sources for the tradeoff: `.re/js/engine.pretty.js:407966-407995,408215-408249`.
+A rank adds 2 stat points for 75M XP, while a level costs 5M at 30, 17M at 45 and 50M at 55 at the base race and class factor (89M at 59, `tools/lib/xp.mjs`) and gives far more: HP, mana, spells and the weapon damage cap. XP therefore goes to levels until 60, and to AA from 60: the share is 100% with the level rule pausing it below 60 for the player and the companions. Metabolism and lung capacity add nothing to play the bot runs (the server refills food from carried meals, leveling plan lever 5, and no route is underwater), and run speed does not stack with Bard and Shaman speed songs. The order by value per point is the casting stat for casters and priests below its cap (INT for Magician, Wizard, Necromancer and Enchanter, WIS for Cleric, Druid and Shaman), STA for tanks and everyone after that, then the resists a raid target uses, then regeneration, with STR, DEX and AGI for melee. Mana gains per casting-stat point halve above 200 and stats cap at 255, so a stat at its cap is skipped (`.re/js/main.pretty.js:21063,21821-21823,21894-21900,20576-20585`).
 
 ## 2. Tradeskills
 
