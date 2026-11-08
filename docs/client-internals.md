@@ -1,196 +1,383 @@
 # IdleQuest client internals
 
 What the web client does, as needed to drive it. Source: the shipped bundles under
-`https://idlequest.net/assets/`, prettified locally into `.re/`.
+`https://idlequest.net/assets/`, prettified locally into `.re/js/`. A reference such as
+`OK.pretty.js:8405` is a line in that snapshot, because minified names are bundle-local. A claim
+marked "Unverified" has no client code or run behind it. A claim marked "Server" is decided by the
+game server, so the client only sends a request.
 
 ## Where the game runs
 
-- Combat, AutoLevel and party tactics run in the browser. The server confirms results and owns the
-  account, inventory, zone and session state. A running tab is required for automation.
+- Combat, AutoLevel and party tactics run in the browser. The server authorizes each spell
+  completion (`BQ.pretty.js:23918-23930`) and owns the account, inventory, zone and session
+  state. A running tab is required for automation.
 - State lives in zustand stores. Each store has `getState()` and `subscribe()`, and its actions are
-  functions on the state. `src/bridge.js` locates stores by state keys because export names and
-  chunk file names change on every release.
+  functions on the state. `src/bridge.js` locates stores by state keys (`STORE_SIGNATURES`)
+  because export names and chunk file names change on every release.
 
 ## Transport
 
-- `GET /api/transport/credentials` returns a certificate hash. The client opens WebTransport to
-  the game server with it, and falls back to `wss://idlequest.net/ws?session=&client_release=&state_protocol=`
-  when WebTransport is unavailable.
-- Frame: `uint32le length`, `uint16le opcode`, JSON payload. Opcode `0xFFFF` wraps a compressed
-  packet: `uint16le inner opcode`, `uint32le size`, raw deflate data.
-- `data/opcodes.json` maps opcode names to numbers (about 820 of them).
-- Requests go through `socket.sendJsonRequest(op, replyOp, payload)` or the `_requestId`
-  correlated variant. Server pushes are dispatched to handlers registered by the client.
+- `GET /api/transport/credentials` returns a certificate hash. The client opens WebTransport to the
+  game server with it, and falls back to `wss://<host>/ws?session=&client_release=&state_protocol=`
+  when that fails (`main.pretty.js:2327`, `2934-2944`, `2996-3008`, `3287`, `3550-3555`).
+- Reliable frames (the control stream and the WebSocket): `uint32le length`, `uint16le opcode`,
+  JSON payload. A datagram has no length prefix (`main.pretty.js:2708-2720`, `3011-3021`).
+- Opcode `0xFFFF` wraps a compressed packet: `uint16le inner opcode`, `uint32le size`, raw
+  deflate data (`main.pretty.js:2653-2672`).
+- `data/opcodes.json` maps opcode names to numbers.
+- Requests go through `socket.sendJsonRequest(op, replyOp, payload)` or the correlated variant
+  `sendCorrelatedJsonRequest` (`main.pretty.js:3051`, `engine.pretty.js:419359`). Server pushes are
+  dispatched to handlers registered by the client.
 
 ## Authentication
 
-- `JWTLogin` (4) with `{authType: "login", email, password, clientRelease}`, or `authType: "guest"`
-  with a `guestToken` kept in `localStorage`. The reply `JWTResponse` (3) carries the session id and
-  a resume token.
-- The session id and resume token are held in page memory only. If the connection drops and the
-  server rejects the resume (`SessionResumeRejected`), the client returns to the login screen.
+- `JWTLogin` with `{authType: "login", email, password, clientRelease}`, or `authType: "guest"`
+  (`"guest_merge"` when several guest tokens exist) with a `guestToken` kept in `localStorage`
+  (`main.pretty.js:51778-51815`, `51698-51704`). The reply `JWTResponse` carries the session id in
+  `status` and a resume token.
+- The session id and resume token are fields of the socket object, so they live in page memory
+  only. If the connection drops and the server rejects the resume (`SessionResumeRejected`), the
+  client returns to the login screen (`main.pretty.js:3564-3573`).
 
 ## Entering the world
 
-`EnterWorld` (14) with the character name returns `PostEnterWorld`. The server then pushes
-`CharacterData`, `CharacterInventory`, `CharacterSkills`, `CharacterCurrency`, `CharacterBind`,
-`CharacterStatsData`, `CharacterSpellbook` and `ZonePlayerSnapshot`. The client applies them
-through its own handlers and sets `socket.worldReady`. The zone and 3D scene load after that.
+`EnterWorld` with `{name, stateProtocol, tutorial, returnHome}` returns `PostEnterWorld`
+(`main.pretty.js:51847-51855`). The server then pushes `CharacterData`, `CharacterInventory`,
+`CharacterSkills`, `CharacterCurrency`, `CharacterBind`, `CharacterStatsData`,
+`CharacterSpellbook` and `ZonePlayerSnapshot`, which the client applies through its own handlers
+(`C8.pretty.js:1060`, `1209-1254`). `socket.worldReady` turns true when `CharacterData` loads
+(`C8.pretty.js:1218`) and the zone and 3D scene load after that.
 
 ## Combat runtime and AutoLevel
 
 The combat runtime is a singleton: `G.getInstance()` exported from the chunk that holds the string
-`Waiting for party to be ready` (the bridge reaches it through `iq.mods`). Its `combatScene`
-exposes the live world. Chunk and export names change per release, so find it by method names such
-as `castSpellAtSelectedTarget` and `getAliveCombatTargetList`.
+`Waiting for party to be ready` (`OK.pretty.js:6095`, export at `:8896`, found by
+`src/bridge.js` `runtime()`). Its `combatScene` exposes the live world. Find the runtime by method
+names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when export names change.
 
-- Target picker: AutoLevel takes `combatScene.findClosestCombatTarget` filtered by con, level cap and
-  reachability. It does not weigh XP, nearby danger, water or the route.
-- Readiness gate: every start through AutoLevel, the Enemy Targets list or the Auto Attack button
-  runs `prepareAutomatedCombat`, which summons pets and then waits standing still
-  (`waitForPartyReady`, up to 2 minutes plus any time spent rooted). It ends only when every party
-  member and pet has full HP and, for mana users, full mana, nobody is rooted ("Waiting for root to
-  wear off the party."), and the support pass cast no cure or dispel. So one member whose cure
-  keeps failing holds the whole party until the effect wears off.
-- Dispels such as the Enchanter's Cancel Magic succeed with a chance per effect of 32% plus 7% per
-  level the caster is above the effect's caster, or minus 2% per level below, clamped to 10-100%
-  (dispel `levelModifier` added to the caster's level, minus one). Against same-level or higher
-  casters most attempts fail. `analyze.mjs` reports waits with cure or dispel casts separately
-  ("Between pulls").
-- Roots between pulls: the readiness wait reads each member's and pet's active effects from the
-  effects registry (`l.getEffects(entityId).active`, entity ids `character:<id>` and
-  `pet:<owner>:<name>`), and `cm({effects})` classifies them. Each effect carries `spellId`,
-  `casterLevel` and `expiresAtMs`, so the remaining root time and the dispel chance are known in
-  advance. The bot uses this to turn cures on only for roots worth dispelling (`dispelRoots`).
-- Auto Attack and AutoLevel: AutoLevel's pulls (`startSpatialCombat`) do not start the fight on
-  arrival by themselves. The target approach starts it only while Auto Attack is on, and otherwise
-  stands in phase `waiting-to-attack` without a timeout. The client turns Auto Attack off when every
-  enemy left in a fight is mezzed (`adoptActiveEncounterForAutoLevel`, because
-  `canAutomaticallyFocusNpc` excludes mezzed enemies) and does not turn it back on, so after an
-  Enchanter mezzed the adds the next pull stood still until something pressed Auto Attack. The bot
-  presses it (`attackSelectedTarget`, the button's handler) when a pull waits like that.
-- Direct starts skip the gate: `castSpellAtSelectedTarget(gem)` (a manual spell cast, mode
-  `manual-spell`) and `commandPetAttackSelectedTarget()` (mode `pet-command`) call
-  `startCombatWithEntity` directly. The companions then assist the player's target with their own
-  tactics. A manual pull at about 430 units started the fight at once and all five alts joined.
-- Live targets: `combatScene.getAliveCombatTargetList()` returns `{spawnInstanceId, npcId, name,
-  level, distance}` sorted by distance. `combatScene.navigateToCombatTarget(spawnInstanceId, onError)`
-  walks with the client's own navigation, and `clearNavigationTarget()` stops it.
-- Do not call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They exist for debugging and
-  are not something a player can do.
-- AutoLevel limits are coupled. `setMaxLevelDiff(n)` also sets the highest con (0 gives White, 1 or 2
-  Yellow, 3 or more Red) and `setMaxCon(c)` resets the level cap (White 0, Yellow 2, Red 5). Set the
-  cap and the minimum con together, then read both back.
-- Enemy HP, melee damage and AC are a function of level alone in the game data, so same-level
-  enemies are identical. A high level named enemy can still stand in a camp of ordinary ones. A
-  level 30 Minotaur Sentry (1,200 HP, hits up to 64) joined a fight with level 10 slavers in
-  Steamfont and killed the Warrior.
-- Zone change: `rs(zone)` in the chunk that also holds the character profile helpers sends the same
-  request as the Travel window. It has no combat check. Changing to the zone you are in re-enters it
-  at the safe spot and drops all engaged mobs, which makes it the escape from a bad fight.
+### Target picking and the deferral list
+
+- AutoLevel pulls through `startSpatialCombat` (`OK.pretty.js:8405-8479`). It takes
+  `combatScene.findClosestCombatTarget(npcId, excludedSpawnIds, filters)`
+  (`engine.pretty.js:464700-464711`), which scans every alive spawn and keeps the one with the
+  smallest straight-line 3D distance (`engine.pretty.js:442449-442483`). It does not weigh XP,
+  nearby danger, water, the route or whether the spawn can be reached.
+- A spawn is skipped when it is flagged `automatedCombatExcluded` or `autoLevelExcluded`, is on the
+  deferral list or charmed by the party, has a level outside the limits, is evading or owned by
+  another character's combat, or (with Farm Items active) lies outside the chosen category
+  (`engine.pretty.js:442453-442475`, `OK.pretty.js:8428-8434`).
+- The level limits come from the active character's level, `minCon`, `maxCon` and `maxLevelDiff`
+  (`OK.pretty.js:5283-5340`, `8739-8752`). The minimum level is the low edge of the `minCon`
+  colour and the maximum is the high edge of the `maxCon` colour, capped at level plus
+  `maxLevelDiff` when that is above 0. White is the character's own level, Yellow is one to two
+  levels above (three above level 50, four above 53, five above 56), and Blue and Green lie below
+  by the offsets in `OK.pretty.js:5341-5366`. Defaults are `minCon` Blue, `maxCon` White and
+  `maxLevelDiff` 0 (`main.pretty.js:190671-190673`).
+- The limit setters overwrite each other (`main.pretty.js:190674-190717`). `setMaxLevelDiff(n)`
+  sets the highest con (0 gives White, 1 or 2 Yellow, 3 or more Red). `setMaxCon(c)` resets the cap
+  (White 0, Yellow 2, Red 5). `setMinCon(c)` raises `maxCon` when `c` is above it. Set `maxCon`,
+  then `minCon`, then the cap, and read all three back (`applyLimits` in `src/bridge.js`).
+- Reachability enters only after a pick. When an approach is abandoned the client defers that spawn
+  with `deferAutoLevelSpawn(spawnInstanceId, ms)` for 5 minutes, or 15 seconds when the target
+  became unavailable (`OK.pretty.js:5373-5374`, `5484-5497`). It also defers the current target
+  when its supervisor sees no progress and after some won fights (`OK.pretty.js:5615-5618`,
+  `6960`).
+- `deferAutoLevelSpawn` keeps the later expiry per spawn instance id in a map in page memory
+  (`OK.pretty.js:5587-5592`). Expired entries are removed at each pick (`OK.pretty.js:8410-8411`)
+  and nothing clears the map on a zone change. Unverified: whether a spawn instance id is the same
+  after the zone is re-entered. The bot depends on it in `guardLeave`.
+- When every candidate is deferred or owned, the client says "Waiting for an available enemy" and
+  retries. When there is no candidate at all it says "No available enemies found in this zone" and
+  stops AutoLevel (`OK.pretty.js:8436-8478`).
+- `combatScene.getAliveCombatTargetList()` returns `{spawnInstanceId, npcId, name, level, distance}`
+  sorted by distance. It applies no con, level or deferral filter, only `automatedCombatExcluded`
+  (`engine.pretty.js:464758-464786`).
+- `combatScene.navigateToCombatTarget(spawnInstanceId, onError)` walks with the client's own
+  navigation and `clearNavigationTarget()` stops it (`engine.pretty.js:464916`, `464953`).
+
+### Readiness wait and cure passes
+
+- Every start through AutoLevel (`startCombat`), the Enemy Targets list (`selectEnemyTarget`) or
+  the Auto Attack button, when no fight is active, runs `prepareAutomatedCombat`
+  (`OK.pretty.js:7581-7634`, `7933`, `8394`). It summons pets (`executeBuffPhase`,
+  `OK.pretty.js:498-529`) and then runs `waitForPartyReady` (`OK.pretty.js:690-844`). It casts no
+  buffs.
+- The wait ends when every member and pet is ready and the support pass `Nz`
+  (`BQ.pretty.js:24128-24378`) reports that it did nothing. Ready means that the leader, every
+  active companion and every pet owned by the leader or an active companion has full HP, has full
+  mana if it is a mana class, and is not rooted (`OK.pretty.js:725-742`, `804-826`). A dead member
+  has less than full HP, so it holds the wait too. While a root is active the wait shows "Waiting
+  for root to wear off the party." and the time it lasts does not count against the limit.
+- The wait gives up after 2 minutes plus the time spent rooted and returns false
+  (`OK.pretty.js:704`, `843`). So does a monitor that sees no HP, mana, root or cast progress for
+  45 seconds (`OK.pretty.js:324`, `353-360`, `BQ.pretty.js:14439-14454`). The preparation result
+  is then "interrupted" or "stalled", and AutoLevel retries after 5 seconds, then 10 seconds, and
+  pauses at the third failure in a row with "AutoLevel paused after preparation repeatedly
+  failed" (`OK.pretty.js:393-418`, `7589-7611`). Unverified in a live run: that a bare root with
+  nothing to dispel stalls out at 45 seconds.
+- The support pass runs once per wait pass (every 600 ms, `OK.pretty.js:420`, `841`) and does
+  nothing in raid mode or while hostiles are active (`BQ.pretty.js:24130`). For the leader and each active companion that is not
+  a pet it considers a cure or dispel when the member's `cure` tactic is on, and Cleric
+  resurrection of dead companions when `rez` is on (`BQ.pretty.js:24165-24196`, `24325-24375`).
+  Cure and dispel spells must be known to the caster: memorized for the leader, scribed for a
+  recruit, not excluded, in level, with components and with a mana cost at most the caster's
+  maximum mana (`BQ.pretty.js:24198-24223`).
+- The pass chooses per target. It plans the cheapest set of cure spells for the target's active
+  effects (`BQ.pretty.js:20627-20675`) and, when none applies, the dispel with the best mana per
+  chance among those with a chance above 0 (`BQ.pretty.js:24263-24280`). A caster must be idle,
+  have the mana and have the spell off cooldown. One cast per caster and one caster per target at
+  a time run (`BQ.pretty.js:24283-24320`).
+- The pass counts as busy whenever any caster has a candidate for any target, even when no caster
+  can cast now (`BQ.pretty.js:24281-24282`). A cure that has no mana, is on cooldown or keeps
+  failing therefore holds the whole party until the effect wears off or the wait gives up. A spell
+  is struck from the caster and target pair for the character's session after an outcome other
+  than completed, fizzled, interrupted or insufficient mana (`BQ.pretty.js:24301-24315`).
+- Dispel chance per effect is 32% plus 7% per level of `casterLevel + levelModifier - 1 -
+  effectCasterLevel` when that is above 0, or 2% per level when below, clamped to 10-100%
+  (`main.pretty.js:19666-19677`). Dispel-protected effects are skipped (`main.pretty.js:19682`, `19696`).
+  Against same-level or higher casters a modifier 1 dispel mostly fails. `analyze.mjs` reports waits
+  with cure or dispel casts separately ("Between pulls").
+- Roots between pulls: the wait reads each member's and pet's active effects from the effects
+  registry (`getEffects(entityId).active`, `OK.pretty.js:804-809`). Entity ids are
+  `character:<id>`, `bot:<owner>:<id>` and `pet:<owner>:<summonInstanceId>`
+  (`main.pretty.js:3820-3833`). Each effect carries `spellId`, `casterLevel` and `remainingTicks`
+  (`BQ.pretty.js:20683-20692`), so the remaining root time and the dispel chance are known in
+  advance. The bot uses this to turn cures on only for roots worth dispelling (`dispelRoots` in
+  `src/bot.js`).
+
+### Auto Attack, pulls and direct starts
+
+- AutoLevel's pulls do not start the fight on arrival by themselves. The approach starts it only
+  while Auto Attack is on (`canStartCombat`, `OK.pretty.js:5446`) and otherwise stands in phase
+  `waiting-to-attack` (`OK.pretty.js:4396-4403`). The AutoLevel supervisor does not count that as
+  idle, so it has no timeout (`OK.pretty.js:4265-4266`, `5597-5610`).
+- When every enemy left in a fight is mezzed, `adoptActiveEncounterForAutoLevel` turns Auto Attack
+  off, because `canAutomaticallyFocusNpc` excludes mezzed enemies (`OK.pretty.js:5823-5850`).
+  Nothing in the code read turns it back on, so the next pull stands still. The bot presses it
+  when a pull waits like that (`keepAutoAttack` in `src/bot.js`). `attackSelectedTarget` toggles
+  Auto Attack, so press it only while it is off (`OK.pretty.js:8020-8023`).
+- The supervisor restarts AutoLevel after 30 seconds without progress and recovers a defeat that
+  has not settled after 15 seconds (`OK.pretty.js:4238-4239`, `4254-4272`).
+- Direct starts skip the readiness wait. `castSpellAtSelectedTarget(gem)` starts a combat with
+  mode `manual-spell` when no fight on that target is running, and refuses while a preparation phase
+  is active (`OK.pretty.js:8078-8142`). `commandPetAttackSelectedTarget()` commands the pet and
+  retries every 350 ms until the pet is in melee range, then starts mode `pet-command`
+  (`OK.pretty.js:8061-8077`, `8209-8247`).
+- Companions join the player's target by the option `companionEngagementDistance`. Its default is
+  `infinite`, and the other values are `combat`, `combat-x5` and `spell`
+  (`main.pretty.js:189360`, `191345`, `61823`, `OK.pretty.js:5933-5970`).
+- Clicking a row in the Enemy Targets list calls `selectEnemyTarget`. With the option
+  `enemyTargetAttackOnArrival` off, which is the default, it stops AutoLevel, walks to the closest
+  alive spawn of that NPC and targets it without pulling (`main.pretty.js:189390`,
+  `OK.pretty.js:7757-7821`). Auto Attack then starts the fight.
+- `warpPlayerToCombatEntity` and `teleportPlayerToEQPosition` move the player without walking.
+  The client itself uses them for respawn, for a debug command and as a fallback when chase
+  navigation fails (`OK.pretty.js:7050`, `C8.pretty.js:2898`, `engine.pretty.js:462662`). The bot
+  does not call them.
+- Enemy HP, melee damage and AC are per-NPC rows in `C/data/npc_types`. Ordinary mobs at one level
+  often share a value, but named, boss and variant rows differ. A mob well above the camp's level
+  can stand among ordinary ones and joins when the camp is pulled. A level 30 Minotaur Sentry
+  (1200 HP, hits up to 64, `C/data/npc_types` id 56149) joined a pull of level 10 minotaur slavers
+  and the Warrior died (`runs/2026-11-06-tox-ab/events.jsonl:28397`, `:29059`).
+- Zone change: the Travel window calls `requestZoneChange(zone)` (`main.pretty.js:188597-188634`,
+  found by `zoneChanger()` in `src/bridge.js`). The function has no combat check, and the server
+  can still reject the request (`main.pretty.js:24248`). It sends the zone's safe spot with
+  instance 0, so changing to the zone you are in re-enters it at the safe spot. The client's
+  `setCurrentZone` then clears the target and all engaged mobs, stops AutoLevel unless a merchant
+  trip expected the zone, and drops an active Farm Items plan when the zone differs
+  (`main.pretty.js:189476-189497`). That makes it the escape from a bad fight.
 
 ## Guard
 
-`iq.guard` runs once a second inside the page, so it works while no script is attached. While a
-mob is engaged it checks four things: a mob `levelGap` or more levels above the leader, a mob whose
-biggest hit times `hitsToKill` reaches the lowest max HP in the party, a party member newly dead,
-and a Cleric under `healerManaPct` mana while someone is under `healerHpPct` HP. On a trigger it
-stops AutoLevel, re-enters the current zone (or changes to `retreatZone` if set), and starts
-AutoLevel again with the same limits, about nine seconds later. Before it leaves it defers every
-mob of that fight with the client's `deferAutoLevelSpawn` for `avoidMin` minutes, the skip list the
-client uses for spawns it cannot reach, because AutoLevel picks the nearest target and would
-otherwise pull the same camp again right after re-entering. After `escalateAfter` escapes in an
-hour, an escape caused by a mob inside AutoLevel's own level range lowers the level cap by one (not
-below `minLevelDiff`), because those pulls are too hard, and a quiet hour restores the earlier
-limits. Escapes from wanderers above the cap change nothing, because lower limits would not keep
-them away. Whether a zone still pays with its escapes is for the measured XP per hour to decide:
-`analyze.mjs` counts escapes and the seconds they cost. `guardStatus()` shows the phase and recent
-escapes, `setGuard({...})` changes the settings and `testGuard()` forces one escape without
-touching a setting. Each escape is a `guard` line in the event log.
+`iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
+it works while no script is attached. While a mob is engaged it checks four things: a mob
+`levelGap` or more levels above the leader, a mob whose biggest hit times `hitsToKill` reaches the
+lowest max HP in the party, a party member newly dead, and a Cleric under `healerManaPct` mana
+while someone is under `healerHpPct` HP. On a trigger it stops AutoLevel, re-enters the current
+zone (or changes to `retreatZone` if set), and starts AutoLevel again with the same limits, about
+nine seconds later. Before it leaves it defers every mob of that fight, the target and the pull
+target with `deferAutoLevelSpawn` for `avoidMin` minutes (see the deferral list above), because
+AutoLevel picks the nearest target and would otherwise pull the same camp again right after
+re-entering. After `escalateAfter` escapes in an hour, an escape caused by a mob inside AutoLevel's
+own level range lowers the level cap by one (not below `minLevelDiff`), because those pulls are
+too hard, and a quiet hour restores the earlier limits. Escapes from wanderers above the cap change
+nothing, because lower limits would not keep them away. Whether a zone still pays with its escapes
+is for the measured XP per hour to decide: `analyze.mjs` counts escapes and the seconds they cost.
+`guardStatus()` shows the phase and recent escapes, `setGuard({...})` changes the settings and
+`testGuard()` forces one escape without touching a setting. Each escape is a `guard` line in the
+event log.
 
 ## In-page chores
 
-`window.iq.chores.autoBuySpells` defaults to `true`. When the game adds its missing merchant-spell
-reminder, the page sends the same `ScribeAvailableSpells` requests as the Buy Spells and Buy
-Companion Spells macros, for the active character and its party companions. It needs no attached
-script. Use the SDK's `setChores({ autoBuySpells: false })` to disable it, or `buySpells()` to run
-the requests manually. Chore results are recorded as `chore` event lines.
+`window.iq.chores.autoBuySpells` defaults to `true`. The client posts "You are missing N merchant
+spells." and "Your party companions are missing N merchant spells." every 10 minutes
+(`engine.pretty.js:402448`, `402474-402524`). When that text appears, the page sends the same
+`ScribeAvailableSpells` request as the Buy Spells and Buy Companion Spells macros, scope `self` and
+`companions`, at most once in 30 seconds (`engine.pretty.js:402404-402420`, `src/bridge.js`
+`chores`). It needs no attached script. Use the SDK's `setChores({ autoBuySpells: false })` to
+disable it, or `buySpells()` to run the requests manually. Chore results are recorded as `chore`
+event lines. Spells that need research, quests or drops are not bought
+(`engine.pretty.js:423143`).
 
 ## Party tactics
 
 - Party members' tactics are in the party spells store (`overridesByCompanion`), keyed
-  `bot:<characterId>:<bot>` for default bots and `character:<characterId>` for account characters.
-  A bare bot name is stored and never read.
+  `character:<characterId>` for account characters and `bot:<hostCharacterId>:<bot>` for default
+  bots (`BQ.pretty.js:9976-9981`, `13584-13624`). A key without the host id, such as a bare bot
+  name, is stored and never read.
 - The active character's own tactics are in a separate store (`overridesByCharacterId`, with
-  `meleeByCharacterId`), keyed by the plain character id. An entry for the active character in the
-  party spells store is ignored. `iq.setTactic` picks the right store.
-- A level 1 recruit gets about half the XP share of a level 5 leader on the same kill, because shares
-  are level-weighted.
+  `meleeByCharacterId`), keyed by the plain character id (`BQ.pretty.js:13453-13478`,
+  `13521-13543`). An `overridesByCompanion` entry for the active character is ignored.
+  `iq.setTactic` picks the right store. Casting preferences for the active character, keyed
+  `character:<id>`, are still read from the party spells store (`BQ.pretty.js:24172`).
+- Both stores are persisted under the names `companion-tactics-storage` and
+  `player-automation-tactics-storage` (`BQ.pretty.js:13481`, `13627`). Unverified: the storage
+  backend.
+- Experience on a kill is split among the party's characters in proportion to their levels, so a
+  low-level recruit takes a small share (`tools/predict.mjs:30`, fit to measured kills). The
+  client holds no split code, so this is a server rule.
+
+### How companions choose and cast spells
+
+- The spell list of a member comes from one of two sources (`BQ.pretty.js:10096-10127`). The
+  leader and default bots use the generated class table, which exists for the Cleric, Paladin,
+  Ranger, Shadow Knight, Druid, Bard, Shaman, Necromancer, Wizard, Magician and Enchanter only
+  (`BQ.pretty.js:9940-9952`). Account characters that have a control lease and pets use the
+  server's `autoCastData`. The leader casts only the spells it has memorized, while account
+  characters cast from their scribed spellbook (`BQ.pretty.js:24176-24183`, `36018-36029`,
+  `engine.pretty.js:423148`).
+- Tactic flags remove spells from the list (`BQ.pretty.js:10062-10091`): `cast` off removes all,
+  `cure` off removes cures, `rez` allows resurrections, `manaRecovery` allows mana-recovery spells,
+  and `heal`, `nuke`, `dot`, `debuff`, `cc`, `root` and `fear` remove their categories.
+- Defaults for a recruit come from what its class can do (`BQ.pretty.js:9983-10050`).
+  Resurrection is off for everyone until the `rez` tactic is set (`BQ.pretty.js:10037`,
+  `13683`). The leader's defaults are all on except `rez`, `fear` and `range`
+  (`BQ.pretty.js:13521-13543`).
+- Casting preferences are a second per-member record (`rez`, `slow`, `mez`, `stun`, `snare`,
+  `charm`, `excludedSpellIds`, `epicRezOnly`, `bardSongIds`) and default from the tactic flags
+  (`BQ.pretty.js:13586-13599`, `13678-13689`).
+- Between fights only the support pass above casts. It casts no buffs and no songs. In a fight,
+  members choose spells from the filtered list on their own. Unverified: the order in which the
+  fight AI ranks spells, and whether companions cast buffs at the start of a fight
+  (`BQ.pretty.js:36031-36120`).
 
 ## Macro bar, account sharing and options
 
 ### Built-in macro bar actions
 
-The macro action map (`engine.pretty.js:403130-403250`) defines 24 player actions across the default
-pages:
+The macro action map (`engine.pretty.js:403161-403257`) defines the player actions in slots 1 to
+24. Slots above 30 are debug and GM actions. The rows a script is likely to use:
 
-| Slot | Button | Store / handler | What it does |
+| Slot | Button | Handler | What it does |
 |---:|---|---|---|
-| 1 | Path To... / Merchant List | `stores.combat.toggleMerchantList()` | Opens in-zone NPC navigation (Merchants, Bankers, Guildmasters, Quest NPCs) |
-| 2 | Enemy Targets | `stores.combat.openCombatTargetList()` | Opens the live enemy list. Clicking a row walks to and pulls that spawn |
-| 3 | Stuck | `stores.chat.sendMessage("/stuck")` | Teleports out of geometry traps |
-| 4 | Bind Soul | Bind handler | Binds the character's respawn point |
-| 5 | Loot Closest | `stores.chat.sendMessage("/lootclosest")` | Opens the nearest unlooted corpse |
-| 6 | Tradeskill Bank | `stores.combat.openTradeskills()` | Opens the account-shared ingredient bank and recipe crafter |
-| 7 | Buy Spells | `ScribeAvailableSpells` (`"self"`) | Buys and scribes missing merchant spells for the active character |
-| 8 | Buy Companion Spells | `ScribeAvailableSpells` (`"companions"`) | Buys and scribes missing merchant spells for grouped account companions |
-| 9 | Spell Bank | `stores.combat.openSpellBank()` | Opens the account-shared spell scroll bank |
-| 10 | Delete Clutter | Declutter handler | Destroys unprotected low-value NO DROP items and banks research ingredients instead |
-| 11 | Auto Sell | `ShopPlayerSell` bulk runner | Sells unprotected sellable bag items with a 20% courier fee when away from a merchant |
-| 12 | Auto Bank | Ingredient/scroll banker | Moves tradeskill ingredients and spell scrolls into the shared account banks |
-| 13-14 | Fish / Forage | Skill handlers | Uses Fishing or Foraging |
-| 15-17 | Casino / Pizza / Guild | Panel openers | Opens the Casino, Pizza or Guild pane |
-| 18 | Farm Items | `stores.combat.setIsFarmingDisplayOpen(true)` | Recommends zones and filters AutoLevel targets for 16 material and research categories (`WizardRunes`, `NecroWords`, `EnchPages`, `MageParts`, `Alchemy`, `HighQualityOre`, `Velium`, etc.) |
-| 19 | Manage Money | `stores.combat.openManageMoney()` | Lists carried and bank coin for every character on the account and pulls any character's coin to the active character |
-| 20 | Inventory Search | `stores.combat.openInventorySearch()` | Searches carried bags, equipped slots (`slot:legs`, etc.), personal banks and shared banks across all account characters, and transfers matching items to the active character |
-| 21 | Alt Adv | `stores.combat.openAbilities("advancement")` | Opens the Alternate Advancement window |
-| 22-24 | Bug / Feature / Edit Name | Panel openers | Opens player report or character rename |
+| 1 | Path To... | `toggleMerchantList()` | Opens in-zone NPC navigation (Merchants, Bankers, Guildmasters, Quest NPCs) |
+| 2 | Enemy Targets | `openCombatTargetList()` | Opens the live enemy list. Clicking a row targets and walks to that spawn (see above) |
+| 5 | Loot Closest | `/lootclosest` chat command | Server: opens the nearest unlooted corpse |
+| 6 | Tradeskill Bank | `openTradeskills()` | Opens the account-shared ingredient bank and recipe crafter |
+| 7 | Buy Spells | `ScribeAvailableSpells` scope `self` | Buys and scribes missing merchant spells for the active character, lowest level first |
+| 8 | Buy Companion Spells | `ScribeAvailableSpells` scope `companions` | The same for grouped account companions |
+| 9 | Spell Bank | `openSpellBank()` | Opens the account-shared spell scroll bank |
+| 10 | Delete Clutter | one stream message | Server: deletes low value NO DROP items |
+| 11 | Auto Sell | courier flow `HLe("merchant")` | Calls a merchant courier to sell eligible items for a 20% fee. Respects the cleanup protections |
+| 12 | Auto Bank | courier flow `HLe("banker")` | Calls a banker courier for ingredients and scrolls. Free below level 30, 1pp at 30, 2pp at 40, 3pp at 50 |
+| 18 | Farm Items | `setIsFarmingDisplayOpen(true)` | Recommends zones and filters AutoLevel targets by material category |
+| 19 | Manage Money | `openManageMoney()` | Pulls any other character's coin to the active character |
+| 20 | Inventory Search | `openInventorySearch()` | Searches the account's items and transfers them to the active character |
+| 21 | Alt Adv | `openAbilities("advancement")` | Opens the Alternate Advancement window |
+
+The rest are Stuck, Bind Soul, Fish, Forage, Casino, Pizza, Guild and the report and rename
+panels. `/stuck` is a chat command the server handles. Unverified: what it does beyond the help
+text "If you become stuck" (`engine.pretty.js:423199-423202`).
+
+The courier flows refuse while another inventory service runs, and abort on a zone change
+(`engine.pretty.js:402658-402728`). The Farm Items categories are listed in `engine.pretty.js:419900-419918`.
+With the option `autoLevelMerchantTravelEnabled` off, AutoLevel sells and buys through couriers
+instead of walking to a merchant.
 
 ### Account-wide sharing rules
 
-- **Held-item transfer (`transferHeldItem(characterId, equip)`, `main.pretty.js:53376`):** checks
-  `stores.roster.getState().characters.some(c => c.id === characterId)`. The recipient does not need
-  to be in the current party: items and bags can be given or equipped onto offline characters or
-  characters in a second party. `equip: true` replaces the weakest eligible occupied slot and puts
-  the old item into the recipient's inventory (which fails with `"That character has no inventory
-  space for the replaced item"` if the recipient has no free slot). `equip: false` fills an empty
-  equipment slot or places the item (including empty or populated bags) into a free inventory slot.
-- **Manage Money (`engine.pretty.js:419664-419899`):** queries `{ action: "read" }` for all
-  characters on the account (`carried`, `bank`, `totalCopper`) and `{ action: "transfer",
-  sourceCharacterId, revision, operationId }` to pull all carried and bank coin from another
-  character into the active character's wallet. Exposed in the SDK as `iq.manageMoney({ transferFrom
-  })`.
-- **Inventory Search (`engine.pretty.js:419315-419660`):** queries `{ action: "search", query }`
-  across all account characters and shared banks, and `{ action: "transfer", sourceCharacterId,
-  itemInstanceId, ... }` (or shared-bank withdraw) to pull an item directly to the active character.
-- **Shared Tradeskill and Spell Banks (`engine.pretty.js:423167`):** both banks are shared across
-  all characters on the account. Banked spell scrolls automatically teach missing spells every 5
-  seconds to the active character first, then to grouped same-account companions in recruitment
-  order.
+- Held-item transfer: `transferHeldItem(characterId, equip)` (`main.pretty.js:53376-53420`) needs the
+  item on the cursor, a target that differs from the active character and is in
+  `stores.roster.getState().characters`, and no transfer in flight. It then sends the item to the
+  server with `equip`. The recipient does not have to be in the party, so offline characters and
+  characters of a second party qualify, and the bot's `giveItem` relies on that. Server: which slot
+  an equip replaces, and what happens to the replaced item. Unverified for this call: the
+  message "That character has no inventory space for the replaced item" was seen only with
+  Auto-Upgrade Companions (`diary/2026-11-07-f.md`, section "Companion bags").
+- Manage Money (`engine.pretty.js:419664-419899`): sends `{ action: "read" }` and gets one row per
+  other account character (`carried`, `bank`, `totalCopper`). Sending `{ action: "transfer",
+  sourceCharacterId, revision, operationId }` moves all carried and bank coin of that character to
+  the active character's wallet. The button is disabled for rows with no coin. A reply for another
+  character session is rejected. The SDK drives the panel through the DOM
+  (`iq.manageMoney({ transferFrom })`, `src/client.mjs:136`).
+- Inventory Search (`engine.pretty.js:419313-419661`): the query is up to 80 characters and is sent
+  after 500 ms without typing as `{ action: "search", query }`. A reply lists at most 200 rows
+  with a `blockReason` that disables transfer. `slot:<name>` searches equipped gear, one slot per
+  search, and leaves out bags, banks and appearance gear. `{ action: "transfer", sourceCharacterId,
+  itemInstanceId, itemId, quantity, charges, bag, slot }` pulls one row to the active character.
+  Shared-bank rows use the bank withdraw request instead (`engine.pretty.js:419334-419356`). Only
+  one transfer runs at a time.
+- Shared Tradeskill and Spell Banks: both banks are shared across all characters on the account.
+  The help text says eligible banked scrolls teach the active character and its grouped account
+  characters missing spells (`engine.pretty.js:423172`). Unverified: the interval, the order and
+  any timer, since the client has no code for it and the server probably runs it.
 
 ### Key Options and AutoLevel settings (`stores.combat`)
 
+Defaults are the store's initial values (`main.pretty.js:189296-189392`). The server's saved options
+replace them after login (`main.pretty.js:191052-191064`). The effect text is the option tooltip
+in `engine.pretty.js:412150-412340`.
+
 | State field | Setter | Default | Effect |
 |---|---|---:|---|
-| `autoUpgradeCompanionsEnabled` | `toggleAutoUpgradeCompanions()` | `false` | Hands down newly looted upgrades to grouped same-account companions |
+| `autoUpgradeCompanionsEnabled` | `toggleAutoUpgradeCompanions()` | `false` | During automatic looting, gives an item that is no upgrade for the active character to a grouped same-account companion. Replaced gear stays in the companion's inventory |
 | `autoUpgradeEnabled` | `toggleAutoUpgrade()` | `true` | Equips newly looted upgrades on the active character |
-| `keepEpicQuestItemsEnabled` | `toggleKeepEpicQuestItems()` | `true` | Protects epic and Velious quest items from Auto Sell and Declutter |
-| `keepValuableGearEnabled` | `toggleKeepValuableGear()` | `false` | Protects valuable equipment from Auto Sell |
-| `autoBankIngredientsEnabled` | `toggleAutoBankIngredients()` | `true` | Automatically banks tradeskill ingredients during cleanup |
-| `autoSpellBankEnabled` | `toggleAutoSpellBank()` | `true` | Automatically banks unneeded spell scrolls during cleanup |
-| `autoLevelMerchantTravelEnabled` | `toggleAutoLevelMerchantTravel()` | `false` | Walks to a merchant to sell and restock bags/supplies when full |
-| `autoBuyBagsEnabled` | `toggleAutoBuyBags()` | `true` | Buys bags for empty top-level slots during a merchant maintenance trip |
-| `autoBuySuppliesEnabled` | `toggleAutoBuySupplies()` | `true` | Restocks food, drink, pet reagents and ammo during a merchant trip |
-| `autoLevelRezEnabled` / `autoLevelRezPercent` | `setAutoLevelRezEnabled(v)` / `setAutoLevelRezPercent(50\|90\|96)` | `false` / `50` | Casts Resurrection on dead party members between fights |
-| `companionCoinSplitEnabled` | `toggleCompanionCoinSplit()` | `false` | Splits looted coin among party companions instead of keeping it on the leader |
-| `noAutoSellBagInstanceIds` / `noDeclutterBagInstanceIds` | `toggleNoAutoSellBag(id)` / `toggleNoDeclutterBag(id)` | `[]` | Per-bag protection from Auto Sell, Auto Bank and Declutter |
+| `keepEpicQuestItemsEnabled` | `toggleKeepEpicQuestItems()` | `true` | Protects epic items and Velious armor from automatic and bulk cleanup |
+| `keepValuableGearEnabled` | `toggleKeepValuableGear()` | `true` | Keeps gear with a keep score of 50 or more from bulk selling and decluttering |
+| `autoBankIngredientsEnabled` | `toggleAutoBankIngredients()` | `true` | Banks tradeskill ingredients when inventory is full |
+| `autoSpellBankEnabled` | `toggleAutoSpellBank()` | `true` | Sends overflow spell loot to the Spell Bank |
+| `autoLevelMerchantTravelEnabled` | `toggleAutoLevelMerchantTravel()` | `false` | Walks to a merchant to sell and restock, may cross zones. Off keeps sales and purchases remote |
+| `autoBuyBagsEnabled` | `toggleAutoBuyBags()` | `true` | Buys backpacks when space opens and the currency is there |
+| `autoBuySuppliesEnabled` | `toggleAutoBuySupplies()` | `true` | Buys a full stack of Rations or Water Flasks when the carried reserve falls below 20 |
+| `autoLevelRezEnabled` / `autoLevelRezPercent` | `setAutoLevelRezEnabled(v)` / `setAutoLevelRezPercent(50\|90\|96)` | `false` / `50` | After the active character dies, requests its own automatic resurrection that restores that percent of the lost XP (free when a free group rez covers it, otherwise for platinum), then restarts AutoLevel only when `autoLevelRestartEnabled` is on and the character is level 10 or higher |
+| `autoLevelRestartEnabled` | not set by the bot | `false` | Also triggers the recovery above and restarts AutoLevel with a continuation potion, limited by `autoLevelMaxContinuations` (default -1) |
+| `companionCoinSplitEnabled` | `toggleCompanionCoinSplit()` | `false` | Splits defeated-enemy coin evenly with same-account characters in the party |
+| `companionEngagementDistance` | `setCompanionEngagementDistance(v)` | `infinite` | How far from the player a companion engages the player's target |
+| `enemyTargetAttackOnArrival` | `main.pretty.js:189392` | `false` | Whether a click in the Enemy Targets list pulls on arrival |
+| `noAutoSellBagInstanceIds` / `noDeclutterBagInstanceIds` | `toggleNoAutoSellBag(id)` / `toggleNoDeclutterBag(id)` | `[]` | Per-bag protection from Auto Sell, Auto Bank and Declutter, sent to the server at world entry (`C8.pretty.js:1203-1206`) |
+
+The recovery after a death is `OK.pretty.js:1247-1431` and the Resurrection dialog is
+`engine.pretty.js:4413-4470`. Without `autoLevelRezEnabled` or `autoLevelRestartEnabled`, the dead
+leader stays at the dialog and AutoLevel stays stopped.
+
+## Raid mode
+
+- Raid mode fights an NPC above level 50 that the leader targets in the current zone. The gate is
+  `Vd` (level 51 or above, `main.pretty.js:50654-50656`). Attack and spell commands are accepted for
+  such an NPC or for an enemy that is already engaged, and need a loaded, non-empty roster and
+  unexpired raid time (`main.pretty.js:72034-72060`, `72325-72337`).
+- AutoLevel is unavailable in raid mode, so `startAutoLevel` and the Auto Attack button refuse
+  (`main.pretty.js:72310-72314`, `189895-189905`, `OK.pretty.js:8013-8018`). In raid mode `selectEnemyTarget` only
+  targets (`OK.pretty.js:7797-7801`), and the leader's own spells are not controlled directly
+  (`main.pretty.js:72347-72348`). The readiness wait watches the raid roster and its pets, runs no
+  support pass and fails when the raid session changes or a fight starts
+  (`OK.pretty.js:500`, `703-711`, `754-777`, `820-826`).
+- The client has no raid member limit. Recruits carry `cost: 0`, and the raid catalog `MB` and
+  budgets `IB` (`main.pretty.js:25085`, `27779`) are never read apart from a discarded Map
+  (`main.pretty.js:50646`).
+- Raid time costs platinum per hour for the whole account, priced by its highest-level character,
+  and auto-renews only while raiding (`engine.pretty.js:8944-8955`).
+- The daily boss list comes from the server: two free resets per account in a rolling 24 hours, one
+  kill per boss, and a private copy that lasts 24 hours with free resumes and retries
+  (`engine.pretty.js:414979`). `OK.pretty.js:4663-5008` is the casino potion boss table, not the
+  daily list.
+- Recruits join as `guildCharacter` snapshots (`yQ`, `main.pretty.js:64332-64376`). They give raid
+  buffs from their scribed spells (`QQ`, `main.pretty.js:65539-65616`), and a duplicate or weaker
+  buff of the same family does not stack (`main.pretty.js:20210-20235`).
+- The leader joins as a `kind: "player"` member (`Yt`, `main.pretty.js:54123-54163`). Members that
+  are not guild characters add their class's generated package once per class in `n8`
+  (`main.pretty.js:66202-66259`), and a Wizard gives a 700-point Spellshield rune (`Ir`,
+  `main.pretty.js:66113`, `66234-66236`).
+- Kerafyrm's `npc_types` rows (ids 114583, 128089, 128095) are `untargetable: 1`, and his quest
+  scripts in `C/effective/quests/sleeper` and `skyshrine` are empty files, so nothing is
+  sized on him.
