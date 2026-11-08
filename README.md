@@ -208,6 +208,26 @@ by testing which one makes every kill's XP fit a whole NPC level.
   zone entry.
 - Validate any new indicator against the game's messages before building on it.
 
+`tools/groups.mjs` runs the analyzer on every group's live run (`runs/live/<leader>`, kept by iqd)
+and prints one line per group from `data/roster.json`: level, zone, class mix, XP per hour, the
+shares of fighting, moving and recovering, guard escapes, deaths and the member the party waited
+for most. It is the side-by-side view for comparing class mixes and checking a change on all groups.
+
+```sh
+bun tools/groups.mjs --last 60
+```
+
+`tools/handdown.mjs` plans hand-me-downs: armor and jewelry that one character carries and another
+can wear better, scored with `tools/gear.mjs`'s stat score for the receiver. It reads an Inventory
+Search survey of the whole account (`runs/state/account-items.json`, one search per item word over
+opcode 1241, which lists carried, banked and equipped items with their owners), races from the iqd
+database and item stats from the content snapshot. The transfer itself is Inventory Search's
+Transfer button in the receiving group's tab, then `iq.giveItem(name, member, true)`.
+
+```sh
+bun tools/handdown.mjs --min-gain 5
+```
+
 ## Monitoring
 
 `tools/iqd.mjs` (iqd) reads every game tab on a timer, keeps a history and raises attention items, so

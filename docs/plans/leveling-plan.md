@@ -12,6 +12,7 @@ Consequences:
 - Enemy HP in the content snapshot follows about 1.3 × level² up to level 36, so XP per point of enemy HP is nearly flat there and a harder enemy pays more per kill but not per second of fighting. From level 37 most spawned enemies carry 1.5 to 3 times that HP (median 3,250 at level 40 and 5,875 at level 45, while the lowest quarter stays near the curve), so XP per HP falls by a third at 40 and by more than half at 45. From 37 on, which enemies the party fights matters as much as which zone. The flat part is measured to level 31, the drop is read from the snapshot.
 - The zone multiplier scales everything linearly. Permafrost (1.44), Kedge Keep (1.39), the Temple of Solusek Ro (1.33) and the 1.28 zones (Kurn's Tower, Runnyeye, Splitpaw) pay 28% to 44% more per kill than a 1.0 zone with the same enemies. The wiki's multiplier table is copied from P99 estimates, so use the snapshot's values.
 - Every member gets a share, so all six characters level together, within a level or two of each other because the race and class factors differ.
+- A character far below the party gets nothing, so a high group cannot carry a new character. A level 2 Wizard in group 1's level 36 to 38 party received no XP on 4 kills, while the others got their usual 24k to 28k each. Where the cut-off lies between those levels is not measured.
 
 ## Levers, ranked
 
