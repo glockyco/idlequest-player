@@ -146,9 +146,26 @@ The goal is the strongest roster the account can field at the level cap of 60. R
 | 1 | Magician, Warrior, Cleric, Bard, Shaman, Enchanter | Exists. First tank, first Cleric, Magician, Bard songs, Shaman and Enchanter buffs, haste and slows. |
 | 2 | Paladin, Cleric, Druid, Necromancer, Rogue, Shaman | Second tank, second Cleric and a Druid healer, first Necromancer and Rogue, a second Shaman. |
 | 3 | Shadow Knight, Cleric, Necromancer, Wizard, Ranger, Monk | Third tank, third Cleric, a second Necromancer, the first Wizard, Ranger and Monk. |
-| 4 and up | Chosen from simulated level-60 fights with farmable gear (`runs/jobs/2026-11-08-mix60-farm`) | See "After the raid test". |
+| 4 | Warrior, Cleric, Cleric, Shaman, Necromancer, Necromancer | Leveling. |
+| 5 to 12 | The groups in `data/roster.json` | See below. |
 
-After group 3 the roster is 18 characters: one of each of the 14 classes, plus two more Clerics, a second Necromancer and a second Shaman. It sits at the top of the Warder range and the bottom of the Cazic-Thule range above, and it holds all three Resolve tank classes.
+The roster grows to the 72 slots the character select shows, as 12 groups of six. Three rules shape groups 5 to 12:
+
+1. Each class holds 4 to 8 of the 72, so no class crowds the others out of their gear and epics.
+2. Each group levels on its own: a tank (Warrior, Paladin or Shadow Knight), a healer (a Cleric or Druid, or in group 11 a Shaman with a Paladin), a slower (Shaman or Enchanter), pet, DoT or nuke damage, and a leader without a spell table where one fits.
+3. Within those limits, Clerics and Shamans sit at the top of the range, because both carry raids and leveling.
+
+That gives 8 Clerics and 8 Shamans, 7 Necromancers, 5 each of Warriors, Druids, Enchanters, Rangers and Bards, and 4 each of the other classes. Simulated level-60 fights with farmable gear (`runs/jobs/2026-11-08-roster72`, 6 fights per boss, up to 1,500 s) show what the balance costs:
+
+| Boss | Balanced 72 | 72 with 19 Shamans and 20 Necromancers |
+| --- | --- | --- |
+| Vulak`Aerr | 6 of 6 kills, 578 s, 52 deaths | 6 of 6, 265 s, 15 deaths |
+| The Avatar of War | 6 of 6, 465 s, 49 deaths | 6 of 6, 269 s, 10 deaths |
+| Tunare | 6 of 6, 185 s, 3 deaths | 6 of 6, 152 s, 1 death |
+| Lord Yelinak | 6 of 6, 136 s | 6 of 6, 111 s |
+| Cazic-Thule | 6 of 6, 132 s | 6 of 6, 98 s |
+
+The balanced roster kills every boss but loses most of the raid on the two hardest. Shamans are the strongest slot in every sweep (a group of a Warrior, a Cleric and four Shamans kills Vulak`Aerr with 36 characters at 60), so the place to buy back margin is more Shamans within rule 1, or a longer fight, not a single-class roster.
 
 ### What a leveling group needs
 
