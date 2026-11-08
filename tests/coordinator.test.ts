@@ -99,3 +99,9 @@ test("gear moves go to the free tab with the lowest levels", () => {
   expect(decide({ now: NOW, tabs, gear: { moves } })).toMatchObject([{ label: "C", kind: "gear", spec: { moves } }]);
   expect(decide({ now: NOW, tabs, gear: { moves: [] } })).toEqual([]);
 });
+
+test("a quest chain takes a tab before a camp would", () => {
+  const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
+  const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
+  expect(decide({ now: NOW, tabs, quests, opportunities: [page] })).toMatchObject([{ label: "A", kind: "quest" }]);
+});

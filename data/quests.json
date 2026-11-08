@@ -38,5 +38,53 @@
       }
     ],
     "minLevel": 10
+  },
+  "bard-epic-1": {
+    "class": "Bard",
+    "minLevel": 20,
+    "reward": "Maestro's Symphony Page 24 Top",
+    "steps": [
+      {
+        "zone": "qey2hh1",
+        "npc": "Konia Swiftfoot",
+        "say": [
+          "like to participate",
+          "ready"
+        ],
+        "expect": "Torch of Misty"
+      },
+      {
+        "zone": "misty",
+        "npc": "Fajio Knejo",
+        "give": [
+          "Torch of Misty"
+        ],
+        "expect": "Torch of Ro"
+      },
+      {
+        "zone": "sro",
+        "npc": "Andad Filla",
+        "give": [
+          "Torch of Ro"
+        ],
+        "expect": "Torch of Rathe"
+      },
+      {
+        "zone": "lakerathe",
+        "npc": "Misty Tekcihta",
+        "give": [
+          "Torch of Rathe"
+        ],
+        "expect": "Proof of Speed"
+      },
+      {
+        "zone": "qey2hh1",
+        "npc": "Konia Swiftfoot",
+        "give": [
+          "Proof of Speed"
+        ],
+        "expect": "Maestro's Symphony Page 24 Top"
+      }
+    ]
   }
 }

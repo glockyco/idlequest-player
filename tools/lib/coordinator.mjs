@@ -51,7 +51,22 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // (a task still running counts five minutes).
   const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? 300000), 0);
 
-  // Epic and quest pieces first. An opportunity names its group, or `levels` for any free group
+  // Quest chains (data/quests.json) come first, because each step is certain progress while a
+  // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
+  // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
+  // when one failed.
+  for (const [id, q] of Object.entries(quests)) {
+    for (const t of tabs) {
+      if (!free(t)) continue;
+      const who = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+      if (!who.length) continue;
+      const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
+      if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id }, why: `${id} for ${who.join(", ")}` });
+    }
+  }
+
+  // Epic and quest pieces next. An opportunity names its group, or `levels` for any free group
   // whose mean level lies inside, preferring one already in the zone, because NO DROP pieces move
   // between account characters. It waits for its time of day.
   for (const o of opportunities) {
@@ -72,20 +87,6 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
-  }
-
-  // Quest chains (data/quests.json) run for every member of their class who has the level and lacks
-  // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
-  // when one failed.
-  for (const [id, q] of Object.entries(quests)) {
-    for (const t of tabs) {
-      if (!free(t)) continue;
-      const who = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
-      if (!who.length) continue;
-      const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
-      if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id }, why: `${id} for ${who.join(", ")}` });
-    }
   }
 
   // A farm goes to the groups with the lowest mean level inside its `levels`, whose own hunting
