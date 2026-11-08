@@ -121,6 +121,13 @@ export function formatRoster(r) {
 }
 const writeRoster = (r) => writeFile(ROSTER, formatRoster(r));
 const zoneShort = (tab) => tab.evaluate(() => window.iq.stores.staticData.getState().zones.find((z) => z.zoneidnumber === window.iq.stores.combat.getState().currentZone)?.shortName ?? null);
+// Options, Graphics, Disable Rendering pauses 3D drawing while AutoLevel keeps running, which saves
+// most of a tab's CPU. The client does not keep the setting across sign-ins (OSTsR53r.js:191477).
+const renderingOff = (tab) =>
+  tab.evaluate(() => {
+    const s = window.iq.stores.combat.getState();
+    if (!s.disable3D) s.toggleDisable3D();
+  });
 
 /** Names of the Path To merchants in the current zone that list Bags. */
 const bagMerchants = (tab) =>
@@ -230,6 +237,7 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
   await iq.setBot({ rotation, enabled: true });
   await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({ minCon: 10, maxCon: 13 });
+  await renderingOff(tab);
   await iq.setLabel(id.toLowerCase());
   const s = await iq.status();
   const pp = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.platinum);
@@ -263,6 +271,7 @@ export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowe
   if (rotation.length) await iq.setBot({ rotation });
   if (rotation.length && !rotation.includes(await zoneShort(tab))) await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({});
+  await renderingOff(tab);
   await iq.setLabel(id.toLowerCase());
   const s = await iq.status();
   log(`${id}: ${leader} L${level} in ${s.zone} with ${sw.party.join(", ")}${sw.missing.length ? `, missing ${sw.missing.join(", ")}` : ""}, AutoLevel ${s.autoLevel?.running ? "running" : "OFF"}`);

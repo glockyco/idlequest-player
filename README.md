@@ -346,7 +346,7 @@ names the running client and `iq.missingApi` lists the missing parts.
 - AutoLevel stays off: `iq.botReport()` shows `paused` with a reason and an end time, and
   `enabled`. `iq.resumeBot()` ends a pause and `iq.setBot({ enabled: true })` turns the bot back on.
 - `watch` or `evaluate` throws or never returns: the tab is gone or its renderer crashed, and the
-  bot went with it. Reload the tab, sign in and attach again.
+  bot went with it. Bring the group back with `restoreGroup` (`AGENTS.md`, "Session start").
 - `travelTo` fails with `no such zone`: pass the zone's short name (`misty`) or its long name as
   the game spells it. AutoLevel must be stopped first (use `pausedAutoLevel`).
 - An item stays on the cursor: `iq.bagSpace().cursor` names it, and looting and cleanup stop until
@@ -354,4 +354,8 @@ names the running client and `iq.missingApi` lists the missing parts.
 
 ## Diary
 
-[diary/](diary/) has one entry per session, with screenshots in `diary/media/`.
+[diary/](diary/) has one entry per session, with screenshots in `diary/media/`. Game tabs run with
+rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps
+running, and `createGroup` and `restoreGroup` turn it off because the client forgets it at sign-in.
+For a screenshot of the world, such as a raid kill, press Enable Rendering in that tab first and
+turn rendering off again afterwards.
