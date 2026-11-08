@@ -747,6 +747,49 @@ export async function attach(tab) {
       return set;
     },
 
+    /**
+     * The raid time the active character's account holds, read with the raid window's own
+     * `RaidAccess` request (opcode 1236, action "status"), which only reads. Resolves with the price
+     * of an hour in platinum, the expiry, whether it renews by itself, and the server's error text
+     * when there is one. See docs/client-internals.md, "Running a raid from a script".
+     */
+    async raidTime() {
+      return tab.evaluate(async () => {
+        const p = window.iq.stores.character.getState().characterProfile;
+        const r = await window.iq.socket.sendCorrelatedJsonRequest(1236, 1236, { characterId: p.id, action: "status", autoRenew: false }, 10000);
+        return {
+          ok: Boolean(r?.success),
+          pricePlatinum: Number.isFinite(r?.priceCopper) ? r.priceCopper / 1000 : null,
+          expiresAt: r?.expiresAtMs ? new Date(r.expiresAtMs).toISOString() : null,
+          active: Boolean(r?.expiresAtMs && r.expiresAtMs > (r.serverNowMs ?? Date.now())),
+          autoRenew: Boolean(r?.autoRenew),
+          error: r?.error ?? null,
+        };
+      });
+    },
+
+    /**
+     * The daily raid bosses of the current zone, read with the Resets tab's request (opcode 1222
+     * without a `bossKey`, which only lists, answered on 1223). Resolves with the resets left, the
+     * next reset and each boss's key, name, zone and status, or with the server's error, such as
+     * "Daily raid bosses unlock at level 46.".
+     */
+    async dailyBosses() {
+      return tab.evaluate(async () => {
+        const p = window.iq.stores.character.getState().characterProfile;
+        const zoneId = window.iq.stores.combat.getState().currentZone;
+        const r = await window.iq.socket.sendCorrelatedJsonRequest(1222, 1223, { characterId: p.id, zoneId }, 10000);
+        return {
+          ok: Boolean(r?.success),
+          error: r?.error ?? null,
+          resetsRemaining: r?.resetsRemaining ?? null,
+          resetLimit: r?.resetLimit ?? null,
+          nextResetAt: r?.nextResetAtMs ? new Date(r.nextResetAtMs).toISOString() : null,
+          bosses: (r?.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status ?? "available", disabledReason: b.disabledReason ?? null })),
+        };
+      });
+    },
+
     /** The bot's compact report: level, XP/hour, bag space, AutoLevel, recent actions and alerts after `sinceSeq`. */
     botReport: (sinceSeq = 0) => tab.evaluate((s) => window.iqBot.report(s), sinceSeq),
 
