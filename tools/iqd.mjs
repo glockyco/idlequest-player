@@ -482,7 +482,13 @@ class Daemon {
     } catch {
       /* no quests file */
     }
-    const search = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
+    // One search per item and pass, since chains share items, and a timed-out search is asked once more.
+    const searched = new Map();
+    const ask = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
+    const search = (q) => {
+      if (!searched.has(q)) searched.set(q, ask(q).catch(() => ask(q)));
+      return searched.get(q);
+    };
     const stock = {};
     for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
     const owned = {};
