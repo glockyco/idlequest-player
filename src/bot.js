@@ -625,16 +625,16 @@
   // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
   // next one when "No available enemies" persists, or when the last 10 minutes earned less than
   // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
-  // The rows for 31 and 34 list the zones `tools/predict.mjs --level <min>` ranks highest without
-  // danger flags. Check the rows from 38 the same way before the party gets there. Kaesora is not a
-  // rotation zone: most of its in-band mobs are immune to melee, so its Power of Water raveners
-  // are an errand.
+  // The rows for 31, 34 and 38 list the zones `tools/predict.mjs --level <min>` ranks highest
+  // without danger flags, from 32 to 40. Check the rows from 41 the same way before the party gets
+  // there, and check each new zone's XP multiplier on the first visit, because the content snapshot
+  // and the wiki disagree for 29 zones.
   const BAND_ROTATIONS = [
     [46, ["velketor", "sebilis", "chardok"]],
     [41, ["velketor", "chardok", "sebilis"]],
-    [38, ["frozenshadow", "crystal", "citymist"]],
-    [34, ["soldunga", "paw", "droga"]],
-    [31, ["soldunga", "paw", "dalnir"]],
+    [38, ["soldunga", "kaesora", "paw"]],
+    [34, ["soldunga", "kaesora", "unrest"]],
+    [31, ["soldunga", "unrest", "paw"]],
     [28, ["unrest", "soldunga", "paw"]],
     [26, ["permafrost", "paw", "unrest"]],
     [22, ["permafrost", "runnyeye", "guktop"]],
