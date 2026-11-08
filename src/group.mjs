@@ -236,3 +236,35 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
   log(`${id}: ${leader} leads in ${s.zone}, AutoLevel ${s.autoLevel?.running ? "running" : "OFF"}, ${pp} pp`);
   return { id, members: made, zone: s.zone, platinum: pp };
 }
+
+/**
+ * Bring a group back after its tab crashed or lost its session: open the tab `name`, sign in,
+ * enter the world as the group's leader (the first member in data/roster.json) with the other
+ * members as companions, restore the bot's rotation for the leader's level, and start AutoLevel
+ * with the limits the game kept. The new session takes over from any old one of the same leader,
+ * so close the old tab afterwards. Resolves with the leader, zone and party.
+ */
+export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowerCase()}-${Date.now().toString(36).slice(-4)}`, log = console.log }) {
+  const roster = await readRoster();
+  const g = roster.groups.find((x) => x.id === id);
+  if (!g?.members?.length) throw new Error(`${id} has no members in data/roster.json`);
+  const [leader, ...rest] = g.members;
+  const tab = await browser.open({ name, app: { relay: true }, url: "https://idlequest.net/play", persist: true });
+  await signIn(tab);
+  const iq = await attach(tab);
+  log(`${id}: signed in as tab ${name}`);
+  const ids = await tab.evaluate((names) => Object.fromEntries((window.iq.stores.roster.getState().characters ?? []).filter((c) => names.includes(c.name)).map((c) => [c.name, Number(c.id)])), rest);
+  const missing = rest.filter((n) => !ids[n]);
+  if (missing.length) throw new Error(`${id}: ${missing.join(", ")} not on the account`);
+  await iq.setBot({ partyIds: rest.map((n) => ids[n]), enabled: true });
+  const sw = await iq.switchCharacter(leader);
+  const level = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.level);
+  const rotation = await tab.evaluate((lvl) => window.iqBot.leastUsed([...((window.iq.bandRotations ?? []).find(([min]) => lvl >= min)?.[1] ?? [])]), level);
+  if (rotation.length) await iq.setBot({ rotation });
+  if (rotation.length && !rotation.includes(await zoneShort(tab))) await iq.travelTo(rotation[0]);
+  await iq.startAutoLevel({});
+  await iq.setLabel(id.toLowerCase());
+  const s = await iq.status();
+  log(`${id}: ${leader} L${level} in ${s.zone} with ${sw.party.join(", ")}${sw.missing.length ? `, missing ${sw.missing.join(", ")}` : ""}, AutoLevel ${s.autoLevel?.running ? "running" : "OFF"}`);
+  return { tab: name, leader, zone: s.zone, party: sw.party, missing: sw.missing };
+}
