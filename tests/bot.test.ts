@@ -282,6 +282,29 @@ test("a readiness wait with everyone full restarts AutoLevel, one for a hurt mem
   }
 });
 
+test("AutoLevel idle after waiting for an enemy widens a white minimum con to blue, then moves to another rotation zone", async () => {
+  vi.useFakeTimers();
+  try {
+    const p = await install();
+    p.bot.config.rotation = ["guktop", "permafrost"];
+    p.combat.currentZone = 65;
+    p.combat.minCon = 10;
+    await p.bot.tick();
+    const idle = async () => {
+      vi.advanceTimersByTime(1000);
+      p.say("Waiting for an available enemy. AutoLevel will try again shortly.");
+      vi.advanceTimersByTime(p.bot.config.stuckRestartMin * 60000 + 1000);
+      await p.bot.tick();
+    };
+    await idle();
+    expect([p.combat.minCon, p.moves]).toEqual([4, []]);
+    await idle();
+    expect([p.combat.minCon, p.moves]).toEqual([4, ["permafrost"]]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("cleanup sells extra copies first, then cheap singles, and keeps food, research pieces and dear items", async () => {
   const { bot, me } = await install();
   const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });

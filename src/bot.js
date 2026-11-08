@@ -440,7 +440,7 @@
     );
   };
 
-  const watchXp = (i, cb) => {
+  const watchXp = async (i, cb) => {
     const xp = i.stores.character.getState().characterProfile?.experienceProgress?.current;
     if (xp == null) return;
     if (!state.xpSeen || state.xpSeen.xp !== xp || !cb.isRunning) {
@@ -471,9 +471,21 @@
       restart(`waited ${Math.round((now() - state.readyWaitAt) / 1000)}s for a party that was already full`);
       return;
     }
-    // Any other hang: running, out of combat and no XP for a few minutes.
+    // Running, out of combat and no XP for a few minutes.
     if (config.stuckRestartMin > 0 && idleMin > config.stuckRestartMin && now() - (state.stuckRestartAt ?? 0) > config.stuckRestartMin * 60000) {
-      restart(`${Math.round(idleMin)} minutes out of combat without XP`);
+      // After "Waiting for an available enemy" AutoLevel idles until something passes its limits, so
+      // other groups hold every such enemy. A white minimum con (new groups start there) widens to
+      // blue first, then the party moves to the rotation zone fewest other groups hunt. An errand
+      // waits for its named spawns on purpose.
+      const waited = !state.errand && state.enemyWaits.at(-1) > state.xpSeen.t;
+      const minCon = cb.minCon;
+      if (waited && minCon > 4) {
+        cb.setMinCon(4);
+        restart(`${Math.round(idleMin)} minutes waiting for an available enemy at minimum con ${minCon}; lowered it to blue (4)`);
+      } else if (waited && nextZone(i) && (await rotate(i, `${Math.round(idleMin)} minutes waiting for an available enemy`))) {
+        state.stuckRestartAt = now();
+        state.xpSeen = { xp, t: now() };
+      } else restart(`${Math.round(idleMin)} minutes out of combat without XP`);
     }
     if (!state.stallAlerted && idleMin > config.stallMin) {
       state.stallAlerted = true;
@@ -1143,7 +1155,7 @@
       await watchOutside(i);
       await watchRate(i);
       keepParty(i);
-      watchXp(i, cb);
+      await watchXp(i, cb);
       avoidTargets(i);
       keepAutoLevel(i, cb);
       watchMemory();
