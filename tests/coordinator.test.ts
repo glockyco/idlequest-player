@@ -84,3 +84,11 @@ test("errands for pieces from the same enemies go to one group", () => {
   const busy = [tab("B", "G5", 12, { errand: { zone: "najena", keep: "magician" } }), tab("D", "G9", 13)];
   expect(decide({ now: NOW, tabs: busy, opportunities: [page("p1")] })).toEqual([]);
 });
+
+test("a quest chain runs for the members of its class who lack the reward", () => {
+  const quests = { w1: { class: "Warrior", minLevel: 10, reward: "Totem", steps: [{ zone: "freporte", npc: "Kargek" }] } };
+  const war = (label: string, group: string, level: number, name: string) => ({ ...tab(label, group, level), members: [{ name, level, class: "Warrior" }, { name: `${label}c`, level, class: "Cleric" }] });
+  const tabs = [war("A", "G1", 41, "Tagu"), war("B", "G4", 12, "Thal"), war("C", "G6", 8, "Low")];
+  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] } })).toMatchObject([{ label: "B", kind: "quest", spec: { members: ["Thal"] } }]);
+  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] }, history: [{ t: NOW - 60 * 60000, label: "B", kind: "quest", id: "w1" }] })).toEqual([]);
+});

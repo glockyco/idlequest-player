@@ -24,7 +24,7 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
 /**
  * The tasks to queue now. Inputs:
- * - `tabs`: `[{ label, group, members: [{ name, level }], task: { kind, status } | null, errand, zone, gameHour }]`,
+ * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
  * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count, camp, when, retryMin, points }]`,
@@ -33,10 +33,12 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  * - `owned`: opportunities whose item the account holds in `count` copies, `{ [id]: true }`.
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
+ * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, steps, retryMin } }`, and `holders`,
+ *   the account characters that carry each quest's reward, `{ [id]: [name] }`.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -69,6 +71,20 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: o.minutes ?? 20 };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
+  }
+
+  // Quest chains (data/quests.json) run for every member of their class who has the level and lacks
+  // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
+  // when one failed.
+  for (const [id, q] of Object.entries(quests)) {
+    for (const t of tabs) {
+      if (!free(t)) continue;
+      const who = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+      if (!who.length) continue;
+      const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
+      if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id }, why: `${id} for ${who.join(", ")}` });
+    }
   }
 
   // A farm goes to the groups with the lowest mean level inside its `levels`, whose own hunting

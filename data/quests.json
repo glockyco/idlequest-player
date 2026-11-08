@@ -36,6 +36,7 @@
         ],
         "expect": "Totem of the Freezing War"
       }
-    ]
+    ],
+    "minLevel": 10
   }
 }

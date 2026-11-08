@@ -402,7 +402,7 @@ class Daemon {
     const groupOf = rosterGroups();
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     let opportunities = [];
     try {
@@ -416,6 +416,12 @@ class Daemon {
     } catch {
       /* no farms file */
     }
+    let quests = {};
+    try {
+      quests = JSON.parse(await readFile(join(REPO, "data/quests.json"), "utf8"));
+    } catch {
+      /* no quests file */
+    }
     const search = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
     const stock = {};
     for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
@@ -423,6 +429,8 @@ class Daemon {
     // An opportunity is done once the account holds `count` copies (one for each character that needs
     // the piece), wherever they lie, because Inventory Search moves NO DROP pieces between characters.
     for (const o of opportunities) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
+    const holders = {};
+    for (const [id, q] of Object.entries(quests)) holders[id] = (await search(q.reward)).filter((m) => m.item === q.reward).map((m) => m.who);
     // The wanted enemies' spawn points, read once from the content snapshot.
     const { spawnPoints } = await import("./lib/content.mjs");
     this.points ??= new Map();
@@ -435,7 +443,7 @@ class Daemon {
       if (task.nextAt) h.nextAt = task.nextAt;
       if (task.endedAt) h.ms = task.endedAt - task.startedAt;
     }
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {

@@ -332,7 +332,9 @@ camps the enemies' spawn points with the client's Spawn Camp, placeholders inclu
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
 `retryMin` minutes. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
-group beyond the cap or outside the levels stops farming. A tab gets at most one coordinator task in
+group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
+members of its class and level who do not carry its reward, one task per tab, and a chain that
+stopped part way goes on after the last reward the member carries. A tab gets at most one coordinator task in
 20 minutes, and none while a task or errand runs or a pause holds. Its tasks are logged as
 interventions by `coordinator`, apart from manual ones, and the dashboard's Coordinator section
 shows its last pass.

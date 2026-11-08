@@ -1001,15 +1001,20 @@
       const t0 = now();
       await step(`stop for ${m.name}`, () => calm(i), 75000);
       await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
+      // A chain that stopped part way, in this task or an earlier one, goes on after the last step
+      // whose reward the member carries, so no step repeats and no reward is asked for twice.
+      const resume = m.steps.findLastIndex((s) => s.expect && i.carried(s.expect) > 0) + 1;
+      m.at = Math.max(m.at ?? 0, resume);
       for (const [k, s] of m.steps.entries()) {
-        if (k < (m.at ?? 0)) continue;
+        if (k < m.at) continue;
         await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
         const need = { ...(s.each ?? {}) };
         for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
         for (const [item, n] of Object.entries(need)) {
           while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
         }
-        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 150000);
+        // The walk to the NPC can cross a large zone (Tenal Redblade in East Karana), so it gets four minutes.
+        if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? [], { timeoutMs: 240000 }), 270000);
         if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
         if (s.each) {
           const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);

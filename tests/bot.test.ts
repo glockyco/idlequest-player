@@ -1202,8 +1202,10 @@ test("a quest runs its steps in order for each member and stops at a step whose 
         if (npc === "Kargek Redblade" && say.includes("favor")) mine()["Wax Sealed Note"] = 1;
       },
       giveToNpc: async (items: string[]) => {
+        // An NPC that is not there to take the trade leaves the items with the character.
+        if (!oknoggin) return;
         for (const x of items) mine()[x] = (mine()[x] ?? 0) - 1;
-        if (oknoggin) mine()["Tiny Lute"] = 1;
+        mine()["Tiny Lute"] = 1;
       },
     });
     const steps = [
@@ -1221,6 +1223,14 @@ test("a quest runs its steps in order for each member and stops at a step whose 
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "failed", members: [{ name: "Edroun", done: false, at: 1 }] });
     expect(f.bot.state.task.error).toContain("did not get Tiny Lute");
+
+    // A later quest for Edroun, who still carries the note, starts at the step that takes it.
+    oknoggin = true;
+    talks.length = 0;
+    f.bot.quest({ members: ["Edroun"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(talks).toEqual(["Edroun Oknoggin Stonesmacker "]);
   } finally {
     vi.useRealTimers();
   }
