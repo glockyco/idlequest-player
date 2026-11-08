@@ -425,7 +425,7 @@ const fmtX = (v) => (v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : (v / 1e3).toFixed(0
 
 // ---------------------------------------------------------------- calibration
 const CASES = [
-  { label: "Permafrost Caverns, leader 24-25", zone: "^permafrost$", level: 24, stay: 50, measured: { khMin: 2.91, xph: 2304068, killMean: 13, killMedian: 11.8, combat: 0.646, xpKill: 13217 }, partyLevels: [24, 25, 24, 24, 23, 24] },
+  { label: "Permafrost Caverns, leader 24-25", zone: "^permafrost$", level: 24, stay: 50, measured: { khMin: 2.91, xph: 2304068, killMean: 13, killMedian: 11.8, combat: 0.646, recovery: 4.24, xpKill: 13217 }, partyLevels: [24, 25, 24, 24, 23, 24] },
   { label: "City of Guk, leader 21", zone: "^guktop$", level: 21, stay: 45, measured: { khMin: 3.19, xph: 1640000, killMedian: 10.3 }, partyLevels: [21, 22, 21, 21, 20, 21] },
   { label: "Estate of Unrest, leader 29", zone: "^unrest$", level: 29, stay: 45, measured: { khMin: 1.92, xph: 2753334, killMean: 14.8, killMedian: 13.0, xpKill: 15051 }, partyLevels: [29, 30, 29, 29, 28, 29] },
 ];
@@ -450,8 +450,8 @@ function printCheck(zones) {
   }
 }
 
-// Least-squares fit of --dps, --overhead and --mana-per-sec to both measured runs, on log ratios.
-// Measured recovery for Permafrost is its 20.6% of a 20.6 s cycle.
+// Least-squares fit of --dps, --overhead and --mana-per-sec to the measured cases, on log ratios,
+// using only the quantities each case measured. Permafrost's recovery is 20.6% of its 20.6 s cycle.
 function fit(zones) {
   const ks = CASES.map((k) => ({ k, z: zones.get(k.zone.replace(/[\^$]/g, "")), c: checkCfg(k) }));
   let best = { err: Infinity };
@@ -464,7 +464,9 @@ function fit(zones) {
           const r = evalZone(z, { ...c, dps, manaPerSec, overhead });
           const m = k.measured;
           err += lg(r.kh / 60, m.khMin) + lg(r.xph, m.xph);
-          if (m.killMean) err += lg(r.kill, m.killMean) + lg(r.combatShare, m.combat) + lg(r.recovery, 4.24);
+          if (m.killMean) err += lg(r.kill, m.killMean);
+          if (m.combat) err += lg(r.combatShare, m.combat);
+          if (m.recovery) err += lg(r.recovery, m.recovery);
           if (m.killMedian) err += lg(r.medianKill, m.killMedian);
           return r;
         });
