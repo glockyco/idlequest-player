@@ -1,10 +1,14 @@
 // In-page supervisor for unattended play.
 //
 // AutoLevel fights, loots and rests by itself. The supervisor does the routine work it leaves to a
-// person: it starts AutoLevel again when it stays off without a pause, sells surplus copies before
-// the bags fill, and keeps a short report with alerts, so an attached script can check in with one
-// call instead of many. It runs on a timer inside the page and keeps working while no script is
-// attached, for example while an agent waits for an answer.
+// person: it keeps the tab on its leader, starts AutoLevel again when it stays off without a pause,
+// sells surplus copies before the bags fill, and keeps a short report with alerts, so an attached
+// script can check in with one call instead of many. It runs on a timer inside the page and keeps
+// working while no script is attached, for example while an agent waits for an answer.
+//
+// A pause is a lease: while it holds, the bot leaves the leader, the party, the zone and AutoLevel
+// to the script that took it. When it ends, also because the script died, the bot brings all four
+// back to their settings (docs/plans/controller.md).
 //
 // Evaluate after src/bridge.js. It reads `window.iq` on every tick, so reinstalling the bridge does
 // not stop it. Evaluating this file again replaces the timer and keeps the settings, the alerts,
@@ -59,6 +63,7 @@
     petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
+    leaderId: null, // the character this tab plays as when no pause holds it; null leaves the active character alone
     crowdedWaits: 6, // "Waiting for an available enemy" this often in 10 minutes moves to another rotation zone, or raises an alert without one
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
@@ -108,6 +113,9 @@
     deaths: [], // times of party deaths
     deathAlertAt: 0,
     rejoinAt: 0,
+    switching: null, // { id, name, startedAt, done, ok, message } of the last character switch
+    switchFails: 0, // failed switches in a row
+    switchRetryAt: 0, // the leader is not switched to again before this time
     releaseChecked: null, // client release the page was last compared with the stored one
     releaseProbeAt: 0, // when the site was last asked which client release it serves
     remoteRelease: null, // the newer release already alerted about
@@ -346,7 +354,7 @@
       pick.button.click();
       state.deadSince = now();
       // A resurrection chosen in the window leaves AutoLevel paused at the corpse.
-      state.restartNow = true;
+      state.restartNow = "the resurrection";
       alert("respawn", `the leader was dead at level ${p.level}; resurrected with ${pick.percent}% of the lost XP for ${pick.price ? `${pick.price}pp` : "free"}`);
       return;
     }
@@ -364,25 +372,35 @@
     state.deadSince = now();
     alert("respawn", `the leader was dead at level ${p.level}; took the free respawn at the bind point${offers.length ? ` (${Math.floor(coinPp)}pp carried, no resurrection within the limits)` : ""}`);
   };
+  // The account characters of `partyIds` that are not in the party now.
+  const partyMissing = (i) => {
+    const present = new Set((i.stores.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => Number(c.characterId)));
+    const me = Number(i.stores.character.getState().characterProfile?.id);
+    return config.partyIds.filter((id) => !present.has(Number(id)) && Number(id) !== me);
+  };
   const keepAutoLevel = (i, cb) => {
     if (cb.isRunning) {
       state.offSince = null;
+      state.restartNow = null;
       return;
     }
     // A gray errand fights through the Enemy Targets action with AutoLevel off (`grayStep`).
     if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i) || state.errand?.gray) return;
+    // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
+    if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return;
     state.offSince ??= now();
     // When another player holds the chosen target, the client gives it up with "Looking for another
     // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
     // is the client's, not a person's, so it restarts at the next tick, within a minute of the line.
+    // The bot's own resurrections and switches restart it at once as well (`restartNow` says which).
     const contested = state.abandonAt && now() - state.abandonAt < 60000;
     if (contested || state.restartNow) {
       state.abandonAt = null;
       cb.startAutoLevel();
       state.offSince = now();
       if (state.restartNow) {
-        state.restartNow = false;
-        log("restarted AutoLevel after the resurrection");
+        log(`restarted AutoLevel after ${state.restartNow}`);
+        state.restartNow = null;
         return;
       }
       state.contestedRestarts = (state.contestedRestarts ?? 0) + 1;
@@ -816,17 +834,93 @@
     }
   };
 
-  // After a login or reload the party holds no account characters, and AutoLevel would hunt alone.
+  // After a login, a reload or a switch of the active character the party holds no account
+  // characters, and AutoLevel would hunt alone. A pause leaves the party to its script.
   const keepParty = (i) => {
-    if (!config.partyIds.length || i.stores.skills.getState().inCombat || now() - state.rejoinAt < 120000) return;
-    const cs = i.stores.companions.getState();
-    const present = new Set((cs.companions ?? []).filter((c) => c.companionType === 2).map((c) => c.characterId));
-    const missing = config.partyIds.filter((id) => !present.has(id));
+    if (!config.partyIds.length || now() < state.pauseUntil || i.stores.skills.getState().inCombat || now() - state.rejoinAt < 120000) return;
+    const missing = partyMissing(i);
     if (!missing.length) return;
     state.rejoinAt = now();
-    cs.requestAccountCharacterAvailability();
+    i.stores.companions.getState().requestAccountCharacterAvailability();
     missing.forEach((id, k) => setTimeout(() => i.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
+    // Look again once the last of them should have arrived, so AutoLevel starts without waiting for the next tick.
+    setTimeout(tick, 2500 * (missing.length + 1) + 500);
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
+  };
+
+  // ---- Leader -------------------------------------------------------------------------------
+  // The active character converges to `leaderId` whenever no pause holds the tab. A switch camps
+  // with the client's own command and enters the world as the character (`session.camp` and
+  // `session.enterWorld`, the commands behind the Camp and ENTER WORLD buttons). It runs in the
+  // page as a job, because it takes longer than one script call may last, and keepParty brings
+  // the companions back afterwards. Failures back off, and the third in a row wakes a script.
+  const SWITCH_TIMEOUT_MS = 180000;
+  const characters = (i) => i.stores.roster?.getState?.().characters ?? [];
+  const findCharacter = (i, who) => characters(i).find((c) => (typeof who === "number" ? Number(c.id) === who : String(c.name).toLowerCase() === String(who).toLowerCase())) ?? null;
+  const command = (i, cmd, ms) => Promise.race([Promise.resolve(i.command(cmd)), sleep(ms).then(() => ({ ok: false, message: `${cmd.type} timed out` }))]);
+  const switchSteps = async (i, target) => {
+    const screen = () => i.stores.screen.getState().currentScreen;
+    if (screen() === "game") {
+      if (Number(i.stores.character.getState().characterProfile?.id) === Number(target.id)) return { ok: true, message: `${target.name} is active` };
+      if (i.stores.skills.getState().inCombat) return { ok: false, message: "the party is in combat" };
+      i.stores.combat.getState().setIsRunning(false);
+      const r = await command(i, { type: "session.camp" }, 60000);
+      if (!r?.ok) return { ok: false, message: `camping failed: ${r?.message ?? "no reply"}` };
+    }
+    if (screen() !== "characterSelect") return { ok: false, message: `the screen is ${screen()}, not character select` };
+    // A numeric selector would pick by list position, so the command gets the name.
+    const r = await command(i, { type: "session.enterWorld", selector: target.name }, 120000);
+    return r?.ok ? { ok: true, message: `entered the world as ${target.name}` } : { ok: false, message: `entering as ${target.name} failed: ${r?.message ?? "no reply"}` };
+  };
+  /** Start making `who` (a name or a character id) the active character. Returns the job. */
+  const switchTo = (i, who) => {
+    const job = state.switching;
+    if (job && !job.done && now() - job.startedAt < SWITCH_TIMEOUT_MS) return job;
+    const target = findCharacter(i, who);
+    if (!target) return (state.switching = { id: null, name: String(who), startedAt: now(), done: true, ok: false, message: `no account character ${who}` });
+    const next = (state.switching = { id: Number(target.id), name: target.name, startedAt: now(), done: false, ok: null, message: "switching" });
+    log(`switching to ${target.name}`);
+    switchSteps(i, target)
+      .catch((e) => ({ ok: false, message: String(e?.message ?? e) }))
+      .then((r) => {
+        Object.assign(next, r, { done: true });
+        if (r.ok) {
+          state.switchFails = 0;
+          state.rejoinAt = 0; // the new active character gathers its party at once
+          state.restartNow = `the switch to ${target.name}`;
+          log(r.message);
+          setTimeout(tick, 1000);
+        } else {
+          state.switchFails++;
+          state.switchRetryAt = now() + Math.min(600000, 30000 * 2 ** (state.switchFails - 1));
+          alert("switch", `could not switch to ${target.name}: ${r.message}`, state.switchFails >= 3);
+        }
+      });
+    return next;
+  };
+  /**
+   * One step toward `leaderId`. True while the active character is not the leader yet and the
+   * rest of the tick, which serves the leader's party, should wait.
+   */
+  const reconcileLeader = (i) => {
+    const job = state.switching;
+    if (job && !job.done) {
+      if (now() - job.startedAt < SWITCH_TIMEOUT_MS) return true;
+      Object.assign(job, { done: true, ok: false, message: "timed out" });
+    }
+    const want = config.leaderId;
+    if (want == null || now() < state.pauseUntil || inRaid(i)) return false;
+    const screen = i.stores.screen.getState().currentScreen;
+    if (screen === "game") {
+      if (Number(i.stores.character.getState().characterProfile?.id) === Number(want)) return false;
+      if (leaderDead(i)) return false; // the Resurrection window comes first
+      if (i.stores.skills.getState().inCombat) return true;
+    } else if (screen !== "characterSelect") {
+      return false; // a login or loading screen is not the bot's to drive
+    }
+    if (now() < state.switchRetryAt) return true;
+    switchTo(i, Number(want));
+    return true;
   };
 
   const watchZone = (i, cb) => {
@@ -1223,6 +1317,15 @@
       if (!i?.stores || typeof i.bagSpace !== "function") return;
       watchConnection(i);
       await watchRelease(i);
+      // The end of a pause is an event: whatever its script left behind, the bot restores at once.
+      if (state.pauseUntil && now() >= state.pauseUntil) {
+        log(`pause ended${state.pauseReason ? `: ${state.pauseReason}` : ""}`);
+        state.pauseUntil = 0;
+        state.pauseReason = null;
+        state.restartNow ??= "the end of a pause";
+      }
+      // The other watchers serve the leader's party, so they wait while another character is active.
+      if (reconcileLeader(i)) return;
       const cb = i.stores.combat.getState();
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
       scanEvents(i);
@@ -1303,6 +1406,12 @@
     },
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
     upkeep: (reason = "manual") => runUpkeep(iq(), reason),
+    /**
+     * Start making `who` (a name or a character id) the active character, in the page, and return
+     * a copy of the job `{ id, name, startedAt, done, ok, message }`, which `state.switching` keeps
+     * up to date. Hold a pause while another character than `leaderId` should stay active.
+     */
+    switchTo: (who) => ({ ...switchTo(iq(), who) }),
 
     /**
      * Hunt only enemies whose names match `keep` (a regular expression) in `zone` until an item
@@ -1371,19 +1480,26 @@
       return config;
     },
 
-    /** Let AutoLevel stay off for `minutes`. A pause always ends by itself; renew it to extend it. */
+    /**
+     * Hold the tab for a script for `minutes`: the bot leaves the leader, the party, the zone and
+     * AutoLevel alone. A pause always ends by itself; renew it to extend it. When it ends, the
+     * bot restores all four from its settings at once.
+     */
     pause(minutes = config.defaultPauseMin, reason = "") {
       state.pauseUntil = now() + minutes * 60000;
       state.pauseReason = reason || null;
       log(`pause for ${minutes} min${reason ? `: ${reason}` : ""}`);
+      setTimeout(tick, minutes * 60000 + 500);
       return new Date(state.pauseUntil).toISOString();
     },
 
-    /** End a pause now. AutoLevel starts again within `restartAfterSec` if it is off. */
+    /** End a pause now. The bot restores the leader, the party, the zone and AutoLevel at once. */
     resume() {
       if (state.pauseUntil) log("pause ended");
       state.pauseUntil = 0;
       state.pauseReason = null;
+      state.restartNow ??= "the end of a pause";
+      setTimeout(tick, 500);
       return true;
     },
 

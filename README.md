@@ -39,7 +39,8 @@ const party = await iq.roster();                    // every character: class, l
 await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also the active character, or "cleric", "warrior", "rogue")
 await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con values: 2 green, 4 blue, 10 white, 15 yellow, 13 red
 await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, restart if it was running
-await iq.switchCharacter("Tagujazolu");            // camp, enter as another account character, regroup the party
+await iq.setLeader("Tagujazolu");                  // lead the group with another member for good; the bot switches and regroups
+await iq.switchCharacter("Edroun");                // play another character for a while; the bot switches back when its pause ends
 await iq.raidTime();                                // price of a raid hour in platinum, expiry, auto-renew (read only)
 await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
 ```

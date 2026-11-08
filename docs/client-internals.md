@@ -65,8 +65,11 @@ game server, so the client only sends a request.
   fails the camp is cancelled with a chat message.
 - Character select (`engine.pretty.js:1368-1500`) lists eight characters per page as buttons named
   after them. ENTER WORLD calls the roster store's `enterWorld(name)` (`main.pretty.js:51993-52013`).
-  The same screen has the delete button, which opens a confirmation. `iq.switchCharacter` clicks
-  only the name and ENTER WORLD.
+  The same screen has the delete button, which opens a confirmation.
+- The command dispatcher (below) has both steps: `session.camp` runs the Camp button's function
+  and `session.enterWorld` enters as the character its `selector` names, then waits until the
+  world is ready (`B7YhzEJy.js:3322-3360`, `3417-3424`). A selector of digits picks by position in
+  the character list, not by id, so the bot's switch (`switchTo` in `src/bot.js`) passes the name.
 - After entering, the party holds no account characters. `requestAccountCharacterAvailability()`
   and `controlAccountCharacter(id)` bring them back, which the bot's `partyIds` repeats.
 - The client has one command dispatcher for its UI (`Fa`, `C8.pretty.js:2463-2718`), exposed by

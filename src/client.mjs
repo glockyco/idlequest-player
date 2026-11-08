@@ -782,87 +782,71 @@ export async function attach(tab) {
     },
 
     /**
-     * Camp the active character and enter the world as another account character, with the Camp
-     * button and the character select screen. The earlier leader and party then rejoin as the new
-     * leader's companions, and the bot's `partyIds` is updated so it keeps them grouped. AutoLevel
-     * restarts with the same limits if it was running. Tactics need no copying: companions' tactics
-     * are keyed by character id, and a leader's own tactics by its id (docs/client-internals.md).
-     * `atSelect` runs at character select before entering, for example to create characters.
-     * Resolves with the new leader's name, zone and party.
+     * Make `name` the active character, for work as another account character, with the bot's
+     * in-page switch (`iqBot.switchTo`, the client's camp and enter-world commands). The party is
+     * not regrouped. Without a pause the bot switches back to its `leaderId` at its next tick, so
+     * this extends the bot's pause to at least `holdMin` minutes. Renew it with `pauseBot` or work
+     * inside `pausedAutoLevel`, and use `setLeader` to change the leader for good. Resolves with
+     * the active character and zone.
      */
-    async switchCharacter(name, { atSelect } = {}) {
-      const before = await tab.evaluate(() => {
+    async switchCharacter(name, { holdMin = 5 } = {}) {
+      const pauseLeft = await tab.evaluate(() => (window.iqBot?.state.pauseUntil ?? 0) - Date.now());
+      if (pauseLeft < holdMin * 60000) await handle.pauseBot(holdMin, `switchCharacter ${name}`);
+      let job = await tab.evaluate((n) => window.iqBot.switchTo(n), name);
+      for (const end = Date.now() + 200000; !job.done && Date.now() < end; ) {
+        await sleep(2000);
+        job = await tab.evaluate(() => ({ ...window.iqBot.state.switching }));
+      }
+      if (!job.done) throw new Error(`switching to ${name} did not finish`);
+      if (!job.ok) throw new Error(job.message);
+      return tab.evaluate(async () => {
         const s = window.iq.stores;
-        const inWorld = s.screen.getState().currentScreen === "game";
-        return {
-          inWorld,
-          leaderId: inWorld ? s.character.getState().characterProfile?.id ?? null : null,
-          chars: (s.roster.getState().characters ?? []).map((c) => ({ id: c.id, name: c.name })),
-          partyIds: window.iqBot?.config.partyIds ?? [],
-        };
+        for (let k = 0; k < 40 && s.combat.getState().isZoneLoading; k++) await new Promise((r) => setTimeout(r, 500));
+        const zone = s.staticData.getState().zones.find((z) => z.zoneidnumber === s.combat.getState().currentZone);
+        return { active: s.character.getState().characterProfile?.name ?? null, zone: zone?.longName ?? null };
       });
-      const target = before.chars.find((c) => c.name.toLowerCase() === String(name).toLowerCase());
-      if (!target) throw new Error(`no account character named ${name}`);
-      if (target.id === before.leaderId) throw new Error(`${target.name} is already the active character`);
-      const party = [...new Set([...before.partyIds, ...(before.leaderId ? [before.leaderId] : [])])].filter((id) => id !== target.id);
-      const until = async (what, timeoutMs, fn, ...args) => {
-        for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) if (await tab.evaluate(fn, ...args)) return;
-        throw new Error(`timed out waiting for ${what}`);
-      };
-      return handle.pausedAutoLevel(async () => {
-        if (before.inWorld) {
-          await until("the fight to end", 120000, () => !window.iq.stores.skills.getState().inCombat);
-          // A level-up banner or a closing window can cover the button for a moment.
-          for (let k = 0; ; k++) {
-            await handle.clearWindows();
-            try {
-              await tab.click('role/button[name="Camp" exact]');
-              break;
-            } catch (e) {
-              if (k >= 4 || !/covered|blocked/i.test(String(e?.message ?? e))) throw e;
-              await sleep(1500);
-            }
-          }
-        }
-        await until("character select", 90000, () => window.iq.stores.screen.getState().currentScreen === "characterSelect");
-        if (atSelect) await atSelect();
-        const listed = () => tab.evaluate((n) => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === n), target.name);
-        // Character select shows eight characters per page.
-        for (let p = 0; p < 10 && !(await listed()); p++) {
-          await tab.click('role/button[name="Next page" exact]');
-          await sleep(800);
-        }
-        // The list stays covered by a transition overlay for a moment after camping.
-        for (let k = 0; ; k++) {
-          try {
-            await tab.click(`role/button[name="${target.name}" exact]`);
-            break;
-          } catch (e) {
-            if (k >= 15) throw e;
-            await sleep(1000);
-          }
-        }
-        await tab.click('role/button[name="ENTER WORLD" exact]');
-        await until(`${target.name} in the world`, 180000, (id) => {
+    },
+
+    /**
+     * Make `name` the tab's leader for good: the bot's `leaderId` becomes that character and its
+     * `partyIds` the `members` (names; by default the current party and the current leader,
+     * without `name`). The bot then switches and regroups by itself, also at character select
+     * after a sign-in, and keeps doing so after every pause. Tactics need no copying: companions'
+     * tactics are keyed by character id, and a leader's own tactics by its id
+     * (docs/client-internals.md). Resolves once the leader is active with every member in the
+     * party, with the leader, zone, party and missing members, or throws after `timeoutMs`.
+     */
+    async setLeader(name, { members, timeoutMs = 240000 } = {}) {
+      const ids = await tab.evaluate(
+        (n, names) => {
+          const chars = window.iq.stores.roster.getState().characters ?? [];
+          const idOf = (x) => Number(chars.find((c) => c.name.toLowerCase() === String(x).toLowerCase())?.id ?? NaN);
+          const cfg = window.iqBot.config;
+          const active = window.iq.stores.screen.getState().currentScreen === "game" ? Number(window.iq.stores.character.getState().characterProfile?.id) : null;
+          const party = names ? names.map(idOf) : [...new Set([...cfg.partyIds.map(Number), ...(cfg.leaderId != null ? [Number(cfg.leaderId)] : []), ...(active ? [active] : [])])];
+          return { leader: idOf(n), party: party.filter((id) => id !== idOf(n)) };
+        },
+        name,
+        members ?? null,
+      );
+      if (!Number.isFinite(ids.leader)) throw new Error(`no account character named ${name}`);
+      if (ids.party.some((id) => !Number.isFinite(id))) throw new Error(`a member of ${members.join(", ")} is not on the account`);
+      await handle.setBot({ leaderId: ids.leader, partyIds: ids.party });
+      await handle.resumeBot();
+      let last = null;
+      for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(3000)) {
+        last = await tab.evaluate((want) => {
           const s = window.iq.stores;
-          return s.screen.getState().currentScreen === "game" && !s.combat.getState().isZoneLoading && s.character.getState().characterProfile?.id === id;
-        }, target.id);
-        return tab.evaluate(async (ids) => {
-          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          const s = window.iq.stores;
-          if (window.iqBot) window.iqBot.set({ partyIds: ids });
-          const present = () => new Set((s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => c.characterId));
-          s.companions.getState().requestAccountCharacterAvailability();
-          for (const id of ids) {
-            await sleep(2500);
-            if (!present().has(id)) s.companions.getState().controlAccountCharacter(id);
-          }
-          for (let k = 0; k < 60 && ids.some((id) => !present().has(id)); k++) await sleep(1000);
-          const me = s.character.getState().characterProfile;
+          const inGame = s.screen.getState().currentScreen === "game" && !s.combat.getState().isZoneLoading;
+          const me = inGame ? s.character.getState().characterProfile : null;
+          const present = new Set((s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => Number(c.characterId)));
           const zone = s.staticData.getState().zones.find((z) => z.zoneidnumber === s.combat.getState().currentZone);
-          return { leader: me.name, zone: zone?.longName ?? null, party: (s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => c.name), missing: ids.filter((id) => !present().has(id)) };
-        }, party);
-      });
+          return { leader: me?.name ?? null, active: Number(me?.id), zone: zone?.longName ?? null, party: (s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => c.name), missing: want.filter((id) => !present.has(id)), switching: window.iqBot.state.switching };
+        }, ids.party);
+        if (last.active === ids.leader && !last.missing.length) break;
+      }
+      if (last?.active !== ids.leader) throw new Error(`${name} did not become active: ${last?.switching?.message ?? "no switch started"}`);
+      return { leader: last.leader, zone: last.zone, party: last.party, missing: last.missing };
     },
 
     /**
@@ -1098,7 +1082,7 @@ export async function attach(tab) {
 // Calls that change the game or the bot. Each top-level call is written to the `interventions`
 // table of runs/iq.db, which `iqd status` shows under "Latest notes", so what a script changed and
 // when stays on record next to the attention items it answered.
-const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach"];
+const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "setLeader", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest", "turnInEach"];
 let interventionsDb = null;
 function logActions(handle, tab) {
   let depth = 0;
@@ -1119,7 +1103,7 @@ function logActions(handle, tab) {
   for (const name of ACTIONS) {
     const fn = handle[name];
     if (typeof fn !== "function") continue;
-    // Only the outermost call is logged: switchCharacter's own setBot and startAutoLevel are part of it.
+    // Only the outermost call is logged: setLeader's own setBot and resumeBot are part of it.
     handle[name] = async (...args) => {
       depth++;
       try {

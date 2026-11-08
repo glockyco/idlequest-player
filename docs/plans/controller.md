@@ -59,14 +59,15 @@ of a constant per symptom.
 Each step ships to one group first, is measured with the time labels against the other groups, and
 then goes to all of them. The old code a step replaces is deleted in the same step.
 
-1. Time labels and idle reasons in the page, kept in every sample, and an alert from the collector
-   when any tab stays idle, in any mode, longer than `idleAlertSec`.
-2. Desired state, leases and the reconciler for the leader, the party, the zone and AutoLevel.
-   Leases replace the bot's pause and `pausedAutoLevel`, and switching the active character moves
-   into the page.
+1. Time labels and idle causes in the page, kept in every sample, and one stall alert from the
+   collector when a tab stays idle or dead for 2 minutes, or makes no kill for 5, in any mode but a
+   pause or a raid.
+2. The bot's pause becomes the lease: while it holds, the bot leaves the leader, the party, the
+   zone and AutoLevel alone, and when it ends the bot restores all four from its settings
+   (`leaderId`, `partyIds`, `rotation`). Switching the active character moves into the page.
 3. The task runner, with Recovery and Hand-in as its first tasks and errands as priority enemies.
-4. The remedy table for idle reasons. The stuck restarts, the crowding count, the XP stall, the
-   empty-zone handling and the collector's no-kill condition go.
+4. The remedy table for idle causes. The stuck restarts, the crowding count, the XP stall and the
+   empty-zone handling go.
 5. The coordinator's zone assignment, lightstone and coin allocation and experiment runner. The
    zone counts in the browser's shared storage and the band row changes at level-up go.
 6. The value model and the safety decision fitted from the fight logs. The guard's fixed triggers

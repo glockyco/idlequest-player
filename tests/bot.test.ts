@@ -17,8 +17,9 @@ interface Alert {
 interface Bot {
   timerId: Timer;
   fastTimerId: Timer;
-  config: { upkeep: boolean; partyIds: number[]; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
-  state: { alerts: Alert[] };
+  config: { upkeep: boolean; partyIds: number[]; leaderId: number | null; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
+  state: { alerts: Alert[]; switching: { name: string; done: boolean; ok: boolean | null } | null };
+  pause(minutes: number, reason?: string): string;
   tick(): Promise<void>;
   upkeep(reason: string): Promise<string>;
   fastTick(): void;
@@ -132,6 +133,26 @@ async function install(partyIds: number[] = []) {
   g.sessionStorage = { getItem: () => null, setItem: () => {} };
   g.window = globalThis;
   g.iqBot = undefined;
+  // The account's characters, the active one and the screen, which the camp and enter-world
+  // commands change the way the client does. Camping releases the companions.
+  const roster = { characters: [{ id: 1, name: "Me" }, { id: 10, name: "Tagujazolu" }, { id: 20, name: "Edroun" }] };
+  const sheet = { characterProfile: me as typeof me };
+  const screen = { currentScreen: "game" };
+  const commands: string[] = [];
+  const commandReply = { enterWorld: { ok: true } as { ok: boolean; message?: string } };
+  const command = async (c: { type: string; selector?: string }) => {
+    commands.push(c.selector ? `${c.type} ${c.selector}` : c.type);
+    if (c.type === "session.camp") {
+      screen.currentScreen = "characterSelect";
+      party.companions = [];
+      return { ok: true };
+    }
+    const who = roster.characters.find((x) => x.name === c.selector);
+    if (c.type !== "session.enterWorld" || !who || !commandReply.enterWorld.ok) return { ok: false, message: commandReply.enterWorld.message ?? "refused" };
+    sheet.characterProfile = { ...me, id: who.id, name: who.name };
+    screen.currentScreen = "game";
+    return { ok: true };
+  };
   const iq = {
     // The client's spell table by class id, which the tests that plan gems fill in.
     classSpells: {} as SpellTable,
@@ -153,6 +174,7 @@ async function install(partyIds: number[] = []) {
         cm: ({ effects: list }: { effects: { root: boolean }[] }) => ({ isRooted: list.some((e) => e.root) }),
       },
     },
+    command,
     setTactic: (who: string, key: string, value: unknown) => tactics.push([who, key, value]),
     guard,
     socket: { isConnected: true },
@@ -162,10 +184,11 @@ async function install(partyIds: number[] = []) {
       me.curHp >= me.maxHp && me.mana >= me.maxMana && (party.companions as { curHp: number; maxHp: number; curMana: number; maxMana: number }[]).every((c) => c.curHp >= c.maxHp && (!(c.maxMana > 0) || c.curMana >= c.maxMana)),
     inventory: () => bag,
     stores: {
-      character: store({ characterProfile: me }),
+      character: store(sheet),
       companions: store(party),
       combat: store(combat),
-      screen: store({ currentScreen: "game" }),
+      screen: store(screen),
+      roster: store(roster),
       staticData: store({ zones }),
       skills: store(skills),
       spellbook: store(book),
@@ -183,7 +206,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, sheet, screen, commands, commandReply };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -808,4 +831,87 @@ test("cleanup keeps the reagents of the leader's class spells", async () => {
   expect(bot.surplus().map((s) => s.name)).toEqual(["Bone Chips", "Bone Chips"]);
   iq.classSpells = generated;
   expect(bot.surplus()).toEqual([]);
+});
+
+// Lets the bot's in-page switch job run its fake commands to the end.
+const flush = async () => {
+  for (let k = 0; k < 20; k++) await Promise.resolve();
+};
+
+test("when a pause ends with another character active, the bot switches back to its leader and regroups", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    // A script played Edroun under a pause and died: Edroun is active and alone.
+    f.sheet.characterProfile = { ...f.me, id: 20, name: "Edroun" };
+    f.party.companions = [];
+    f.bot.pause(10, "hand-in");
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual([]);
+
+    vi.advanceTimersByTime(11 * 60000);
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual(["session.camp", "session.enterWorld Me"]);
+    expect(f.sheet.characterProfile.id).toBe(1);
+
+    await f.bot.tick();
+    vi.advanceTimersByTime(6000);
+    expect(f.recruited).toEqual([10, 20]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a tab left at character select enters the world as its leader, and a fight delays a switch", async () => {
+  vi.useFakeTimers();
+  try {
+    const atSelect = await install();
+    atSelect.bot.config.leaderId = 1;
+    atSelect.screen.currentScreen = "characterSelect";
+    await atSelect.bot.tick();
+    await flush();
+    expect(atSelect.commands).toEqual(["session.enterWorld Me"]);
+
+    const fighting = await install();
+    fighting.bot.config.leaderId = 10;
+    fighting.skills.inCombat = true;
+    await fighting.bot.tick();
+    await flush();
+    expect(fighting.commands).toEqual([]);
+    fighting.skills.inCombat = false;
+    await fighting.bot.tick();
+    await flush();
+    expect(fighting.commands).toEqual(["session.camp", "session.enterWorld Tagujazolu"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("failed switches back off and the third in a row wakes a script", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.config.leaderId = 10;
+    f.screen.currentScreen = "characterSelect";
+    f.commandReply.enterWorld = { ok: false, message: "Character equipment is still loading." };
+    const attempt = async (waitMs: number) => {
+      vi.advanceTimersByTime(waitMs);
+      await f.bot.tick();
+      await flush();
+    };
+    await attempt(0);
+    await attempt(5000); // inside the 30 s back-off
+    expect(f.commands.length).toBe(1);
+    await attempt(30000);
+    await attempt(60000);
+    expect(f.commands.length).toBe(3);
+    const woken = f.bot.state.alerts.filter((a) => a.kind === "switch" && a.wake);
+    expect(woken.length).toBe(1);
+    expect(woken[0].text).toContain("still loading");
+  } finally {
+    vi.useRealTimers();
+  }
 });

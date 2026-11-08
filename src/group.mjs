@@ -232,9 +232,10 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
     if (!cb.autoUpgradeCompanionsEnabled) cb.toggleAutoUpgradeCompanions();
   });
   await iq.applyRoleTactics();
-  // The bot orders a band row by how few of this browser's other groups hunt each zone.
+  // The bot orders a band row by how few of this browser's other groups hunt each zone. From here
+  // it keeps the leader active and the members in the party by itself.
   const rotation = await tab.evaluate(() => window.iqBot.leastUsed([...(window.iq.bandRotations ?? []).find(([min]) => min <= 1)[1]]));
-  await iq.setBot({ rotation, enabled: true });
+  await iq.setBot({ rotation, leaderId: ids[leader], enabled: true });
   await iq.travelTo(rotation[0]);
   await iq.startAutoLevel({ minCon: 10, maxCon: 13 });
   await renderingOff(tab);
@@ -247,10 +248,11 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
 
 /**
  * Bring a group back after its tab crashed or lost its session: open the tab `name`, sign in,
- * enter the world as the group's leader (the first member in data/roster.json) with the other
- * members as companions, restore the bot's rotation for the leader's level, and start AutoLevel
- * with the limits the game kept. The new session takes over from any old one of the same leader,
- * so close the old tab afterwards. Resolves with the leader, zone and party.
+ * and give the bot the group's leader (the first member in data/roster.json) and members, so it
+ * enters the world as the leader and regroups by itself. Then restore the rotation for the
+ * leader's level and start AutoLevel with the limits the game kept. The new session takes over
+ * from any old one of the same leader, so close the old tab afterwards. Resolves with the leader,
+ * zone and party.
  */
 export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowerCase()}-${Date.now().toString(36).slice(-4)}`, log = console.log }) {
   const roster = await readRoster();
@@ -261,11 +263,8 @@ export async function restoreGroup({ browser, attach, id, name = `iq-${id.toLowe
   await signIn(tab);
   const iq = await attach(tab);
   log(`${id}: signed in as tab ${name}`);
-  const ids = await tab.evaluate((names) => Object.fromEntries((window.iq.stores.roster.getState().characters ?? []).filter((c) => names.includes(c.name)).map((c) => [c.name, Number(c.id)])), rest);
-  const missing = rest.filter((n) => !ids[n]);
-  if (missing.length) throw new Error(`${id}: ${missing.join(", ")} not on the account`);
-  await iq.setBot({ partyIds: rest.map((n) => ids[n]), enabled: true });
-  const sw = await iq.switchCharacter(leader);
+  await iq.setBot({ enabled: true });
+  const sw = await iq.setLeader(leader, { members: rest });
   const level = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.level);
   const rotation = await tab.evaluate((lvl) => window.iqBot.leastUsed([...((window.iq.bandRotations ?? []).find(([min]) => lvl >= min)?.[1] ?? [])]), level);
   if (rotation.length) await iq.setBot({ rotation });
