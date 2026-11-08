@@ -244,6 +244,25 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js`.
   plus a flat bonus from level 28 for melee classes that is larger for two-handers (`sd`
   16699-16706). STR enters only through offense. Haste divides the delay (`g9` 62778-62790).
 
+### Bard instruments
+
+Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` unless named.
+
+- A song's modifier is the highest `bardvalue` among the Bard's worn items whose `bardtype`
+  matches the song's skill (`W8` 21171-21184): wind (skill 54) type 23, strings (49) 24, brass
+  (12) 25, percussion (70) 26, singing (41) 50, and type 51 matches all. Any equipment slot from
+  charm to ammo counts, for the leader and for companion Bards alike, and values do not add up.
+  The modifier is at least 10 and at most 36, and singing songs add the Bard's Amplification.
+- An effect scales by modifier over 10 (`H8` 16899-16901), so a Drum (20) doubles a percussion
+  song. Only HP (damage, heals, DoT and regeneration ticks), AC, attack, movement, stats,
+  resists, runes, damage shields, maximum HP and magic absorption scale (`_E` 16896). Haste and
+  mana regeneration never do. The Bard's song skills do not enter the modifier.
+- A weapon does not cancel an instrument. Most instruments fit only the main or off hand, so
+  wielding a weapon there keeps the instrument off, while a ring or mask with a `bardtype`
+  counts without that cost.
+- Outside raids, the party's support buffs also use one carried or worn strings, brass or
+  percussion instrument that the situation picks (`CAUokwED.js:1870-1966`).
+
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
