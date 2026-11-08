@@ -444,7 +444,7 @@ test("rotation moves on from an empty zone and from one whose XP rate fell", asy
   }
 });
 
-test("an errand pulls only its enemies, holds rotation until the item drops, then rotates on", async () => {
+test("an errand pulls only its enemies and holds rotation until its item drops, its minutes end or, gray, fights through Enemy Targets", async () => {
   vi.useFakeTimers();
   try {
     const found = await install();
@@ -486,6 +486,33 @@ test("an errand pulls only its enemies, holds rotation until the item drops, the
     await farm.bot.tick();
     expect(farm.moves).toEqual(["permafrost", "guktop"]);
     expect(farm.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
+
+    // A gray errand fights through the Enemy Targets action: AutoLevel stays off, the client is
+    // asked for the closest wisp, and the attack-on-arrival option goes back when it ends.
+    const gray = await install();
+    const selected: number[][] = [];
+    Object.assign(gray.runtime, { selectEnemyTarget: (ids: number[]) => selected.push(ids), combatActive: false });
+    Object.assign(gray.runtime.combatApproach, { isBusy: () => false });
+    Object.assign(gray.combat, {
+      currentZoneNPCs: [{ id: 1, name: "a_willowisp" }, { id: 2, name: "a_greater_wisp" }, { id: 3, name: "a_garter_snake" }],
+      enemyTargetAttackOnArrival: false,
+      setEnemyTargetAttackOnArrival: (v: boolean) => Object.assign(gray.combat, { enemyTargetAttackOnArrival: v }),
+    });
+    gray.bot.config.rotation = ["guktop", "permafrost"];
+    gray.combat.currentZone = 65;
+    await gray.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 30, gray: true });
+    gray.combat.isRunning = false;
+    gray.bot.fastTick();
+    expect(selected).toEqual([[1, 2]]);
+    expect((gray.combat as { enemyTargetAttackOnArrival?: boolean }).enemyTargetAttackOnArrival).toBe(true);
+    const starts = gray.autoLevel.starts;
+    vi.advanceTimersByTime(5 * 60000);
+    await gray.bot.tick();
+    expect(gray.autoLevel.starts).toBe(starts);
+    vi.advanceTimersByTime(26 * 60000);
+    await gray.bot.tick();
+    expect((gray.combat as { enemyTargetAttackOnArrival?: boolean }).enemyTargetAttackOnArrival).toBe(false);
+    expect(gray.moves).toEqual(["permafrost", "guktop"]);
 
     const late = await install();
     late.bot.config.rotation = ["guktop", "permafrost"];

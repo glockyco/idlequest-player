@@ -336,7 +336,8 @@
       state.offSince = null;
       return;
     }
-    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i)) return;
+    // A gray errand fights through the Enemy Targets action with AutoLevel off (`grayStep`).
+    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i) || state.errand?.gray) return;
     state.offSince ??= now();
     // When another player holds the chosen target, the client gives it up with "Looking for another
     // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
@@ -929,9 +930,26 @@
   const endErrand = async (i, why, failed) => {
     const e = state.errand;
     state.errand = null;
-    if (e.minCon != null) i.stores.combat.getState().setMinCon(e.limits.minCon);
+    const cb = i.stores.combat.getState();
+    if (e.minCon != null) cb.setMinCon(e.limits.minCon);
+    if (e.gray) cb.setEnemyTargetAttackOnArrival?.(e.attackOnArrival);
     alert("errand", `${e.item ?? e.keep} in ${e.zone}: ${why}`, failed);
-    await rotate(i, `errand ended: ${why}`);
+    if (!(await rotate(i, `errand ended: ${why}`)) && e.gray) i.stores.combat.getState().startAutoLevel();
+  };
+  // A gray errand hunts enemies that con gray, which AutoLevel never pulls. It fights them the way
+  // a click on the Enemy Targets list does with "attack on arrival" set: the client walks to the
+  // closest alive spawn of those NPCs and starts the fight there (`selectEnemyTarget`,
+  // CAUokwED.js:7673-7790). Gray kills give no XP, so this is for loot such as lightstones.
+  const grayStep = (i, cb) => {
+    const e = state.errand;
+    if (!e?.gray || !e.arrived || leaderDead(i) || zoneShort(i) !== e.zone || i.guard?.phase === "leaving") return;
+    const rt = runtime(i);
+    if (!rt?.selectEnemyTarget || rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null) return;
+    if (cb.isRunning) cb.setIsRunning(false);
+    if (!cb.enemyTargetAttackOnArrival) cb.setEnemyTargetAttackOnArrival(true);
+    const keep = new RegExp(e.keep, "i");
+    const ids = (cb.currentZoneNPCs ?? []).filter((n) => keep.test(n.name ?? "")).map((n) => n.id);
+    if (ids.length) rt.selectEnemyTarget(ids);
   };
   const watchErrand = async (i) => {
     const e = state.errand;
@@ -1225,6 +1243,7 @@
       avoidTargets(i);
       keepAutoAttack(i, cb);
       dispelRoots(i, cb);
+      grayStep(i, cb);
     } catch (e) {
       const msg = String(e?.message ?? e);
       if (state.lastFastError !== msg) log(`fast tick failed: ${msg}`);
@@ -1258,7 +1277,8 @@
      * "gorged|hungered|famished", item: "Power of Water" }`. Without `item` the errand farms
      * those enemies for `minutes`, e.g. `{ zone: "nektulos", keep: "wisp", minutes: 60 }` for
      * lightstones. `minCon` lowers AutoLevel's con filter for weaker enemies and `minutes` caps
-     * the hunt. `errand(null)` ends a running one.
+     * the hunt. `gray: true` fights enemies that con gray through the Enemy Targets action with
+     * AutoLevel off (`grayStep`), for a party far above them. `errand(null)` ends a running one.
      */
     async errand(opts) {
       const i = iq();
@@ -1266,20 +1286,21 @@
         if (state.errand) await endErrand(i, "stopped", false);
         return "no errand";
       }
-      const { zone, keep, item = null, minutes = 40, minCon = null } = opts;
+      const { zone, keep, item = null, minutes = 40, minCon = null, gray = false } = opts;
       if (state.errand) throw new Error(`the errand in ${state.errand.zone} is still running`);
       if (!zone || !keep) throw new Error("an errand needs zone and keep");
       new RegExp(keep);
       if (item && hasItem(i, item)) return `already carrying ${item}`;
       const cb = i.stores.combat.getState();
       const what = item ? `${item} from enemies matching ${keep}` : `enemies matching ${keep}`;
-      state.errand = { zone, keep, item, minutes, minCon, limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
-      log(`errand: ${what} in ${zone}, up to ${minutes} min`);
+      state.errand = { zone, keep, item, minutes, minCon, gray, attackOnArrival: Boolean(cb.enemyTargetAttackOnArrival), limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
+      log(`errand: ${what} in ${zone}${gray ? " through Enemy Targets" : ""}, up to ${minutes} min`);
       if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand: ${what}`))) {
         state.errand = null;
         throw new Error(`could not move to ${zone}`);
       }
       if (minCon != null) i.stores.combat.getState().setMinCon(minCon);
+      if (gray) i.stores.combat.getState().setIsRunning(false);
       Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
       return `hunting ${what} in ${zone}`;
     },
