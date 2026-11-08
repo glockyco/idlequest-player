@@ -10,13 +10,152 @@
 // Evaluate this file as a page expression. It returns `window.iq`. Evaluating it again replaces
 // the previous install after removing its socket wrappers.
 (async () => {
-  const socketMethods = ["observeIncomingOpcode", "sendJsonMessage", "sendStreamJsonMessage", "sendJsonRequest", "sendCorrelatedJsonRequest"];
+  // BEGIN CLIENT_SURFACE
+  // Everything the SDK and the bot need from the client, in one place. The check
+  // (tools/check-client.mjs) and the snapshot tool evaluate this block on their own, so it has to
+  // stay self-contained. A store is found by the `find` keys of its state. `actions` are the
+  // functions of that state the SDK calls, `state` the values it reads. A store, the socket or the
+  // dispatcher that is missing stops the bridge. Any other missing name is listed in `missingApi`.
+  const CLIENT_SURFACE = (() => {
+    const ASSET_RE = /\/assets\/[^/?#]+\.js(?:[?#]|$)/;
+    const STORES = {
+      combat: {
+        find: ["startAutoLevel", "setAutomatedCombatMode", "currentZone"],
+        actions: ["setMinCon", "setMaxCon", "setMaxLevelDiff", "setIsRunning", "setPlayerSitting", "toggleSpellbook", "toggleNote", "toggleMerchantList", "openManageMoney", "closeManageMoney", "setCombatSkillMacrosOpen", "toggleAutoUpgradeCompanions"],
+        state: ["isRunning", "isZoneLoading", "isPlayerSitting", "isSpellbookOpen", "isNoteOpen", "isMerchantListOpen", "isCombatSkillMacrosOpen", "isAutoAttacking", "isAutoAttackEnabled", "currentZoneNPCs", "engagedMobs", "minCon", "maxCon", "maxLevelDiff", "noAutoSellBagInstanceIds", "automatedCombatMode", "companionAggression", "activeCombatTargetSpawnInstanceId", "targetNPC"],
+      },
+      character: {
+        find: ["characterProfile", "handleCharacterData"],
+        actions: ["moveItemToSlot"],
+        state: ["characterProfileLoaded"],
+      },
+      spellbook: {
+        find: ["scribedSpells", "memorizedSpells", "memorizeSpell"],
+        actions: ["scribeSpell", "unmemorizeSpell"],
+        state: [],
+      },
+      companions: {
+        find: ["companions", "summonPet", "addWarrior"],
+        actions: ["addCleric", "addRogue", "dismissPet", "transferHeldItem", "controlAccountCharacter", "requestAccountCharacterAvailability", "loadBotItemsAndRecalc"],
+        state: ["botInventories", "botCombatDataMap", "botComputedStats"],
+      },
+      skills: { find: ["skills", "setInCombat"], actions: [], state: ["inCombat"] },
+      screen: { find: ["currentScreen", "setScreen"], actions: [], state: [] },
+      roster: { find: ["characters", "enterWorld", "deleteCharacter"], actions: [], state: [] },
+      chat: { find: ["messages", "addMessage", "lastTellSender"], actions: [], state: ["nextId"] },
+      staticData: { find: ["zones", "races", "classes", "deities"], actions: [], state: [] },
+      raid: { find: ["setGroupCommand", "isRaidOpen"], actions: [], state: ["raidModeActive"] },
+      merchant: { find: ["merchants", "selectedMerchant", "merchantItems"], actions: [], state: [] },
+      partyTactics: { find: ["meleeByCharacterId", "setTactic"], actions: [], state: ["overridesByCharacterId"] },
+      partySpells: { find: ["castingPreferences", "setPetPreference"], actions: ["setTactic", "setCastingPreferences"], state: ["overridesByCompanion"] },
+    };
+    const SOCKET = {
+      find: ["sendJsonRequest", "worldReady"],
+      // Wrapped by the traffic log, so `window.iq` removes the wrappers before it installs again.
+      methods: ["observeIncomingOpcode", "sendJsonMessage", "sendStreamJsonMessage", "sendJsonRequest", "sendCorrelatedJsonRequest"],
+      other: ["buildConnectionQuery"],
+      state: ["isConnected"],
+    };
+    // The command dispatcher carries this error code. `session.createCharacter` is the command the SDK sends.
+    const DISPATCHER = "command-error";
+    // The dialogue functions of `talk`, found by their minified export names.
+    const isDialogue = (m) => typeof m.l === "function" && typeof m.j === "function" && typeof m.s === "function";
+
+    const isStore = (v) => typeof v === "function" && typeof v.getState === "function" && typeof v.subscribe === "function";
+    const stateOf = (store) => {
+      try {
+        return store.getState();
+      } catch {
+        return null;
+      }
+    };
+
+    /** Finds the stores, the socket, the dispatcher and the dialogue module among the loaded modules `{ file: exports }`. */
+    function discover(mods) {
+      const stores = {};
+      let socket = null;
+      for (const m of Object.values(mods)) {
+        for (const v of Object.values(m)) {
+          if (!socket && v && typeof v === "object" && SOCKET.find.every((k) => k in v) && typeof v.sendJsonRequest === "function") {
+            socket = v;
+            continue;
+          }
+          if (!isStore(v)) continue;
+          const st = stateOf(v);
+          if (!st) continue;
+          for (const [name, spec] of Object.entries(STORES)) {
+            if (!stores[name] && spec.find.every((k) => k in st)) stores[name] = v;
+          }
+        }
+      }
+      const command = Object.values(mods).flatMap((m) => Object.values(m)).find((v) => typeof v === "function" && String(v).includes(`"${DISPATCHER}"`)) ?? null;
+      const dialogue = Object.values(mods).find(isDialogue) ?? null;
+      return { stores, socket, command, dialogue };
+    }
+
+    /** One row `{ kind, name, ok }` for every part of the surface, in a fixed order. */
+    function audit({ stores, socket, command, dialogue }) {
+      const rows = [];
+      const row = (kind, name, ok) => rows.push({ kind, name, ok: Boolean(ok) });
+      row("socket", "socket", socket);
+      if (socket) {
+        for (const k of [...SOCKET.methods, ...SOCKET.other]) row("socket", `socket.${k}`, typeof socket[k] === "function");
+        for (const k of SOCKET.state) row("socket", `socket.${k}`, k in socket);
+      }
+      for (const [name, spec] of Object.entries(STORES)) {
+        row("store", name, stores[name]);
+        const st = stores[name] && stateOf(stores[name]);
+        if (!st) continue;
+        for (const k of spec.actions) row("action", `${name}.${k}`, typeof st[k] === "function");
+        for (const k of spec.state) row("state", `${name}.${k}`, k in st);
+      }
+      row("dispatcher", "dispatcher", command);
+      row("module", "dialogue", dialogue);
+      return rows;
+    }
+
+    // Compact form of an ISO time: 2026-11-08T00:46:44.564Z -> 20261108T004644.
+    const compactTime = (t) => String(t).replace(/\.\d+Z$/, "").replace(/[-:]/g, "");
+    // 53-bit string hash (cyrb53), the same in the page and in Bun.
+    const hash = (str) => {
+      let h1 = 0xdeadbeef;
+      let h2 = 0x41c6ce57;
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+      }
+      h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+      h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+      return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+    };
+
+    return {
+      STORES,
+      SOCKET,
+      DISPATCHER,
+      ASSET_RE,
+      discover,
+      audit,
+      /** Sorted, unique file names of the /assets/*.js entries in a list of URLs. */
+      assetNames: (urls) => [...new Set(urls.filter((u) => ASSET_RE.test(u)).map((u) => u.split(/[?#]/)[0].split("/").pop()))].sort(),
+      /** The release string the page HTML carries in its `<!-- Build v... -->` comment. */
+      buildTag: (html) => /<!--\s*Build v(\S+?)\s*-->/.exec(html)?.[1] ?? null,
+      /** Names a client build: its release time and a hash of the entry script names. */
+      releaseId: (clientRelease, names) => `${clientRelease ? compactTime(clientRelease) : "unknown"}-${hash(names.join("\n")).slice(0, 8)}`,
+      /** The module scripts a page's HTML declares, which for the client is the one entry bundle. */
+      declaredInHtml: (html) => [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]).filter((t) => /\btype="module"/.test(t)).map((t) => /\bsrc="([^"]+)"/.exec(t)?.[1]).filter(Boolean),
+    };
+  })();
+  // END CLIENT_SURFACE
+
+  const socketMethods = CLIENT_SURFACE.SOCKET.methods;
   if (window.iq) {
     // Wrappers are instance properties that shadow prototype methods, so deleting them restores the originals.
     for (const fn of socketMethods) if (window.iq.socket) delete window.iq.socket[fn];
   }
 
-  const ASSET_RE = /\/assets\/[^/?#]+\.js(?:[?#]|$)/;
+  const ASSET_RE = CLIENT_SURFACE.ASSET_RE;
 
   // Import only modules the page already loaded, so nothing new is fetched or evaluated.
   const urls = [
@@ -36,48 +175,33 @@
     }
   }
 
-  const has = (st, ...keys) => st && keys.every((k) => k in st);
-  const isStore = (v) => typeof v === "function" && typeof v.getState === "function" && typeof v.subscribe === "function";
-  const STORE_SIGNATURES = {
-    combat: (s) => has(s, "startAutoLevel", "setAutomatedCombatMode", "currentZone"),
-    character: (s) => has(s, "characterProfile", "handleCharacterData"),
-    spellbook: (s) => has(s, "scribedSpells", "memorizedSpells", "memorizeSpell"),
-    companions: (s) => has(s, "companions", "summonPet", "addWarrior"),
-    skills: (s) => has(s, "skills", "setInCombat"),
-    screen: (s) => has(s, "currentScreen", "setScreen"),
-    roster: (s) => has(s, "characters", "enterWorld", "deleteCharacter"),
-    chat: (s) => has(s, "messages", "addMessage", "lastTellSender"),
-    staticData: (s) => has(s, "zones", "races", "classes", "deities"),
-    raid: (s) => has(s, "setGroupCommand", "isRaidOpen"),
-    merchant: (s) => has(s, "merchants", "selectedMerchant", "merchantItems"),
-    partyTactics: (s) => has(s, "meleeByCharacterId", "setTactic"),
-    partySpells: (s) => has(s, "castingPreferences", "setPetPreference"),
-  };
+  const { stores, socket, command, dialogue } = CLIENT_SURFACE.discover(mods);
+  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue });
+  const missingStores = surfaceReport.filter((r) => !r.ok && (r.kind === "store" || r.kind === "socket")).map((r) => r.name);
+  if (missingStores.length) throw new Error(`bridge: could not find ${missingStores.join(", ")}`);
+  // Anything else the SDK calls that this client lacks is reported, not fatal: the rest keeps working.
+  const missingApi = surfaceReport.filter((r) => !r.ok).map((r) => r.name);
 
-  const stores = {};
-  let socket = null;
-  for (const m of Object.values(mods)) {
-    for (const v of Object.values(m)) {
-      if (!socket && v && typeof v === "object" && typeof v.sendJsonRequest === "function" && "worldReady" in v) {
-        socket = v;
-        continue;
-      }
-      if (!isStore(v)) continue;
-      let st;
-      try {
-        st = v.getState();
-      } catch {
-        continue;
-      }
-      for (const [name, test] of Object.entries(STORE_SIGNATURES)) {
-        if (!stores[name] && test(st)) stores[name] = v;
-      }
-    }
+  // ---- Release ------------------------------------------------------------------------------
+  // `release` names the client build: its release string plus the name of the entry script the
+  // page HTML declares. The bundler hashes the entry name over everything it imports, so the name
+  // changes with any change of the client. The set of loaded files cannot name a build, because
+  // it grows as screens open and the bundler adds preload links at run time. The bot compares the
+  // id with the one of the previous page to notice an update. `assets` lists what is loaded now.
+  const declared = [...document.querySelectorAll("script[type=module][src]")].map((e) => e.src);
+  let clientRelease = null;
+  try {
+    clientRelease = new URLSearchParams(socket.buildConnectionQuery()).get("client_release");
+  } catch {
+    /* the client no longer builds its connection query this way */
   }
-  const missing = Object.keys(STORE_SIGNATURES).filter((n) => !stores[n]);
-  if (!socket || missing.length) {
-    throw new Error(`bridge: could not find ${[!socket && "socket", ...missing].filter(Boolean).join(", ")}`);
+  if (!clientRelease) {
+    // The page HTML names the build in a comment.
+    const comments = document.createTreeWalker(document, NodeFilter.SHOW_COMMENT);
+    for (let c = comments.nextNode(); c && !clientRelease; c = comments.nextNode()) clientRelease = CLIENT_SURFACE.buildTag(`<!--${c.data}-->`);
   }
+  const release = CLIENT_SURFACE.releaseId(clientRelease, CLIENT_SURFACE.assetNames(declared));
+  const assets = CLIENT_SURFACE.assetNames(urls);
 
   // ---- Traffic log -------------------------------------------------------------------------
   // Tee packets by wrapping instance methods. NEVER assign to socket.onJson or any other
@@ -284,9 +408,11 @@
     },
   };
   const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
-  const zoneChanger = () => Object.values(mods).map((m) => m.rs).find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
+  // Minified export names change with every client release, so search every export by content.
+  const allExports = () => Object.values(mods).flatMap((m) => Object.values(m));
+  const zoneChanger = () => allExports().find((f) => typeof f === "function" && String(f).includes("WorldSocket not connected") && String(f).includes("zoneName"));
   // The combat runtime singleton: the chunk export whose instance has the live combat scene.
-  const runtime = () => Object.values(mods).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
+  const runtime = () => allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })())?.getInstance();
   const guardDanger = () => {
     const cfg = guard.config;
     const cb = stores.combat.getState();
@@ -423,6 +549,15 @@
     mods,
     stores,
     socket,
+    command,
+    /** Client build id (release time and hash of the declared files), stable for the life of a page. */
+    release,
+    clientRelease,
+    /** File names of the /assets/*.js modules loaded so far. */
+    assets,
+    /** Parts of the client surface (CLIENT_SURFACE) this client lacks. Empty when the SDK fits. */
+    missingApi,
+    surface: CLIENT_SURFACE,
     log,
     kills,
     samples,
@@ -568,7 +703,7 @@
 
     /** Start a conversation with an NPC in the current zone, or say a keyword to the current one. */
     async talk(npcName, keyword = null) {
-      const C8 = Object.values(mods).find((m) => typeof m.l === "function" && typeof m.j === "function" && typeof m.s === "function");
+      const C8 = dialogue;
       if (!C8) throw new Error("bridge: dialogue functions not found");
       const npc = stores.combat.getState().currentZoneNPCs.find((n) => n.name.replace(/_/g, " ").toLowerCase() === npcName.toLowerCase().replace(/_/g, " "));
       if (!npc) throw new Error(`no NPC named ${npcName} in this zone`);

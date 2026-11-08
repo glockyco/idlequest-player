@@ -14,7 +14,9 @@
   if (prev?.timerId) clearInterval(prev.timerId);
   if (prev?.fastTimerId) clearInterval(prev.fastTimerId);
 
-  // Settings changed with `set` are saved in localStorage and override these defaults.
+  // Settings changed with `set` override these defaults and are saved in the tab's sessionStorage.
+  // It survives reloads of that tab, and a second session's tab does not see it, so two groups
+  // never share a party list.
   const KEY = "iqBot.config";
   const DEFAULTS = {
     enabled: true,
@@ -63,10 +65,11 @@
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     autoBandRotation: true, // update `rotation` from the band table when the leader enters a new level band
+    releaseProbeMin: 10, // ask the site this often whether a newer client release is served (0 = never)
   };
   let saved = {};
   try {
-    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {};
+    saved = JSON.parse(sessionStorage.getItem(KEY) ?? "{}") ?? {};
   } catch {
     saved = {};
   }
@@ -94,6 +97,9 @@
     noEnemies: [], // times of "No available enemies found in this zone"
     noEnemiesAlertAt: 0,
     rejoinAt: 0,
+    releaseChecked: null, // client release the page was last compared with the stored one
+    releaseProbeAt: 0, // when the site was last asked which client release it serves
+    remoteRelease: null, // the newer release already alerted about
     zone: null,
     lastError: null,
     upkeepDue: false, // set by level-ups, spell purchases and every install
@@ -113,7 +119,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const iq = () => window.iq;
   // The client's game runtime: combat scene, target approach and the Auto Attack button's handler.
-  const runtime = (i) => Object.values(i.mods ?? {}).map((m) => m.G).find((g) => typeof g?.getInstance === "function" && g.getInstance()?.combatScene)?.getInstance();
+  const runtime = (i) => Object.values(i.mods ?? {}).flatMap((m) => Object.values(m)).find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })())?.getInstance();
 
   const log = (text) => {
     state.actions.push({ t: now(), text });
@@ -128,6 +134,12 @@
   };
 
   // Client functions are found by text they contain, because the release build renames exports.
+  // `tools/check-client.mjs` reads this table to see whether a new client still has them.
+  const CLIENT_FN = {
+    sell: "Sale confirmation was interrupted",
+    autoBank: "No eligible ingredients or spell scrolls found",
+    autoPlace: "Auto-placing",
+  };
   const findClientFn = (needle) => {
     for (const m of Object.values(iq().mods)) {
       for (const v of Object.values(m)) {
@@ -141,14 +153,14 @@
   // Sell Item button sends for the cursor and a merchant window sends for a selected item.
   let sellAtFn = null;
   const sellAt = (bag, slot) => {
-    sellAtFn ??= findClientFn("Sale confirmation was interrupted");
+    sellAtFn ??= findClientFn(CLIENT_FN.sell);
     return sellAtFn(bag, slot);
   };
   // The call behind the Auto Bank macro: it sends crafting ingredients and spell scrolls to the
   // tradeskill bank by courier. Nothing is sold or destroyed.
   let autoBankFn = null;
   const autoBank = () => {
-    autoBankFn ??= findClientFn("No eligible ingredients or spell scrolls found");
+    autoBankFn ??= findClientFn(CLIENT_FN.autoBank);
     return autoBankFn();
   };
 
@@ -318,7 +330,7 @@
   // The client's auto-place call, which puts the cursor item into the first place that fits.
   let autoPlaceFn = null;
   const autoPlace = () => {
-    autoPlaceFn ??= findClientFn("Auto-placing");
+    autoPlaceFn ??= findClientFn(CLIENT_FN.autoPlace);
     return autoPlaceFn();
   };
 
@@ -544,6 +556,54 @@
     alert("dispel", `${root.id} rooted (spell ${root.spellId}, caster level ${root.casterLevel}) with ${Math.round(left)}s left between fights; cures on for ${active.map((c) => c.name).join(", ")}, expected ${Math.round(expected)}s`);
   };
 
+  // A client update changes the build the page runs, and the SDK may no longer fit it. The page runs
+  // one build until it reloads, so the bot compares this page's release with the last one the tab
+  // or the browser saw, and it asks the site every few minutes which build a reload would load.
+  const RELEASE_KEY = "iqBot.release";
+  const missingClientFns = (i) => {
+    const lost = [];
+    for (const [name, needle] of Object.entries(CLIENT_FN)) {
+      try {
+        findClientFn(needle);
+      } catch {
+        lost.push(`fn.${name}`);
+      }
+    }
+    return lost;
+  };
+  const watchRelease = async (i) => {
+    if (!i.release) return;
+    if (state.releaseChecked !== i.release) {
+      state.releaseChecked = i.release;
+      let last = null;
+      try {
+        last = sessionStorage.getItem(RELEASE_KEY) ?? localStorage.getItem(RELEASE_KEY);
+        sessionStorage.setItem(RELEASE_KEY, i.release);
+        localStorage.setItem(RELEASE_KEY, i.release);
+      } catch {
+        /* storage unavailable */
+      }
+      const missing = [...(i.missingApi ?? []), ...missingClientFns(i)];
+      const changed = last && last !== i.release;
+      if (changed || missing.length) {
+        alert("clientUpdate", `${changed ? `client changed from ${last} to ${i.release}` : `client ${i.release}`}; ${missing.length ? `it lacks ${missing.join(", ")}, which the SDK uses` : "it has everything the SDK uses"}. Run tools/check-client.mjs and read the diff (tools/client-snapshot.mjs --diff)`, true);
+      }
+    }
+    if (!config.releaseProbeMin || !i.surface?.releaseId || now() - state.releaseProbeAt < config.releaseProbeMin * 60000) return;
+    state.releaseProbeAt = now();
+    try {
+      const html = await (await fetch("/play", { cache: "no-store", signal: AbortSignal.timeout(15000) })).text();
+      const tag = i.surface.buildTag(html);
+      const id = tag && i.surface.releaseId(tag, i.surface.assetNames(i.surface.declaredInHtml(html)));
+      if (id && id !== i.release && state.remoteRelease !== id) {
+        state.remoteRelease = id;
+        alert("clientUpdate", `the site serves client ${id} while this page runs ${i.release}; a reload loads it. Run tools/client-snapshot.mjs and tools/check-client.mjs first`, true);
+      }
+    } catch {
+      /* offline or blocked: ask again next time */
+    }
+  };
+
   const watchConnection = (i) => {
     const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
     if (ok) {
@@ -644,7 +704,7 @@
     if (band && JSON.stringify(band) !== JSON.stringify(config.rotation)) {
       config.rotation = [...band];
       saved.rotation = [...band];
-      localStorage.setItem(KEY, JSON.stringify(saved));
+      sessionStorage.setItem(KEY, JSON.stringify(saved));
       log(`updated rotation for level ${lvl}: ${band.join(", ")}`);
     }
   };
@@ -953,6 +1013,7 @@
       const i = iq();
       if (!i?.stores || typeof i.bagSpace !== "function") return;
       watchConnection(i);
+      await watchRelease(i);
       const cb = i.stores.combat.getState();
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
       scanEvents(i);
@@ -1063,7 +1124,7 @@
           config[k] = v;
         }
       }
-      localStorage.setItem(KEY, JSON.stringify(saved));
+      sessionStorage.setItem(KEY, JSON.stringify(saved));
       if ("tickSec" in partial) {
         clearInterval(bot.timerId);
         bot.timerId = setInterval(tick, config.tickSec * 1000);

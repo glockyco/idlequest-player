@@ -421,6 +421,113 @@ export async function attach(tab) {
       }
     },
 
+    /**
+     * Camp the active character and enter the world as another account character, with the Camp
+     * button and the character select screen. The earlier leader and party then rejoin as the new
+     * leader's companions, and the bot's `partyIds` is updated so it keeps them grouped. AutoLevel
+     * restarts with the same limits if it was running. Tactics need no copying: companions' tactics
+     * are keyed by character id, and a leader's own tactics by its id (docs/client-internals.md).
+     * `atSelect` runs at character select before entering, for example to create characters.
+     * Resolves with the new leader's name, zone and party.
+     */
+    async switchCharacter(name, { atSelect } = {}) {
+      const before = await tab.evaluate(() => {
+        const s = window.iq.stores;
+        const me = s.character.getState().characterProfile;
+        return {
+          leaderId: me.id,
+          chars: (s.roster.getState().characters ?? []).map((c) => ({ id: c.id, name: c.name })),
+          partyIds: window.iqBot?.config.partyIds ?? [],
+        };
+      });
+      const target = before.chars.find((c) => c.name.toLowerCase() === String(name).toLowerCase());
+      if (!target) throw new Error(`no account character named ${name}`);
+      if (target.id === before.leaderId) throw new Error(`${target.name} is already the active character`);
+      const party = [...new Set([...before.partyIds, before.leaderId])].filter((id) => id !== target.id);
+      const until = async (what, timeoutMs, fn, ...args) => {
+        for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) if (await tab.evaluate(fn, ...args)) return;
+        throw new Error(`timed out waiting for ${what}`);
+      };
+      return handle.pausedAutoLevel(async () => {
+        await until("the fight to end", 120000, () => !window.iq.stores.skills.getState().inCombat);
+        await handle.clearWindows();
+        await tab.click('role/button[name="Camp" exact]');
+        await until("character select", 90000, () => window.iq.stores.screen.getState().currentScreen === "characterSelect");
+        if (atSelect) await atSelect();
+        const listed = () => tab.evaluate((n) => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === n), target.name);
+        // Character select shows eight characters per page.
+        for (let p = 0; p < 10 && !(await listed()); p++) {
+          await tab.click('role/button[name="Next page" exact]');
+          await sleep(800);
+        }
+        await tab.click(`role/button[name="${target.name}" exact]`);
+        await tab.click('role/button[name="ENTER WORLD" exact]');
+        await until(`${target.name} in the world`, 180000, (id) => {
+          const s = window.iq.stores;
+          return s.screen.getState().currentScreen === "game" && !s.combat.getState().isZoneLoading && s.character.getState().characterProfile?.id === id;
+        }, target.id);
+        return tab.evaluate(async (ids) => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const s = window.iq.stores;
+          if (window.iqBot) window.iqBot.set({ partyIds: ids });
+          const present = () => new Set((s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => c.characterId));
+          s.companions.getState().requestAccountCharacterAvailability();
+          for (const id of ids) {
+            await sleep(2500);
+            if (!present().has(id)) s.companions.getState().controlAccountCharacter(id);
+          }
+          for (let k = 0; k < 60 && ids.some((id) => !present().has(id)); k++) await sleep(1000);
+          const me = s.character.getState().characterProfile;
+          const zone = s.staticData.getState().zones.find((z) => z.zoneidnumber === s.combat.getState().currentZone);
+          return { leader: me.name, zone: zone?.longName ?? null, party: (s.companions.getState().companions ?? []).filter((c) => c.companionType === 2).map((c) => c.name), missing: ids.filter((id) => !present().has(id)) };
+        }, party);
+      });
+    },
+
+    /**
+     * Create an account character with the client's own command (`session.createCharacter`,
+     * `.re/js/C8.pretty.js:3085-3122`, `4393-4480`). It checks the race, class and deity combination
+     * and applies the stat allocation the server lists for it. `race`, `className`, `deity` and
+     * `startZone` take names. Deity and start zone default to the first valid ones (Agnostic when
+     * allowed). Works only at character select, because the command switches to that screen when
+     * it finishes. Resolves with the client's result `{ ok, message, data }`, `ok` false on failure.
+     */
+    async createCharacter({ name, race, className, deity, startZone, gender }) {
+      const spec = JSON.stringify({ type: "session.createCharacter", name, race, className, deity, startZone, gender });
+      return tab.evaluate(async (json) => {
+        if (window.iq.stores.screen.getState().currentScreen !== "characterSelect") throw new Error("createCharacter needs the character select screen");
+        if (!window.iq.command) throw new Error("the client's command dispatcher was not found");
+        return window.iq.command(JSON.parse(json));
+      }, spec);
+    },
+
+    /**
+     * Set group 1's measured tactics on every member of the current party by class: support casters
+     * (Cleric, Druid, Shaman, Enchanter) neither nuke nor DoT, and support classes do not cure,
+     * because the readiness wait holds the whole party for their mana and their cure casts
+     * (docs/guide.md, "First hour of a new group"). Enchanters keep crowd control and debuffs.
+     * Other tactics and classes keep the game's defaults. Resolves with the tactics set per member.
+     */
+    async applyRoleTactics() {
+      const ROLE = {
+        Cleric: { nuke: false, dot: false, cure: false, cc: false },
+        Druid: { nuke: false, dot: false, cure: false },
+        Shaman: { nuke: false, dot: false, cure: false },
+        Enchanter: { nuke: false, dot: false, cure: false, cc: true, debuff: true },
+        Bard: { cure: false },
+        Paladin: { cure: false },
+      };
+      const r = await handle.roster();
+      const set = {};
+      for (const m of [r.me, ...r.party]) {
+        const t = ROLE[m.class];
+        if (!t) continue;
+        for (const [k, v] of Object.entries(t)) await handle.setTactic(m.name, k, v);
+        set[m.name] = t;
+      }
+      return set;
+    },
+
     /** The bot's compact report: level, XP/hour, bag space, AutoLevel, recent actions and alerts after `sinceSeq`. */
     botReport: (sinceSeq = 0) => tab.evaluate((s) => window.iqBot.report(s), sinceSeq),
 
@@ -435,8 +542,9 @@ export async function attach(tab) {
     },
 
     /**
-     * Change bot settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`; `null` restores a
-     * default. They persist in the browser. Sent as JSON because tab arguments drop null values.
+     * Change bot settings, e.g. `{ minFreeSlots: 12 }` or `{ enabled: false }`. `null` restores a
+     * default. They persist in this tab across reloads, and a second session's tab keeps its own.
+     * Sent as JSON because tab arguments drop null values.
      */
     setBot: (partial) => tab.evaluate((json) => window.iqBot.set(JSON.parse(json)), JSON.stringify(partial)),
 

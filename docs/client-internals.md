@@ -12,8 +12,17 @@ game server, so the client only sends a request.
   completion (`BQ.pretty.js:23918-23930`) and owns the account, inventory, zone and session
   state. A running tab is required for automation.
 - State lives in zustand stores. Each store has `getState()` and `subscribe()`, and its actions are
-  functions on the state. `src/bridge.js` locates stores by state keys (`STORE_SIGNATURES`)
+  functions on the state. `src/bridge.js` locates stores by state keys (`CLIENT_SURFACE`)
   because export names and chunk file names change on every release.
+- A client build is named by `window.iq.release`: the compact release time the client sends as
+  `client_release` (`main.pretty.js:3553`, also the page's `<!-- Build v... -->` comment) and a
+  hash of the entry script's file name. The bundler hashes that name over everything the entry
+  imports, so any client change changes it, and the set of loaded files cannot serve instead
+  because it grows as screens open. `CLIENT_SURFACE` in `src/bridge.js` is the one list of what
+  the SDK needs from a build (stores, the actions and state keys it uses, the socket methods, the
+  command dispatcher and the dialogue functions), and `tools/check-client.mjs` runs its discovery
+  on a saved release, together with the client functions the bot finds by text (`CLIENT_FN` in
+  `src/bot.js`).
 
 ## Transport
 
@@ -47,6 +56,31 @@ game server, so the client only sends a request.
 `CharacterSpellbook` and `ZonePlayerSnapshot`, which the client applies through its own handlers
 (`C8.pretty.js:1060`, `1209-1254`). `socket.worldReady` turns true when `CharacterData` loads
 (`C8.pretty.js:1218`) and the zone and 3D scene load after that.
+
+## Camping, switching and creating characters
+
+- Camp (`Ia` and `va`, `C8.pretty.js:1542-1614`, the right sidebar's Camp button at
+  `engine.pretty.js:400172-400177`) saves and releases every account companion, sends the camp
+  request, resets the session and the game instance and shows character select. If the release
+  fails the camp is cancelled with a chat message.
+- Character select (`engine.pretty.js:1368-1500`) lists eight characters per page as buttons named
+  after them. ENTER WORLD calls the roster store's `enterWorld(name)` (`main.pretty.js:51993-52013`).
+  The same screen has the delete button, which opens a confirmation. `iq.switchCharacter` clicks
+  only the name and ENTER WORLD.
+- After entering, the party holds no account characters. `requestAccountCharacterAvailability()`
+  and `controlAccountCharacter(id)` bring them back, which the bot's `partyIds` repeats.
+- The client has one command dispatcher for its UI (`Fa`, `C8.pretty.js:2463-2718`), exposed by
+  the bridge as `window.iq.command`. Its `session.createCharacter` (`3085-3122`) resolves race,
+  class, deity and start zone names against the creation combinations, applies the stat
+  allocation the server lists for the combination (`4393-4480`) and switches to character
+  select. Commands named `debug.*` need a test mode and fail otherwise. The combinations hold the
+  fourteen classic classes only: Beastlord and Berserker exist in the class list without any.
+- `session.deleteCharacter` with `selector` set to a name (`C8.pretty.js:3123-3148`) deletes that
+  character immediately, without a confirmation. It also runs while another character is in the
+  world, but after nine deletions there the world session stopped confirming combat requests
+  ("The combat request could not be confirmed") and camping failed with "World session is not
+  ready", so only a reload and a new login recovered it. Delete only at character select, and
+  check the name and level before sending it.
 
 ## Combat runtime and AutoLevel
 

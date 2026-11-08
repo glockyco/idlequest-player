@@ -27,7 +27,7 @@ interface Bot {
   errand(opts: { zone: string; keep: string; item: string; minutes?: number; minCon?: number } | null): Promise<string>;
 }
 interface FakeGlobals {
-  localStorage: { getItem(): null; setItem(): void };
+  sessionStorage: { getItem(): null; setItem(): void };
   window: unknown;
   iq: unknown;
   iqBot?: Bot;
@@ -129,7 +129,7 @@ async function install(partyIds: number[] = []) {
   };
   // bot.js reads the page's globals, so the test provides them on globalThis.
   const g = globalThis as unknown as FakeGlobals;
-  g.localStorage = { getItem: () => null, setItem: () => {} };
+  g.sessionStorage = { getItem: () => null, setItem: () => {} };
   g.window = globalThis;
   g.iqBot = undefined;
   const iq = {

@@ -39,6 +39,7 @@ const party = await iq.roster();                    // every character: class, l
 await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also the active character, or "cleric", "warrior", "rogue")
 await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con values: 2 green, 4 blue, 10 white, 15 yellow, 13 red
 await iq.pausedAutoLevel(() => iq.travelTo("Greater Faydark"));  // pause, run, restart if it was running
+await iq.switchCharacter("Tagujazolu");            // camp, enter as another account character, regroup the party
 ```
 
 Merchant spells are bought automatically when the game's missing-spells reminder appears. This
@@ -56,7 +57,7 @@ bot first, because it starts AutoLevel again a minute after it stops.
 ```js
 const r = await iq.watch({ minutes: 50, sinceSeq: 0, exportDir: "runs/my-run" });
 await iq.pauseBot(30, "playing by hand");   // AutoLevel may stay off for 30 minutes
-await iq.setBot({ minFreeSlots: 10, keepItemIds: [10015, 13077] });  // settings persist in the browser
+await iq.setBot({ minFreeSlots: 10, keepItemIds: [10015, 13077] });  // settings persist in this tab across reloads
 ```
 
 Hunting grounds: `scoutZones` saves each zone's spawn list once, and `tools/zones.mjs` ranks zones
@@ -172,6 +173,25 @@ by testing which one makes every kill's XP fit a whole NPC level.
   zone entry.
 - Validate any new indicator against the game's messages before building on it.
 
+## After a client update
+
+The bot raises a wake alert `clientUpdate` when the page runs a different client release than the
+one this tab or browser saw last, when the client lacks something the SDK uses, and when the site
+serves a release newer than the page runs (checked every `releaseProbeMin` minutes). `iq.release`
+names the running client and `iq.missingApi` lists the missing parts.
+
+1. `bun tools/client-snapshot.mjs` saves the live client to `.re/releases/<release>/` and prints
+   the release id. A release that is saved already is skipped.
+2. `bun tools/check-client.mjs [release dir]` runs the bridge's discovery on the saved bundles
+   and prints PASS or FAIL for every store, action, state key, dispatcher and client function the
+   SDK and the bot use. It exits with 1 on a FAIL. Fix each FAIL in `CLIENT_SURFACE`
+   (`src/bridge.js`) or `CLIENT_FN` (`src/bot.js`) before attaching.
+3. `bun tools/client-snapshot.mjs --diff <old> <new>` lists what changed by names that survive
+   minification: text and message templates, enum members such as option ids, action names, zone
+   names and renamed bundles. Arguments are release ids or directories.
+4. After `git pull` in the content repository, `bun tools/content-diff.mjs` lists the zones, NPC
+   types and spawns that changed and flags zones that enter the top 3 of a level band.
+
 ## Rules for contributors
 
 - Run `bun test` after changing `src/bot.js`. It runs the bot against a fake page, because a loop
@@ -183,13 +203,12 @@ by testing which one makes every kill's XP fit a whole NPC level.
   memory only ([docs/client-internals.md](docs/client-internals.md#authentication)), so a lost
   session means signing in again.
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
-  `.re/js/*.pretty.js` are the bundles from https://idlequest.net/assets/ formatted with the
-  prettier installed in `.re/`. After a client release, refresh them and regenerate the opcode
-  table with `bun tools/extract-opcodes.ts .re/js/main.pretty.js data/opcodes.json` and the
-  leader's spell table with `bun install && bun tools/class-spells.mjs`, which loads the client's
-  bundles under a DOM shim. Then check that the bridge and the bot still install (see
-  Troubleshooting). After a content snapshot update, regenerate the quest turn-in items the bot
-  keeps with `bun tools/quest-items.mjs`.
+  `bun tools/client-snapshot.mjs` saves each release to `.re/releases/<release>/`, with readable
+  copies in `pretty/` (see [After a client update](#after-a-client-update)). Regenerate the opcode
+  table with `bun tools/extract-opcodes.ts <release dir>/pretty/<entry>.js data/opcodes.json` and
+  the leader's spell table with `bun install && bun tools/class-spells.mjs`, which loads the
+  client's bundles under a DOM shim. After a content snapshot update, regenerate the quest
+  turn-in items the bot keeps with `bun tools/quest-items.mjs`.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end
   before opening the Travel window. The bot's pause is renewed while the work runs. If the script
@@ -203,14 +222,14 @@ by testing which one makes every kill's XP fit a whole NPC level.
 ## Troubleshooting
 
 - `bridge: could not find ...` when attaching: the client no longer has a store with the state keys
-  `STORE_SIGNATURES` in `src/bridge.js` looks for. Find the new keys in the prettified client and
-  update the signature.
+  `CLIENT_SURFACE` in `src/bridge.js` looks for. Find the new keys in the prettified client and
+  update the entry there. `iq.missingApi` lists parts of that surface the SDK calls and the
+  client no longer has.
 - `opcode table not loaded`: the bridge was evaluated without `attach`. Call `attach(tab)`, which
   loads `data/opcodes.json`.
 - `client function containing "..." not found` in `iqBot.report().recent` (as `tick failed`): the
-  bot finds the client's sell, Auto Bank and auto-place calls by a text they contain
-  (`findClientFn` in `src/bot.js`), and a release changed that text. Bag cleanup stops until the
-  needle is updated.
+  bot finds the client's sell, Auto Bank and auto-place calls by a text they contain (`CLIENT_FN`
+  in `src/bot.js`), and a release changed that text. Bag cleanup stops until the text is updated.
 - The world sticks on the loading screen: something replaced `socket.onJson` or another callback
   slot. Reload and sign in, and wrap instance methods instead.
 - AutoLevel stays off: `iq.botReport()` shows `paused` with a reason and an end time, and
