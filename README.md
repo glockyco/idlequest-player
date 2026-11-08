@@ -42,6 +42,19 @@ await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, re
 await iq.switchCharacter("Tagujazolu");            // camp, enter as another account character, regroup the party
 ```
 
+A new leveling group comes from a `planned` entry in `data/roster.json`. `createGroup` opens the
+tab `iq-<id>`, signs in from the local login files, creates the six characters with the race that
+has the best creation stats for each class, kits each one in Rivervale (starter weapon, packed
+general slots, a Backpack in every free general slot, coin from the richest character outside
+group 1), and starts AutoLevel in the level 1 band zone. It writes the names to the roster file as
+soon as they exist. It takes about six minutes. Check the machine's free memory before each group.
+
+```js
+const { attach } = await import("./src/client.mjs");
+const { createGroup } = await import("./src/group.mjs");
+await createGroup({ browser, attach, id: "G7" });
+```
+
 Merchant spells are bought automatically when the game's missing-spells reminder appears. This
 runs inside the page whether or not AutoLevel is active. To trigger it manually or disable it:
 
