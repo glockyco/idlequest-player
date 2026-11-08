@@ -260,8 +260,14 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` u
 - A weapon does not cancel an instrument. Most instruments fit only the main or off hand, so
   wielding a weapon there keeps the instrument off, while a ring or mask with a `bardtype`
   counts without that cost.
-- Outside raids, the party's support buffs also use one carried or worn strings, brass or
-  percussion instrument that the situation picks (`CAUokwED.js:1870-1966`).
+- Songs reach the party two ways, and worn instruments count in both. Cast songs (damage,
+  DoTs, heals, crowd control) use `W8` on worn items only. Buff songs (Chant of Battle, regen,
+  resist and haste songs) apply as party support (`Dt` 20095-20135, `wt` in `CAUokwED.js:1952-1966`),
+  which also takes one strings, brass or percussion instrument from the bags, by situation
+  (`Tt` `CAUokwED.js:1870-1881`): none in raids, out of combat strings when someone is hurt and
+  percussion otherwise, and in combat brass only while the Bard's melee and range are off,
+  which holds for a companion Bard by default but not for a Bard leader. Singing songs get the
+  Amplification bonus only when cast.
 
 ## Guard
 

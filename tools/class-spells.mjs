@@ -19,6 +19,7 @@
 //   hp         first effect when it changes hit points: negative damage, positive heal; the cap
 //              (max1) when the spell has one, else the base value
 //   durationTicks  buff or DoT duration in 6 s ticks, 0 for an instant spell
+//   skill      the casting skill, for Bards the instrument family (docs/client-internals.md)
 //   reagents   [{ id, count }] consumed per cast
 //   tags       control effects of a harmful spell, by the client's own tests (main.pretty.js, the
 //              slow/mez/stun/snare tagger): slow (SPA 11 below 100), mez (31), stun (21), snare
@@ -133,6 +134,7 @@ const facts = (r, classId) => {
     recastMs: r.recast_time,
     hp: hitPoints ? Math.sign(base) * (r.max1 || Math.abs(base)) : 0,
     durationTicks: r.buffduration,
+    skill: r.skill,
     reagents,
     tags: controlTags(r),
     contentLevel: r[`classes${classId}`],

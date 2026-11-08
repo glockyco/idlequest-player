@@ -10,8 +10,8 @@
   [28, ["unrest", "soldunga", "paw"]],
   [26, ["permafrost", "paw", "unrest"]],
   [22, ["permafrost", "runnyeye", "guktop"]],
-  [18, ["warrens", "permafrost", "runnyeye", "najena"]],
-  [14, ["warrens", "kurn", "runnyeye", "najena", "guktop"]],
+  [18, ["warrens", "permafrost", "runnyeye", "najena", "kerraridge"]],
+  [14, ["warrens", "kurn", "runnyeye", "najena", "guktop", "kerraridge"]],
   [11, ["warrens", "kurn", "befallen", "crushbone", "guktop", "najena"]],
   [8, ["warrens", "crushbone", "steamfont", "befallen"]],
   [1, ["steamfont", "nektulos", "misty"]]

@@ -1302,6 +1302,43 @@ test("client options are kept at the bot's values with their toggles, and set on
   expect((f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled).toBe(false);
 });
 
+test("a gear move with a merchant travels there, buys the item and gives it, and a held item is pulled", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const bag: Record<string, number> = {};
+    const log: string[] = [];
+    Object.assign(f.iq, {
+      carried: (item: string) => bag[item] ?? 0,
+      buyItem: async (item: string, merchant: string) => {
+        log.push(`buy ${item} from ${merchant}`);
+        bag[item] = (bag[item] ?? 0) + 1;
+        return { bought: 1, platinum: 10 };
+      },
+      pullItem: async (item: string, { from }: { from: string }) => {
+        log.push(`pull ${item} from ${from}`);
+        bag[item] = (bag[item] ?? 0) + 1;
+        return { got: true, from, reply: "Transferred." };
+      },
+      giveItem: async (item: string, id: number) => {
+        log.push(`give ${item} to ${id}`);
+        bag[item] -= 1;
+        return { ok: true, lines: [] };
+      },
+    });
+    f.bot.gear({ moves: [
+      { item: "Hand Drum", from: null, to: "Edroun", slot: "secondary", buy: { merchant: "Fania Esruc", zone: "permafrost", price: 0.1 } },
+      { item: "Fine Cloak", from: "Tagujazolu", to: "Edroun", slot: "back" },
+    ] });
+    await runToEnd(f);
+    expect(f.moves[0]).toBe("permafrost");
+    expect(log).toEqual(["buy Hand Drum from Fania Esruc", "give Hand Drum to 20", "pull Fine Cloak from Tagujazolu", "give Fine Cloak to 20"]);
+    expect(f.bot.state.task.result).toBe("2 of 2 moves");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a companion without the kept tactics gets them", async () => {
   const f = await install();
   delete (f.iq.stores.partySpells.getState() as { overridesByCompanion: Record<string, unknown> }).overridesByCompanion["character:10"];

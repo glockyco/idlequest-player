@@ -906,6 +906,16 @@
   };
 
   const watchConnection = (i) => {
+    // A zone that fails to load leaves the client's "Loading failed" window over a game screen,
+    // and nothing plays until its Try Again button is pressed, so the bot presses it.
+    if (typeof document !== "undefined" && /LOADING FAILED/i.test(document.body?.innerText ?? "")) {
+      const retry = [...document.querySelectorAll("button")].find((b) => /^TRY AGAIN$/i.test(b.textContent.trim()));
+      if (retry && now() - (state.loadRetryAt ?? 0) > 15000) {
+        state.loadRetryAt = now();
+        retry.click();
+        alert("loadFailed", "the zone did not finish loading; pressed Try Again");
+      }
+    }
     const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
     if (ok) {
       state.offlineSince = null;
@@ -1080,6 +1090,12 @@
       try {
         const to = findCharacter(i, mv.to);
         if (!to) throw new Error(`no account character ${mv.to}`);
+        if (mv.buy && i.carried(mv.item) < 1) {
+          if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
+          if (i.bagSpace().free < 1) await sellSurplus(i, true);
+          const r = await step(`buy ${mv.item} from ${mv.buy.merchant}`, () => i.buyItem(mv.item, mv.buy.merchant, 1), 240000);
+          if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
+        }
         if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
         const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: true }), 30000);
         if (!r.ok) throw new Error(`the transfer was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
@@ -1096,8 +1112,10 @@
   // quest NPCs answer and reward the character in front of them. A step travels to its zone, pulls
   // the items it hands over from whoever on the account holds them, then talks to its NPC with
   // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
-  // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), and
-  // checks that the member then carries `expect`. A hand-in is a quest of one `each` step per
+  // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), or crafts
+  // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id } }`, the inputs the catalog
+  // does not sell pulled first; the server crafts without a held container), and checks that the
+  // member then carries `expect`. A hand-in is a quest of one `each` step per
   // member. Entering the world puts a character where it last stood, and the zone store can lag
   // the switch, so the first step after a switch always travels, and later steps only to another
   // zone, because a zone change also moves the party back to the zone's entry.
@@ -1125,9 +1143,14 @@
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
       const need = { ...(s.each ?? {}) };
-      for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
+      for (const item of [...(s.give ?? []), ...(s.craft?.inputs ?? [])]) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
         while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+      }
+      if (s.craft) {
+        const c = s.craft;
+        const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: c.quantity ?? 1, skillId: c.skillId, output: c.output.id }), 120000);
+        log(`craft: ${c.output.item} ${r.successes} of ${r.attempted}${r.newSkillValue != null ? `, skill ${r.newSkillValue}` : ""}`);
       }
       // A script-spawned enemy appears a few seconds after the hand-in or kill that summons it, and a
       // fight the party did not reach is tried again, as a hunt does, until `waitSec` runs out.
@@ -1976,7 +1999,7 @@
     gear({ moves }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },

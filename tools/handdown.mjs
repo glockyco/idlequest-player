@@ -12,8 +12,8 @@ import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { rows } from "./lib/gear-data.mjs";
-import { planGear, rosterPeople } from "./lib/gear-plan.mjs";
+import { bardSongs, merchantGoods, rows } from "./lib/gear-data.mjs";
+import { BUY_PP, planGear, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
@@ -30,10 +30,10 @@ const groupOf = new Map(roster.groups.flatMap((g) => (g.members ?? []).map((n) =
 const db = new Database(`${REPO}runs/iq.db`, { readonly: true });
 const raceOf = new Map(db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
 const ids = new Set(survey.map((r) => r.itemId));
-const items = new Map();
+const { shop, items } = await merchantGoods(opt.content, { maxPp: BUY_PP });
 for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
 
-const { moves } = planGear({ survey, items, people: rosterPeople(survey, groupOf, raceOf), minGain: Number(opt["min-gain"]) });
+const { moves } = planGear({ survey, items, people: rosterPeople(survey, groupOf, raceOf), minGain: Number(opt["min-gain"]), songs: await bardSongs(), shop, buyPp: BUY_PP });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));
 else {
   const byGroup = Map.groupBy(moves, (m) => groupOf.get(m.to));
@@ -41,6 +41,6 @@ else {
   console.log(`${moves.length} moves from ${new Set(moves.map((m) => m.from)).size} carriers to ${new Set(moves.map((m) => m.to)).size} characters (survey of ${survey.length} rows)`);
   for (const g of order) {
     console.log(g);
-    for (const m of byGroup.get(g)) console.log(`  ${m.to.padEnd(12)} ${m.slot.padEnd(9)} ${m.item.padEnd(30)} +${String(m.gain).padStart(5)}  from ${m.from} (${groupOf.get(m.from) ?? "--"})${m.replaces ? `, replaces ${m.replaces}` : ""}`);
+    for (const m of byGroup.get(g)) console.log(`  ${m.to.padEnd(12)} ${m.slot.padEnd(9)} ${m.item.padEnd(30)} +${String(m.gain).padStart(5)}  ${m.buy ? `buy from ${m.buy.merchant} in ${m.buy.zone} for ${m.buy.price} pp` : `from ${m.from} (${groupOf.get(m.from) ?? "--"})`}${m.replaces ? `, replaces ${m.replaces}` : ""}`);
   }
 }

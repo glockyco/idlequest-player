@@ -975,6 +975,80 @@
     return c ? itemName(c) : null;
   };
   /**
+   * Buy `count` of `item` from `merchant` in the current zone: walk there through the Path To
+   * window (the merchant's row), wait for its goods, then press PURCHASE once per item. A purchase
+   * lands in a free general or bag slot. Stops early when a purchase adds nothing, such as for
+   * want of coin. Resolves with the number bought and the platinum left.
+   */
+  const buyItem = async (item, merchant, count = 1) => {
+    const cb = () => stores.combat.getState();
+    const ms = () => stores.merchant.getState();
+    if (ms().selectedMerchant?.name !== merchant) {
+      // Right after a zone change the list can still show the old zone, so it is opened afresh once.
+      let row = null;
+      for (let attempt = 0; attempt < 2 && !row; attempt++) {
+        if (attempt && cb().isMerchantListOpen) cb().toggleMerchantList();
+        if (attempt) await pause(1000);
+        if (!cb().isMerchantListOpen) cb().toggleMerchantList();
+        for (let k = 0; k < 40 && !row; k++) {
+          await pause(250);
+          row = [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? ""));
+        }
+      }
+      if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
+      row.parentElement.click();
+    }
+    let goods = null;
+    for (let end = Date.now() + 180000; !goods; await pause(1000)) {
+      if (Date.now() > end) throw new Error(`${merchant} did not open`);
+      const m = ms();
+      if (m.selectedMerchant?.name !== merchant || m.isLoadingItems || !(m.merchantItems ?? []).length) continue;
+      goods = m.merchantItems.find((g) => g.item?.name === item) ?? false;
+      if (goods === false) throw new Error(`${merchant} does not sell ${item}`);
+    }
+    let bought = 0;
+    for (; bought < count; bought++) {
+      // The PURCHASE button shows only for an item considered from the merchant's side.
+      ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
+      await pause(250);
+      const button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE");
+      if (!button || button.disabled) break;
+      const before = carried(item);
+      button.click();
+      for (let k = 0; k < 20 && carried(item) === before; k++) await pause(200);
+      if (carried(item) === before) break;
+    }
+    return { bought, platinum: stores.character.getState().characterProfile?.platinum ?? null };
+  };
+  /**
+   * Craft `quantity` attempts (1, 20 or 100) of tradeskill recipe `recipeId` with the Advanced
+   * recipe window's own requests (docs/plans/systems-research.md, section 2): buy the sets of its
+   * catalog ingredients the Tradeskill Bank lacks, craft (the server accepts no container, 0), and
+   * withdraw `output` from the bank into the bags. Resolves with the
+   * craft reply's counts and the number withdrawn.
+   */
+  const craftItem = async (recipeId, { quantity = 1, skillId, containerItemId = 0, output = null }) => {
+    const p = () => stores.character.getState().characterProfile;
+    const cat = await socket.sendJsonRequest(1045, 1046, { recipeId });
+    if (cat?.purchasable?.length) {
+      const b = await socket.sendJsonRequest(1047, 1048, { recipeId, quantity }, quantity > 1 ? 30000 : 10000);
+      if (!b?.success) throw new Error(`buying the ingredients failed: ${b?.error ?? "no reply"}`);
+    }
+    const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity, skillId, containerItemId }, 30000);
+    if (!r?.success) throw new Error(`the craft failed: ${r?.error ?? r?.message ?? "no reply"}`);
+    let withdrawn = 0;
+    if (output != null && r.successes > 0) {
+      const bank = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "read" }, 10000);
+      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: r.successes, revision: bank?.revision }, 10000);
+      if (!w?.success) throw new Error(`withdrawing the result failed: ${w?.error ?? "no reply"}`);
+      await pause(700);
+      await clientFn("autoPlace")();
+      await pause(700);
+      withdrawn = w.quantity ?? r.successes;
+    }
+    return { attempted: r.attempted, successes: r.successes, failures: r.failures, skillUp: r.skillUp ?? null, newSkillValue: r.newSkillValue ?? null, withdrawn };
+  };
+  /**
    * Give a carried `item` to account character `characterId`, in the party or not, equipped when
    * `equip` is true: the item goes onto the cursor with the character store's slot move and the
    * client's held-item transfer sends it. A refused transfer puts the item back. Resolves with
@@ -982,6 +1056,13 @@
    */
   const giveItem = async (item, characterId, { equip = true } = {}) => {
     const ch = () => stores.character.getState();
+    // An item left on the cursor, such as by a give that a reinstall cut short, would block this
+    // one, so it goes back into the bags first.
+    if (cursorItem() && cursorItem() !== item) {
+      await clientFn("autoPlace")();
+      await pause(900);
+      if (cursorItem()) throw new Error(`${cursorItem()} is on the cursor and found no bag slot`);
+    }
     const row = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === item);
     if (!row) throw new Error(`no ${item} in the bags`);
     const from = { bag: row.bag, slot: row.slot };
@@ -1042,7 +1123,7 @@
   // job: `job(name, ...args)` starts one of JOBS and returns its id at once, and `jobs[id]` holds
   // its progress and result. The last 20 jobs are kept.
   const jobs = window.iq?.jobs ?? {};
-  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, searchItems, closeWindows, sellCursor };
+  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, buyItem, craftItem, searchItems, closeWindows, sellCursor };
   const job = (name, ...args) => {
     const fn = JOBS[name];
     if (!fn) throw new Error(`no job named ${name}`);
@@ -1124,6 +1205,8 @@
     handInEach,
     pullItem,
     giveItem,
+    buyItem,
+    craftItem,
     sellCursor,
     closeWindows,
     job,

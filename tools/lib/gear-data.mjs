@@ -75,7 +75,7 @@ export async function liveZoneNames(root) {
 //              drop     chance that one kill of the NPC drops the item
 //              spawn    chance that a spawn point of the group spawns this NPC
 //              points   spawn points of the NPC in the zone, respawn the shortest respawn time (s)
-//   sellers  item id -> [{ npc, zone }] merchants that sell it and stand in a live zone
+//   sellers  item id -> [{ npc, zone, zoneShort }] merchants that sell it and stand in a live zone
 // NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources.
 export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName }) {
   const dropsByLootdrop = new Map(); // lootdrop_id -> [{item, chance, mult}]
@@ -135,9 +135,35 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   for (const [id, m] of merchantNpcs) {
     const zones = new Set();
     for (const { g } of groups.get(id) ?? []) for (const zone of (pointsOf.get(g) ?? new Map()).keys()) zones.add(zone);
-    for (const zone of zones) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone) });
+    for (const zone of zones) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone), zoneShort: zone });
   }
   return { sources, sellers };
+}
+
+/**
+ * The merchant goods the roster gear plan may buy (tools/lib/gear-plan.mjs `shop`): items sold in a
+ * city of data/shop-zones.json at a base price of at most `maxPp` platinum that carry stats, armor,
+ * a weapon's damage or an instrument, with up to two sellers each. Only cities, because a party of
+ * any level can shop there. Resolves with `{ shop: [{ itemId, merchant, zone,
+ * price }], items: Map(id -> content row) }`.
+ */
+export async function merchantGoods(root, { maxPp }) {
+  const sold = new Set();
+  for await (const m of rows(root, "merchantlist")) sold.add(m.item);
+  const items = new Map();
+  const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
+  for await (const i of rows(root, "items")) if (sold.has(i.id) && i.price / 1000 <= maxPp && i.slots > 0 && stats.some((k) => i[k] > 0)) items.set(i.id, i);
+  const { sellers } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root), maxNpcLevel: -1 });
+  const cities = new Set(JSON.parse(await readFile(new URL("../../data/shop-zones.json", import.meta.url), "utf8")));
+  const shop = [];
+  for (const [id, list] of sellers) for (const s of list.filter((x) => cities.has(x.zoneShort)).slice(0, 2)) shop.push({ itemId: id, merchant: s.npc, zone: s.zoneShort, price: items.get(id).price / 1000 });
+  return { shop, items };
+}
+
+/** A Bard's songs, `[{ minLevel, skill }]`, from data/class-spells.json, for `instrumentValue`. */
+export async function bardSongs() {
+  const table = JSON.parse(await readFile(new URL("../../data/class-spells.json", import.meta.url), "utf8"));
+  return (table[8]?.spells ?? []).map((s) => ({ minLevel: s.minLevel, skill: s.skill }));
 }
 
 // Expected hours of camping for one copy: the NPC's spawn point cycles once per respawn time, the

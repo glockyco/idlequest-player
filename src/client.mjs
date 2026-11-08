@@ -134,62 +134,14 @@ export async function attach(tab) {
     },
 
     /**
-     * Buy `count` of an item from a merchant in the current zone: walk there through the Path To
-     * window (the row whose name matches `merchant`), then press PURCHASE once per item. A
-     * purchase lands in a free general slot or bag slot, and a container needs a free general
-     * slot. Stops early when a purchase adds nothing. Disable the bot first so its cleanup does
-     * not sell the purchases. Resolves with the number bought and the platinum left.
+     * Buy `count` of an item from a merchant in the current zone with the bridge's `buyItem` job:
+     * it walks to the merchant's Path To row and presses PURCHASE once per item. A purchase lands
+     * in a free general or bag slot, and a container needs a free general slot. Disable the bot
+     * first so its cleanup does not sell the purchases. Resolves with the number bought and the
+     * platinum left.
      */
-    async buyItem(itemName, { count = 1, merchant, timeoutMs = 180000 } = {}) {
-      await tab.evaluate(async (who) => {
-        const cb = window.iq.stores.combat.getState();
-        if (window.iq.stores.merchant.getState().selectedMerchant?.name === who) return;
-        if (!cb.isMerchantListOpen) cb.toggleMerchantList();
-        let row = null;
-        for (let k = 0; k < 20 && !row; k++) {
-          await new Promise((r) => setTimeout(r, 250));
-          row = [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === who && !/QUEST NPC/i.test(el.parentElement?.textContent ?? ""));
-        }
-        if (!row) throw new Error(`merchant ${who} not found in the Path To list`);
-        row.parentElement.click();
-      }, merchant);
-      const ready = () => tab.evaluate((who, want) => {
-        const m = window.iq.stores.merchant.getState();
-        if (m.selectedMerchant?.name !== who || m.isLoadingItems || !(m.merchantItems ?? []).length) return false;
-        return m.merchantItems.some((i) => i.item?.name === want) ? true : "missing";
-      }, merchant, itemName);
-      for (let end = Date.now() + timeoutMs, r; (r = await ready()) !== true; await sleep(3000)) {
-        if (r === "missing") throw new Error(`${merchant} does not sell ${itemName}`);
-        if (Date.now() > end) throw new Error(`${merchant} did not open with ${itemName} for sale`);
-      }
-      let bought = 0;
-      for (let left = count; left > 0; ) {
-        const r = await tab.evaluate(async (want, n) => {
-          const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-          const have = () => window.iq.stores.character.getState().characterProfile.inventory.filter((x) => x.itemDetails?.name === want).reduce((s, x) => s + Math.max(1, x.charges ?? 1), 0);
-          const ms = window.iq.stores.merchant;
-          const e = ms.getState().merchantItems.find((i) => i.item?.name === want);
-          let got = 0;
-          for (let k = 0; k < n; k++) {
-            // The PURCHASE button shows only for an item considered from the merchant's side.
-            ms.getState().setConsideredItem({ item: e.item, price: e.price, source: "merchant", slot: e.slot });
-            await sleep(250);
-            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "PURCHASE");
-            if (!b || b.disabled) return { got, stop: true };
-            const before = have();
-            b.click();
-            for (let j = 0; j < 20 && have() === before; j++) await sleep(200);
-            if (have() === before) return { got, stop: true };
-            got++;
-          }
-          return { got, stop: false };
-        }, itemName, Math.min(left, 10));
-        bought += r.got;
-        left -= r.got;
-        if (r.stop) break;
-      }
-      const platinum = await tab.evaluate(() => window.iq.stores.character.getState().characterProfile.platinum);
-      return { bought, platinum };
+    async buyItem(itemName, { count = 1, merchant, timeoutMs = 300000 } = {}) {
+      return handle.runJob("buyItem", [itemName, merchant, count], timeoutMs);
     },
 
     /**

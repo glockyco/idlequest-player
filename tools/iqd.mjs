@@ -633,7 +633,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
+    const { BUY_PP, planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -645,15 +645,22 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
-    this.items ??= new Map();
-    const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
-    if (missing.size) {
-      const { rows } = await import("./lib/gear-data.mjs");
-      const { contentRoot } = await import("./lib/content.mjs");
-      for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
+    const { bardSongs, merchantGoods, rows, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { contentRoot } = await import("./lib/content.mjs");
+    // The merchant goods and their item rows, read once.
+    if (!this.shop) {
+      const goods = await merchantGoods(contentRoot(), { maxPp: BUY_PP });
+      this.shop = goods.shop;
+      this.items = goods.items;
+      const dropped = await zoneDrops(contentRoot(), JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8")));
+      this.drops = dropped.drops;
+      for (const [id, i] of dropped.items) this.items.set(id, i);
     }
+    const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
+    if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
-    const { moves, wanted } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf) });
+    const { moves, wanted, drops } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    this.dropWants = drops;
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, { ids: wanted }), { timeout: 10000 }).catch(() => {});
     metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: wanted.length, capped: job.result.capped });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${wanted.length} kept${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);

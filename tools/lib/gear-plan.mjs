@@ -24,6 +24,11 @@ const PIERCING = 2;
 const fists = (cls, level) => (cls === "monk" ? { damage: Math.min(14, 4 + Math.floor(level / 5)), delay: level < 25 ? 36 : Math.max(26, 35 - Math.floor((level - 25) / 4)) } : { damage: 1, delay: 36 });
 // The weapon type each class's main hand must keep.
 const MAIN_HAND_TYPE = { rogue: PIERCING };
+/**
+ * Platinum one gear pass may spend at merchants. Merchant goods within it already replace empty
+ * slots and starter items, and a pass an hour keeps the spending small against the account's coin.
+ */
+export const BUY_PP = 20;
 /** A main hand must beat the worn one by this much damage per delay to be worth a move. */
 export const MIN_RATIO_GAIN = 0.03;
 
@@ -68,6 +73,30 @@ export function setValue(items, cls, level) {
   return stats + HASTE_WEIGHT * haste + REGEN_WEIGHT * (Math.min(regen, REGEN_CAP) + Math.min(manaregen, REGEN_CAP));
 }
 
+// A song's skill and the instrument type that modifies it (docs/client-internals.md, Bard
+// instruments). Type 51 modifies every song.
+const INSTRUMENT_OF_SKILL = { 54: 23, 49: 24, 12: 25, 70: 26, 41: 50 };
+/**
+ * Score points for raising every song a Bard sings from no instrument (10) to twice its effect
+ * (20). An estimate in the stat score's units until a crossover measures it.
+ */
+export const INSTRUMENT_WEIGHT = 40;
+/**
+ * What a Bard's worn instruments add: for each instrument type, the best worn modifier (10 to 36)
+ * weighs by the share of the Bard's songs at `level` that use it. `songs`: `[{ minLevel, skill }]`.
+ */
+export function instrumentValue(items, level, songs) {
+  const mine = songs.filter((s) => s.minLevel <= level && INSTRUMENT_OF_SKILL[s.skill]);
+  if (!mine.length) return 0;
+  let value = 0;
+  for (const s of mine) {
+    const type = INSTRUMENT_OF_SKILL[s.skill];
+    const best = Math.max(10, ...items.filter((i) => i && (i.bardtype === type || i.bardtype === 51)).map((i) => i.bardvalue ?? 0));
+    value += (INSTRUMENT_WEIGHT * (Math.min(36, best) - 10)) / 10 / mine.length;
+  }
+  return value;
+}
+
 const fits = (item, p, slot) =>
   item && item.slots & (1 << slot) && !(item.bagslots > 0) && item.classes & BIT[p.cls] && (!p.race || !RACE[p.race] || item.races & RACE[p.race]) && (item.reqlevel ?? 0) <= p.level;
 
@@ -75,10 +104,19 @@ const fits = (item, p, slot) =>
  * `survey`: rows of `iq.searchAccount()` (`characterName`, `itemId`, `itemName`, `itemInstanceId`,
  * `location` "Equipped" with its `slot`, or "Carried", and `blockReason`). `items`: item id to its
  * content row. `people`: the roster characters, `[{ name, cls, level, race }]` with `cls` a
- * gear-data class key. `minGain`: the smallest armor score gain worth a move.
- * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces }], wanted: [itemId] }`.
+ * gear-data class key. `minGain`: the smallest armor score gain worth a move. `songs`: the Bard's
+ * songs, `[{ minLevel, skill }]`. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
+ * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
+ * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
+ * `[{ itemId, zone, npc, hours, levels: [min, max] }]` with `hours` the expected hunting per copy,
+ * which become wants for characters whose group level is inside `levels`.
+ * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], wanted: [itemId],
+ * drops: [{ item, itemId, to, slot, gain, zone, npc, hours }] }`, where a move with
+ * `buy: { merchant, zone, price }` buys its item first, and `drops` lists for each character the
+ * best drop per slot that beats what it wears after the moves by `2 * minGain` (armor) or
+ * `2 * MIN_RATIO_GAIN` (main hand), the dropped items worth hunting for.
  */
-export function planGear({ survey, items, people, minGain = 5 }) {
+export function planGear({ survey, items, people, minGain = 5, songs = [], shop = [], buyPp = 0, drops = [] }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -87,18 +125,33 @@ export function planGear({ survey, items, people, minGain = 5 }) {
     if (r.location === "Equipped") worn.get(r.characterName)?.set(r.slot, items.get(r.itemId) ?? null);
   }
   const free = survey.filter((r) => r.location === "Carried" && (!r.blockReason || r.blockReason === "Already on this character.") && items.has(r.itemId));
+  const goods = shop.filter((s) => items.has(s.itemId) && s.price <= buyPp).map((s) => ({ characterName: null, itemId: s.itemId, itemName: items.get(s.itemId).Name, itemInstanceId: `shop:${s.itemId}`, buy: s }));
 
-  // What one carried copy is worth to one character in one slot, against what it wears now.
+  // A character's armor and jewelry by the set score, plus for a Bard everything it wears by the
+  // instruments' value.
+  const value = (p, mine) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i), p.cls, p.level) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
+  // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
     if (item.loreflag && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
     const out = [];
+    const gainIn = (slot) => value(p, new Map([...mine, [slot, item]])) - value(p, mine);
     for (const slot of ARMOR_SLOTS) {
       if (!fits(item, p, slot) || item.damage > 0) continue;
-      const now = [...mine].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([s, i]) => (s === slot ? null : i));
-      const gain = setValue([...now, item], p.cls, p.level) - setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i), p.cls, p.level);
+      const gain = gainIn(slot);
       if (gain >= minGain) out.push({ r, p, slot, gain });
+    }
+    // A Bard's instrument takes the off hand, also from a weapon: it scales the songs of the whole
+    // group, while an off-hand weapon adds only the Bard's own off-hand swings. The main hand keeps
+    // its weapon.
+    if (p.cls === "bard" && item.bardtype > 0 && !(item.damage > 0)) {
+      for (const slot of [SECONDARY, PRIMARY]) {
+        if (!fits(item, p, slot) || (slot === PRIMARY && mine.get(slot)?.damage > 0)) continue;
+        const gain = gainIn(slot);
+        if (gain >= minGain) out.push({ r, p, slot, gain });
+        break;
+      }
     }
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
@@ -111,29 +164,54 @@ export function planGear({ survey, items, people, minGain = 5 }) {
     }
     return out;
   };
+  const sources = () => [...free, ...goods];
 
-  let offers = free.flatMap((r) => people.flatMap((p) => offer(r, p)));
-  // Everything that is an upgrade for someone is kept, also copies this pass gives nobody.
-  const wanted = [...new Set(offers.map((o) => o.r.itemId))];
+  let offers = sources().flatMap((r) => people.flatMap((p) => offer(r, p)));
+  // Everything on the account that is an upgrade for someone is kept, also copies this pass
+  // gives nobody.
+  const wanted = new Set(offers.filter((o) => !o.r.buy).map((o) => o.r.itemId));
 
   // Greedy by gain: the best offer is taken, its copy and the receiver's slot are spent, and the
   // receiver's other offers are scored again against the set it now wears. Armor and weapons use
   // different units, but never compete for one copy, because only items without damage count as
-  // armor.
+  // armor. An item on the account wins a tie with a merchant's, and a merchant's copies never run
+  // out, while the platinum and the one zone of a pass do.
   const moves = [];
   const spent = new Set();
+  let budget = buyPp;
+  let zone = null;
   const key = (r) => `${r.characterName}:${r.itemInstanceId}`;
-  const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain ? o : a), null);
-  while (offers.length) {
+  const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (zone == null || o.r.buy.zone === zone));
+  const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy) ? o : a), null);
+  for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
     const best = top(offers.filter((o) => !o.weapon)) ?? top(offers);
     const { r, p, slot, gain } = best;
     const replaced = worn.get(p.name).get(slot) ?? null;
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: SLOT_BY_NUM[slot], slotNum: slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null });
-    spent.add(key(r));
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: SLOT_BY_NUM[slot], slotNum: slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    if (r.buy) {
+      budget -= r.buy.price;
+      zone = r.buy.zone;
+      wanted.add(r.itemId);
+    } else spent.add(key(r));
     worn.get(p.name).set(slot, items.get(r.itemId));
     owned.get(p.name).add(r.itemId);
     offers = offers.filter((o) => !spent.has(key(o.r)) && o.p.name !== p.name);
-    for (const f of free) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
+    for (const f of sources()) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
   }
-  return { moves, wanted };
+  // The drops worth hunting for, against what each character wears after this pass.
+  const want = new Map();
+  for (const d of drops) {
+    if (!items.has(d.itemId)) continue;
+    const r = { characterName: null, itemId: d.itemId, itemName: items.get(d.itemId).Name, itemInstanceId: `drop:${d.itemId}` };
+    for (const p of people) {
+      if (d.levels && (p.level < d.levels[0] || p.level > d.levels[1])) continue;
+      for (const o of offer(r, p)) {
+        if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain)) continue;
+        const k = `${p.name}:${o.slot}`;
+        const best = want.get(k);
+        if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) want.set(k, { item: r.itemName, itemId: d.itemId, to: p.name, slot: SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours });
+      }
+    }
+  }
+  return { moves, wanted: [...wanted], drops: [...want.values()] };
 }

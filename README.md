@@ -271,13 +271,15 @@ bun tools/fights.mjs
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
 and slot where it adds most: armor and jewelry as a set by `tools/gear.mjs`'s stat score, with the
-client's haste and regeneration caps, and the main hand by damage over delay. `iqd run --coordinate`
-runs it every hour: worn items and the leaders' bags come from each party's own inventories, the
-companions' carried items from Inventory Search, and the moves run as one gear task
-(`iqBot.gear`), which pulls each item from its holder and gives it equipped to its receiver, in the
-party or not. The items the plan finds to be an upgrade for anyone go to every bot as
-`gearKeepIds`, which its cleanup never sells. iqd saves the survey to
-`runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
+client's haste and regeneration caps, the main hand by damage over delay against what the hand
+swings now, and for a Bard each instrument type by the share of its songs it modifies. Merchant
+goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
+buys for at most `BUY_PP` platinum in one city. `iqd run --coordinate` runs the plan every hour:
+worn items and the leaders' bags come from each party's own inventories, the companions' carried
+items from Inventory Search, and the moves run as one gear task (`iqBot.gear`), which buys or pulls
+each item and gives it equipped to its receiver, in the party or not. The items the plan finds to
+be an upgrade for anyone go to every bot as `gearKeepIds`, which its cleanup never sells. iqd saves
+the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 
 ## Monitoring
 
@@ -330,7 +332,10 @@ members of its class and level who do not carry its reward, one task per tab. Me
 reward of an earlier step always run, and the others at most as many as the account holds copies of
 the items it `needs`. A chain that stopped part way goes on after the last step `expect` the member
 carries. A step talks to its `npc` with `say` keywords, gives it `give`, hands in `each`, or fights
-`kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn. Each experiment in
+`kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or
+crafts `craft`: the recipe's catalog ingredients are bought into the Tradeskill Bank, its other inputs
+pulled, its container bought from a merchant of the step's zone, and the result withdrawn into the
+bags (`craftItem` in `src/bridge.js`). Each experiment in
 `data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
 `without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at

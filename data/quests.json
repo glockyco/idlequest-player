@@ -178,5 +178,31 @@
         "expect": "Pure Crystal"
       }
     ]
+  },
+  "paladin-epic-goo": {
+    "class": "Paladin",
+    "minLevel": 10,
+    "reward": "Edible Goo",
+    "needs": [
+      "Fire Beetle Eye"
+    ],
+    "steps": [
+      {
+        "zone": "freportw",
+        "craft": {
+          "recipeId": 1858,
+          "skillId": 60,
+          "inputs": [
+            "Fire Beetle Eye"
+          ],
+          "output": {
+            "item": "Edible Goo",
+            "id": 13498
+          },
+          "quantity": 5
+        },
+        "expect": "Edible Goo"
+      }
+    ]
   }
 }
