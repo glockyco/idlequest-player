@@ -480,11 +480,12 @@
     let limits = { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     // Re-entering puts the party at the zone's safe spot. When a mob camps there, the party is in
     // the same fight seconds later and re-entry repeats every six seconds, so a second escape
-    // within `loopSec` leaves for another zone of the bot's rotation instead.
+    // within `loopSec` leaves for the rotation zone fewest other groups hunt (`iqBot.leastUsed`).
     const last = guard.trips.at(-1);
     const looping = last && last.zone === cb.currentZone && Date.now() - last.t < cfg.loopSec * 1000;
     const here = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName;
-    const elsewhere = (window.iqBot?.config?.rotation ?? []).find((z) => z !== here) ?? null;
+    const others = (window.iqBot?.config?.rotation ?? []).filter((z) => z !== here);
+    const elsewhere = (window.iqBot?.leastUsed?.(others) ?? others)[0] ?? null;
     const target = cfg.retreatZone ?? (looping ? elsewhere : null);
     // A mob inside AutoLevel's own level range means our pulls are too hard, and a lower cap
     // helps. A wanderer far above the cap joins whatever we pull, and lower limits would not keep
