@@ -144,11 +144,16 @@ await iq.exportRun("runs/my-run");    // append new rows to runs/my-run/*.jsonl,
 
 ```sh
 bun tools/analyze.mjs runs/my-run --label B-some-change
+bun tools/analyze.mjs runs/my-run --last 30m --member Ewbanaqoa   # one member's rate, for setups with different leaders
 ```
 
 The analyzer puts every second outside combat into exactly one cell: moving, recovering (standing
 still while someone is below full HP or mana) or ready-idle, and names the party member that fills
 last. Compare configurations by label, with similar level and enemy mix, and never on one block.
+The leader's rate depends on the leader's race and class factor, so compare setups with different
+leaders by a member who is a companion in both (`--member`). The "Zone multiplier" section checks
+each zone's XP multiplier against the content snapshot and the wiki, which disagree for 29 zones,
+by testing which one makes every kill's XP fit a whole NPC level.
 
 - Check that a setting took effect in the event log before trusting a comparison. A tactic written
   under the wrong key is stored and silently ignored.

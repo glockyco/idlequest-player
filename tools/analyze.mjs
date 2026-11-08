@@ -1,10 +1,21 @@
 // Efficiency analysis of a recorded run.
 //
-//   bun tools/analyze.mjs <run dir> [--last 30m] [--since <ms epoch>] [--until <ms epoch>] [--label name] [--vis 0|1] [--json]
+//   bun tools/analyze.mjs <run dir> [--last 30m] [--since <ms epoch>] [--until <ms epoch>] [--label name] [--vis 0|1] [--member <name>] [--json]
 //
 // `--vis 1` keeps only seconds while the game tab was visible, `--vis 0` only hidden ones. Browsers
 // throttle timers in hidden tabs, and the client simulates combat, so compare both before blaming a
 // zone or a setting for a change in speed.
+//
+// `--member <name>` adds that party member's XP per hour and XP per kill, read from its
+// "<name> gains N experience." lines. The leader's own kill lines depend on the leader's level share
+// and class factor, so compare setups with different leaders through a companion that is in both.
+//
+// The "Zone multiplier" section checks each zone's XP multiplier against the kills. A leader kill pays
+// 120 x NPC level^2 x zone multiplier x (leader level / sum of the party characters' levels), so the
+// NPC level it implies must be a whole number when the multiplier is right. The section reports, per
+// zone, the share of kills that fit under the content snapshot's multiplier and under
+// data/idlequest-zones.json (the wiki's), and the multiplier that fits best when neither does. The
+// snapshot is read from $IQ_CONTENT or ~/src/github.com/brynnb/idlequest-content.
 //
 // Input is `samples.jsonl` and `events.jsonl` written by `exportRun` (src/client.mjs).
 //
@@ -14,7 +25,8 @@
 //   recover                out of combat, still, someone below max HP or mana
 //   ready-idle             out of combat, still, everyone full  (nothing explains this second yet)
 // Time in `ready-idle` is attributed from the game's own messages seen in the same stretch.
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 
 const args = process.argv.slice(2);
 const dir = args.find((a) => !a.startsWith("--"));
@@ -23,7 +35,7 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 if (!dir) {
-  console.error("usage: bun tools/analyze.mjs <run dir> [--last 30m] [--since ms] [--until ms] [--label name] [--vis 0|1] [--json]");
+  console.error("usage: bun tools/analyze.mjs <run dir> [--last 30m] [--since ms] [--until ms] [--label name] [--vis 0|1] [--member name] [--json]");
   process.exit(2);
 }
 
@@ -218,6 +230,80 @@ const damage = {};
 }
 const damageTotal = Object.values(damage).reduce((s, o) => s + Object.values(o).reduce((a, b) => a + b, 0), 0);
 
+// ---- One party member's XP ---------------------------------------------------------------------
+// The member's own "<name> gains N experience." lines, over the same covered seconds.
+const memberName = opt("member");
+let member = null;
+if (memberName) {
+  const re = new RegExp(`^${memberName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} gains (\\d+) experience`);
+  const xps = events.flatMap((e) => (coveredSec.has(Math.floor(e.t / 1000)) && re.exec(e.text) ? [Number(re.exec(e.text)[1])] : []));
+  member = { name: memberName, kills: xps.length, xpPerHour: Math.round((xps.reduce((a, b) => a + b, 0) / mins) * 60), xpPerKill: xps.length ? Math.round(xps.reduce((a, b) => a + b, 0) / xps.length) : 0 };
+}
+
+// ---- Zone multiplier -------------------------------------------------------------------------
+// Each leader kill gives 120 x NPC level^2 x zone multiplier x leader level / sum of the levels of
+// the party's characters (pets take no share). With the right multiplier the NPC
+// level this implies is a whole number, so "fits" means some whole level reproduces the XP within 1.
+// Kills at the 11%-of-a-level cap are skipped. Null without kills or without the content snapshot.
+const zoneMultiplier = await (async () => {
+  if (!kills.length) return null;
+  const root = process.env.IQ_CONTENT ?? `${homedir()}/src/github.com/brynnb/idlequest-content`;
+  const normName = (s) => s.replace(/^the\s+/i, "").replace(/[`']/g, "").trim().toLowerCase();
+  let wiki;
+  const byId = new Map();
+  try {
+    wiki = new Map(Object.entries(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(([k, v]) => [normName(k), v]));
+    for (const f of (await readdir(`${root}/data/zone`)).filter((f) => f.endsWith(".ndjson")))
+      for (const l of (await readFile(`${root}/data/zone/${f}`, "utf8")).split("\n")) {
+        if (!l) continue;
+        const z = JSON.parse(l);
+        if (z.version === 0 && !byId.has(z.zoneidnumber)) byId.set(z.zoneidnumber, { short: z.short_name, name: z.long_name, content: Number(z.zone_exp_multiplier) });
+      }
+  } catch {
+    return null;
+  }
+  // The characters are the leader and every member with an XP line in the window. A single kill can
+  // miss a member's line, so the set is taken over the whole window.
+  const characters = [...new Set(events.flatMap((e) => /^(\w+) gains \d+ experience/.exec(e.text)?.slice(1) ?? []))];
+  const perZone = new Map();
+  let si = 0;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!KILL.test(e.text) || !coveredSec.has(Math.floor(e.t / 1000))) continue;
+    while (si + 1 < samples.length && samples[si + 1].t <= e.t) si++;
+    const s = samples[si];
+    if (e.t - s.t > 2000 || !s.lv || !s.party) continue;
+    const names = ["me", ...characters].filter((n) => s.party.some((p) => p[0] === n));
+    const lv = names.map((n) => s.lv[s.party.findIndex((p) => p[0] === n)]);
+    if (lv.some((v) => !(v > 0))) continue;
+    const xp = Number(KILL.exec(e.text)[2]);
+    if (xp >= 0.11 * 3000 * lv[0] ** 2 - 1) continue;
+    (perZone.get(s.zone) ?? perZone.set(s.zone, []).get(s.zone)).push({ xp, share: lv[0] / lv.reduce((a, b) => a + b, 0) });
+  }
+  const fit = (k, m) => {
+    const L = Math.round(Math.sqrt(k.xp / (120 * m * k.share)));
+    return L >= 1 && Math.abs(120 * L * L * m * k.share - k.xp) <= 1;
+  };
+  const share = (ks, m) => ks.filter((k) => fit(k, m)).length / ks.length;
+  const out = [];
+  for (const [id, ks] of perZone) {
+    const z = byId.get(id);
+    const row = { zone: z?.short ?? String(id), id, name: z?.name ?? null, kills: ks.length, content: null, wiki: null, best: null };
+    if (z && Number.isFinite(z.content)) row.content = { multiplier: z.content, fitShare: +share(ks, z.content).toFixed(3) };
+    const w = z ? wiki.get(normName(z.name)) : undefined;
+    if (w !== undefined) row.wiki = { multiplier: w, fitShare: +share(ks, w).toFixed(3) };
+    if (!((row.content?.fitShare ?? 0) >= 0.9 || (row.wiki?.fitShare ?? 0) >= 0.9)) {
+      let best = { multiplier: 0, fitShare: -1 };
+      for (let c = 50; c <= 160; c++) {
+        const f = share(ks, c / 100);
+        if (f > best.fitShare) best = { multiplier: c / 100, fitShare: +f.toFixed(3) };
+      }
+      row.best = best;
+    }
+    out.push(row);
+  }
+  return out.sort((a, b) => b.kills - a.kills);
+})();
 const pct = (x) => `${((100 * x) / covered).toFixed(1)}%`;
 const sec = (x) => `${(x / 1000).toFixed(0)}s`;
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -228,6 +314,8 @@ const result = {
   window: { from: new Date(samples[0].t).toISOString(), to: new Date(samples.at(-1).t).toISOString(), coveredMin: +mins.toFixed(1), stoppedSec: Math.round(stopped / 1000) },
   levels: [samples[0].lvl, samples.at(-1).lvl],
   config: { zone: samples.at(-1).zone, minCon: samples.at(-1).minCon, maxCon: samples.at(-1).maxCon, aggr: samples.at(-1).aggr },
+  member,
+  zoneMultiplier,
   outcome: {
     xpPerHour: Math.round((xpGained / mins) * 60),
     // Gross coin picked up (purchases are not subtracted), in platinum per hour. Null before samples carried coin.
@@ -292,4 +380,10 @@ if (args.includes("--json")) {
   for (const [who, d] of Object.entries(r.damage)) console.log(`  ${who.padEnd(12)} ${(100 * d.share).toFixed(1).padStart(5)}%  ${Object.entries(d.parts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ")}`);
   console.log("\nBy enemy");
   for (const [k, v] of Object.entries(r.byEnemy)) console.log(`  ${k.padEnd(28)} ${String(v.kills).padStart(4)} kills  ${String(v.avgXp).padStart(5)} XP`);
+  if (r.member) console.log(`\nMember ${r.member.name}   XP/h ${r.member.xpPerHour}   kills ${r.member.kills}   XP/kill ${r.member.xpPerKill}   (leader XP/h ${r.outcome.xpPerHour}, XP/kill ${r.outcome.xpPerKill})`);
+  if (r.zoneMultiplier?.length) {
+    console.log("\nZone multiplier (share of kills whose XP implies a whole-number NPC level)");
+    const f = (x) => (x ? `${x.multiplier} fits ${(100 * x.fitShare).toFixed(0)}%` : "n/a");
+    for (const z of r.zoneMultiplier) console.log(`  ${z.zone.padEnd(14)} ${String(z.kills).padStart(5)} kills  content ${f(z.content)}  wiki ${f(z.wiki)}${z.best ? `  best ${f(z.best)}` : ""}`);
+  }
 }
