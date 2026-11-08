@@ -1,6 +1,6 @@
 # Agent instructions
 
-These rules are for agents that play the account with this repository. [README.md](README.md) covers setup, the SDK, the tools and how to measure efficiency. The current plan is in [docs/plans/leveling-plan.md](docs/plans/leveling-plan.md).
+These rules are for agents that play the account with this repository. [README.md](README.md) covers setup, the SDK, the tools and how to measure efficiency. The current plan is in [docs/plans/leveling-plan.md](docs/plans/leveling-plan.md). Changes to the bot and the SDK follow [docs/plans/controller.md](docs/plans/controller.md): converge to a desired state, keep hunting as the default, label every second, and decide by value instead of adding a rule per symptom.
 
 ## Keep the game playing
 
