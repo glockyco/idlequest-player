@@ -12,6 +12,6 @@
     { "id": "G9", "letter": "I", "members": ["Ibaegrix", "Ivelugias", "Inagym", "Idraene", "Ifekirk", "Imorymu"] },
     { "id": "G10", "letter": "K", "members": ["Kimorili", "Kiabriala", "Kidadriar", "Kuzidres", "Kiasiby", "Kilogruth"] },
     { "id": "G11", "letter": "L", "members": ["Loshotin", "Linysir", "Lashybraend", "Liaganor", "Logresaerk", "Litilor"] },
-    { "id": "G12", "letter": "M", "planned": ["shadow-knight", "druid", "enchanter", "magician", "bard", "ranger"] }
+    { "id": "G12", "letter": "M", "members": ["Muvelemoru", "Mugrudraeth", "Mosiadeth", "Mashidond", "Manograth", "Mishebrol"] }
   ]
 }
