@@ -201,7 +201,7 @@ test("a parked tab clears the items it had", () => {
 
 test("status stays within 40 lines with many open items", () => {
   const db = openDb(":memory:");
-  for (let i = 0; i < 30; i++) raiseItem(db, { severity: "info", kind: "levelup", session: "Tagu", key: `levelup:${i}`, text: `character ${i} reached a level` });
+  for (let i = 0; i < 30; i++) raiseItem(db, { severity: "act", kind: "death", session: "Tagu", key: `death:${i}`, text: `character ${i} was slain` });
   const text = renderStatus(db, T0);
   expect(text.split("\n").length).toBeLessThanOrEqual(40);
   expect(text).toContain("and 22 more");

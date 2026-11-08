@@ -1,0 +1,17 @@
+{
+  "about": "Leveling groups of the raid roster. The first member leads. `planned` groups list the classes still to create, in the order of docs/plans/raid-roster.md, and `letter` is the first letter of every name in the group.",
+  "groups": [
+    { "id": "G1", "members": ["Tagujazolu", "Domeyafun", "Ewbanaqoa", "Ugfeu", "Qigaa", "Edroun"] },
+    { "id": "G2", "members": ["Pivorandel", "Hargrimol", "Omvoqizon", "Felowynna", "Zharovane", "Ulgarthon"] },
+    { "id": "G3", "members": ["Tovrenalis", "Vexmorrath", "Bellowmick", "Zulvethra", "Fizzwackle", "Arwendrel"] },
+    { "id": "G4", "members": ["Thalgrimm", "Pellisande", "Merriwick", "Kragvold", "Vorthessa", "Nyxalor"] },
+    { "id": "G5", "letter": "E", "planned": ["warrior", "cleric", "shaman", "necromancer", "enchanter", "rogue"] },
+    { "id": "G6", "letter": "F", "planned": ["monk", "paladin", "druid", "shaman", "magician", "wizard"] },
+    { "id": "G7", "letter": "G", "planned": ["shadow-knight", "cleric", "shaman", "bard", "ranger", "necromancer"] },
+    { "id": "G8", "letter": "H", "planned": ["warrior", "druid", "enchanter", "rogue", "wizard", "magician"] },
+    { "id": "G9", "letter": "I", "planned": ["monk", "paladin", "cleric", "shaman", "bard", "ranger"] },
+    { "id": "G10", "letter": "K", "planned": ["shadow-knight", "druid", "enchanter", "necromancer", "wizard", "bard"] },
+    { "id": "G11", "letter": "L", "planned": ["warrior", "paladin", "shaman", "rogue", "ranger", "monk"] },
+    { "id": "G12", "letter": "M", "planned": ["shadow-knight", "druid", "enchanter", "magician", "bard", "ranger"] }
+  ]
+}

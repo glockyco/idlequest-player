@@ -228,6 +228,8 @@ time is up it prints the status and exits 0 as well. Between `wait` calls nothin
 the position is stored in the database. The first `wait` of a severity starts after the items that
 exist then, and `status` lists those.
 
+`status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Open `info` items are counted, not listed.
+
 | Kind | Severity | Raised when | Clears |
 | --- | --- | --- | --- |
 | `gone` | act | The tab is missing from the relay or does not answer for 60 s. Also raised for a parked tab. | When the tab answers again, or `ack` ends the session |

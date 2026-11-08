@@ -7,7 +7,7 @@
 // Usage: see `iqd help` and the "Monitoring" section of the README.
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { statSync, openSync, readSync, closeSync } from "node:fs";
+import { statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -499,8 +499,18 @@ const dur = (ms) => (ms < 90000 ? `${Math.round(ms / 1000)}s` : ms < 5400000 ? `
 const big = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(Math.round(n)));
 const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}~` : s);
 
+/** Group of each character name from data/roster.json, or an empty map without the file. */
+function rosterGroups() {
+  try {
+    const r = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
+    return new Map(r.groups.flatMap((g) => (g.members ?? []).map((n) => [n, g.id])));
+  } catch {
+    return new Map();
+  }
+}
+
 /** Plain-text status, at most 40 lines. Reads the database only. */
-export function renderStatus(db, now) {
+export function renderStatus(db, now, groupOf = rosterGroups()) {
   const out = [];
   const d = metaGet(db, "daemon");
   const age = d ? now - d.last : null;
@@ -515,7 +525,7 @@ export function renderStatus(db, now) {
     const sn = s.snap ? JSON.parse(s.snap) : null;
     const st = s.state ? JSON.parse(s.state) : {};
     const l = sn?.leader;
-    const head = `${s.leader ?? "?"} L${l?.level ?? "?"}${l?.xpPct != null ? ` ${l.xpPct.toFixed(0)}%` : ""} ${sn?.zone ?? "?"}`;
+    const head = `${groupOf.get(s.leader) ?? "--"} ${s.leader ?? "?"} L${l?.level ?? "?"}${l?.xpPct != null ? ` ${l.xpPct.toFixed(0)}%` : ""} ${sn?.zone ?? "?"}`;
     let tail;
     if (st.unreachableSince) tail = `GONE ${dur(now - st.unreachableSince)}`;
     else if (s.parked) tail = "PARKED (bot disabled)";
@@ -535,21 +545,23 @@ export function renderStatus(db, now) {
     )
     .all();
   out.push(`Characters (${chars.length})`);
-  let line = " ";
+  const byGroup = new Map();
   for (const c of chars) {
-    const cell = ` ${c.name} ${(c.class ?? "?").toLowerCase()} ${(c.race ?? "?").toLowerCase()} ${c.level ?? `~${c.roster_level ?? "?"}`};`;
-    if (line.length + cell.length > 110) {
-      out.push(line);
-      line = " ";
-    }
-    line += cell;
+    const g = groupOf.get(c.name) ?? "--";
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(c);
   }
-  if (line.trim()) out.push(line);
+  const order = [...byGroup.keys()].sort((a, b) => (a === "--") - (b === "--") || Number(a.slice(1)) - Number(b.slice(1)));
+  for (const g of order) {
+    const cells = byGroup.get(g).map((c) => `${c.name} ${(c.class ?? "?").toLowerCase()} ${c.level ?? `~${c.roster_level ?? "?"}`}`);
+    out.push(cut(`  ${g} ${cells.join(", ")}`, 150));
+  }
 
   const items = db.query("SELECT * FROM attention WHERE resolved IS NULL ORDER BY id").all();
-  out.push(`Attention (${items.length} open)`);
-  for (const a of items.slice(0, 8)) out.push(cut(`  #${a.id} ${a.severity} ${a.kind} ${clock(a.t)} ${a.text}`, 150));
-  if (items.length > 8) out.push(`  and ${items.length - 8} more`);
+  const urgent = items.filter((a) => a.severity !== "info");
+  out.push(`Attention (${urgent.length} open${items.length > urgent.length ? `, ${items.length - urgent.length} info` : ""})`);
+  for (const a of urgent.slice(0, 8)) out.push(cut(`  #${a.id} ${a.severity} ${a.kind} ${clock(a.t)} ${a.text}`, 150));
+  if (urgent.length > 8) out.push(`  and ${urgent.length - 8} more`);
 
   const jobs = db.query("SELECT * FROM jobs WHERE done IS NULL ORDER BY id").all();
   out.push(`Jobs (${jobs.length} open)`);
