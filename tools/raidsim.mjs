@@ -1,7 +1,7 @@
 // Raid fight simulator: runs the IdleQuest client's own raid code offline, so roster choices
 // (class mix, counts, gear, spells scribed) can be compared against a boss before characters exist.
 //
-//   bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--json]
+//   bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--json]
 //   bun tools/raidsim.mjs --boss <...> --roster <...> --class-sweep --slot <name|index>
 //
 //   --boss        npc_types id, or a name ("Hraashna the Warder")
@@ -15,19 +15,23 @@
 //   --heal-mode   clr-balanced | all-balanced | clr-all-out | all-all-out | off (default clr-balanced)
 //   --class-sweep swap the --slot member through all 14 classes (default kit of each class) and
 //                 compare kill times with the roster as given
+//   --client      the client build to run: a release id under .re/releases/ or "legacy" (.re/js). Default is
+//                 the newest saved release. Each build needs a table in tools/raidsim/clients.mjs.
+//   --trace M     after the tables, one member's first fight in 10 s rows: hit points, damage taken, healing
+//                 received by caster and spell, hate rank, boss target time and Cleric mana (M is a roster name
+//                 or index)
 //   --jobs N      fights run at once (default: the lower of 8 and the CPU count minus one)
 //   --calls       also print how often the client functions below ran (first fight)
 //   --json        machine output instead of tables
 //
 // What runs. A fight builds the raid in the client's own stores and drives it the way the raid
-// view does: the roster members come from the client's member builder (`dr`/`yQ` in
-// main.pretty.js) with items loaded by id, the leader from the client's character and spellbook
-// stores, buffs from `syncRaidBuffs`/`n8`, the start from `beginCombatForTarget`, the attack order
-// from `setAllCommand`, the raid tick from `qd` (`IGe` every 100 ms, `CGe` every second:
-// engine.pretty.js) and the boss from the combat service's encounter engine (`L2.tick`, `MO`,
-// `vO`, `yO`: BQ.pretty.js). Melee, pets, damage over time, nukes, heals, taunts, buffs, boss melee,
-// rampage, enrage and boss spells are all the client's code. Mana, damage and healing come from
-// the combat state's own event log.
+// view does: the roster members come from the client's member builder with items loaded by id,
+// the leader from the client's character and spellbook stores, buffs from `syncRaidBuffs`, the
+// start from `beginCombatForTarget`, the attack order from `setAllCommand`, the raid tick (every
+// 100 ms and every second) and the boss from the combat service's encounter engine. Melee, pets,
+// damage over time, nukes, heals, taunts, buffs, boss melee, rampage, enrage and boss spells are
+// all the client's code. Mana, damage and healing come from the combat state's own event log. The
+// client's minified names for these are in tools/raidsim/clients.mjs.
 //
 // What is replaced (each in one place):
 //   clock          env.mjs     Date.now, performance.now, setTimeout, setInterval and
@@ -35,13 +39,20 @@
 //                              simulation advances.
 //   randomness     env.mjs     Math.random is a seeded mulberry32 generator.
 //   network        fight.mjs   the socket's send methods drop streamed messages and fail requests.
-//                              The combat start request ($L in BQ) is answered with the CombatInit
-//                              built from npc_types, 100 ms later.
+//                              The combat start request is answered with the CombatInit built
+//                              from npc_types, 100 ms later.
 //   3D scene       fight.mjs   bindScenePorts gets a scene where every member is in melee range
-//                              of the boss, no area holds targets and nothing blocks a cast. The
-//                              client's own "scene not ready" stand-in has none of these.
+//                              of the boss and in spell range and line of sight of everyone, nobody
+//                              stands behind the boss, no area holds targets and nothing blocks a
+//                              cast. Any other scene method answers false (`sceneCalls` in --calls
+//                              lists them). The client's own "scene not ready" stand-in has none
+//                              of these.
 //   raid time      fight.mjs   the raid time store says the account holds raid time, and the
 //                              roster counts as validated against the server.
+//   rest           fight.mjs   the raid starts at full hit points and mana. A member is built at
+//                              its unbuffed maximum and the raid buffs raise it, so without this
+//                              the fight would start at about 43% hit points. In the game the
+//                              client's out-of-combat regeneration fills that before a pull.
 //   spell data     spells.mjs  the client's spell store is filled from spells_new through the shape
 //                              of its static spells asset (the asset itself is not downloaded).
 //   item service   fight.mjs   items are looked up in the content snapshot.
@@ -59,14 +70,15 @@
 //     category each maps to (boss.mjs); extra attacks flags of the boss (fight.mjs)
 //   - one boss, spawned alone; no adds, no zone, no line of sight, no movement
 //
-// Observation only (they forward everything unchanged): a wrapper on `G2` in main.pretty.js that
-// records the combat state's events, and call counters on the client functions listed in
-// tools/raidsim/fight.mjs (COUNTED, COUNTED_L2).
+// Observation only (they forward everything unchanged): a wrapper on the client's combat event recorder
+// that records the combat state's events, and call counters on the client functions listed in
+// tools/raidsim/clients.mjs (`counted`) and tools/raidsim/fight.mjs (COUNTED_L2).
 //
 // Every fight runs in a fresh process (tools/raidsim/worker.mjs), because the client keeps combat
 // state in module-level stores and a second fight in the same process would start from the first
 // one's leftovers. A fight of several virtual minutes takes a few seconds.
 import { readFile } from "node:fs/promises";
+import { resolveClient } from "./raidsim/clients.mjs";
 import { availableParallelism } from "node:os";
 import { CLASS_NAMES } from "./raidsim/classes.mjs";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
@@ -74,7 +86,7 @@ import { normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
 import { compactSpells } from "./raidsim/spells.mjs";
 import { byId } from "./raidsim/content.mjs";
 import { runJobs } from "./raidsim/pool.mjs";
-import { fightLines, memberTable, summarize, sweepTable } from "./raidsim/report.mjs";
+import { fightLines, memberTable, summarize, sweepTable, traceLines } from "./raidsim/report.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -90,7 +102,7 @@ const fail = (message) => {
 const DPS_MODES = ["dps-balanced", "dps-all-out", "all-all-out"];
 const HEAL_MODES = ["clr-balanced", "all-balanced", "clr-all-out", "all-all-out", "off"];
 
-if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--json] [--class-sweep --slot <name|index>]");
+if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--json] [--class-sweep --slot <name|index>]");
 const seeds = Number(opt("seeds", 20));
 const seedBase = Number(opt("seed-base", 1));
 const maxSec = Number(opt("max-sec", 900));
@@ -100,6 +112,14 @@ const healMode = opt("heal-mode", "clr-balanced");
 if (!(seeds >= 1) || !(maxSec > 0)) fail("--seeds and --max-sec must be positive numbers");
 if (!DPS_MODES.includes(dpsMode)) fail(`--dps-mode must be one of ${DPS_MODES.join(", ")}`);
 if (!HEAL_MODES.includes(healMode)) fail(`--heal-mode must be one of ${HEAL_MODES.join(", ")}`);
+
+let client;
+try {
+  client = await resolveClient(opt("client"));
+} catch (error) {
+  fail(error.message);
+}
+process.env.RAIDSIM_CLIENT = client.id; // read by every fight process (env.mjs)
 
 const json = flag("json");
 const progress = (done, total) => {
@@ -141,9 +161,11 @@ const compact = JSON.stringify(await compactSpells());
 const itemRows = await byId("items");
 const items = {};
 for (const roster of normalized) for (const m of roster) for (const id of Object.values(m.equipped)) items[id] ??= itemRows.get(id);
+const traceIndex = opt("trace") === undefined ? undefined : /^\d+$/.test(opt("trace")) ? Number(opt("trace")) : normalized[0].findIndex((m) => m.name === opt("trace"));
+if (opt("trace") !== undefined && !normalized[0][traceIndex]) fail(`no roster member ${JSON.stringify(opt("trace"))} for --trace`);
 const queue = [];
 for (const [v, roster] of normalized.entries()) {
-  for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members: roster, boss, items, compact, seed: seedBase + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode } });
+  for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members: roster, boss, items, compact, seed: seedBase + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode, trace: v === 0 && s === 0 ? traceIndex : undefined } });
 }
 
 let fights;
@@ -157,7 +179,7 @@ if (!json && process.stderr.isTTY) process.stderr.write("\r");
 const byVariant = variants.map((v, i) => ({ label: v.label, fights: fights.filter((_, k) => queue[k].variant === i) }));
 const results = byVariant.map((v) => ({ label: v.label, summary: summarize(v.fights, maxSec), fights: v.fights }));
 const baseline = results[0].summary;
-const meta = { boss: { id: boss.row.id, name: boss.row.name, level: boss.row.level, hp: Number(boss.row.hp) }, seeds, seedBase, maxSec, dpsMode, healMode, level };
+const meta = { client: client.id, boss: { id: boss.row.id, name: boss.row.name, level: boss.row.level, hp: Number(boss.row.hp) }, seeds, seedBase, maxSec, dpsMode, healMode, level };
 
 if (json) {
   console.log(JSON.stringify({ ...meta, results: results.map((r) => ({ label: r.label, summary: r.summary, fights: r.fights })) }));
@@ -165,7 +187,7 @@ if (json) {
 }
 
 const bossLine = `${boss.row.name.replace(/#/g, "").replace(/_/g, " ")} (npc ${boss.row.id}, level ${boss.row.level}, ${Number(boss.row.hp).toLocaleString("en-US")} HP)`;
-console.log(`${bossLine}; ${normalized[0].length} members at level ${level}; Auto-DPS ${dpsMode}, auto-heal ${healMode}\n`);
+console.log(`${bossLine}; ${normalized[0].length} members at level ${level}; Auto-DPS ${dpsMode}, auto-heal ${healMode}; client ${client.id}\n`);
 console.log("Damage is the average per fight and member. Melee: weapon attacks. Pet: pet melee and procs. Nuke: cast damage spells. DoT: damage over time. Proc: weapon and item procs. Heal and Mana: healing done and mana spent. * marks the leader.\n");
 console.log(memberTable(baseline));
 console.log();
@@ -173,6 +195,10 @@ for (const line of fightLines(baseline, maxSec)) console.log(line);
 if (flag("class-sweep")) {
   console.log(`\nClass sweep: slot ${opt("slot")} set to each class\n`);
   console.log(sweepTable(results, baseline, maxSec));
+}
+if (traceIndex !== undefined) {
+  console.log();
+  for (const line of traceLines(normalized[0][traceIndex].name, results[0].fights[0].trace)) console.log(line);
 }
 if (flag("calls")) {
   const calls = results[0].fights[0].calls;

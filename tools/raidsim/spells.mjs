@@ -1,5 +1,5 @@
 // spells_new rows to the client's compact spell record (the shape of its static spells asset,
-// read by `JE` in main.pretty.js), so the client's own spell store can hold the content snapshot.
+// read by `hydrateSpells` in tools/raidsim/clients.mjs), so the client's own spell store can hold the content snapshot.
 import { table } from "./content.mjs";
 
 const range = (n) => Array.from({ length: n }, (_, i) => i + 1);

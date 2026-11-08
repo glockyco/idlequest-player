@@ -76,9 +76,21 @@ Reading the table:
 
 ### Simulated fights
 
-`tools/raidsim.mjs` runs the client's own member builder, raid tick and boss engine offline, with per-class stats, skills and merchant kits that are assumptions (its header lists them). Against Hraashna the Warder with groups 1 to 3 at level 60, all 20 seeded fights ended in a kill after 358 to 726 s (mean 504 s). In nearly every fight the tanks, the Clerics and most melee died between 75 and 320 s. The Shamans, the Druid and the Enchanter survived because DoT damage adds no hate (`_Ot`, `.re/js/engine.pretty.js:5800-5847`), so the boss idles once only they are left.
+`tools/raidsim.mjs` runs the client's own member builder, raid tick and boss engine offline on the newest saved client release, with per-class stats, skills and merchant kits that are assumptions (its header lists them). Against Hraashna the Warder with groups 1 to 3 at level 60, Auto-DPS all out and "CLR: Balanced" auto-heal, all 20 seeded fights ended in a kill after 343 to 606 s (mean 459 s). The Warrior, Paladin and Shadow Knight died in all 20 fights (median 156, 167 and 188 s), the three Clerics in 19 to 20 (median 260 to 291 s) and the Rogue, Wizard, Ranger, Monk, Bard and Magician in 20 of 20 (medians 160 to 291 s). The Shamans, the Druid and the Enchanter never died. DoT damage adds no hate (`_Ot`, `.re/js/engine.pretty.js:5800-5847`), so they are never in the boss's hate list and finish the boss after the rest of the raid is dead.
 
-Swapping the group 3 Monk slot through every class (20 seeds each) changed the mean kill time by: Necromancer -146 s, Shadow Knight -103 s, Shaman -95 s, Magician -73 s, Cleric -71 s, Enchanter -65 s, Druid -64 s, Paladin -61 s, Wizard -55 s, Rogue -52 s, Warrior -51 s, Ranger -10 s, Bard +2 s. With these assumed stats, a Necromancer, Shadow Knight or Shaman is the best extra slot and a Monk or Bard the weakest. The deaths say healing and tanking run out before damage does. Re-run it when real recruit stats can replace the assumed ones.
+The deaths are what the client's engine does with these inputs. The boss lands about 109,000 damage per fight on the raid, 240 per second over a fight, spread over most of the members. The three Clerics hold 5,438 mana each under Resolve (`.re/js/main.pretty.js:22711-22740`) and regenerate about 5 per second in combat (`ZF` and `US`, `.re/js/BQ.pretty.js:20173-20175`, `20325-20338`). The auto-heal turns that into 2.3 healed hit points per mana. It casts Complete Healing (25 per mana) only at a target between 30% and 50% of its HP and otherwise picks heals of 1 to 3 per mana (`oq`, `.re/js/main.pretty.js:58079-58171`), so the Clerics are out of mana 100 to 130 s into the fight and the Warrior's median death comes at 156 s. What moves it, 20 seeds each:
+
+| Change | Mean kill | Warrior dies |
+| --- | ---: | ---: |
+| No auto-heal | 743 s | 20 of 20 at 147 s |
+| Three Clerics, "CLR: Balanced" | 459 s | 20 of 20 at 156 s |
+| Three Clerics, "CLR: All Out" | 502 s | 20 of 20 at 152 s |
+| Six Clerics (three added), "CLR: Balanced" | 306 s | 20 of 20 at 205 s |
+| Three Clerics, "All: Balanced" (every class heals) | 317 s | 9 of 20 at 277 s |
+
+Without auto-heal the Paladin and the Shadow Knight die at 71 and 88 s and the Warrior at 147 s, so healing roughly doubles the first two and adds 10 s to the Warrior. More Clerics or healers in other classes help most, because the planner's choice of spells stays the same.
+
+Swapping the group 3 Monk slot through every class (20 seeds each) changed the mean kill time by: Necromancer -123 s, Shaman -81 s, Rogue -49 s, Magician -49 s, Shadow Knight -41 s, Cleric -38 s, Enchanter -36 s, Wizard -23 s, Warrior -19 s, Paladin -17 s, Druid -15 s, Ranger +16 s, Bard +36 s. With these assumed stats, a Necromancer or Shaman is the best extra slot and a Bard, Ranger or Monk the weakest. Re-run it when real recruit stats can replace the assumed ones.
 
 ### How big a raid
 

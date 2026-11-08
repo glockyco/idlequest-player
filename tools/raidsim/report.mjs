@@ -89,3 +89,14 @@ export function sweepTable(rows, baseline, maxSec) {
   lines.push(`* mean over all fights, a fight without a kill counts as ${maxSec} s. Change is mean kill time against the unchanged roster (kills only).`);
   return lines.join("\n");
 }
+
+// The traced member's fight, from fight.mjs `traceBuckets`.
+export function traceLines(name, rows) {
+  const lines = [`${name}: hit points, damage taken from the boss, healing received and hate, per 10 s`, ""];
+  lines.push(["From s", "HP", "Taken/s", "Hits", "Healed/s", "Rank", "Targeted s", "Cleric mana", "Healing received (caster: spell amount)"].map((h, i) => pad(h, [7, 12, 8, 5, 9, 5, 11, 12, 0][i], i === 8)).join(" "));
+  for (const r of rows) {
+    const heals = Object.entries(r.heals).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v}`).join("; ");
+    lines.push([pad(r.from, 7), pad(r.hp === null ? null : `${r.hp}/${r.maxHp}`, 12), pad(Math.round(r.taken / 10), 8), pad(r.hits, 5), pad(Math.round(r.healed / 10), 9), pad(r.rank, 5), pad(r.targetedSec, 11), pad(r.clericMana, 12), heals + (r.died ? "  DIED" : "")].join(" "));
+  }
+  return lines;
+}

@@ -60,7 +60,7 @@ export const BASE_STATS = {
   14: STAT({ int: 255, cha: 200 }),
 };
 
-// Skill ids by name, as the client's skill enum (`Sc` in main.pretty.js) numbers them. fight.mjs
+// Skill ids by name, as the client's skill enum (`skillNames` in clients.mjs) numbers them. fight.mjs
 // checks this table against the client.
 export const SKILL_IDS = {"OneHBlunt": 0, "OneHSlashing": 1, "TwoHBlunt": 2, "TwoHSlashing": 3, "Abjuration": 4, "Alteration": 5, "Archery": 7, "Backstab": 8, "Bash": 10, "Block": 11, "BrassInstruments": 12, "Channeling": 13, "Conjuration": 14, "Defense": 15, "Divination": 18, "Dodge": 19, "DoubleAttack": 20, "DragonPunch": 21, "DualWield": 22, "EagleStrike": 23, "Evocation": 24, "FlyingKick": 26, "HandToHand": 28, "Kick": 30, "Meditate": 31, "Mend": 32, "Offense": 33, "Parry": 34, "OneHPiercing": 36, "Riposte": 37, "RoundKick": 38, "Singing": 41, "StringedInstruments": 49, "WindInstruments": 54, "PercussionInstruments": 70, "Taunt": 73};
 

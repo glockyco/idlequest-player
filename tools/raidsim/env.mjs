@@ -2,14 +2,17 @@
 // randomness, the network and the 3D scene. Every replacement is made in this file.
 import { setImmediate as hostImmediate } from "node:timers";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { resolveClient } from "./clients.mjs";
 
 GlobalRegistrator.register({
   url: "https://idlequest.net/play",
   settings: { disableCSSFileLoading: true, handleDisabledFileLoadingAsSuccess: true },
 });
 
-const js = new URL("../../.re/js/", import.meta.url).pathname;
-const BUNDLES = /(BYHOoN7B|BQawK6zj|nEit1u-a)\.js$/;
+// The client build to load: tools/raidsim.mjs chooses it (--client) and passes it to each fight
+// process in RAIDSIM_CLIENT.
+export const client = await resolveClient(process.env.RAIDSIM_CLIENT);
+const BUNDLES = new RegExp(`(${Object.values(client.files).join("|").replace(/\./g, "\\.")})$`);
 
 // The client modules export only part of what the raid code uses, so each module gets one extra
 // export that evaluates a name in its own scope. This reads and assigns module-level bindings.
@@ -23,9 +26,9 @@ Bun.plugin({
   },
 });
 
-export const main = await import(`${js}BYHOoN7B.js`);
-export const bq = await import(`${js}BQawK6zj.js`);
-export const eng = await import(`${js}nEit1u-a.js`);
+export const main = await import(`${client.dir}${client.files.main}`);
+export const bq = await import(`${client.dir}${client.files.bq}`);
+export const eng = await import(`${client.dir}${client.files.engine}`);
 
 // Name -> value in a bundle's module scope.
 export const inMain = (name) => main.__scope(name);
