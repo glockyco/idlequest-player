@@ -256,6 +256,10 @@ export async function runJob(job) {
     validatedRosterSessionId: sessionId,
   });
   rt.getState().syncRaidBuffs(level);
+  // Maximum hit points, mana and armor class the client computed for each member, before the fight
+  // starts (raid buffs included, Raid Resolve not). The leader's come from the character store.
+  const shownStats = (m) => ({ hp: m.maxHp, mana: m.maxMana, ac: m.ac });
+  const startStats = [shownStats(inMain(N.main.characterStore).getState().characterProfile), ...rt.getState().roster.map(shownStats)];
   // Stub: the rest before the pull. A member is built at its unbuffed maximum and the raid buffs
   // raise that maximum, so out of combat the client's raid regeneration (`tickRaidRegen` in
   // the combat service) fills hit points and mana over a few minutes. The fight starts after that.
@@ -309,10 +313,10 @@ export async function runJob(job) {
   }
   await flush();
   const b = bossState();
-  return summarize({ stubs, members, built, leader, bossActorId, bossHpLeft: b ? Math.max(0, b.hp) : 0, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples });
+  return summarize({ stubs, members, built, leader, bossActorId, bossHpLeft: b ? Math.max(0, b.hp) : 0, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples, startStats });
 }
 
-function summarize({ stubs, members, built, leader, bossActorId, bossHpLeft, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples }) {
+function summarize({ stubs, members, built, leader, bossActorId, bossHpLeft, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples, startStats }) {
   const owner = new Map([["player", "player"]]);
   for (const b of built) owner.set(b.member.id, b.member.id);
   for (const pet of rt.getState().pets) owner.set(pet.id, pet.ownerId);
@@ -363,8 +367,8 @@ function summarize({ stubs, members, built, leader, bossActorId, bossHpLeft, ini
     bossHpLeft,
     bossMaxHp: init.npcMaxHp,
     members: [
-      { name: leader.name, cls: leader.cls, leader: true, ...row("player") },
-      ...built.map((b) => ({ name: b.spec.name, cls: b.spec.cls, leader: false, ...row(b.member.id) })),
+      { name: leader.name, cls: leader.cls, leader: true, stats: startStats[0], ...row("player") },
+      ...built.map((b, i) => ({ name: b.spec.name, cls: b.spec.cls, leader: false, stats: startStats[i + 1], ...row(b.member.id) })),
     ],
     resolve: !!rt.getState().encounterAid?.granted,
     otherDamage: Object.fromEntries(otherDamage),

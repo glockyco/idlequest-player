@@ -2,13 +2,18 @@
 // (class mix, counts, gear, spells scribed) can be compared against a boss before characters exist.
 //
 //   bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--json]
+//   bun tools/raidsim.mjs --boss <...> --roster <...> --gear farm [--farm-hours 4] [--gear-report]
 //   bun tools/raidsim.mjs --boss <...> --roster <...> --class-sweep --slot <name|index>
 //
 //   --boss        npc_types id, or a name ("Hraashna the Warder")
-//   --roster      JSON file: { "level": 60, "members": [...] } or just the array. A member is
-//                 { name, class, race?, leader?, stats?, skills?, items?, spells?, gems? }, documented
+//   --roster      JSON file: { "level": 60, "gear": "merchant", "members": [...] } or just the array. A member is
+//                 { name, class, race?, leader?, gear?, stats?, skills?, items?, spells?, gems? }, documented
 //                 in tools/raidsim/roster.mjs. Without "leader" the first member leads. See
 //                 tools/raidsim/rosters/groups-1-3.json.
+//   --gear P      where a member's default items and spells come from: merchant (default) or farm. Overrides
+//                 the roster file's "gear", and a member's own "gear" overrides both (see "Gear policies")
+//   --farm-hours H  farm policy: the most hours of camping one copy of an item or scroll may take (default 4)
+//   --gear-report  after the tables, every member's items and spells with where each comes from
 //   --seeds N     fights per roster, seeds --seed-base .. +N-1 (default 20, base 1)
 //   --max-sec S   fight time limit in seconds (default 900)
 //   --dps-mode    dps-balanced | dps-all-out | all-all-out (default dps-all-out), the raid's Auto-DPS
@@ -23,6 +28,21 @@
 //   --jobs N      fights run at once (default: a quarter of the CPU count), each at the lowest priority
 //   --calls       also print how often the client functions below ran (first fight)
 //   --json        machine output instead of tables
+//
+// Gear policies. A member without "items" or "spells" gets a default kit (tools/raidsim/kits.mjs):
+//   merchant  the best item per slot that any merchant in the content snapshot sells (armor class
+//             first, then stat total), the best weapon by damage per delay and every merchant scroll
+//             the class can cast, whatever the zone and the price
+//   farm      per slot the best item by the stat score of tools/gear.mjs (shared code in
+//             tools/lib/gear-data.mjs) that the member's class and race may use at its level and that
+//             a character can get: from a merchant in a live zone, or from the drops of an ordinary NPC
+//             in a live zone (not a Raid Resolve boss, not a raid target, not above level 60, with a
+//             spawn timer) at an expected time of at most --farm-hours of camping per copy. That time
+//             is respawn seconds / (spawn chance x drop chance) / 3600 for one spawn point, the fastest
+//             source of the item. Weapons rank by base damage capped at the level's limit over delay
+//             and a two-hander wins only if it beats the one-hander by the off hand's 35% share.
+//             Spells are the merchant scrolls plus the scrolls that pass the same time limit. Each
+//             member has its own copies, so lore items only stop one member wearing two of them
 //
 // What runs. A fight builds the raid in the client's own stores and drives it the way the raid
 // view does: the roster members come from the client's member builder with items loaded by id,
@@ -67,8 +87,10 @@
 // What this tool assumes, because no client, server or content data says what we will own:
 //   - every skill trained to its cap, no AAs, and the default race of a class (Human, Barbarian for
 //     a Shaman) when an entry names none
-//   - default gear (best merchant item per slot by armor class, best merchant weapon by damage per
-//     delay) and default spells (every merchant scroll the class can cast), kits.mjs
+//   - default gear and spells come from a gear policy (above), so they follow the content snapshot's
+//     drop, spawn and merchant tables and the score of gear.mjs, not what the account will own. Charm,
+//     ranged and ammo slots stay empty, and the simulated characters have no deity (an item that
+//     needs one is left out of the farm kit)
 //   - a leader memorizes the 8 (Bard 3) highest level spells of the client's auto-cast table that
 //     it has scribed (data/class-spells.json), kits.mjs
 //   - the boss's spell list: which npc_spells_entries types an engaged NPC casts, and the client
@@ -83,14 +105,14 @@
 // state in module-level stores and a second fight in the same process would start from the first
 // one's leftovers. A fight of several virtual minutes takes a few seconds.
 import { readFile } from "node:fs/promises";
-import { resolveClient } from "./raidsim/clients.mjs";
+import { resolveBossList, resolveClient } from "./raidsim/clients.mjs";
 import { CLASS_NAMES } from "./raidsim/classes.mjs";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
-import { normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
+import { DEFAULT_FARM_HOURS, GEAR_POLICIES, normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
 import { compactSpells } from "./raidsim/spells.mjs";
 import { byId } from "./raidsim/content.mjs";
 import { DEFAULT_JOBS, runJobs } from "./raidsim/pool.mjs";
-import { fightLines, memberTable, summarize, sweepTable, traceLines } from "./raidsim/report.mjs";
+import { fightLines, gearReport, memberTable, summarize, sweepTable, traceLines } from "./raidsim/report.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -106,7 +128,7 @@ const fail = (message) => {
 const DPS_MODES = ["dps-balanced", "dps-all-out", "all-all-out"];
 const HEAL_MODES = ["clr-balanced", "all-balanced", "clr-all-out", "all-all-out", "off"];
 
-if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--json] [--class-sweep --slot <name|index>]");
+if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--gear merchant|farm] [--farm-hours 4] [--gear-report] [--json] [--class-sweep --slot <name|index>]");
 const seeds = Number(opt("seeds", 20));
 const seedBase = Number(opt("seed-base", 1));
 const maxSec = Number(opt("max-sec", 900));
@@ -116,6 +138,9 @@ const healMode = opt("heal-mode", "clr-balanced");
 if (!(seeds >= 1) || !(maxSec > 0)) fail("--seeds and --max-sec must be positive numbers");
 if (!DPS_MODES.includes(dpsMode)) fail(`--dps-mode must be one of ${DPS_MODES.join(", ")}`);
 if (!HEAL_MODES.includes(healMode)) fail(`--heal-mode must be one of ${HEAL_MODES.join(", ")}`);
+const farmHours = Number(opt("farm-hours", DEFAULT_FARM_HOURS));
+if (!(farmHours > 0)) fail("--farm-hours must be a positive number");
+if (opt("gear") !== undefined && !GEAR_POLICIES.includes(opt("gear"))) fail(`--gear must be one of ${GEAR_POLICIES.join(", ")}`);
 
 let client;
 try {
@@ -138,7 +163,7 @@ try {
 } catch (error) {
   fail(error.message);
 }
-const { entries, level } = rosterEntries(file);
+const { entries, level, gear: fileGear } = rosterEntries(file);
 
 // Variants of the roster to fight: the roster as given, or with one slot set to each class.
 const variants = [{ label: "as given", entries }];
@@ -148,14 +173,17 @@ if (flag("class-sweep")) {
   const index = /^\d+$/.test(slot) ? Number(slot) : entries.findIndex((e) => e.name === slot);
   if (!entries[index]) fail(`no roster member ${JSON.stringify(slot)}`);
   for (let cls = 1; cls <= 14; cls++) {
-    const swapped = entries.map((e, i) => (i === index ? { name: e.name, class: cls, ...(e.leader ? { leader: true } : {}) } : e));
+    const swapped = entries.map((e, i) => (i === index ? { name: e.name, class: cls, ...(e.gear ? { gear: e.gear } : {}), ...(e.leader ? { leader: true } : {}) } : e));
     variants.push({ label: CLASS_NAMES[cls], entries: swapped });
   }
 }
 
 let normalized;
 try {
-  normalized = await Promise.all(variants.map((v) => normalizeEntries(v.entries, level)));
+  const gear = opt("gear") ?? fileGear;
+  const usesFarm = gear === "farm" || entries.some((e) => e.gear === "farm");
+  const options = { gear, farmHours, resolve: usesFarm ? await resolveBossList(client) : undefined };
+  normalized = await Promise.all(variants.map((v) => normalizeEntries(v.entries, level, options)));
 } catch (error) {
   fail(error.message);
 }
@@ -192,13 +220,17 @@ if (json) {
 
 const bossLine = `${boss.row.name.replace(/#/g, "").replace(/_/g, " ")} (npc ${boss.row.id}, level ${boss.row.level}, ${Number(boss.row.hp).toLocaleString("en-US")} HP)`;
 console.log(`${bossLine}; ${normalized[0].length} members at level ${level}; Auto-DPS ${dpsMode}, auto-heal ${healMode}; client ${client.id}\n`);
-console.log("Damage is the average per fight and member. Melee: weapon attacks. Pet: pet melee and procs. Nuke: cast damage spells. DoT: damage over time. Proc: weapon and item procs. Heal and Mana: healing done and mana spent. * marks the leader.\n");
+console.log("Damage is the average per fight and member. HP, AC and Mana: maximum hit points, armor class and mana the client computes before the fight (raid buffs included, Raid Resolve not). Melee: weapon attacks. Pet: pet melee and procs. Nuke: cast damage spells. DoT: damage over time. Proc: weapon and item procs. Heal and Spent: healing done and mana spent. * marks the leader.\n");
 console.log(memberTable(baseline));
 console.log();
 for (const line of fightLines(baseline, maxSec)) console.log(line);
 if (flag("class-sweep")) {
   console.log(`\nClass sweep: slot ${opt("slot")} set to each class\n`);
   console.log(sweepTable(results, baseline, maxSec));
+}
+if (flag("gear-report")) {
+  console.log("\nGear of each member (as given)\n");
+  for (const line of gearReport(normalized[0], itemRows)) console.log(line);
 }
 if (traceIndex !== undefined) {
   console.log();

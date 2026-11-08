@@ -88,3 +88,16 @@ export async function resolveClient(reference) {
   if (!client) throw new Error(`no client table for ${JSON.stringify(id)} (known: ${Object.keys(CLIENTS).join(", ")}); write one with tools/raidsim/map-client.mjs`);
   return { id, ...client, dir: `${repo}${client.dir}` };
 }
+
+// The client's Raid Resolve bosses ({ ids: Set of npc ids, names: Set of names }), read from the list
+// the main bundle holds under `resolveBosses`. The simulator's farmed kits keep these NPCs out of
+// the drop sources.
+export async function resolveBossList(client) {
+  const name = client.names.main.resolveBosses;
+  const text = await Bun.file(`${client.dir}${client.files.main}`).text();
+  const list = text.match(new RegExp(`(?:^|[^\\w$])${name.replace(/\$/g, "\\$")}=\\[(\\{npcId:.*?)\\](?=[,;\\n])`));
+  if (!list) throw new Error(`the Raid Resolve list ${name} was not found in ${client.files.main}`);
+  const entries = [...list[1].matchAll(/npcId:(\d+),zoneId:\d+,name:"([^"]*)"/g)];
+  if (!entries.length) throw new Error(`the Raid Resolve list ${name} in ${client.files.main} has no entries`);
+  return { ids: new Set(entries.map((m) => Number(m[1]))), names: new Set(entries.map((m) => m[2])) };
+}
