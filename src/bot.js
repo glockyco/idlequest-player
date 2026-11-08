@@ -40,6 +40,10 @@
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
     clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false },
+    // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
+    // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
+    // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
+    companionTactics: { cure: false },
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
     // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
@@ -645,6 +649,20 @@
       if (key in cb && cb[key] !== want && typeof toggle === "function") {
         toggle();
         log(`client option ${key} set to ${want}`);
+      }
+    }
+  };
+  // Overrides are kept per companion in the party spells store, and a companion that joins later,
+  // or whose overrides were lost, has none and casts with the client's defaults.
+  const keepTactics = (i) => {
+    if (state.dispel) return;
+    const overrides = i.stores.partySpells?.getState?.().overridesByCompanion ?? {};
+    for (const c of i.stores.companions.getState().companions ?? []) {
+      if (c.companionType !== 2) continue;
+      for (const [k, want] of Object.entries(config.companionTactics ?? {})) {
+        if (overrides[`character:${c.characterId}`]?.[k] === want) continue;
+        i.setTactic(c.name, k, want);
+        log(`tactic ${k} set to ${want} for ${c.name}`);
       }
     }
   };
@@ -1825,6 +1843,7 @@
       await watchIdle(i, cb);
       keepLimits(i, cb);
       keepOptions(cb);
+      keepTactics(i);
       avoidTargets(i);
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);

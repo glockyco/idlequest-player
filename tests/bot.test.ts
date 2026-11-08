@@ -68,6 +68,7 @@ async function install(partyIds: number[] = []) {
   const raid = { raidModeActive: false };
   // Tactic changes the bot made, as [who, key, value].
   const tactics: [string, string, unknown][] = [];
+  const spells: { overridesByCompanion: Record<string, Record<string, unknown>> } = { overridesByCompanion: { "character:10": { cure: false }, "character:20": { cure: false } } };
   const autoLevel = { stops: 0, starts: 0 };
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
@@ -176,7 +177,12 @@ async function install(partyIds: number[] = []) {
       },
     },
     command,
-    setTactic: (who: string, key: string, value: unknown) => tactics.push([who, key, value]),
+    // Like the bridge, a tactic for an account companion lands in the party spells store.
+    setTactic: (who: string, key: string, value: unknown) => {
+      tactics.push([who, key, value]);
+      const c = (party.companions as { name: string; characterId?: number }[]).find((x) => x.name === who);
+      if (c?.characterId) (spells.overridesByCompanion[`character:${c.characterId}`] ??= {})[key] = value;
+    },
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
@@ -195,7 +201,7 @@ async function install(partyIds: number[] = []) {
       staticData: store({ zones }),
       skills: store(skills),
       spellbook: store(book),
-      partySpells: store({ overridesByCompanion: { "character:20": { cure: false } } }),
+      partySpells: store(spells),
       raid: store(raid),
     },
   };
@@ -1294,4 +1300,13 @@ test("client options are kept at the bot's values with their toggles, and set on
   await f.bot.tick();
   expect(flips).toEqual(["self"]);
   expect((f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled).toBe(false);
+});
+
+test("a companion without the kept tactics gets them", async () => {
+  const f = await install();
+  delete (f.iq.stores.partySpells.getState() as { overridesByCompanion: Record<string, unknown> }).overridesByCompanion["character:10"];
+  await f.bot.tick();
+  await f.bot.tick();
+  // Tagujazolu has no overrides and so would cure with the client's defaults. Edroun's cure is off.
+  expect(f.tactics).toEqual([["Tagujazolu", "cure", false]]);
 });
