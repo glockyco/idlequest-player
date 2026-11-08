@@ -6,7 +6,9 @@ const big = (n) => (n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n 
 const pct = (x) => (x == null ? "-" : `${Math.round(100 * x)}%`);
 const dur = (ms) => (ms == null ? "-" : ms < 90000 ? `${Math.round(ms / 1000)}s` : ms < 5400000 ? `${Math.round(ms / 60000)}m` : ms < 172800000 ? `${(ms / 3600000).toFixed(1)}h` : `${(ms / 86400000).toFixed(1)}d`);
 const hours = (h) => (h == null ? "-" : h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1)} d`);
-const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+// Times are the browser's local time on a 24-hour clock, like the collector's log lines.
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const dayName = (t) => new Date(t).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 const SHORT = { Warrior: "War", Cleric: "Clr", Paladin: "Pal", Ranger: "Rng", "Shadow Knight": "SK", Druid: "Dru", Monk: "Mnk", Bard: "Brd", Rogue: "Rog", Shaman: "Shm", Necromancer: "Nec", Wizard: "Wiz", Magician: "Mag", Enchanter: "Enc" };
 // The page's activity labels grouped as the goal measures time: fighting, moving, recovering, idle, dead, tasks.
@@ -160,7 +162,7 @@ function renderEngineering(s) {
 function renderJobs(s) {
   const j = s.jobs;
   $("jobs-list").innerHTML =
-    `<h3>Open</h3>` + table(["#", "Since", "Purpose", "Output"], j.open.map((x) => [x.id, dur(s.now - x.started), esc(x.purpose), esc(x.output ?? "")])) + `<h3>Done</h3>` + table(["#", "Done", "Purpose", "Result"], j.done.map((x) => [x.id, new Date(x.done).toLocaleString(), esc(x.purpose), esc(x.result ?? "")]));
+    `<h3>Open</h3>` + table(["#", "Since", "Purpose", "Output"], j.open.map((x) => [x.id, dur(s.now - x.started), esc(x.purpose), esc(x.output ?? "")])) + `<h3>Done</h3>` + table(["#", "Done", "Purpose", "Result"], j.done.map((x) => [x.id, `${dayName(x.done)} ${hhmm(x.done)}`, esc(x.purpose), esc(x.result ?? "")]));
 }
 
 function renderCoordinator(s) {
@@ -189,7 +191,7 @@ async function renderTrends() {
   for (let v = lo; v <= hi; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let i = 0; i <= 6; i++) {
     const tt = x0 + (i / 6) * (t.now - x0);
-    grid += `<text x="${X(tt)}" y="${H - 6}" text-anchor="middle">${hoursBack > 48 ? new Date(tt).toLocaleDateString([], { day: "numeric", month: "numeric" }) + " " : ""}${new Date(tt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>`;
+    grid += `<text x="${X(tt)}" y="${H - 6}" text-anchor="middle">${hoursBack > 48 ? new Date(tt).toLocaleDateString([], { day: "numeric", month: "numeric" }) + " " : ""}${hhmm(tt)}</text>`;
   }
   // End labels sit at their line's last value, pushed apart where groups share a level.
   const ends = t.levels
