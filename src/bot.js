@@ -725,15 +725,17 @@
   // best learned summon, direct-damage spells and pet heal into the first gems, and replaces a pet
   // that an older summon or tier made.
   //
-  // The client's spellbook entries carry no effect data, so the Magician roles come from the
-  // content snapshot's spells_new: [spell id, Magician level, damage cap]. Summons are the water
-  // pet line (effect 33). Nukes are single-target direct damage (effect 0, negative base, no
-  // duration, target type 1 or 5) without the summoned-only spells. Pet heals are effect 0 with a
-  // positive base on the pet target (14).
+  // The leader auto-casts only spells in the client's static table for its class
+  // (`buildMergedAutoCastData`, .re/js/BQ.pretty.js:45082-45103, Magician rows at 9761-9854), so a
+  // gem holding any other spell is never cast. The roles list the Magician's table rows with their
+  // content-snapshot facts from spells_new: [spell id, Magician level, damage cap]. Summons are the
+  // water pet line (effect 33). Nukes are single-target direct damage (effect 0, negative base, no
+  // duration, target type 1 or 5) without the summoned-only spells. Pet heals are the table's two
+  // pet-target heals.
   const ROLES = {
     summon: [[315, 4, 0], [398, 8, 0], [402, 12, 0], [336, 16, 0], [497, 20, 0], [570, 24, 0], [574, 29, 0], [621, 34, 0], [625, 39, 0], [629, 44, 0], [633, 49, 0], [1672, 54, 0], [1676, 60, 0]],
-    nuke: [[93, 1, 5], [94, 4, 14], [324, 8, 35], [322, 8, 47], [334, 16, 96], [68, 20, 156], [113, 24, 176], [120, 34, 295], [69, 34, 333], [114, 44, 600], [70, 49, 810], [1660, 52, 702], [1661, 54, 525], [1663, 57, 825], [1664, 59, 1024], [2540, 60, 1294], [2118, 60, 1350]],
-    petHeal: [[1504, 8, 50], [1505, 20, 0], [3584, 34, 175], [2536, 52, 611], [2896, 60, 873]],
+    nuke: [[93, 1, 5], [94, 4, 14], [324, 8, 35], [322, 8, 47], [334, 16, 96], [68, 20, 156], [113, 24, 176], [120, 34, 295], [69, 34, 333], [114, 44, 600], [70, 49, 810], [1660, 52, 702], [1661, 54, 525], [1663, 57, 825], [1664, 59, 1024]],
+    petHeal: [[1504, 8, 50], [1505, 20, 0]],
   };
   const isSummon = (id) => ROLES.summon.some(([s]) => s === id);
   const spellPlan = (i) => {

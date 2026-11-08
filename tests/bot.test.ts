@@ -22,6 +22,7 @@ interface Bot {
   upkeep(reason: string): Promise<string>;
   fastTick(): void;
   surplus(): { name: string }[];
+  spellPlan(): { id: number; name: string; level: number }[];
   errand(opts: { zone: string; keep: string; item: string; minutes?: number; minCon?: number } | null): Promise<string>;
 }
 interface FakeGlobals {
@@ -460,4 +461,12 @@ test("upkeep keeps our pet when the new summon could not be memorized", async ()
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("the upkeep plans only spells the client lets the leader cast", async () => {
+  const { bot, book } = await install();
+  // Learned Magician spells, two of them (a level 34 pet heal and a level 60 nuke) outside the
+  // client's auto-cast table for Magicians.
+  book.scribedSpells = [574, 113, 1505, 3584, 2118].map((spellId) => ({ spellId, spell: { name: `spell ${spellId}` } }));
+  expect(bot.spellPlan().map((s) => s.id)).toEqual([574, 113, 1505]);
 });
