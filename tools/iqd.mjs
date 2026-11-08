@@ -308,6 +308,15 @@ export function queueInPage(a) {
   return { id: t.id, status: t.status };
 }
 
+/** Give a bot without a leader its group's leader and members by name, from the account's character list. */
+export function setGroupInPage(a) {
+  const chars = window.iq.stores.roster?.getState?.().characters ?? [];
+  const idOf = (n) => chars.find((c) => c.name === n)?.id ?? null;
+  if (window.iqBot.config.leaderId != null || idOf(a.leader) == null) return false;
+  window.iqBot.set({ leaderId: idOf(a.leader), partyIds: a.members.map(idOf).filter((id) => id != null) });
+  return true;
+}
+
 // ---- Recorder files -----------------------------------------------------------------------------
 
 /** Last `{ ses, seq }` in a JSONL file, like exportRun's resume point, or zeros without a file. */
@@ -342,13 +351,14 @@ const safeName = (s) => String(s).replace(/[^A-Za-z0-9_-]+/g, "_");
 // ---- Daemon -------------------------------------------------------------------------------------
 
 class Daemon {
-  constructor({ db, relay, runs, intervalSec, log, coordinate = false }) {
+  constructor({ db, relay, runs, intervalSec, log, coordinate = false, recover = false }) {
     this.db = db;
     this.relay = relay;
     this.runs = runs;
     this.intervalSec = intervalSec;
     this.log = log;
     this.coordinate = coordinate;
+    this.recover = recover;
     this.coordinatedAt = 0;
     this.trackers = new Map(); // targetId -> tracker
     this.cursors = new Map(); // recorder directory -> { s, e }
@@ -493,6 +503,8 @@ class Daemon {
       this.db.query("UPDATE sessions SET state = ? WHERE id = ?").run(JSON.stringify(tr.state), tr.rowId);
     }
     this.applyItems(tr, res, now, oldLabel);
+    if (obs.reachable && snap && !snap.error && (!snap.hasBridge || !snap.hasBot)) await this.recoverTab(tr, now).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
+    else if (snap?.hasBot) tr.state.recovery = null;
     if (usable && snap.leader && snap.rec) await this.exportRows(tr, snap).catch((e) => this.log(`export ${tr.label}: ${e.message}`));
   }
 
@@ -509,6 +521,38 @@ class Daemon {
     tr.rowId = row.id;
     tr.prevLeader = tr.leader;
     tr.leader = leader?.name ?? tr.leader;
+  }
+
+  /**
+   * Bring a reachable game tab without the bridge or the bot back to play, at most every two
+   * minutes (`--recover`): sign in with the stored login when the login form shows, then install
+   * the bridge and bot as the SDK does (src/install.mjs). The bot keeps its settings in the tab's
+   * sessionStorage, so a reloaded tab knows its leader. A tab that lost them gets its group's leader
+   * and members from data/roster.json, by the leader it showed before. The bot then enters the
+   * world as the leader and regroups by itself.
+   */
+  async recoverTab(tr, now) {
+    if (!this.recover) return;
+    const r = (tr.state.recovery ??= { attempts: 0, at: 0 });
+    if (now - r.at < 120000) return;
+    r.at = now;
+    r.attempts++;
+    const { installExpressions, screenInPage, signInInPage, storedLogin } = await import("../src/install.mjs");
+    const evaluate = (expression, timeout = 15000) => this.relay.evaluate(tr.targetId, expression, { timeout });
+    const screen = await evaluate(`(${screenInPage})()`);
+    const note = (text) => {
+      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'iqd', ?)").run(now, tr.label, text);
+      this.log(`recovery ${tr.label}: ${text}`);
+    };
+    if (screen === "loading") return;
+    if (screen === "login") {
+      await evaluate(`(${signInInPage})(${JSON.stringify(await storedLogin())})`);
+      return note("signed in with the stored login");
+    }
+    for (const e of await installExpressions()) await evaluate(e, 30000);
+    const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
+    const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;
+    note(`installed the bridge and bot at ${screen}${set ? `, and set ${g.members[0]} as leader of ${g.id}` : ""}`);
   }
 
   recordCharacters(tr, snap, now) {
@@ -709,9 +753,10 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
 // ---- Commands -----------------------------------------------------------------------------------
 
 const HELP = `iqd <command>
-  run [--interval 30] [--port 4790] [--coordinate]
+  run [--interval 30] [--port 4790] [--coordinate] [--recover]
                                  collect game tab state until stopped, with the dashboard on the port (0 for none);
-                                 --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs
+                                 --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs,
+                                 --recover signs tabs in again and reinstalls a missing bridge and bot
   serve [--port 4790]            only the dashboard, on the database as it is
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]
@@ -727,7 +772,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -764,7 +809,7 @@ async function cmdRun({ values, runs }) {
   relay.on("disconnected", () => log("relay disconnected"));
   relay.on("tab-added", (i) => log(`tab appeared ${i.targetId.slice(-4)}`));
   relay.on("tab-removed", (i) => log(`tab gone ${i.targetId.slice(-4)}`));
-  const daemon = new Daemon({ db, relay, runs, intervalSec, log, coordinate: Boolean(values.coordinate) });
+  const daemon = new Daemon({ db, relay, runs, intervalSec, log, coordinate: Boolean(values.coordinate), recover: Boolean(values.recover) });
   const stop = async () => {
     daemon.stopped = true;
     await relay.stop();

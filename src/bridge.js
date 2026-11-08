@@ -1265,5 +1265,7 @@
     },
   };
   window.iq = iq;
-  return iq;
+  // A small result, because the relay returns an evaluation's value by value and `window.iq` holds
+  // references too deep for that.
+  return { installed: true, release: iq.release, missingApi: iq.missingApi };
 })();

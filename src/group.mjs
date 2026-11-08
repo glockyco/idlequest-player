@@ -2,7 +2,7 @@
 // characters at character select, kit each one, and start AutoLevel in the first zone of the
 // level 1 band row. Runs where `browser` exists (an omp eval cell), because it opens the tab.
 import { readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { screenInPage, signInInPage, storedLogin } from "./install.mjs";
 
 const ROSTER = new URL("../data/roster.json", import.meta.url);
 const CREATE = new URL("../data/char-create.json", import.meta.url);
@@ -78,35 +78,17 @@ export function makeName(letter) {
  */
 export async function signIn(tab, { timeoutMs = 120000 } = {}) {
   const end = Date.now() + timeoutMs;
-  const atSelect = () => tab.evaluate(() => /SELECT A CHARACTER/i.test(document.body.innerText));
-  for (;;) {
-    if (await atSelect()) return;
-    const ready = await tab.evaluate(() => {
-      const connect = [...document.querySelectorAll("button")].find((b) => /CONNECT/.test(b.textContent));
-      return !!document.querySelector('input[type="password"]') && !!connect && !connect.disabled;
-    });
-    if (ready) break;
+  const screen = () => tab.evaluate(`(${screenInPage})()`);
+  for (let s = await screen(); s !== "select"; s = await screen()) {
+    if (s === "login") {
+      await tab.evaluate(`(${signInInPage})(${JSON.stringify(await storedLogin())})`);
+      while ((await screen()) !== "select") {
+        if (Date.now() > end) throw new Error("character select did not appear after CONNECT");
+        await sleep(1000);
+      }
+      return;
+    }
     if (Date.now() > end) throw new Error("the login form did not become ready");
-    await sleep(1000);
-  }
-  const dir = `${homedir()}/.config/idlequest`;
-  const [email, password] = await Promise.all(["email", "password"].map((f) => readFile(`${dir}/${f}`, "utf8").then((s) => s.trim())));
-  await tab.evaluate(
-    (e, p) => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      const em = document.querySelector('input[type="email"], input[name="email"], input[type="text"]');
-      const pw = document.querySelector('input[type="password"]');
-      set.call(em, e);
-      em.dispatchEvent(new Event("input", { bubbles: true }));
-      set.call(pw, p);
-      pw.dispatchEvent(new Event("input", { bubbles: true }));
-    },
-    email,
-    password,
-  );
-  await tab.click('role/button[name="CONNECT"]');
-  while (!(await atSelect())) {
-    if (Date.now() > end) throw new Error("character select did not appear after CONNECT");
     await sleep(1000);
   }
 }
