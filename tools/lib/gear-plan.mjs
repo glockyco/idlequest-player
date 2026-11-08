@@ -7,7 +7,8 @@
 // Armor and jewelry are scored as a set with tools/lib/gear-data.mjs's stat score, because the
 // client counts only the highest worn haste and caps worn regeneration at 15 HP and 15 mana per
 // tick. The main hand is ranked by base damage, capped at the level's limit, over delay, as
-// tools/raidsim/kits.mjs does. Monks keep their fists, a Rogue's main hand stays a piercer for
+// tools/raidsim/kits.mjs does. A Monk's main hand stays one-handed blunt, the weapon its skills are
+// trained in (a two-hander would also end its off-hand swings), a Rogue's stays a piercer for
 // Backstab, and a two-handed weapon is offered only to a character with nothing in the off hand.
 import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, statScore, weaponRatio } from "./gear-data.mjs";
 
@@ -17,6 +18,9 @@ const SECONDARY = 14;
 const REGEN_CAP = 15;
 const TWO_HANDED = new Set([1, 4, 35]);
 const PIERCING = 2;
+const ONE_HAND_BLUNT = 3;
+// The weapon type each class's main hand must keep.
+const MAIN_HAND_TYPE = { monk: ONE_HAND_BLUNT, rogue: PIERCING };
 /** A main hand must beat the worn one by this much damage per delay to be worth a move. */
 export const MIN_RATIO_GAIN = 0.03;
 
@@ -96,7 +100,7 @@ export function planGear({ survey, items, people, minGain = 5 }) {
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
     const held = mine.get(PRIMARY) ?? null;
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && p.cls !== "monk" && (p.cls !== "rogue" || item.itemtype === PIERCING) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && statScore(item, p.cls, p.level) >= (held ? statScore(held, p.cls, p.level) : 0)) {
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && statScore(item, p.cls, p.level) >= (held ? statScore(held, p.cls, p.level) : 0)) {
       const gain = weaponRatio(item, p.cls, p.level) - weaponRatio(held ?? {}, p.cls, p.level);
       if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }

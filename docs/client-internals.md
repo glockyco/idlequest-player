@@ -224,6 +224,26 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   trip expected the zone, and drops an active Farm Items plan when the zone differs
   (`main.pretty.js:189476-189497`). That makes it the escape from a bad fight.
 
+### Melee damage
+
+Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js`.
+
+- The player and account companions swing the same way. `recalcBotStats` (53735-53800) builds a
+  companion's stats with the player's `Bt` (21847) from its own inventory and skills, so worn
+  weapons and trained skills count for companions as they do for the leader.
+- A weapon's damage is capped by level at stat build and again at each hit (`OD` 20905, `XY`
+  62289-62307, `U3` 62958-62963): casters 6, 10, 12, 18 and 20, priests 9, 12, 20, 26 and 40, all
+  other classes 10, 14, 30, 60 and 100, below levels 10, 20, 30 and 40 and from 40. Ranged skills
+  skip the cap at hit time. `capFor` in `tools/lib/gear-data.mjs` holds the same table.
+- An empty main hand fights with fists (`YL` 22170-22260): damage 1 at 36 delay, and for a Monk
+  a level table (`di` 21713-21754) of 6 at 10 to 14, 7 at 15 to 19 and 8 at 20 to 24, all at 36.
+  A Monk with Dual Wield, nothing in the off hand and no two-hander also swings an off-hand fist.
+  Skills missing from a character default to five per level, and offense and accuracy come from
+  the weapon's skill (`x1` 21999), so a weapon type the character has not trained hits less.
+- A hit is the capped damage times an offense against AC factor of 0.1 to 2.0 (`tp` 62216-62266),
+  plus a flat bonus from level 28 for melee classes that is larger for two-handers (`sd`
+  16699-16706). STR enters only through offense. Haste divides the delay (`g9` 62778-62790).
+
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
