@@ -1,0 +1,2891 @@
+{
+ "source": "https://p99.funcamp.net/Players:Velious_Pre-Raid_Gear/",
+ "note": "Class, slot and item as the P99 wiki lists them for one group or less; check every item against the content snapshot with tools/drops.mjs item --list",
+ "rows": [
+  {
+   "cls": "Bard",
+   "slot": "Ears",
+   "item": "Blue Diamond Electrum Earring"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Ears",
+   "item": "Black Sapphire Electrum Earring"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Fingers",
+   "item": "Coldain Hero's Insignia Ring"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Neck",
+   "item": "Glati's Talisman"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Neck",
+   "item": "Melodic Charm"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Chest",
+   "item": "Breastplate of Twilight"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Arms",
+   "item": "Vambraces of Twilight"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Back",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Waist",
+   "item": "Belt of the Great Turtle"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Shoulders",
+   "item": "Matchless Dragonwing Mantle"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Wrists",
+   "item": "Ice Forged Shackles"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Legs",
+   "item": "Greaves of Twilight"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Hands",
+   "item": "Barbed Ringmail Gloves"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Feet",
+   "item": "Boots of Twilight"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Primary",
+   "item": "Breath of Harmony"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Secondary",
+   "item": "Skyfury Scimitar"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Range",
+   "item": "Thunder Runed War Spear"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Instruments",
+   "item": "Drums of the Beast"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Instruments",
+   "item": "Lute of the Howler"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Instruments",
+   "item": "Immaculate Shell Horn"
+  },
+  {
+   "cls": "Bard",
+   "slot": "Instruments",
+   "item": "Faun Flute"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Ears",
+   "item": "Earring of Cleansing"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Ears",
+   "item": "Earring of Purity"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Ears",
+   "item": "Golden Black Sapphire Earring"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Fingers",
+   "item": "Diamond Wedding Band"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Fingers",
+   "item": "Golem Tear Ring"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Fingers",
+   "item": "Moonstone Ring"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Neck",
+   "item": "Abalone Gorget"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Neck",
+   "item": "Black Sapphire Velium Necklace"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Head",
+   "item": "Iksar Hide Cap"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Face",
+   "item": "Velium Ruby Veil"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Chest",
+   "item": "Breastplate of Forbidden Rites"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Chest",
+   "item": "Phase Spider Carapace"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Arms",
+   "item": "Nathsar Vambraces"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Arms",
+   "item": "Withered Leather Sleeves"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Back",
+   "item": "Matchless Dragonwing Cloak"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Back",
+   "item": "Cobalt Drake Cloak"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Waist",
+   "item": "Mucilaginous Girdle"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Waist",
+   "item": "Cobalt Drake Belt"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Waist",
+   "item": "Girdle of Flayed Iksar"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Shoulders",
+   "item": "Obulus Death Shroud"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Shoulders",
+   "item": "Runed Coldain Prayer Shawl"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Shoulders",
+   "item": "Weight of the Gods"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Wrists",
+   "item": "Matchless Dragonhorn Bracers"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Wrists",
+   "item": "Runed Mithril Bracer"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Legs",
+   "item": "Greaves of Forbidden Rites"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Hands",
+   "item": "Vibrating Gauntlets of Infuse"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Feet",
+   "item": "Coldain Skin Boots"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Titans Fist"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Cone of the Mystics"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Left Eye of Xygoz"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Prophecy Scroll"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Sprinkler of Suffering"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Primary",
+   "item": "Water Sprinkler of Nem Ankh"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Secondary",
+   "item": "Crystal Chitin Shield"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Secondary",
+   "item": "Ry`Gorr Oracle Shield"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Range",
+   "item": "Frozen Orb"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Range",
+   "item": "Talisman of Benevolence"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Range",
+   "item": "Sarnak Prayer Beads"
+  },
+  {
+   "cls": "Cleric",
+   "slot": "Range",
+   "item": "Paebala Fetish"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Ears",
+   "item": "Treant Tear"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Neck",
+   "item": "Rough Silver Chain"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Head",
+   "item": "Rowyl's Circlet of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Face",
+   "item": "Golden Diamond Mask"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Chest",
+   "item": "Rowyl's Chestguard of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Arms",
+   "item": "Rowyl's Vambraces of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Back",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Back",
+   "item": "Cloak of Confusion"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Waist",
+   "item": "Silverleaf Belt"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Shoulders",
+   "item": "Runed Coldain Prayer Shawl"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Wrists",
+   "item": "Rowyl's Bracer of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Wrists",
+   "item": "Coldain Military Wristguard"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Legs",
+   "item": "Rowyl's Greaves of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Hands",
+   "item": "Crystal Chitin Gauntlets"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Feet",
+   "item": "Rowyl's Boots of Nature"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Feet",
+   "item": "Coldain Skin Boots"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Primary",
+   "item": "Nature Walkers Scimitar"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Secondary",
+   "item": "Crystal Chitin Shield"
+  },
+  {
+   "cls": "Druid",
+   "slot": "Range",
+   "item": "Talisman of Benevolence"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Ears",
+   "item": "Helssen's Prismatic Trinket"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Fingers",
+   "item": "Djarns Amethyst Ring"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Fingers",
+   "item": "Coldain Hero's Insignia Ring"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Head",
+   "item": "Ice Silk Cap"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Head",
+   "item": "Illusionist's Headband"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Head",
+   "item": "Mischievous Dazzler Crown"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Chest",
+   "item": "Ice Silk Robe"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Chest",
+   "item": "Beguiler's Robe"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Chest",
+   "item": "Illusionist's Robe"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Chest",
+   "item": "Mischievous Dazzler Robe"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Arms",
+   "item": "Ice Silk Sleeves"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Arms",
+   "item": "Beguiler's Sleeves"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Arms",
+   "item": "Illusionist's Sleeves"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Back",
+   "item": "Shimmering Terror Hide Cloak"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Back",
+   "item": "Hierophant's Cloak"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Back",
+   "item": "Cloak of Confusion"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Waist",
+   "item": "Spider Fur Belt"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Waist",
+   "item": "Belt of Inconsistency"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Shoulders",
+   "item": "Wurm Lord Shawl"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Shoulders",
+   "item": "Neriad Shawl"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Wrists",
+   "item": "Bracelet of Frostbite"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Wrists",
+   "item": "Illusionist's Wristguard"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Legs",
+   "item": "Beguiler's Trousers"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Legs",
+   "item": "Ice Silk Pantaloons"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Legs",
+   "item": "Illusionist's Pantaloons"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Legs",
+   "item": "Tanned Iksar Hide Leggings"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Hands",
+   "item": "Illusionist's Gloves"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Feet",
+   "item": "Spider Fur-Lined Boots"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Feet",
+   "item": "Illusionist's Slippers"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Primary",
+   "item": "Rod of Insidious Glamour"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Primary",
+   "item": "Book of Dawn"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Primary",
+   "item": "Staff of the Serpent"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Secondary",
+   "item": "Book of Dawn"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Secondary",
+   "item": "Orb of the Infinite Void"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Range",
+   "item": "Kromzek Surveyor Scope"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Range",
+   "item": "Purified Crystal Dagger"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Range",
+   "item": "Sickly Glowing Orb"
+  },
+  {
+   "cls": "Enchanter",
+   "slot": "Range",
+   "item": "Writ of Di`zok"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Ears",
+   "item": "Kin Magi Earring"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Ears",
+   "item": "Jade Meditation Hoop"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Ears",
+   "item": "Rijoely's Earring"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Ears",
+   "item": "Tijoely's Earring"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Ears",
+   "item": "Earring of Everfount"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Ring of the Frost Spiders"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Di`zok Begirding"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Diamond Wedding Band"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Ring of Frost"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Regal Band of Bathezid"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Fingers",
+   "item": "Di'Zok Signet of Service"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Neck",
+   "item": "Sapphire Velium Necklace"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Neck",
+   "item": "Black Sapphire Velium Necklace"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Head",
+   "item": "Ice Silk Cap"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Head",
+   "item": "Iksar Hide Cap"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Face",
+   "item": "Enshrouded Veil"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Face",
+   "item": "Tattered Flesh Veil"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Face",
+   "item": "Xialn Mask"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Chest",
+   "item": "Ice Silk Robe"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Chest",
+   "item": "Netted Kelp Tunic"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Chest",
+   "item": "Robe of Benevolence"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Chest",
+   "item": "Sentry Robe"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Chest",
+   "item": "Guardian Robe"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Arms",
+   "item": "Ice Silk Sleeves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Arms",
+   "item": "Netted Kelp Sleeves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Back",
+   "item": "Astral Cloak of the Titans"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Back",
+   "item": "Ice Silk Cloak"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Waist",
+   "item": "Girdle of Rapidity"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Waist",
+   "item": "Chord of Vines"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Waist",
+   "item": "Netted Kelp Sash"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Waist",
+   "item": "Ice Silk Sash"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Shoulders",
+   "item": "Runed Coldain Prayer Shawl"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Shoulders",
+   "item": "Wurm Lord Shawl"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Shoulders",
+   "item": "Fancy Velvet Mantle"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Wrists",
+   "item": "Netted Kelp Bracelet"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Wrists",
+   "item": "Velium Blue Diamond Bracelet"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Legs",
+   "item": "Astral Leggings of the Titans"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Legs",
+   "item": "Ice Silk Pantaloons"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Legs",
+   "item": "Netted Kelp Pantaloons"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Hands",
+   "item": "Spider Fur Gloves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Hands",
+   "item": "Ice Silk Gloves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Hands",
+   "item": "Netted Kelp Gloves"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Feet",
+   "item": "Coldain Skin Boots"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Feet",
+   "item": "Sarnak Hide Boots"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Feet",
+   "item": "Netted Kelp Lined Shoes"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-1H",
+   "item": "Charred Black Staff"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-1H",
+   "item": "Falgiron Staff"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-1H",
+   "item": "Sorcerous Bowl"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-1H",
+   "item": "Di`zok Sceptre of Authority"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-1H",
+   "item": "Sarnak Summoner`s Dagger"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Secondary",
+   "item": "Seer Lore Book"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Secondary",
+   "item": "Runed Writ"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Secondary",
+   "item": "Book of Twilight"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Secondary",
+   "item": "Iksar Hide Manual"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Secondary",
+   "item": "Phenocryst's Focus"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-2H",
+   "item": "Chetari Wardstaff"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Primary-2H",
+   "item": "Tserrina's Staff"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Crypt Master's Conjuring Stone"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Kromzek Surveyor Scope"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Book of Tactics"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Iksar Hide Manual"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Frozen Orb"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Seal of Thoridain"
+  },
+  {
+   "cls": "Magician",
+   "slot": "Range",
+   "item": "Vile Sarnak Brew"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Ears",
+   "item": "Fingerbone Hoop"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Ears",
+   "item": "Pearly Sarnak Bauble"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Ears",
+   "item": "Hammered Golden Loop"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Fingers",
+   "item": "Velium Diamond Wedding Ring"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Fingers",
+   "item": "Regal Band of Bathezid"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Fingers",
+   "item": "Coldain Hero's Insignia Ring"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Neck",
+   "item": "Chipped Velium Amulet"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Neck",
+   "item": "Dragon Tooth Choker"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Head",
+   "item": "Circlet of Vallon"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Head",
+   "item": "Crown of Rile"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Face",
+   "item": "Faceguard of Bentos the Hero"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Chest",
+   "item": "Ice Burrower Skin"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Chest",
+   "item": "Fungus Covered Scale Tunic"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Arms",
+   "item": "Black Pantherskin Sleeves"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Arms",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Back",
+   "item": "Rakusha Cloak"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Back",
+   "item": "Dire Wolf-Hide Cloak"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Back",
+   "item": "Cloak of Confusion"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Waist",
+   "item": "Golden Sash of Tranquility"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Waist",
+   "item": "Spiked Seahorse Hide Belt"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Shoulders",
+   "item": "Ton Po's Shoulder Wraps"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Shoulders",
+   "item": "Barbed Dragonscale Pauldrons"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Shoulders",
+   "item": "Strength of the Elements"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Wrists",
+   "item": "Velium Blue Diamond Bracelet"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Legs",
+   "item": "Black Pantherskin Leggings"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Hands",
+   "item": "Celestial Fists"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Feet",
+   "item": "Barbed Dragonscale Boots"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Feet",
+   "item": "Grey Suede Boots"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Feet",
+   "item": "Footpads of the Tiger"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Primary",
+   "item": "Imbued Fighters Staff"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Primary",
+   "item": "Tranquil Staff"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Secondary",
+   "item": "Stave of Shielding"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Secondary",
+   "item": "Scepter of Mastery"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Range",
+   "item": "Ball of Velium"
+  },
+  {
+   "cls": "Monk",
+   "slot": "Range",
+   "item": "Idol of the Thorned"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Ears",
+   "item": "Earring of Essence"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Ears",
+   "item": "Black Sapphire Electrum Earring"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Fingers",
+   "item": "Di'Zok Signet of Service"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Fingers",
+   "item": "Coldain Hero's Insignia Ring"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Fingers",
+   "item": "Velium Diamond Wedding Ring"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Fingers",
+   "item": "Velium Jacinth Wedding Ring"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Face",
+   "item": "Golden Diamond Mask"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Chest",
+   "item": "Rotting Robe"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Arms",
+   "item": "Rotting Sleeves"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Back",
+   "item": "Hierophant's Cloak"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Waist",
+   "item": "Bone-Clasped Girdle"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Shoulders",
+   "item": "Bloodsoaked Raiment"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Wrists",
+   "item": "Rotting Wristguard"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Wrists",
+   "item": "Velium Blue Diamond Bracelet"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Legs",
+   "item": "Rotting Trousers"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Hands",
+   "item": "Rotting Gloves"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Feet",
+   "item": "Rotting Boots"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Primary",
+   "item": "Zlandicar's Heart"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Secondary",
+   "item": "Orb of the Infinite Void"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Secondary",
+   "item": "Drachnid Thyxl"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Secondary",
+   "item": "Hand of the Reaper"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Range",
+   "item": "Sickly Glowing Orb"
+  },
+  {
+   "cls": "Necromancer",
+   "slot": "Range",
+   "item": "Stone of Morid"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Ears",
+   "item": "Cougar Claw Earring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Ears",
+   "item": "Vhal`Sera Skull Earring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Ears",
+   "item": "Orc Fang Earring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Ears",
+   "item": "Pearly Sarnak Bauble"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Ears",
+   "item": "Elder's Earring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Fingers",
+   "item": "Ring of Dain Frostreaver IV"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Fingers",
+   "item": "Diamond Wedding Band"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Fingers",
+   "item": "Finely Crafted Velium Ring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Fingers",
+   "item": "Rune Etched Wedding Band"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Fingers",
+   "item": "Wurm Bone Ring"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Orc Fang Necklace"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Crystalline Torque"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Spider Fur Collar"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Bloodshrine Necklace"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Sentry Choker"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Head",
+   "item": "Crystal Chitin Circlet"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Head",
+   "item": "Sentry Helmet"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Head",
+   "item": "Square Helm"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Head",
+   "item": "Foreman's Skull Cap"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Head",
+   "item": "Crustacean Shell Helm"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Face",
+   "item": "Mask of War"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Barbed Ringmail"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Crystal Chitin Chestguard"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Sentry Breastplate"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Spined Seahorse Hide Breastplate"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Flayed Paebala Tunic"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Phase Spider Carapace"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Chest",
+   "item": "Crustacean Shell Breastplate"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Arms",
+   "item": "Barbed Ringmail Sleeves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Arms",
+   "item": "Crystal Chitin Armplates"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Arms",
+   "item": "Crustacean Shell Vambraces"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Back",
+   "item": "Shimmering Terror Hide Cloak"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Back",
+   "item": "Spider Fur Cloak"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Back",
+   "item": "White Bear Pelt Cloak"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Back",
+   "item": "Ancient Seahorse Hide Cloak"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Waist",
+   "item": "Spiked Seahorse Hide Belt"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Waist",
+   "item": "Girdle of Wurmslaying"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Waist",
+   "item": "Spider Fur Belt"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Waist",
+   "item": "Sentry Girdle"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Waist",
+   "item": "Bat Fur Belt"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Shoulders",
+   "item": "Barbed Ringmail Shoulderpads"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Shoulders",
+   "item": "Mantle of Absorption"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Shoulders",
+   "item": "Sentry Pauldrons"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Shoulders",
+   "item": "Walrus Hide Pauldrons"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Ice Forged Shackles"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Silver Chitin Wristband"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Sentry Bracer"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Seahorse Spine Bracelet"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Poison Etched Wristband"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Crustacean Shell Bracers"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Legs",
+   "item": "Barbed Ringmail Leggings"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Legs",
+   "item": "Crystal Chitin Leggings"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Legs",
+   "item": "Oiled Greaves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Legs",
+   "item": "Sentry Leggings"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Legs",
+   "item": "Crustacean Shell Greaves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Gauntlets of the Black"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Barbed Ringmail Gloves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Crystal Chitin Gauntlets"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Kobold Bone Gauntlets"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Silver Chitin Hand Wraps"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Sentry Gauntlets"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Flayed Paebala Gloves"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Hands",
+   "item": "Crustacean Shell Gauntlets"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Feet",
+   "item": "Crystal Chitin Boots"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Feet",
+   "item": "Sentry Boots"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Feet",
+   "item": "Flayed Paebala Boots"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Feet",
+   "item": "Crustacean Shell Boots"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Abram's Axe of the Stoic"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Fatecaller"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Iceflame"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Mythril Edged Skull Splitter"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Titans Fist"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Messenger of the Queen"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-2H",
+   "item": "Carved Dragonbone Spear"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-1H",
+   "item": "Edge of the Taskmaster"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-1H",
+   "item": "Poisoned Whip"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-1H",
+   "item": "Sword of Blessings"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Primary-1H",
+   "item": "Venomous Axe of the Velium Brood"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Secondary",
+   "item": "Crystal Chitin Shield"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Secondary",
+   "item": "Walrusbone Shield"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Secondary",
+   "item": "Shield of the Tsunami"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Secondary",
+   "item": "Chetari Bonecrafted Shield"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Secondary",
+   "item": "Crustacean Shell Shield"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Range",
+   "item": "Talisen, Bow of the Trailblazer"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Range",
+   "item": "Double Recurved Velium Bow"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Range",
+   "item": "Light Velium Bow"
+  },
+  {
+   "cls": "Paladin",
+   "slot": "Range",
+   "item": "Scroll of Enlightenment"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Ears",
+   "item": "Cougar Claw Earring"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Ears",
+   "item": "Hammered Golden Hoop"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Fingers",
+   "item": "Djarns Amethyst Ring"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Head",
+   "item": "Helm of the Tracker"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Chest",
+   "item": "Phase Spider Carapace"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Chest",
+   "item": "Barbed Ringmail"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Arms",
+   "item": "Gladiator's Chain Sleeves"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Arms",
+   "item": "Crystal Chitin Armplates"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Back",
+   "item": "Cloak of the Maelstrom"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Back",
+   "item": "Ancient Seahorse Hide Cloak"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Waist",
+   "item": "Belt of the Great Turtle"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Shoulders",
+   "item": "Matchless Dragonwing Mantle"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Wrists",
+   "item": "Silver Chitin Wristband"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Legs",
+   "item": "Matchless Dragonleg Breeches"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Hands",
+   "item": "Crystal Chitin Gauntlets"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Feet",
+   "item": "Matchless Dragonhorn Boots"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Feet",
+   "item": "Crystal Chitin Boots"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Primary",
+   "item": "Exquisite Velium Warsword"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Primary",
+   "item": "Tsiraka's Claws"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Secondary",
+   "item": "Exquisite Velium Spear"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Secondary",
+   "item": "Winters Fury"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Range",
+   "item": "Exquisite Velium Reinforced Bow"
+  },
+  {
+   "cls": "Ranger",
+   "slot": "Range",
+   "item": "Breezeboot's Frigid Gnasher"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Ears",
+   "item": "Orc Fang Earring"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Ears",
+   "item": "Cougar Claw Earring"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Fingers",
+   "item": "Fire Emerald Velium Ring"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Fingers",
+   "item": "Rune Etched Wedding Band"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Fingers",
+   "item": "Wurm Bone Ring"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Neck",
+   "item": "Dragon Tooth Choker"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Neck",
+   "item": "Chipped Velium Amulet"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Head",
+   "item": "Haze Panther Skullcap"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Face",
+   "item": "Tribal War Mask"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Face",
+   "item": "Velium Ruby Veil"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Chest",
+   "item": "Phase Spider Carapace"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Chest",
+   "item": "Haze Panther Tunic"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Arms",
+   "item": "Haze Panther Sleeves"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Arms",
+   "item": "Crystal Chitin Armplates"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Arms",
+   "item": "Mithril Vambraces"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Back",
+   "item": "Cloak of the Maelstrom"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Back",
+   "item": "Dire Wolf-Hide Cloak"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Back",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Waist",
+   "item": "Spiked Seahorse Hide Belt"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Waist",
+   "item": "Belt of the Great Turtle"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Waist",
+   "item": "Thick Banded Belt"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Shoulders",
+   "item": "Barbed Dragonscale Pauldrons"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Shoulders",
+   "item": "Haze Panther Shoulderpads"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Shoulders",
+   "item": "Cobalt Drake Shoulderpads"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Wrists",
+   "item": "Silver Chitin Wristband"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Wrists",
+   "item": "Dragon Hero Bracer"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Wrists",
+   "item": "Hardened Clay Bracelet"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Legs",
+   "item": "Haze Panther Leggings"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Legs",
+   "item": "Mithril Greaves"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Legs",
+   "item": "Oiled Greaves"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Hands",
+   "item": "Haze Panther Gloves"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Hands",
+   "item": "Silver Chitin Hand Wraps"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Hands",
+   "item": "Crystal Chitin Gauntlets"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Feet",
+   "item": "Haze Panther Boots"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Feet",
+   "item": "Crystal Chitin Boots"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Feet",
+   "item": "Lodizal Shell Boots"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Primary",
+   "item": "Ragebringer"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Primary",
+   "item": "Rabid Chokidai Fang"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Secondary",
+   "item": "Exquisite Velium Spear"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Secondary",
+   "item": "Barbed Velium Spear"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Secondary",
+   "item": "Winters Fury"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Range",
+   "item": "Shaded Torch"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Range",
+   "item": "Idol of the Thorned"
+  },
+  {
+   "cls": "Rogue",
+   "slot": "Range",
+   "item": "Talisen, Bow of the Trailblazer"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Ears",
+   "item": "Hammered Golden Loop"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Ears",
+   "item": "Pearly Sarnak Bauble"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Ears",
+   "item": "Earring of Essence"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Ears",
+   "item": "Head of the Valiant"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Fingers",
+   "item": "Regal Band of Bathezid"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Fingers",
+   "item": "Ring of Dain Frostreaver IV"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Fingers",
+   "item": "Ring of the Frozen Flame"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Fingers",
+   "item": "Djarns Amethyst Ring"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Neck",
+   "item": "Dragon Tooth Choker"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Head",
+   "item": "Crown of Narandi"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Head",
+   "item": "Dark Runed Crown"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Face",
+   "item": "Faceguard of Bentos the Hero"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Chest",
+   "item": "Dark Runed Breastplate"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Chest",
+   "item": "Heavy Dragonhide Breastplate"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Chest",
+   "item": "Queen's Carapace"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Arms",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Arms",
+   "item": "Gladiator's Chain Sleeves"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Arms",
+   "item": "Crystal Chitin Armplates"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Arms",
+   "item": "Crustacean Shell Vambraces"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Back",
+   "item": "Black Bear Pelt Cloak"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Back",
+   "item": "Cloak of the Maelstrom"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Back",
+   "item": "Hierophant's Cloak"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Back",
+   "item": "Shimmering Terror Hide Cloak"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Waist",
+   "item": "Belt of Inconsistency"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Waist",
+   "item": "Belt of the Great Turtle"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Waist",
+   "item": "Blood Runed Girdle"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Waist",
+   "item": "Spiked Seahorse Hide Belt"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Waist",
+   "item": "Runebranded Girdle"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Shoulders",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Shoulders",
+   "item": "Strength of the Elements"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Shoulders",
+   "item": "Matchless Dragonwing Mantle"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Ice Forged Shackles"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Wristguard of Distraction"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Silver Chitin Wristband"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Onyx Wristbands"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Wrists",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Legs",
+   "item": "Dark Runed Greaves"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Legs",
+   "item": "Gladiator's Chain Leggings"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Legs",
+   "item": "Royal Velium Frosted Greaves"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Hands",
+   "item": "Blood Runed Gauntlets"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Hands",
+   "item": "Royal Velium Frosted Gauntlets"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Feet",
+   "item": "Barbed Dragonscale Boots"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Feet",
+   "item": "Boots of Dark Passage"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Feet",
+   "item": "Frozen Efreeti Boots"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Primary",
+   "item": "Innoruuk's Curse"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Primary",
+   "item": "Narandi's Lance"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Primary",
+   "item": "Massive Dragonclaw Shard"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Primary",
+   "item": "Sword of Pain"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Primary",
+   "item": "Shard of Night"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Secondary",
+   "item": "Shield of the Freezing Winds"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Secondary",
+   "item": "Shield of the Seneschal"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Secondary",
+   "item": "Atramentous Shield"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Range",
+   "item": "Eye of Narandi"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Range",
+   "item": "Tiny Velium Gargoyle"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Range",
+   "item": "Bronze Statue of Bathezid"
+  },
+  {
+   "cls": "Shadow Knight",
+   "slot": "Range",
+   "item": "Sandwich of Foul Smelling Herbs"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Ears",
+   "item": "Black Sapphire Electrum Earring"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Ears",
+   "item": "Hammered Golden Loop"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Ears",
+   "item": "Pearly Sarnak Bangle"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Fingers",
+   "item": "Ring of Dain Frostreaver IV"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Fingers",
+   "item": "Regal Band of Bathezid"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Neck",
+   "item": "Choker of the Wretched"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Neck",
+   "item": "Qeynos Badge of Honor"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Head",
+   "item": "White Dragon Helm"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Chest",
+   "item": "Chestplate of Vindication"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Arms",
+   "item": "Crystal Chitin Armplates"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Arms",
+   "item": "Shamanistic Shenannigan Arm Guard"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Back",
+   "item": "Dire Wolf-Hide Cloak"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Back",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Back",
+   "item": "Cloak of Confusion"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Waist",
+   "item": "Belt of Inconsistency"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Shoulders",
+   "item": "Strength of the Elements"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Shoulders",
+   "item": "Runed Coldain Prayer Shawl"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Wrists",
+   "item": "Bracer of Hammerfal"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Wrists",
+   "item": "Spirit Wracked Cord"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Legs",
+   "item": "Gladiator's Chain Leggings"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Hands",
+   "item": "Mithril Gauntlets"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Feet",
+   "item": "Shamanistic Shenannigan Boots"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Primary",
+   "item": "Spear of Fate"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Secondary",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Range",
+   "item": "Talisman of Benevolence"
+  },
+  {
+   "cls": "Shaman",
+   "slot": "Range",
+   "item": "Eye of Narandi"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Ears",
+   "item": "Blue Diamond Electrum Earring"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Ears",
+   "item": "Earring of Essence"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Fingers",
+   "item": "Coldain Hero's Insignia Ring"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Head",
+   "item": "Warlord's Crown"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Face",
+   "item": "Eyepatch of Plunder"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Chest",
+   "item": "Warlord's Breastplate"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Arms",
+   "item": "Warlord's Vambraces"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Back",
+   "item": "Cloak of the Maelstrom"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Back",
+   "item": "Lodizal Shell Shield"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Waist",
+   "item": "Spiked Seahorse Hide Belt"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Shoulders",
+   "item": "Strength of the Elements"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Wrists",
+   "item": "Silver Chitin Wristband"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Wrists",
+   "item": "Bracer of Benevolence"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Legs",
+   "item": "Greaves of the Myrmidon"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Hands",
+   "item": "Gauntlets of the Myrmidon"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Hands",
+   "item": "Warlord's Gauntlets"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Hands",
+   "item": "Silver Steel Gauntlets"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Feet",
+   "item": "Warlord's Boots"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Primary",
+   "item": "Wavecrasher"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Secondary",
+   "item": "Frostbringer"
+  },
+  {
+   "cls": "Warrior",
+   "slot": "Range",
+   "item": "Bow of the Underfoot"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Ears",
+   "item": "Tijoely's Earring"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Ears",
+   "item": "Rijoely's Earring"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Fingers",
+   "item": "Velium Fire Wedding Ring"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Fingers",
+   "item": "Imbued Platinum Fire Ring"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Neck",
+   "item": "Ayillish's Talisman"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Neck",
+   "item": "Black Sapphire Velium Necklace"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Head",
+   "item": "Sage's Crown"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Head",
+   "item": "Circlet of the Falinkan"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Face",
+   "item": "Crystal Spider Eyes"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Chest",
+   "item": "Sage's Robe"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Arms",
+   "item": "Sage's Sleeves"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Back",
+   "item": "Giant Scalemail Cloak"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Back",
+   "item": "Astral Cloak of the Titans"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Back",
+   "item": "Cloak of the Seacaller"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Waist",
+   "item": "Crystalline Silk Belt"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Waist",
+   "item": "Spider Fur Belt"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Shoulders",
+   "item": "Runed Coldain Prayer Shawl"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Wrists",
+   "item": "Sage's Bracelet"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Wrists",
+   "item": "Steel Wristband of Strategy"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Legs",
+   "item": "Sage's Pantaloons"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Hands",
+   "item": "Coldain Skin Gloves"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Feet",
+   "item": "Coldain Skin Boots"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Primary",
+   "item": "Staff of the Four"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Secondary",
+   "item": "Phenocryst's Focus"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Secondary",
+   "item": "Bindings of the Scribe"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Secondary",
+   "item": "Orb of the Infinite Void"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Range",
+   "item": "Seal of Thoridain"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Range",
+   "item": "Frozen Orb"
+  },
+  {
+   "cls": "Wizard",
+   "slot": "Range",
+   "item": "Student's Homework"
+  }
+ ]
+}
