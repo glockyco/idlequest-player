@@ -833,14 +833,19 @@
     return held ? ((await clientFn("sell")(0, 30))?.message ?? "sold") : null;
   };
   /**
-   * After a trade: a reward the NPC put on the cursor is sold, because a held cursor blocks the
-   * next trade, and an item of the trade that came back is put into the bags again.
+   * After a trade, whatever the NPC put on the cursor goes into the bags, because a held cursor
+   * blocks the next trade: a quest reward such as Power of the Elements, or an item of the trade
+   * that came back. The bot's bag upkeep decides later what is surplus. Throws when the bags have
+   * no room, so a reward is never sold or dropped.
    */
-  const clearCursorAfterTrade = async (traded) => {
-    const row = (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+  const clearCursorAfterTrade = async () => {
+    const held = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+    const row = held();
     if (!row) return null;
-    if (traded.includes(itemName(row))) return clientFn("autoPlace")();
-    return (await clientFn("sell")(0, 30))?.message ?? "sold";
+    await clientFn("autoPlace")();
+    for (let k = 0; k < 10 && held(); k++) await pause(200);
+    if (held()) throw new Error(`no bag room for ${itemName(row)} from the trade`);
+    return itemName(row);
   };
   /**
    * Hand carried items to quest NPC `name`, up to `counts[item]` copies of each, for repeatable
@@ -864,7 +869,7 @@
       const trade = async () => {
         if (!giveItemsReady()) await talkToNpc(name); // the dialogue closed between trades
         await giveToNpc(names, { closeNote: false });
-        await clearCursorAfterTrade(names);
+        await clearCursorAfterTrade();
         await pause(500);
         return names.filter((n) => carried(n) < have[n]);
       };
