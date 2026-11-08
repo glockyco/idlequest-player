@@ -386,6 +386,10 @@
       retreatZone: null, // short name to leave to, or null to re-enter the current zone
       loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
       avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
+      // The engaged list also holds mobs of the encounter that stand idle without a target, which
+      // set off 48 escapes in an hour from level 11 goblin shamans that never attacked. With this
+      // on, the level and hit triggers only count mobs that target, chase or hate someone.
+      fightingOnly: false,
       ...guardPrev?.config,
     },
     phase: "watching", // watching | leaving
@@ -431,7 +435,9 @@
       members.push({ name: c.name, hp: c.curHp, maxHp: c.maxHp, mana: c.curMana, maxMana: c.maxMana, cls: classes[cs.botCombatDataMap?.[c.id]?.class] });
     }
     const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
-    for (const mob of mobs) {
+    // A mob fights when it targets, chases or hates someone ("player", "character-<id>" or a pet).
+    const fighting = (m) => m.hateTargetId != null || m.currentTargetId != null || m.chaseTargetId != null;
+    for (const mob of cfg.fightingOnly ? mobs.filter(fighting) : mobs) {
       if (mob.level >= p.level + cfg.levelGap) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
       if (p.level >= (cfg.hitFromLevel ?? 0) && maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };

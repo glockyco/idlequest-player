@@ -1,24 +1,27 @@
 #!/usr/bin/env bun
 // One line per leveling group: level, zone, XP per hour, where the time went, escapes, deaths and
 // the member whose recovery the party waited for most, over the last `--last` minutes of each
-// leader's live run (runs/live/<leader>, written by iqd). Groups come from data/roster.json and
-// class mixes from the iqd database, so mixes can be compared side by side.
+// leader's live run (runs/live/<leader>, written by iqd), or between `--since` and `--until` (ms
+// epoch) for the blocks of an experiment. Groups come from data/roster.json and class mixes from
+// the iqd database, so mixes can be compared side by side.
 //
-//   bun tools/groups.mjs [--last 60] [--json]
+//   bun tools/groups.mjs [--last 60 | --since <ms> --until <ms>] [--json]
 import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
-const { values: opt } = parseArgs({ options: { last: { type: "string", default: "60" }, json: { type: "boolean", default: false } } });
+const { values: opt } = parseArgs({ options: { last: { type: "string", default: "60" }, since: { type: "string" }, until: { type: "string" }, json: { type: "boolean", default: false } } });
 const REPO = new URL("..", import.meta.url).pathname;
-const minutes = Number(opt.last);
+const until = opt.until ? Number(opt.until) : Date.now();
+const since = opt.since ? Number(opt.since) : until - Number(opt.last) * 60000;
+const minutes = Math.round((until - since) / 60000);
 const roster = JSON.parse(await readFile(`${REPO}data/roster.json`, "utf8"));
 const db = new Database(`${REPO}runs/iq.db`, { readonly: true });
 const classOf = new Map(db.query("SELECT name, class FROM characters").all().map((r) => [r.name, r.class]));
 const SHORT = { Warrior: "War", Cleric: "Clr", Paladin: "Pal", Ranger: "Rng", "Shadow Knight": "SK", Druid: "Dru", Monk: "Mnk", Bard: "Brd", Rogue: "Rog", Shaman: "Shm", Necromancer: "Nec", Wizard: "Wiz", Magician: "Mag", Enchanter: "Enc" };
 
 async function analyze(leader) {
-  const proc = Bun.spawn(["bun", `${REPO}tools/analyze.mjs`, `${REPO}runs/live/${leader}`, "--last", `${minutes}m`, "--json"], { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["bun", `${REPO}tools/analyze.mjs`, `${REPO}runs/live/${leader}`, "--since", String(since), "--until", String(until), "--json"], { stdout: "pipe", stderr: "pipe" });
   const out = await new Response(proc.stdout).text();
   await proc.exited;
   try {
@@ -28,14 +31,14 @@ async function analyze(leader) {
   }
 }
 
-async function deaths(leader, since) {
+async function deaths(leader) {
   try {
     const lines = (await readFile(`${REPO}runs/live/${leader}/events.jsonl`, "utf8")).trimEnd().split("\n");
     let n = 0;
     for (let k = lines.length - 1; k >= 0; k--) {
       const e = JSON.parse(lines[k]);
       if (e.t < since) break;
-      if (/has been slain!$|^You have been slain/.test(e.text)) n++;
+      if (e.t <= until && /has been slain!$|^You have been slain/.test(e.text)) n++;
     }
     return n;
   } catch {
@@ -62,7 +65,7 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     move: a?.timeShare?.move?.share ?? null,
     recover: a?.timeShare?.recover?.share ?? null,
     escapes: a?.escapes?.count ?? null,
-    deaths: await deaths(leader, Date.now() - minutes * 60000),
+    deaths: await deaths(leader),
     waitedFor: limiter ? `${limiter[0]} ${Math.round(limiter[1])}s` : null,
   });
 }
@@ -71,7 +74,7 @@ if (opt.json) console.log(JSON.stringify(out));
 else {
   const pct = (x) => (x == null ? "  -" : `${Math.round(100 * x)}%`.padStart(4));
   const big = (n) => (n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1e3)}k`);
-  console.log(`Last ${minutes} min per group (runs/live/<leader>)`);
+  console.log(`${minutes} min per group, ${new Date(since).toTimeString().slice(0, 5)} to ${new Date(until).toTimeString().slice(0, 5)} (runs/live/<leader>)`);
   console.log("group leader        lvl  mix                      zone                   XP/h   k/min fight move recov esc dead  waited for");
   for (const r of out)
     console.log(
