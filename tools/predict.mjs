@@ -69,7 +69,10 @@ const DEFAULTS = {
 };
 const cfgFromFlags = (P) => ({
   level: P,
-  minDiff: num("min-diff", -3),
+  // The bot runs AutoLevel from Blue up, so every non-green enemy is a candidate and only the con
+  // rule sets the lower edge. A tighter --min-diff drops the kills 4 to 8 levels below the leader
+  // that the party makes at 22 to 31.
+  minDiff: num("min-diff", -99),
   maxDiff: num("max-diff", 5),
   dps: num("dps", DEFAULTS.dps),
   dpsLevel: num("dps-level", DEFAULTS.dpsLevel),
