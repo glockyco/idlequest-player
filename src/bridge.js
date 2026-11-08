@@ -838,8 +838,11 @@
   /**
    * After a trade, whatever the NPC put on the cursor goes into the bags, because a held cursor
    * blocks the next trade: a quest reward such as Power of the Elements, or an item of the trade
-   * that came back. The bot's bag upkeep decides later what is surplus. Throws when the bags have
-   * no room, so a reward is never sold or dropped.
+   * that came back. The bot's bag upkeep decides later what is surplus. An item the bags cannot
+   * take, such as the Concordance of Research container Smith Tv`ysa gives with every lightstone
+   * trade when no top-level slot is free, is sold if the bot's sale rules allow it (tradable, with
+   * a merchant price, not in `keepItemIds` or the quest items). Anything else throws, so a reward
+   * is never sold or dropped.
    */
   const clearCursorAfterTrade = async () => {
     const held = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
@@ -847,8 +850,14 @@
     if (!row) return null;
     await clientFn("autoPlace")();
     for (let k = 0; k < 10 && held(); k++) await pause(200);
-    if (held()) throw new Error(`no bag room for ${itemName(row)} from the trade`);
-    return itemName(row);
+    if (!held()) return itemName(row);
+    const d = row.itemDetails ?? {};
+    const kept = [...(window.iqBot?.config?.keepItemIds ?? []), ...(window.iq?.questItems ?? [])];
+    if (d.nodrop !== 0 && d.norent !== 0 && d.price > 0 && !kept.includes(row.itemid)) {
+      await clientFn("sell")(0, 30);
+      return `sold ${itemName(row)}`;
+    }
+    throw new Error(`no bag room for ${itemName(row)} from the trade`);
   };
   /**
    * Hand carried items to quest NPC `name`, up to `counts[item]` copies of each, for repeatable
@@ -864,6 +873,7 @@
     const due = { ...counts };
     let trades = 0;
     let items = 0;
+    await clearCursorAfterTrade(); // an earlier trade's leftover would block this one
     await talkToNpc(name);
     for (;;) {
       const have = Object.fromEntries(Object.keys(due).map((n) => [n, carried(n)]));
