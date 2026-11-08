@@ -1,0 +1,27 @@
+// The score and farm-time rules shared by tools/gear.mjs and the raid simulator's farmed kits.
+import { expect, test } from "bun:test";
+// @ts-expect-error plain .mjs module without types
+import { CLASS_KEYS, BIT, capFor, farmHours, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
+
+test("class keys line up with the class bit masks", () => {
+  CLASS_KEYS.slice(1).forEach((key: string, i: number) => expect(BIT[key]).toBe(1 << i));
+});
+
+test("the score is the stat score plus haste and regeneration", () => {
+  const item = { ac: 10, hp: 20, astr: 5, haste: 20, regen: 2, manaregen: 1 };
+  expect(scoreFor(item, "warrior", 60)).toBe(statScore(item, "warrior", 60) + 3 * 20 + 8 * 3);
+  expect(statScore({ ac: 10, hp: 20, astr: 5 }, "warrior", 60)).toBe(1.5 * 10 + 0.5 * 20 + 5);
+});
+
+test("a weapon's damage is capped at the level's limit before it is divided by the delay", () => {
+  expect(capFor("warrior", 60)).toBe(100);
+  expect(capFor("cleric", 60)).toBe(40);
+  expect(weaponRatio({ damage: 200, delay: 40 }, "warrior", 60)).toBe(100 / 40);
+  expect(weaponRatio({ damage: 12, delay: 30 }, "warrior", 60)).toBe(12 / 30);
+});
+
+test("farm hours are respawn over spawn chance and drop chance", () => {
+  expect(farmHours({ respawn: 640, spawn: 0.25, drop: 0.68 })).toBeCloseTo(640 / (0.25 * 0.68) / 3600, 10);
+  expect(farmHours({ respawn: Infinity, spawn: 1, drop: 1 })).toBe(Infinity);
+  expect(farmHours({ respawn: 640, spawn: 0, drop: 1 })).toBe(Infinity);
+});

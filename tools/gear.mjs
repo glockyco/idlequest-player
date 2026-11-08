@@ -20,9 +20,11 @@
 //   all: resists 0.3 each, haste 3 per percent, hp/mana regen 8 per point
 // Weapon slots are ranked by base damage capped at the level's limit, divided by delay, the
 // comparison the IdleQuest wiki gives (idlequest.net/wiki/choosing-weapons). Haste and procs are
-// not valued beyond the haste weight.
-import { readdir, readFile } from "node:fs/promises";
+// not valued beyond the haste weight. The score, the weapon cap and the source tables are in
+// tools/lib/gear-data.mjs, which the raid simulator's `--gear farm` kit uses as well.
 import { homedir } from "node:os";
+import { readFile } from "node:fs/promises";
+import { BIT, RACE, SLOTS, SLOT_BY_NUM, capFor as capForLevel, groupOf, liveZoneNames, loadSources, rows as contentRows, scoreFor as scoreForLevel, slotName } from "./lib/gear-data.mjs";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => {
@@ -38,8 +40,6 @@ const partyFile = (() => {
 })();
 const cls = partyMode ? "warrior" : (pos[0] ?? "").toLowerCase();
 const level = Number(opt("level", NaN));
-const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
-const RACE = { human: 1, barbarian: 2, erudite: 4, woodelf: 8, highelf: 16, darkelf: 32, halfelf: 64, dwarf: 128, troll: 256, ogre: 512, halfling: 1024, gnome: 2048, iksar: 4096, vahshir: 8192 };
 const race = opt("race", null)?.toLowerCase().replace(/[^a-z]/g, "");
 if (race && !RACE[race]) {
   console.error(`unknown race ${race}; one of ${Object.keys(RACE).join(" ")}`);
@@ -54,44 +54,14 @@ const mobMax = Number(opt("mob-max", level + 6));
 const top = Number(opt("top", 3));
 const slotFilter = opt("slot", null)?.toLowerCase();
 
-const SLOTS = { charm: 0, ear: 1, head: 2, face: 3, neck: 5, shoulders: 6, arms: 7, back: 8, wrist: 9, range: 11, hands: 12, primary: 13, secondary: 14, finger: 15, chest: 17, legs: 18, feet: 19, waist: 20 };
-const SLOT_BY_NUM = { 0: "charm", 1: "ear", 2: "head", 3: "face", 4: "ear", 5: "neck", 6: "shoulders", 7: "arms", 8: "back", 9: "wrist", 10: "wrist", 11: "range", 12: "hands", 13: "primary", 14: "secondary", 15: "finger", 16: "finger", 17: "chest", 18: "legs", 19: "feet", 20: "waist" };
-const slotName = (bits) => Object.entries(SLOTS).filter(([, b]) => bits & (1 << b)).map(([n]) => n);
-const groupOf = (c) => (["wizard", "magician", "enchanter", "necromancer"].includes(c) ? "caster" : ["cleric", "druid", "shaman"].includes(c) ? "priest" : ["paladin", "ranger", "shadowknight", "bard"].includes(c) ? "hybrid" : "melee");
-const mpi = (80 * level) / 425; // mana per Int or Wis point below 200
-// Base weapon damage cap per hand by level (wiki, "Level caps change weapon rankings").
-const CAPS = { melee: [10, 14, 30, 60, 100], priest: [9, 12, 20, 26, 40], caster: [6, 10, 12, 18, 20] };
-const capFor = (c, lvl = level) => {
-  const g = groupOf(c);
-  return CAPS[g === "hybrid" ? "melee" : g][lvl < 10 ? 0 : lvl < 20 ? 1 : lvl < 30 ? 2 : lvl < 40 ? 3 : 4];
-};
-const weightsFor = (c) =>
-  ({
-    caster: { mana: 1, hp: 0.4, ac: 1, int: mpi, wis: mpi * 0.3 },
-    priest: { mana: 1, hp: 0.5, ac: 1, wis: mpi, int: mpi * 0.3 },
-    melee: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3 },
-    hybrid: { hp: 0.5, ac: 1.5, str: 1, sta: 1, dex: 1, agi: 1, atk: 0.3, mana: 0.5, wis: mpi * 0.3, int: mpi * 0.3 },
-  })[groupOf(c)];
-const scoreFor = (i, c) => {
-  const W = weightsFor(c);
-  return (
-    (W.mana ?? 0) * (i.mana ?? 0) + (W.hp ?? 0) * (i.hp ?? 0) + (W.ac ?? 0) * (i.ac ?? 0) + (W.int ?? 0) * (i.aint ?? 0) + (W.wis ?? 0) * (i.awis ?? 0) +
-    (W.str ?? 0) * (i.astr ?? 0) + (W.sta ?? 0) * (i.asta ?? 0) + (W.dex ?? 0) * (i.adex ?? 0) + (W.agi ?? 0) * (i.aagi ?? 0) + (W.atk ?? 0) * (i.attack ?? 0) +
-    0.3 * ((i.mr ?? 0) + (i.fr ?? 0) + (i.cr ?? 0) + (i.dr ?? 0) + (i.pr ?? 0)) + 3 * (i.haste ?? 0) + 8 * ((i.regen ?? 0) + (i.manaregen ?? 0))
-  );
-};
+// The score and the damage cap at the level asked for (the party plan may name classes of any level).
+const capFor = (c, lvl = level) => capForLevel(c, lvl);
+const scoreFor = (i, c) => scoreForLevel(i, c, level);
 const group = groupOf(cls);
 const damageCap = capFor(cls);
 const score = (i) => scoreFor(i, cls);
-async function* rows(table) {
-  const dir = `${root}/data/${table}`;
-  for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
-}
-const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
-const gameZones = new Set(Object.keys(JSON.parse(await readFile(new URL("../data/idlequest-zones.json", import.meta.url), "utf8"))).map(norm));
-const liveZones = new Set(JSON.parse(await readFile(new URL("../data/live-zones.json", import.meta.url), "utf8")));
-const zoneName = new Map();
-for await (const z of rows("zone")) if (gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name)) zoneName.set(z.short_name, z.long_name);
+const rows = (table) => contentRows(root, table);
+const zoneName = await liveZoneNames(root);
 
 // ---- Candidate items ---------------------------------------------------------------------------
 const cands = new Map(); // id -> item with slot names and score
@@ -112,65 +82,8 @@ for await (const i of rows("items")) {
   cands.set(i.id, { ...allItems.get(i.id), score: sc, ratio });
 }
 
-// ---- Sources: item -> lootdrop -> loottable -> NPC -> spawns -> zone -------------------------
-const dropsByItem = new Map(); // lootdrop_id -> [{item, chance, mult}]
-for await (const e of rows("lootdrop_entries")) if (e.chance > 0 && cands.has(e.item_id)) (dropsByItem.get(e.lootdrop_id) ?? dropsByItem.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ item: e.item_id, chance: e.chance, mult: e.multiplier || 1 });
-const ltsOfDrop = new Map(); // lootdrop_id -> [{lt, prob}]
-for await (const e of rows("loottable_entries")) if (dropsByItem.has(e.lootdrop_id)) (ltsOfDrop.get(e.lootdrop_id) ?? ltsOfDrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ lt: e.loottable_id, prob: e.probability });
-const itemsOfLt = new Map(); // loottable_id -> Map(item -> p)
-for (const [drop, lts] of ltsOfDrop) for (const { lt, prob } of lts) for (const d of dropsByItem.get(drop)) {
-  const m = itemsOfLt.get(lt) ?? itemsOfLt.set(lt, new Map()).get(lt);
-  const p = (prob / 100) * (1 - (1 - d.chance / 100) ** d.mult);
-  m.set(d.item, 1 - (1 - (m.get(d.item) ?? 0)) * (1 - p));
-}
-// Merchants: merchantlist maps a merchant id to the items it sells, and an NPC with that
-// `merchant_id` sells them wherever it spawns.
-const itemsOfMerchant = new Map(); // merchant id -> [item id]
-for await (const m of rows("merchantlist")) if (cands.has(m.item)) (itemsOfMerchant.get(m.merchantid) ?? itemsOfMerchant.set(m.merchantid, []).get(m.merchantid)).push(m.item);
-const npcsOfLt = new Map(); // npc id -> {name, level, lt}
-const merchantNpcs = new Map(); // npc id -> {name, items}
-for await (const n of rows("npc_types")) {
-  if (n.level <= mobMax && itemsOfLt.has(n.loottable_id)) npcsOfLt.set(n.id, { id: n.id, name: n.name, level: n.level, lt: n.loottable_id });
-  if (n.merchant_id && itemsOfMerchant.has(n.merchant_id)) merchantNpcs.set(n.id, { name: n.name, items: itemsOfMerchant.get(n.merchant_id) });
-}
-const groups = new Map(); // npc id -> [{group, chance}]
-const groupTotal = new Map();
-const needGroups = new Set();
-for await (const s of rows("spawnentry")) {
-  groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
-  if (npcsOfLt.has(s.npcID) || merchantNpcs.has(s.npcID)) {
-    (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push({ g: s.spawngroupID, chance: s.chance });
-    needGroups.add(s.spawngroupID);
-  }
-}
-const pointsOf = new Map(); // group -> {zone -> {n, respawn}}
-for await (const sp of rows("spawn2")) {
-  if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone)) continue;
-  const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
-  const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity }).get(sp.zone);
-  r.n++;
-  r.respawn = Math.min(r.respawn, sp.respawntime);
-}
-const sources = new Map(); // item -> [{npc, level, zone, drop, spawn, points, respawn}]
-for (const npc of npcsOfLt.values()) {
-  const byZone = new Map();
-  for (const { g, chance } of groups.get(npc.id) ?? []) for (const [zone, r] of pointsOf.get(g) ?? []) {
-    const z = byZone.get(zone) ?? byZone.set(zone, { n: 0, respawn: Infinity, spawn: 0 }).get(zone);
-    z.n += r.n;
-    z.respawn = Math.min(z.respawn, r.respawn);
-    z.spawn = Math.max(z.spawn, groupTotal.get(g) ? chance / groupTotal.get(g) : 1);
-  }
-  for (const [zone, z] of byZone) for (const [item, p] of itemsOfLt.get(npc.lt)) {
-    const list = sources.get(item) ?? sources.set(item, []).get(item);
-    list.push({ npc: npc.name.replace(/_/g, " "), level: npc.level, zone: zoneName.get(zone), drop: p, spawn: z.spawn, points: z.n, respawn: z.respawn });
-  }
-}
-const sellers = new Map(); // item -> [{npc, zone}]
-for (const [id, m] of merchantNpcs) {
-  const zones = new Set();
-  for (const { g } of groups.get(id) ?? []) for (const zone of (pointsOf.get(g) ?? new Map()).keys()) zones.add(zone);
-  for (const zone of zones) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone) });
-}
+// ---- Sources: item -> lootdrop -> loottable -> NPC -> spawns -> zone (tools/lib/gear-data.mjs) ---
+const { sources, sellers } = await loadSources(root, { itemIds: new Set(cands.keys()), maxNpcLevel: mobMax, zoneName });
 
 const obtainable = (i) => sources.has(i.id) || sellers.has(i.id);
 if (partyMode) {
@@ -270,6 +183,6 @@ for (const [slot] of Object.entries(SLOTS)) {
     console.log(`  ${it.name.padEnd(30)} score ${it.score.toFixed(0).padStart(4)}  ${st}${it.nodrop === 0 ? " [no drop]" : ""}`);
     if (!src.length && !sold.length) console.log("      quest or unknown");
     for (const s of sold) console.log(`      sold by ${s.npc} in ${s.zone}, base price ${((it.price ?? 0) / 1000).toFixed(1)} pp`);
-    for (const s of src) console.log(`      ${s.npc} (L${s.level}) in ${s.zone}: ${(s.drop * 100).toFixed(0)}% drop, ${(s.spawn * 100).toFixed(0)}% spawn, ${s.points} points, respawn ${s.respawn}s`);
+    for (const s of src) console.log(`      ${s.npc} (L${s.level}) in ${s.zone}: ${(s.drop * 100).toFixed(0)}% drop, ${(s.spawn * 100).toFixed(0)}% spawn, ${s.points} points, ${Number.isFinite(s.respawn) ? `respawn ${s.respawn}s` : "no respawn timer"}`);
   }
 }
