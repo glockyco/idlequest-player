@@ -86,5 +86,23 @@
         "expect": "Maestro's Symphony Page 24 Top"
       }
     ]
+  },
+  "necromancer-epic-1": {
+    "class": "Necromancer",
+    "minLevel": 20,
+    "reward": "Symbol of the Apprentice",
+    "needs": [
+      "Head of Sir Edwin Motte"
+    ],
+    "steps": [
+      {
+        "zone": "lakerathe",
+        "npc": "Kazen Fecae",
+        "give": [
+          "Head of Sir Edwin Motte"
+        ],
+        "expect": "Symbol of the Apprentice"
+      }
+    ]
   }
 }

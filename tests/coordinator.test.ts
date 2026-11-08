@@ -124,3 +124,12 @@ test("an experiment gives arm A the setting and arm B the other in the first blo
   const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "nektulos", keep: "wisp" } })], farms: [farm], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
 });
+
+test("a quest that needs a dropped item runs for as many members as the account holds copies", () => {
+  const quests = { n1: { class: "Necromancer", reward: "Symbol", needs: ["Head"], steps: [{ zone: "lakerathe", npc: "Kazen" }] } };
+  const necro = (label: string, group: string, names: string[]) => ({ ...tab(label, group, 14), members: names.map((name) => ({ name, level: 14, class: "Necromancer" })) });
+  const tabs = [necro("A", "G4", ["N1", "N2"]), necro("B", "G5", ["N3"])];
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 } })).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 } })).toMatchObject([{ label: "A", spec: { members: ["N1"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 3 } }).map((a) => a.spec.members)).toEqual([["N1", "N2"], ["N3"]]);
+});

@@ -110,5 +110,18 @@
     "count": 5,
     "camp": false,
     "retryMin": 60
+  },
+  {
+    "id": "nec-motte",
+    "levels": [
+      30,
+      60
+    ],
+    "zone": "freporte",
+    "keep": "Sir Edwin Motte",
+    "item": "Head of Sir Edwin Motte",
+    "count": 7,
+    "camp": false,
+    "retryMin": 10
   }
 ]
