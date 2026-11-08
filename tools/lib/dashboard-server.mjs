@@ -65,10 +65,14 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
       const now = Date.now();
       if (url.pathname === "/api/state") {
         const roster = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
-        const daemon = db.query("SELECT v FROM meta WHERE k = 'daemon'").get();
+        const meta = (k) => {
+          const row = db.query("SELECT v FROM meta WHERE k = ?").get(k);
+          return row ? JSON.parse(row.v) : null;
+        };
         return json({
           now,
-          daemon: daemon ? JSON.parse(daemon.v) : null,
+          daemon: meta("daemon"),
+          coordinator: meta("coordinator"),
           roster: rosterView(db, roster),
           groups: groupsView(db, now, rosterGroups()),
           attention: attentionView(db, now),

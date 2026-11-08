@@ -314,6 +314,16 @@ reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for their re
 nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard.mjs`. `--port 0`
 starts `run` without it.
 
+`run --coordinate` also makes iqd the coordinator of `docs/plans/controller.md`. Every five minutes
+it reads the account's lightstones and the items of `data/opportunities.json` with Inventory
+Search and queues tasks through each bot's own task API (`tools/lib/coordinator.mjs` decides). A
+batch of at least two stones per member goes to the free group with the lowest levels as a
+hand-in. Each opportunity (an epic or quest piece with its group, looter, zone, enemies and
+optional `when` of `night` or `day`) becomes a directed hunt for its group until the item is
+owned, at most every `retryMin` minutes. A tab gets at most one coordinator task in 20 minutes,
+and none while a task runs or a pause holds. Its tasks are logged as interventions by
+`coordinator`, apart from manual ones, and the dashboard's Coordinator section shows its last pass.
+
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and
 `events.jsonl` in `exportRun`'s format, read from the page's buffers without removing anything, so

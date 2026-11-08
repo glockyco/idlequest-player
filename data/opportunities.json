@@ -1,0 +1,11 @@
+[
+  {
+    "id": "mag-page3",
+    "group": "G1",
+    "as": "Domeyafun",
+    "zone": "gukbottom",
+    "keep": "bloodthirsty ghoul|frenzied ghoul",
+    "item": "Torn Page of Magi`kot pg. 3",
+    "retryMin": 30
+  }
+]

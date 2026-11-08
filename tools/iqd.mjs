@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
-// iqd: a read-only collector for the IdleQuest game tabs.
+// iqd: the collector and coordinator for the IdleQuest game tabs.
 //
 // `iqd run` reads every game tab through the browser relay (src/cdp.mjs) on a timer, keeps a
 // durable history in runs/iq.db and runs/live/<leader>/, and raises attention items, so an agent
 // can sleep in `iqd wait` instead of polling the tabs. It never clicks, types or injects anything.
+// With `--coordinate` it also queues tasks in the bots (tools/lib/coordinator.mjs) through their
+// own task API, which plays the steps.
 // Usage: see `iqd help` and the "Monitoring" section of the README.
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -218,6 +220,7 @@ export function snapshotInPage(a) {
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep } : null,
+        task: st.task ? { kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400) })),
@@ -248,6 +251,7 @@ export function snapshotInPage(a) {
     out.zone = zone ? (zone.longName ?? zone.shortName) : (cb.currentZone ?? null);
     out.autoLevel = { running: Boolean(cb.isRunning), mode: cb.automatedCombatMode, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     out.activity = iq.activity?.() ?? null;
+    out.gameHour = iq.gameHour?.() ?? null;
     out.activitySec = iq.activitySeconds?.(600000) ?? null;
     out.raid = Boolean(S.raid?.getState?.().raidModeActive);
     out.conn = { screen: S.screen?.getState?.().currentScreen ?? null, connected: iq.socket?.isConnected ?? null, worldReady: iq.socket?.worldReady ?? null, inCombat: Boolean(S.skills?.getState?.().inCombat), zoneLoading: Boolean(cb.isZoneLoading) };
@@ -291,6 +295,19 @@ export function drainInPage(a) {
 
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
+/** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only. */
+export async function searchInPage(a) {
+  const p = window.iq.stores.character.getState().characterProfile;
+  const r = await window.iq.socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: a.q }, 8000);
+  return (r?.matches ?? []).map((m) => ({ item: m.itemName, who: m.characterName, n: m.quantity ?? 1 }));
+}
+
+/** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`), which checks it and runs it in the page. */
+export function queueInPage(a) {
+  const t = window.iqBot[a.kind](a.spec);
+  return { id: t.id, status: t.status };
+}
+
 // ---- Recorder files -----------------------------------------------------------------------------
 
 /** Last `{ ses, seq }` in a JSONL file, like exportRun's resume point, or zeros without a file. */
@@ -325,12 +342,14 @@ const safeName = (s) => String(s).replace(/[^A-Za-z0-9_-]+/g, "_");
 // ---- Daemon -------------------------------------------------------------------------------------
 
 class Daemon {
-  constructor({ db, relay, runs, intervalSec, log }) {
+  constructor({ db, relay, runs, intervalSec, log, coordinate = false }) {
     this.db = db;
     this.relay = relay;
     this.runs = runs;
     this.intervalSec = intervalSec;
     this.log = log;
+    this.coordinate = coordinate;
+    this.coordinatedAt = 0;
     this.trackers = new Map(); // targetId -> tracker
     this.cursors = new Map(); // recorder directory -> { s, e }
     this.lastSnap = new Map(); // characterId -> last stored snapshot { t, level, maxHp, maxMana, zone }
@@ -342,6 +361,50 @@ class Daemon {
     for (const r of db.query("SELECT s.* FROM char_snapshots s JOIN (SELECT char_id, MAX(id) AS id FROM char_snapshots GROUP BY char_id) m ON s.id = m.id").all()) {
       this.lastSnap.set(r.char_id, { t: r.t, level: r.level, maxHp: r.max_hp, maxMana: r.max_mana, zone: r.zone });
     }
+  }
+
+  /**
+   * The coordinator's pass (tools/lib/coordinator.mjs), at most every five minutes: read the
+   * account's lightstones and the open opportunities' items with Inventory Search, decide, and
+   * queue each task in its tab through the bot's task API. Every queued task is logged as an
+   * intervention by `coordinator`, which the dashboard keeps apart from manual ones.
+   */
+  async coordinatePass(now) {
+    if (!this.coordinate || now - this.coordinatedAt < 300000) return;
+    this.coordinatedAt = now;
+    const { decide } = await import("./lib/coordinator.mjs");
+    const groupOf = rosterGroups();
+    const tabs = [...this.trackers.values()]
+      .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level })), task: tr.snap.bot?.task ?? null, gameHour: tr.snap.gameHour }));
+    if (!tabs.length) return;
+    let opportunities = [];
+    try {
+      opportunities = JSON.parse(await readFile(join(REPO, "data/opportunities.json"), "utf8"));
+    } catch {
+      /* no opportunities file */
+    }
+    const search = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
+    const stock = {};
+    for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
+    const owned = {};
+    for (const o of opportunities) owned[o.id] = (await search(o.item)).some((m) => m.item === o.item && (!o.as || m.who === o.as));
+    const state = metaGet(this.db, "coordinator") ?? { history: [] };
+    const actions = decide({ now, tabs, stock, opportunities, owned, history: state.history });
+    for (const a of actions) {
+      const tab = tabs.find((t) => t.label === a.label);
+      try {
+        const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 10000 });
+        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null });
+        this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
+        this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
+      } catch (e) {
+        this.log(`coordinator: ${a.label} ${a.kind} not queued: ${e.message}`);
+      }
+    }
+    state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
+    state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    metaSet(this.db, "coordinator", state);
   }
 
   async triggers() {
@@ -366,7 +429,8 @@ class Daemon {
     }
     const triggers = await this.triggers();
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
-    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected });
+    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate });
+    await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
     await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
   }
 
@@ -408,6 +472,7 @@ class Daemon {
 
     if (usable) {
       tr.state.pageSession = snap.pageSession;
+      tr.snap = snap;
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
       this.saveSession(tr, snap, now);
       this.recordCharacters(tr, snap, now);
@@ -631,8 +696,9 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
 // ---- Commands -----------------------------------------------------------------------------------
 
 const HELP = `iqd <command>
-  run [--interval 30] [--port 4790]
-                                 collect game tab state until stopped, with the dashboard on the port (0 for none)
+  run [--interval 30] [--port 4790] [--coordinate]
+                                 collect game tab state until stopped, with the dashboard on the port (0 for none);
+                                 --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs
   serve [--port 4790]            only the dashboard, on the database as it is
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]
@@ -648,7 +714,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -685,7 +751,7 @@ async function cmdRun({ values, runs }) {
   relay.on("disconnected", () => log("relay disconnected"));
   relay.on("tab-added", (i) => log(`tab appeared ${i.targetId.slice(-4)}`));
   relay.on("tab-removed", (i) => log(`tab gone ${i.targetId.slice(-4)}`));
-  const daemon = new Daemon({ db, relay, runs, intervalSec, log });
+  const daemon = new Daemon({ db, relay, runs, intervalSec, log, coordinate: Boolean(values.coordinate) });
   const stop = async () => {
     daemon.stopped = true;
     await relay.stop();
