@@ -159,8 +159,8 @@ export const ZONE_DEFAULTS = {
  * row at its leader's level (`rows`, data/band-rotations.json) with the most measured XP per hour
  * (`rates`, tools/lib/rates.mjs), best first. The bot stays in a zone of its rotation and moves
  * along it when the zone runs dry, and moves to the first zone when its own is not in the
- * rotation. A group's own zone stays in the rotation until the best zone is worth `margin` more,
- * so measurement noise does not move groups back and forth. Groups are assigned from the lowest
+ * rotation. A group stays in its zone, and keeps its rotation, until the best zone is worth
+ * `margin` more, so measurement noise and shifting crowds do not move groups back and forth. Groups are assigned from the lowest
  * level up, because the slowest group sets the account's time to 60, and a zone is worth a
  * `crowdWeight` share less for each group that hunts there already. A zone's measured rate is
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
@@ -189,11 +189,11 @@ export function assignZones({ now, tabs, rows = [], rates = {}, held = new Set()
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
-    // A rotation the group stays in keeps its zones until a zone outside it is worth `margin` more
-    // than the weakest inside it, so near ties and shifting crowds do not rewrite it every pass.
-    const current = ranked.filter((m) => (t.rotation ?? []).includes(m.z));
-    const weakest = Math.min(...current.map((m) => m.value));
-    if (stay && current.length === (t.rotation ?? []).length && current.some((m) => m.z === t.zone) && !ranked.some((m) => !t.rotation.includes(m.z) && m.value > weakest * (1 + cfg.margin))) continue;
+    // A group that stays keeps its rotation while every zone of it is in the band row: the other
+    // zones matter only once the bot leaves this one, and the pass after that move ranks them anew,
+    // so shifting crowds do not rewrite the rotation every pass.
+    const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.every((z) => row.includes(z)) && t.rotation.includes(t.zone);
+    if (stay && rotationInRow) continue;
     // Order alone moves no group, so a rotation with the same zones stays as it is.
     if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) continue;
     const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);

@@ -178,12 +178,15 @@ test("busy and held groups keep their rotation and count for the zone they are i
   expect(out[0].rotation.slice(0, 2)).toEqual(["guktop", "warrens"]);
 });
 
-test("a rotation keeps its zones until a zone outside it beats the weakest inside by the margin", () => {
-  // Fresh, the third zone would be the unmeasured Upper Guk at the median 600k, a near tie with
-  // the Warrens' 580k, so the group in Kurn's Tower keeps the Warrens.
-  const mine = tab("A", "G3", 15, { zone: "kurn", rotation: ["kurn", "runnyeye", "warrens"] });
-  expect(assignZones({ now: NOW, tabs: [mine], rows: ROWS, rates: RATES })).toEqual([]);
-  // Najena at 420k gives way to Upper Guk at 600k.
-  const weak = tab("A", "G3", 15, { zone: "kurn", rotation: ["kurn", "runnyeye", "najena"] });
-  expect(assignZones({ now: NOW, tabs: [weak], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+test("a group that stays keeps its rotation, and one that should move gets a new one", () => {
+  // Runnyeye is within the margin of Kurn's Tower, so the group there keeps its rotation, whatever
+  // the other zones rank.
+  const close = measured({ kurn: 680000, runnyeye: 600000, warrens: 580000, najena: 420000 });
+  const stays = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "najena", "warrens"] });
+  expect(assignZones({ now: NOW, tabs: [stays], rows: ROWS, rates: close })).toEqual([]);
+  // A zone that left the band row, or a group that should move, gets a new rotation.
+  const old = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "befallen"] });
+  expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })).toHaveLength(1);
+  const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
+  expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
 });
