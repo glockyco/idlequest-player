@@ -209,6 +209,7 @@ From the live client (`CVEP2_Ra.js` unless named):
 - Recharge merchants (Maslow in the East Commonlands tunnel): refill a click item's charges for a fee (wiki, loot-and-inventory).
 - Free practice: casting trains undertrained schools by up to 5 points per cast until 80% of the cap, and meditating trains Meditate out of combat (wiki, autolevel).
 - Minor or none for account strength: fishing and foraging, coin wagers at the casino, name changes, pizza, trade and auction commands. There is no paid shop, no achievements or login rewards, and no offline progress.
+- Off-hand slot (`.re/releases/20261108T004644-064bc896/pretty/`): a one-handed weapon (item types 0, 2, 3 and 36) goes into the secondary slot only for a character with Dual Wield skill 1 or more ("You cannot dual wield without the dual wield skill.", `B7YhzEJy.js:2357-2380`), and none goes in beside a two-handed weapon. Once there, any off-hand item with damage swings on its own delay with no further roll (`kc`, `DFjfiI7e.js:6029-6045`, `7215-7237`). A shield (item type 8) adds its AC and lets a Warrior, Paladin or Shadow Knight bash, which Barbarian, Troll and Ogre tanks of those classes do without one (`Vs`, `DFjfiI7e.js:6532-6535`). An off-hand item with neither damage nor AC, such as a rod, does nothing in combat. Which gives a tank's group more XP per hour, the off-hand weapon's damage or the shield's AC and bash, is not measured.
 
 ## Five highest-value actions
 
