@@ -240,3 +240,16 @@ test("status stays within 40 lines with many open items", () => {
   expect(text.split("\n").length).toBeLessThanOrEqual(40);
   expect(text).toContain("and 22 more");
 });
+
+test("a later finished task settles a failed one, and playing again settles an idle alert", () => {
+  const db = openDb(":memory:");
+  const notes = () => (db.query("SELECT kind, note FROM attention ORDER BY id").all() as { kind: string; note: string | null }[]).map((r) => [r.kind, r.note]);
+  raiseItem(db, { t: T0, severity: "act", kind: "alert-task", session: "Tagu", key: "alert-task:111:3", text: "quest failed" });
+  raiseItem(db, { t: T0, severity: "act", kind: "alert-idle", session: "Tagu", key: "alert-idle:111:4", text: "idle (crowded)" });
+  const at = (s: Snap, now: number) => syncAttention(db, { label: "Tagu", res: stepSession({ state: {}, obs: ok(s), now, label: "Tagu" }), now });
+  // Still idle and the failed task is the last one: nothing settles.
+  at(snap({ activity: { act: "idle", why: "crowded", since: T0 - 5 * SEC }, bot: bot({ task: { status: "failed", endedAt: T0 - SEC } }) }), T0 + 60 * SEC);
+  expect(notes()).toEqual([["alert-task", null], ["alert-idle", null]]);
+  at(snap({ activity: { act: "fight", why: null, since: T0 + 90 * SEC }, bot: bot({ task: { status: "done", endedAt: T0 + 80 * SEC } }) }), T0 + 120 * SEC);
+  expect(notes()).toEqual([["alert-task", "a later task finished"], ["alert-idle", "the tab plays again"]]);
+});
