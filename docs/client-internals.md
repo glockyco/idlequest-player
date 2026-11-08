@@ -415,3 +415,48 @@ leader stays at the dialog and AutoLevel stays stopped.
 - Kerafyrm's `npc_types` rows (ids 114583, 128089, 128095) are `untargetable: 1`, and his quest
   scripts in `C/effective/quests/sleeper` and `skyshrine` are empty files, so nothing is
   sized on him.
+
+### Running a raid from a script
+
+Read from the release in `.re/releases/20261108T004644-064bc896/pretty/` (`OST` OSTsR53r.js, `CVE`
+CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). Nothing here has run against the live game yet.
+
+- Start: the party panel's Start Raid (`CVE` 415903) releases the account companions
+  (`releaseAccountCharactersForCamp`, "Your party has been disbanded."), then calls the raid store's
+  `openRaid()`, which calls `activateRaid()` (`OST` 71213-71240). `activateRaid` needs the window
+  open, a leader of level 46 or more and unexpired raid time, then sets `raidModeActive` and turns
+  AutoLevel off (`OST` ~72300).
+- Raid time: `RaidAccess` (1236) with `{ characterId, action, autoRenew, operationId,
+  expectedExpiresAtMs }`, where `action` is `status` (read only), `start`, `renew` or `settings`
+  (`OST` 70810). `operationId` is one UUID per purchase attempt, reused on retry. The reply carries
+  `priceCopper`, `expiresAtMs`, `serverNowMs`, `autoRenew` and `chargedCopper`. The button is "Start
+  Raid for Nk" in the Raid Time section of the combat view (`CVE` 9082-9105).
+- Recruits: `addGuildMember(characterId, leaderLevel)` (`OST` 71607) loads the character's snapshot
+  with `GuildRaidCharacterProjectionRequest` (1194) and appends it. It refuses during combat and for
+  characters outside the account and guild. Only the recruit list hides characters below 46, and
+  the store adds them, so the server's answer to a lower recruit is open. `addGuildMembers(ids,
+  leaderLevel)` is Add All, four at a time. `removeMember(memberId)` takes the member id, not the
+  character id, and works only in the setup view. Before the first fight the roster must be
+  validated, which the attack path does by itself.
+- Attack: `setAllCommand("attacking", target)` (`OST` 71957-71990) prepares the roster and calls
+  `beginCombatForTarget(target)` (`OST` 72063). That needs raid time, a non-empty validated roster,
+  and an NPC of level 51 or more or an engaged enemy, then sets `openingTarget`. A watcher sends
+  `StartCombat` (1025) with `singleFight: true` for that target (`CVE` 5770, `0ea` 44025).
+- Daily bosses: `DailyRaidBossesRequest` (1222) with `{ characterId, zoneId }` lists them, and the
+  same request with `bossKey` summons one (`CVE` 415155). The reply holds `resetsRemaining`,
+  `nextResetAtMs` and `bosses[{ key, name, zoneName, status, availableAtMs, expiresAtMs,
+  disabledReason }]`, and a summon returns the boss's `spawnInstanceId`.
+- End of a fight: the store's `finishCombat` runs once no enemy is engaged ("Raid combat ended:
+  ..."), and a kill sends `CombatClientEnd` (1113) with `victory` and `raidMemberCount`, answered
+  by `CombatEnded` (1029) and the loot in the RAID LOOT tab. A dead leader goes through
+  `RaidLeaderLifecycle` (1226) and can still command the raid. A wipe releases the leader.
+- End: End Raid calls the combat service's `abandonRaid()` (`0ea` 42793), which sends `StopCombat`
+  (1026) and then the store's `endRaid()`. Nothing brings the party back or restarts AutoLevel
+  afterwards, so a script recruits its companions again and starts AutoLevel itself.
+- State for scripts (`stores.raid`): `raidModeActive`, `isRaidOpen`, `view` (`setup` or `combat`),
+  `combatActive`, `leaderDead`, `roster[]` (`source.characterId`, `level`, `hp`, `maxHp`, `alive`,
+  `damageDone`, `hate`), `engagedEnemies[]`, `focusTarget`, `openingTarget` and `eventLog`. DOM test
+  ids: `raid-setup-panel`, `raid-recruit-<characterId>`, `raid-member-<id>` and `raid-loot-window`.
+- Open until a level 46 leader tries it: the price and what `start` returns, whether the server
+  refuses recruits below 46 or caps the roster, the daily boss keys, and whether a raid stays
+  active after a wipe.
