@@ -178,9 +178,9 @@ The wiki explains same-account companion progression and independent raid copies
 
 ## 6. Experience boosts
 
-- The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). Players report that the potion now affects the whole group. No item in that client or in the content snapshot casts it, so its source and price are not known.
+- The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). The potion that casts it is handed out as a reward for bug reports and the like, not obtainable in normal play, so the plans leave it out.
 - The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
-- A group-wide doubling would double that group's XP for 30 minutes, more than any zone or tactic change measured so far. The casino's prizes and Olyna Mudel's potions in West Freeport do not include it. Look for it in other merchants' "Potions" categories and in rewards before planning around it.
+- The casino's prizes and Olyna Mudel's potions in West Freeport hold no XP boost either.
 
 ## 7. Race
 
