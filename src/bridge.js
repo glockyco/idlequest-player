@@ -596,29 +596,32 @@
     },
 
     /**
-     * Every character in the party, the player first: class, level, HP and mana, armor class and
-     * equipped items (slots 0-21, name by slot). Companion gear is loaded from the client's party
-     * data first, because `botInventories` stays empty until something asks for it. Pets are
-     * listed separately.
+     * Every character in the party, the player first: class, race, level, HP and mana, armor class
+     * and equipped items (slots 0-21, name by slot). Companion gear is loaded from the client's
+     * party data first, because `botInventories` stays empty until something asks for it.
+     * Companion races come from the account's character list. Pets are listed separately.
      */
     async roster() {
       const cs0 = stores.companions.getState();
       const real = (cs0.companions ?? []).filter((c) => c.companionType === 2 || c.companionType === 0);
       await Promise.all(real.map((c) => cs0.loadBotItemsAndRecalc(c.id).catch(() => {})));
       const cs = stores.companions.getState();
-      const classes = Object.fromEntries((stores.staticData.getState().classes ?? []).map((c) => [c.id, c.name]));
+      const sd = stores.staticData.getState();
+      const classes = Object.fromEntries((sd.classes ?? []).map((c) => [c.id, c.name]));
+      const races = Object.fromEntries((sd.races ?? []).map((r) => [r.id, r.name]));
+      const accountRace = Object.fromEntries((stores.roster?.getState?.().characters ?? []).map((c) => [c.name, races[c.race]]));
       const p = stores.character.getState().characterProfile ?? {};
       const equipped = (rows) =>
         (rows ?? [])
           .filter((i) => i.bag === 0 && i.slot >= 0 && i.slot <= 21)
           .map((i) => ({ slot: i.slot, name: i.itemDetails?.Name ?? i.itemDetails?.name ?? i.itemid }))
           .sort((a, b) => a.slot - b.slot);
-      const me = { name: p.name, class: typeof p.class === "object" ? p.class?.name : classes[p.class], level: p.level, hp: [p.curHp, p.maxHp], mana: [p.mana, p.maxMana], ac: p.ac, items: equipped(p.inventory) };
+      const me = { name: p.name, class: typeof p.class === "object" ? p.class?.name : classes[p.class], race: (typeof p.race === "object" ? p.race?.name : races[p.race]) ?? accountRace[p.name] ?? null, level: p.level, hp: [p.curHp, p.maxHp], mana: [p.mana, p.maxMana], ac: p.ac, items: equipped(p.inventory) };
       const members = (cs.companions ?? []).map((c) => {
         const stats = cs.botComputedStats?.[c.id] ?? {};
         const data = cs.botCombatDataMap?.[c.id];
         const isPet = c.companionType !== 0 && c.companionType !== 2;
-        return { id: c.id, name: c.name, class: classes[data?.class], level: c.level, type: c.companionType, pet: isPet, hp: [c.curHp, c.maxHp], mana: [c.curMana, c.maxMana], ac: stats.ac, items: equipped(cs.botInventories?.[c.id]) };
+        return { id: c.id, name: c.name, class: classes[data?.class], race: accountRace[c.name] ?? null, level: c.level, type: c.companionType, pet: isPet, hp: [c.curHp, c.maxHp], mana: [c.curMana, c.maxMana], ac: stats.ac, items: equipped(cs.botInventories?.[c.id]) };
       });
       return { me, party: members.filter((m) => !m.pet), pets: members.filter((m) => m.pet) };
     },

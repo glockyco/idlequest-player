@@ -173,20 +173,17 @@ for (const [id, m] of merchantNpcs) {
 
 const obtainable = (i) => sources.has(i.id) || sellers.has(i.id);
 if (partyMode) {
-  const DEFAULT_PARTY = [
-    { name: "Domeyafun", class: "magician", race: "erudite", items: [] },
-    { name: "Tagujazolu", class: "warrior", race: "dwarf", items: [] },
-    { name: "Ewbanaqoa", class: "cleric", race: "dwarf", items: [] },
-    { name: "Ugfeu", class: "bard", race: "halfelf", items: [] },
-    { name: "Qigaa", class: "shaman", race: "barbarian", items: [] },
-    { name: "Edroun", class: "enchanter", race: "gnome", items: [] },
-  ];
-  let members = DEFAULT_PARTY;
-  if (partyFile) {
-    const r = JSON.parse(await readFile(partyFile, "utf8"));
-    const raceByName = new Map(DEFAULT_PARTY.map((m) => [m.name, m.race]));
-    const list = [r.me, ...(r.party ?? [])].filter(Boolean);
-    members = list.map((m) => ({ name: m.name, class: m.class.toLowerCase(), race: raceByName.get(m.name) ?? "human", items: m.items ?? [] }));
+  if (!partyFile) {
+    console.error('--party needs a saved roster: await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))');
+    process.exit(2);
+  }
+  const r = JSON.parse(await readFile(partyFile, "utf8"));
+  const key = (s) => String(s ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  const members = [r.me, ...(r.party ?? [])].filter(Boolean).map((m) => ({ name: m.name, class: key(m.class), race: key(m.race), items: m.items ?? [] }));
+  const unknown = members.filter((m) => !BIT[m.class] || !RACE[m.race]).map((m) => `${m.name} (${m.class || "no class"}, ${m.race || "no race"})`);
+  if (unknown.length) {
+    console.error(`unknown class or race in ${partyFile}: ${unknown.join(", ")}. Save the roster again with the current SDK.`);
+    process.exit(2);
   }
   const byName = new Map();
   for (const it of allItems.values()) if (!byName.has(it.name)) byName.set(it.name, it);

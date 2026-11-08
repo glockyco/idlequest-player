@@ -97,11 +97,9 @@ Gear: `tools/gear.mjs` lists the best usable item per slot for a class, race and
 mobs that drop it and the merchants that sell it. Armor is ranked by a rough stat score with the
 weights documented in the file. Weapons are ranked by base damage capped at the level's limit,
 divided by delay, the comparison the IdleQuest wiki gives. `--party` reads a saved `iq.roster()`
-result (`me` and `party` with `items`), or without a file the six characters of group 1 that are
-written into the tool. Members missing from that list are treated as human, because the roster
-does not carry races. Save the roster from an eval cell first:
-`await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones it
-prints are also written into the tool by level, not read from the bot.
+result (`me` and `party`, each with class, race and `items`). Save the roster from an eval cell
+first: `await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones
+it prints are written into the tool by level, not read from the bot.
 
 ```sh
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
