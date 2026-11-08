@@ -366,7 +366,9 @@
   // one the Travel window sends) and starts AutoLevel again with the same limits.
   // Triggers, each checked once a second while a mob is engaged:
   //   level   a mob is `levelGap` or more levels above the leader
-  //   hit     a mob's biggest hit times `hitsToKill` reaches the lowest max HP in the party
+  //   hit     a mob's biggest hit times `hitsToKill` reaches the lowest max HP in the party, from
+  //           leader level `hitFromLevel`: below it members have 35 to 60 HP, so nearly every
+  //           mob qualifies and the party would escape instead of fighting
   //   down    a party member has died since the guard last looked
   //   healer  a Cleric is below `healerManaPct` mana while someone is below `healerHpPct` HP
   const guardPrev = window.iq?.guard;
@@ -376,6 +378,7 @@
       enabled: true,
       levelGap: 8,
       hitsToKill: 3,
+      hitFromLevel: 6,
       healerManaPct: 10,
       healerHpPct: 50,
       escalateAfter: 3, // escapes in an hour before the guard gets more careful
@@ -430,7 +433,7 @@
     for (const mob of mobs) {
       if (mob.level >= p.level + cfg.levelGap) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
-      if (maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
+      if (p.level >= (cfg.hitFromLevel ?? 0) && maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
     }
     for (const m of members) {
       if (m.hp > 0) guard.knownDown.delete(m.name);
