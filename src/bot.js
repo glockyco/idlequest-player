@@ -240,9 +240,9 @@
     return [...extra, ...single];
   };
 
-  const sellSurplus = async (i) => {
+  const sellSurplus = async (i, force = false) => {
     let space = i.bagSpace();
-    if (now() < state.pauseUntil || space.cursor || space.free >= config.minFreeSlots) return;
+    if ((!force && now() < state.pauseUntil) || space.cursor || space.free >= config.minFreeSlots) return;
     // Banking loses nothing, so it goes first, at most every ten minutes because the courier is slow.
     if (config.autoBank && now() - (state.bankAt ?? 0) > 600000) {
       state.bankAt = now();
@@ -465,6 +465,15 @@
       await sleep(1500);
       const still = i.bagSpace().cursor;
       log(`auto-placed cursor item ${held}: ${r?.message ?? "no reply"}${still ? `; cursor still holds ${still}` : ""}`);
+      // With every bag slot taken the item can only leave by sale, and while it sits there the
+      // cleanup cannot free space either, so a cheap unprotected item is sold, such as the book a
+      // quest NPC hands back.
+      const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+      const d = row?.itemDetails;
+      if (still && i.bagSpace().free === 0 && d && d.price > 0 && d.price <= config.junkMaxCopper && d.nodrop !== 0 && !config.keepItemIds.includes(row.itemid) && !(i.questItems ?? []).includes(row.itemid)) {
+        const s = await sellAt(0, 30);
+        log(`sold cursor item ${held} because the bags are full: ${s?.message ?? "no reply"}`);
+      }
     }
   };
 
@@ -1268,6 +1277,11 @@
     leastUsed: (list) => leastUsed(list),
     /** The resurrection the bot would buy from `offers` ({ percent, price } in pp) with `coinPp` carried, or null to respawn. */
     recoveryChoice: (offers, coinPp) => recoveryChoice(offers, coinPp),
+    /** Run the bag cleanup now, also during a pause, as below `minFreeSlots`. Resolves with the free slots after. */
+    cleanup: async () => {
+      await sellSurplus(iq(), true);
+      return iq().bagSpace().free;
+    },
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */
     upkeep: (reason = "manual") => runUpkeep(iq(), reason),
 

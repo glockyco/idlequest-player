@@ -435,25 +435,53 @@ export async function attach(tab) {
           loading: [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim())),
           moving: window.iq.samples?.at?.(-1)?.pst === "run",
         }));
+      // Distance from the active character to the NPC's spawn point, from the zone's spawn list.
+      const distance = () =>
+        tab.evaluate((targetName) => {
+          const norm = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+          const spawns = Array.isArray(window.iq.zoneSpawns) ? window.iq.zoneSpawns : Object.values(window.iq.zoneSpawns ?? {});
+          const npc = spawns.find((x) => norm(x.name).includes(norm(targetName)));
+          const me = window.iq.samples?.at?.(-1);
+          return npc && me?.x != null ? Math.hypot(me.x - npc.x, me.y - npc.y) : null;
+        }, npcName);
+      const rewalk = () =>
+        tab.evaluate((targetName) => {
+          const cb = window.iq.stores.combat.getState();
+          if (!cb.isMerchantListOpen) cb.toggleMerchantList();
+          const norm = (s) => String(s ?? "").replace(/_/g, " ").trim().toLowerCase();
+          [...document.querySelectorAll(".merchant-name")]
+            .map((el) => el.parentElement)
+            .find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && norm(p.querySelector(".merchant-name")?.textContent).includes(norm(targetName)))
+            ?.click();
+        }, npcName);
       let idle = 0;
       let hailed = false;
+      let walks = 1;
       for (let k = 0; k < 60; k++) {
         await sleep(2000);
         const s = await state();
         if (s.open && !s.loading) break;
         idle = s.moving ? 0 : idle + 1;
-        if (idle >= 3 && !hailed && !s.loading) {
-          hailed = true;
-          await tab.evaluate(async (targetName) => {
-            const norm = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-            const npc = (window.iq.stores.combat.getState().currentZoneNPCs ?? []).find((n) => norm(n.name).includes(norm(targetName)));
-            const hail = Object.values(window.iq.mods ?? {})
-              .flatMap((m) => Object.values(m))
-              .find((f) => typeof f === "function" && /^function \w+\(e,t,n=\{\}\)\{return \w+\(e,t,n\)\}$/.test(Function.prototype.toString.call(f)));
-            if (!npc || !hail) throw new Error(`cannot hail ${targetName}: ${npc ? "client hail call not found" : "NPC not in this zone"}`);
-            await hail(npc.id, npc.name.replace(/_/g, " "));
-          }, npcName);
+        if (idle < 3 || hailed || s.loading) continue;
+        // A fight on the way or a blocked path can stop the walk short, and a trade from afar is
+        // refused, so walk again before hailing.
+        const d = await distance();
+        if (d != null && d > 40 && walks < 4) {
+          walks++;
+          idle = 0;
+          await rewalk();
+          continue;
         }
+        hailed = true;
+        await tab.evaluate(async (targetName) => {
+          const norm = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+          const npc = (window.iq.stores.combat.getState().currentZoneNPCs ?? []).find((n) => norm(n.name).includes(norm(targetName)));
+          const hail = Object.values(window.iq.mods ?? {})
+            .flatMap((m) => Object.values(m))
+            .find((f) => typeof f === "function" && /^function \w+\(e,t,n=\{\}\)\{return \w+\(e,t,n\)\}$/.test(Function.prototype.toString.call(f)));
+          if (!npc || !hail) throw new Error(`cannot hail ${targetName}: ${npc ? "client hail call not found" : "NPC not in this zone"}`);
+          await hail(npc.id, npc.name.replace(/_/g, " "));
+        }, npcName);
       }
       return tab.evaluate(
         async (targetName, kws) => {
@@ -537,10 +565,21 @@ export async function attach(tab) {
      * Hand every carried copy of `itemNames` to a quest NPC one per trade, for repeatable
      * single-item quests such as Smith Tv`ysa's lightstones in South Ro (`{ npc: "Tv`ysa",
      * itemNames: ["Greater Lightstone", "Lightstone"] }`). Only the active character gets the
-     * reward. Returns the trades made and the XP the chat reported. Run inside `pausedAutoLevel`.
+     * reward. A reward item the NPC puts on the cursor is sold right away with `sellReward`, because
+     * a held cursor blocks the next trade, looting and the bot's cleanup. Returns the trades made
+     * and the XP the chat reported. Run inside `pausedAutoLevel`.
      */
-    async turnInEach({ npc, itemNames, max = Infinity }) {
+    async turnInEach({ npc, itemNames, max = Infinity, sellReward = true }) {
       const carried = async (name) => (await handle.inventory()).filter((r) => r.name === name && (r.loc === "bag" || r.loc === "general")).reduce((s, r) => s + (r.quantity || 1), 0);
+      const clearCursor = () =>
+        tab.evaluate(async () => {
+          const row = (window.iq.stores.character.getState().characterProfile.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+          if (!row) return null;
+          const sell = Object.values(window.iq.mods)
+            .flatMap((m) => Object.values(m))
+            .find((v) => typeof v === "function" && Function.prototype.toString.call(v).includes("Sale confirmation was interrupted"));
+          return (await sell(0, 30))?.message ?? null;
+        });
       let trades = 0;
       let xp = 0;
       let talked = false;
@@ -551,19 +590,38 @@ export async function attach(tab) {
             await handle.talkToNpc(npc);
             talked = true;
           }
-          let r;
-          try {
-            r = await handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
-          } catch (e) {
-            // The dialogue closed between trades: walk and hail again once.
-            if (!/Give Items button/.test(String(e.message))) throw e;
+          const seq0 = await tab.evaluate(() => window.iq.seqs.event);
+          const give = async () => {
+            try {
+              return await handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
+            } catch (e) {
+              // The dialogue closed between trades: walk and hail again once.
+              if (!/Give Items button/.test(String(e.message))) throw e;
+              await handle.talkToNpc(npc);
+              return handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
+            }
+          };
+          await give();
+          if (sellReward) await clearCursor();
+          let now = await carried(name);
+          if (now >= left) {
+            // A trade from too far away comes back. Walk up again and give once more.
             await handle.talkToNpc(npc);
-            r = await handle.turnInQuest(npc, [name], { talk: false, closeNote: false });
+            await give();
+            if (sellReward) await clearCursor();
+            now = await carried(name);
+            if (now >= left) throw new Error(`the trade of ${name} to ${npc} was not taken`);
           }
           trades++;
-          xp += r.lines.reduce((s, l) => s + Number(/You gain experience!+ \((\d+)\)/.exec(l)?.[1] ?? 0), 0);
-          const now = await carried(name);
-          if (now >= left) throw new Error(`the trade of ${name} to ${npc} was not taken`);
+          // The XP line can trail the trade window by a moment.
+          for (let w = 0; w < 6; w++) {
+            const got = await tab.evaluate((s) => window.iq.events.filter((e) => e.seq > s).reduce((sum, e) => sum + Number(/You gain experience!+ \((\d+)\)/.exec(e.text)?.[1] ?? 0), 0), seq0);
+            if (got > 0) {
+              xp += got;
+              break;
+            }
+            await sleep(500);
+          }
           left = now;
         }
       }
@@ -741,8 +799,17 @@ export async function attach(tab) {
       return handle.pausedAutoLevel(async () => {
         if (before.inWorld) {
           await until("the fight to end", 120000, () => !window.iq.stores.skills.getState().inCombat);
-          await handle.clearWindows();
-          await tab.click('role/button[name="Camp" exact]');
+          // A level-up banner or a closing window can cover the button for a moment.
+          for (let k = 0; ; k++) {
+            await handle.clearWindows();
+            try {
+              await tab.click('role/button[name="Camp" exact]');
+              break;
+            } catch (e) {
+              if (k >= 4 || !/covered|blocked/i.test(String(e?.message ?? e))) throw e;
+              await sleep(1500);
+            }
+          }
         }
         await until("character select", 90000, () => window.iq.stores.screen.getState().currentScreen === "characterSelect");
         if (atSelect) await atSelect();
