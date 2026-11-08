@@ -148,7 +148,14 @@ bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --class-sweep --slot
 bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --seeds 1 --trace "G1 warrior"   # one member's hit points, damage, healing and hate over time
 ```
 
-Every fight runs in its own process and takes a few seconds. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the assumed stats, skills and gear, so use them to compare rosters and not as a forecast.
+Every fight runs in its own process and takes a few seconds. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the remaining assumptions, so use them to compare rosters and not as a forecast.
+
+`tools/raidsweep.mjs` runs raidsim over a grid of bosses, levels and roster sizes: the base roster plus 0 or more extra groups of one composition. Every configuration's result is kept under `runs/jobs/<sweep>/`, so a rerun only runs what is missing. Flags after `--` go to raidsim.
+
+```sh
+bun tools/raidsweep.mjs --name size-check --bosses resolve --levels 46,55,60 --extra 0,3,6 --seeds 4
+bun tools/raidsweep.mjs --name heal-mode --bosses 127098 --levels 60 --extra 3 -- --heal-mode all-balanced
+```
 
 ## Measuring efficiency
 
