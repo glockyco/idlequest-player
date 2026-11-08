@@ -20,7 +20,7 @@
 //   --trace M     after the tables, one member's first fight in 10 s rows: hit points, damage taken, healing
 //                 received by caster and spell, hate rank, boss target time and Cleric mana (M is a roster name
 //                 or index)
-//   --jobs N      fights run at once (default: the lower of 8 and the CPU count minus one)
+//   --jobs N      fights run at once (default: a quarter of the CPU count), each at the lowest priority
 //   --calls       also print how often the client functions below ran (first fight)
 //   --json        machine output instead of tables
 //
@@ -79,13 +79,12 @@
 // one's leftovers. A fight of several virtual minutes takes a few seconds.
 import { readFile } from "node:fs/promises";
 import { resolveClient } from "./raidsim/clients.mjs";
-import { availableParallelism } from "node:os";
 import { CLASS_NAMES } from "./raidsim/classes.mjs";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
 import { normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
 import { compactSpells } from "./raidsim/spells.mjs";
 import { byId } from "./raidsim/content.mjs";
-import { runJobs } from "./raidsim/pool.mjs";
+import { DEFAULT_JOBS, runJobs } from "./raidsim/pool.mjs";
 import { fightLines, memberTable, summarize, sweepTable, traceLines } from "./raidsim/report.mjs";
 
 const args = process.argv.slice(2);
@@ -106,7 +105,7 @@ if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <n
 const seeds = Number(opt("seeds", 20));
 const seedBase = Number(opt("seed-base", 1));
 const maxSec = Number(opt("max-sec", 900));
-const jobs = Number(opt("jobs", Math.min(8, Math.max(1, availableParallelism() - 1))));
+const jobs = Number(opt("jobs", DEFAULT_JOBS));
 const dpsMode = opt("dps-mode", "dps-all-out");
 const healMode = opt("heal-mode", "clr-balanced");
 if (!(seeds >= 1) || !(maxSec > 0)) fail("--seeds and --max-sec must be positive numbers");
