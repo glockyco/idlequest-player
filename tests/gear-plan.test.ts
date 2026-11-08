@@ -12,7 +12,6 @@ const items = new Map([
   item(4, "Rusty Sword", { slots: 1 << 13, damage: 4, delay: 30, itemtype: 0 }),
   item(5, "Great Axe", { slots: 1 << 13, damage: 20, delay: 40, itemtype: 1 }),
   item(6, "Buckler", { slots: 1 << 14, ac: 3, itemtype: 8 }),
-  item(7, "Morning Star", { slots: 1 << 13, damage: 8, delay: 30, itemtype: 3 }),
 ]);
 const row = (who: string, itemId: number, location: string, slot: number, inst: number) => ({ characterName: who, characterId: who.length, itemId, itemName: items.get(itemId)!.Name, itemInstanceId: inst, location, slot, blockReason: "" });
 
@@ -28,17 +27,16 @@ test("each carried item goes to the character it adds most to, once", () => {
   expect(wanted).toEqual([1]);
 });
 
-test("a main hand moves by damage over delay, a Monk's only to one-handed blunt, and a two-hander only beside an empty off hand", () => {
+test("a main hand moves by damage over delay, to a Monk too, and a two-hander only beside an empty off hand", () => {
   const people = [
     { name: "War", cls: "warrior", level: 30, race: "" },
     { name: "Mnk", cls: "monk", level: 30, race: "" },
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
-  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Long Sword", "War"]]);
-  // The Monk's skills are trained in one-handed blunt, so it takes the Morning Star and nothing else.
-  const star = [...survey, row("Holder", 7, "Carried", 27, 5)];
-  expect(planGear({ survey: star, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Morning Star", "Mnk"], ["Long Sword", "War"]]);
-  // Without the shield the two-hander swings hardest.
+  // A weapon replaces the Monk's fists (10 at 35 delay at level 30) whatever its type, and a
+  // two-hander pays for the off-hand fist it ends.
+  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.1]]);
+  // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
-  expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"]]);
+  expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
 });

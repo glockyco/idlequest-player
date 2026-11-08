@@ -7,10 +7,10 @@
 // Armor and jewelry are scored as a set with tools/lib/gear-data.mjs's stat score, because the
 // client counts only the highest worn haste and caps worn regeneration at 15 HP and 15 mana per
 // tick. The main hand is ranked by base damage, capped at the level's limit, over delay, as
-// tools/raidsim/kits.mjs does. A Monk's main hand stays one-handed blunt, the weapon its skills are
-// trained in (a two-hander would also end its off-hand swings), a Rogue's stays a piercer for
-// Backstab, and a two-handed weapon is offered only to a character with nothing in the off hand.
-import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, statScore, weaponRatio } from "./gear-data.mjs";
+// tools/raidsim/kits.mjs does, for Monks too, whose fists a weapon replaces (docs/client-internals.md,
+// Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
+// offered only to a character with nothing in the off hand.
+import { BIT, CLASS_KEYS, HASTE_WEIGHT, OFFHAND_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, statScore, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 const PRIMARY = 13;
@@ -18,9 +18,12 @@ const SECONDARY = 14;
 const REGEN_CAP = 15;
 const TWO_HANDED = new Set([1, 4, 35]);
 const PIERCING = 2;
-const ONE_HAND_BLUNT = 3;
+// What an empty main hand swings (`YL` and `di` in the client, docs/client-internals.md): Monk fists
+// gain a point of damage every five levels, from 4 to 14 at 50, at 36 delay that falls to 26 by
+// 60, and other classes hit for 1 at 36.
+const fists = (cls, level) => (cls === "monk" ? { damage: Math.min(14, 4 + Math.floor(level / 5)), delay: level < 25 ? 36 : Math.max(26, 35 - Math.floor((level - 25) / 4)) } : { damage: 1, delay: 36 });
 // The weapon type each class's main hand must keep.
-const MAIN_HAND_TYPE = { monk: ONE_HAND_BLUNT, rogue: PIERCING };
+const MAIN_HAND_TYPE = { rogue: PIERCING };
 /** A main hand must beat the worn one by this much damage per delay to be worth a move. */
 export const MIN_RATIO_GAIN = 0.03;
 
@@ -101,7 +104,9 @@ export function planGear({ survey, items, people, minGain = 5 }) {
     // casters and priests often wear a main hand for its stats.
     const held = mine.get(PRIMARY) ?? null;
     if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && statScore(item, p.cls, p.level) >= (held ? statScore(held, p.cls, p.level) : 0)) {
-      const gain = weaponRatio(item, p.cls, p.level) - weaponRatio(held ?? {}, p.cls, p.level);
+      // A two-hander also ends a Monk's off-hand fist, which swings beside an empty off hand.
+      const offFist = p.cls === "monk" && TWO_HANDED.has(item.itemtype) ? OFFHAND_WEIGHT * weaponRatio(fists(p.cls, p.level), p.cls, p.level) : 0;
+      const gain = weaponRatio(item, p.cls, p.level) - weaponRatio(held ?? fists(p.cls, p.level), p.cls, p.level) - offFist;
       if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;
