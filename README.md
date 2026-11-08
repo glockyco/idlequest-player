@@ -40,6 +40,8 @@ await iq.setTactic("Edroun", "nuke", false);       // stop a member nuking (also
 await iq.startAutoLevel({ minCon: 10, maxCon: 15, maxLevelDiff: 2 });  // con values: 2 green, 4 blue, 10 white, 15 yellow, 13 red
 await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, restart if it was running
 await iq.switchCharacter("Tagujazolu");            // camp, enter as another account character, regroup the party
+await iq.raidTime();                                // price of a raid hour in platinum, expiry, auto-renew (read only)
+await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
 ```
 
 A new leveling group comes from a `planned` entry in `data/roster.json`. `createGroup` opens the
@@ -207,6 +209,15 @@ by testing which one makes every kill's XP fit a whole NPC level.
 - Read position from the client's position packets. The character profile's `x`/`y` only updates on
   zone entry.
 - Validate any new indicator against the game's messages before building on it.
+
+`tools/characters.mjs` lists every account character with its class, race, level, worn gear and
+armor class, grouped by `data/roster.json`. It asks the server for each character's raid
+projection (opcode 1194, the read-only request the raid window uses to load a recruit) in any game
+tab through the relay, and writes every worn item to `runs/state/characters.json`.
+
+```sh
+bun tools/characters.mjs
+```
 
 `tools/groups.mjs` runs the analyzer on every group's live run (`runs/live/<leader>`, kept by iqd)
 and prints one line per group from `data/roster.json`: level, zone, class mix, XP per hour, the
