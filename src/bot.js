@@ -321,7 +321,18 @@
     const dialog = document.querySelector('[role="dialog"][aria-label="Resurrection"]');
     if (!dialog) {
       // The window opens by itself once recovery is ready. A closed one reopens with its button.
-      document.querySelector('[data-testid="death-recovery-reopen"] button')?.click();
+      const reopen = document.querySelector('[data-testid="death-recovery-reopen"] button');
+      if (reopen) return void reopen.click();
+      // A zone change that lands after the death, such as the guard's escape during a server
+      // stall, leaves the leader at 0 HP with no recovery pending (`deathRecoveryReadyAt` 0), and
+      // no window ever opens. Camping and entering the world again reloads the leader's state.
+      const pending = Boolean(i.stores.character.getState().characterProfile?.deathRecoveryReadyAt);
+      if (!pending && now() - state.deadSince > config.respawnAfterSec * 3000) {
+        const me = i.stores.character.getState().characterProfile;
+        alert("respawn", `the leader was at 0 HP for ${Math.round((now() - state.deadSince) / 1000)} s with no recovery pending; camping to enter the world again`);
+        state.deadSince = now();
+        switchTo(i, Number(me.id), { rejoin: true });
+      }
       return;
     }
     if (/Loading recovery options|Recovering…/.test(dialog.textContent ?? "")) return;
@@ -943,10 +954,10 @@
   const characters = (i) => i.stores.roster?.getState?.().characters ?? [];
   const findCharacter = (i, who) => characters(i).find((c) => (typeof who === "number" ? Number(c.id) === who : String(c.name).toLowerCase() === String(who).toLowerCase())) ?? null;
   const command = (i, cmd, ms) => Promise.race([Promise.resolve(i.command(cmd)), sleep(ms).then(() => ({ ok: false, message: `${cmd.type} timed out` }))]);
-  const switchSteps = async (i, target) => {
+  const switchSteps = async (i, target, { rejoin = false } = {}) => {
     const screen = () => i.stores.screen.getState().currentScreen;
     if (screen() === "game") {
-      if (Number(i.stores.character.getState().characterProfile?.id) === Number(target.id)) return { ok: true, message: `${target.name} is active` };
+      if (!rejoin && Number(i.stores.character.getState().characterProfile?.id) === Number(target.id)) return { ok: true, message: `${target.name} is active` };
       if (i.stores.skills.getState().inCombat) return { ok: false, message: "the party is in combat" };
       i.stores.combat.getState().setIsRunning(false);
       const r = await command(i, { type: "session.camp" }, 60000);
@@ -957,15 +968,18 @@
     const r = await command(i, { type: "session.enterWorld", selector: target.name }, 120000);
     return r?.ok ? { ok: true, message: `entered the world as ${target.name}` } : { ok: false, message: `entering as ${target.name} failed: ${r?.message ?? "no reply"}` };
   };
-  /** Start making `who` (a name or a character id) the active character. Returns the job. */
-  const switchTo = (i, who) => {
+  /**
+   * Start making `who` (a name or a character id) the active character. Returns the job. With
+   * `rejoin` the active character camps and enters the world again, which reloads its state.
+   */
+  const switchTo = (i, who, { rejoin = false } = {}) => {
     const job = state.switching;
     if (job && !job.done && now() - job.startedAt < SWITCH_TIMEOUT_MS) return job;
     const target = findCharacter(i, who);
     if (!target) return (state.switching = { id: null, name: String(who), startedAt: now(), done: true, ok: false, message: `no account character ${who}` });
     const next = (state.switching = { id: Number(target.id), name: target.name, startedAt: now(), done: false, ok: null, message: "switching" });
-    log(`switching to ${target.name}`);
-    switchSteps(i, target)
+    log(`${rejoin ? "rejoining as" : "switching to"} ${target.name}`);
+    switchSteps(i, target, { rejoin })
       .catch((e) => ({ ok: false, message: String(e?.message ?? e) }))
       .then((r) => {
         Object.assign(next, r, { done: true });

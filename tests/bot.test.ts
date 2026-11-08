@@ -375,6 +375,36 @@ test("a dead leader takes a free group resurrection, else the best one it can pa
   expect(bot.recoveryChoice([], 5000)).toBeNull();
 });
 
+test("a leader at 0 HP with no recovery pending camps and enters the world again after three respawn waits", async () => {
+  vi.useFakeTimers();
+  const g = globalThis as unknown as { document?: unknown };
+  g.document = { querySelector: () => null, querySelectorAll: () => [] };
+  try {
+    const f = await install();
+    f.bot.config.leaderId = 1;
+    f.bot.config.respawnAfterSec = 20;
+    f.me.curHp = 0;
+    await f.bot.tick();
+    vi.advanceTimersByTime(30000);
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual([]);
+    // A death the client still recovers from waits for its window.
+    Object.assign(f.sheet.characterProfile, { deathRecoveryReadyAt: Date.now() + 5000 });
+    vi.advanceTimersByTime(40000);
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual([]);
+    Object.assign(f.sheet.characterProfile, { deathRecoveryReadyAt: 0 });
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual(["session.camp", "session.enterWorld Me"]);
+  } finally {
+    delete g.document;
+    vi.useRealTimers();
+  }
+});
+
 test("cleanup sells extra copies first, then cheap singles, and keeps food, research pieces and dear items", async () => {
   const { bot, me } = await install();
   const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });
