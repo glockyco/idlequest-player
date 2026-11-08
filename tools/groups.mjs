@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// One line per leveling group: level, zone, XP per hour, where the time went, the idle share by the
+// One line per leveling group: level, zone, XP per hour, coin per hour, where the time went, the idle share by the
 // page's activity labels with its main cause, escapes, deaths and the member whose recovery the
 // party waited for most, over the last `--last` minutes of each leader's live run (runs/live/<leader>,
 // written by iqd), or between `--since` and `--until` (ms epoch) for the blocks of an experiment.
@@ -73,6 +73,8 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     zone: sn?.zone ?? null,
     xpPerHour: a?.outcome?.xpPerHour ?? null,
     killsPerMin: a?.outcome?.killsPerMin ?? null,
+    // Gross coin the leader picked up, in platinum per hour (tools/analyze.mjs), for the raid budget.
+    platPerHour: a?.outcome?.platPerHour ?? null,
     combat: a?.timeShare?.combat?.share ?? null,
     move: a?.timeShare?.move?.share ?? null,
     recover: a?.timeShare?.recover?.share ?? null,
@@ -89,9 +91,9 @@ else {
   const pct = (x) => (x == null ? "  -" : `${Math.round(100 * x)}%`.padStart(4));
   const big = (n) => (n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1e3)}k`);
   console.log(`${minutes} min per group, ${new Date(since).toTimeString().slice(0, 5)} to ${new Date(until).toTimeString().slice(0, 5)} (runs/live/<leader>)`);
-  console.log("group leader        lvl  mix                      zone                   XP/h   k/min fight move recov idle (cause)       esc dead (leader, XP lost)  waited for");
+  console.log("group leader        lvl  mix                      zone                   XP/h   k/min  pp/h fight move recov idle (cause)       esc dead (leader, XP lost)  waited for");
   for (const r of out)
     console.log(
-      `${r.group.padEnd(5)} ${r.leader.padEnd(13)} ${String(r.level ?? "-").padStart(3)}  ${r.mix.padEnd(24)} ${String(r.zone ?? "-").slice(0, 21).padEnd(21)} ${big(r.xpPerHour).padStart(6)} ${String(r.killsPerMin ?? "-").padStart(6)} ${pct(r.combat)} ${pct(r.move)} ${pct(r.recover)} ${pct(r.idle)} ${`(${r.idleCause ?? "-"})`.padEnd(13)} ${String(r.escapes ?? "-").padStart(4)} ${String(r.deaths ?? "-").padStart(4)} (${r.leaderDeaths ?? "-"}, ${r.xpLost ? big(r.xpLost) : "0"})`.padEnd(165) + `  ${r.waitedFor ?? ""}`,
+      `${r.group.padEnd(5)} ${r.leader.padEnd(13)} ${String(r.level ?? "-").padStart(3)}  ${r.mix.padEnd(24)} ${String(r.zone ?? "-").slice(0, 21).padEnd(21)} ${big(r.xpPerHour).padStart(6)} ${String(r.killsPerMin ?? "-").padStart(6)} ${String(r.platPerHour != null ? Math.round(r.platPerHour) : "-").padStart(5)} ${pct(r.combat)} ${pct(r.move)} ${pct(r.recover)} ${pct(r.idle)} ${`(${r.idleCause ?? "-"})`.padEnd(13)} ${String(r.escapes ?? "-").padStart(4)} ${String(r.deaths ?? "-").padStart(4)} (${r.leaderDeaths ?? "-"}, ${r.xpLost ? big(r.xpLost) : "0"})`.padEnd(171) + `  ${r.waitedFor ?? ""}`,
     );
 }
