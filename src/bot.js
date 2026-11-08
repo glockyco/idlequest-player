@@ -1309,8 +1309,15 @@
       const what = item ? `${item} from enemies matching ${keep}` : `enemies matching ${keep}`;
       state.errand = { zone, keep, item, minutes, minCon, gray, attackOnArrival: Boolean(cb.enemyTargetAttackOnArrival), limits: { minCon: cb.minCon }, arrived: false, since: now(), until: now() + minutes * 60000 };
       log(`errand: ${what} in ${zone}${gray ? " through Enemy Targets" : ""}, up to ${minutes} min`);
+      // A zone change waits for the fight at hand to end, so AutoLevel stops pulling meanwhile. The
+      // wait stays under the 30 s a script's page call may last.
+      if (zoneShort(i) !== zone && i.stores.skills.getState().inCombat) {
+        i.stores.combat.getState().setIsRunning(false);
+        for (let k = 0; k < 22 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
+      }
       if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand: ${what}`))) {
         state.errand = null;
+        i.stores.combat.getState().startAutoLevel();
         throw new Error(`could not move to ${zone}`);
       }
       if (minCon != null) i.stores.combat.getState().setMinCon(minCon);
