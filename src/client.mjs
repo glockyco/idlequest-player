@@ -929,5 +929,43 @@ export async function attach(tab) {
   for (const name of METHODS) {
     handle[name] = (...args) => tab.evaluate((n, a) => window.iq[n](...a), name, args);
   }
+  logActions(handle, tab);
   return handle;
+}
+
+// Calls that change the game or the bot. Each top-level call is written to the `interventions`
+// table of runs/iq.db, which `iqd status` shows under "Latest notes", so what a script changed and
+// when stays on record next to the attention items it answered.
+const ACTIONS = ["setBot", "setTactic", "setGuard", "travelTo", "startAutoLevel", "stopAutoLevel", "switchCharacter", "createCharacter", "giveItem", "pullItem", "equipFromBags", "buyItem", "kitStarter", "applyRoleTactics", "errand", "pauseBot", "resumeBot", "scribeAndMemorize", "turnInQuest"];
+let interventionsDb = null;
+function logActions(handle, tab) {
+  let depth = 0;
+  const log = async (name, args) => {
+    try {
+      const leader = await tab.evaluate(() => window.iq?.stores?.character?.getState?.().characterProfile?.name ?? null);
+      if (!interventionsDb) {
+        const { Database } = await import("bun:sqlite");
+        interventionsDb = new Database(repoPath("runs/iq.db"));
+        interventionsDb.run("CREATE TABLE IF NOT EXISTS interventions (id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, session TEXT, actor TEXT NOT NULL, text TEXT NOT NULL)");
+      }
+      const text = `${name}(${JSON.stringify(args).slice(1, -1)})`.slice(0, 300);
+      interventionsDb.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'sdk', ?)").run(Date.now(), leader, text);
+    } catch {
+      // Logging never stops the action it records, for example outside Bun or without runs/.
+    }
+  };
+  for (const name of ACTIONS) {
+    const fn = handle[name];
+    if (typeof fn !== "function") continue;
+    // Only the outermost call is logged: switchCharacter's own setBot and startAutoLevel are part of it.
+    handle[name] = async (...args) => {
+      depth++;
+      try {
+        return await fn(...args);
+      } finally {
+        depth--;
+        if (depth === 0) await log(name, args);
+      }
+    };
+  }
 }

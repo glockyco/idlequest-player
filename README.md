@@ -261,10 +261,14 @@ bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM
 bun tools/iqd.mjs wait --severity act --max-minutes 60   # background shell job, returns on the next item
 bun tools/iqd.mjs status                     # under 40 lines, also written to runs/status.md every cycle
 bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
-bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention
+bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention by hand
 bun tools/iqd.mjs job add --purpose "predict level 36" --cmd "bun tools/predict.mjs --level 36" --out runs/p36.txt
 bun tools/iqd.mjs job done 3 "Permafrost first"
 ```
+
+The SDK records its own actions there as well: every top-level call that changes the game or the
+bot (`ACTIONS` in `src/client.mjs`, such as `setBot`, `travelTo`, `switchCharacter` or `pullItem`)
+adds an intervention with actor `sdk`, the leader and the call's arguments.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and
