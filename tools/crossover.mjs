@@ -35,7 +35,7 @@ for (const [arm, ids] of Object.entries(arms)) {
     const a = p1.get(id);
     const b = p2.get(id);
     if (!a || !b) continue;
-    rows.push({ arm, id, leader: a.leader, level: `${a.level ?? "?"}`, xp: [a.xpPerHour, b.xpPerHour], esc: [a.escapes / hours[0], b.escapes / hours[1]], dead: [a.deaths / hours[0], b.deaths / hours[1]] });
+    rows.push({ arm, id, leader: a.leader, level: `${a.level ?? "?"}`, xp: [a.xpPerHour, b.xpPerHour], esc: [a.escapes / hours[0], b.escapes / hours[1]], dead: [a.deaths / hours[0], b.deaths / hours[1]], lead: [a.leaderDeaths / hours[0], b.leaderDeaths / hours[1]] });
   }
 }
 const mean = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
@@ -51,8 +51,8 @@ function effect(diff) {
 const k = (n) => (n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1e3)}k`);
 const f1 = (n) => (Number.isFinite(n) ? n.toFixed(1) : "-");
 console.log(`${opt.label}: arm A on in block 1 (${new Date(start).toTimeString().slice(0, 5)}), arm B on in block 2 (${new Date(start + block).toTimeString().slice(0, 5)}), ${opt.block} min each`);
-console.log("arm group leader        lvl  XP/h block1 block2   esc/h b1   b2  dead/h b1   b2");
-for (const r of rows) console.log(`${r.arm}   ${r.id.padEnd(5)} ${r.leader.padEnd(13)} ${r.level.padStart(3)}  ${k(r.xp[0]).padStart(12)} ${k(r.xp[1]).padStart(6)}  ${f1(r.esc[0]).padStart(9)} ${f1(r.esc[1]).padStart(4)}  ${f1(r.dead[0]).padStart(9)} ${f1(r.dead[1]).padStart(4)}`);
+console.log("arm group leader        lvl  XP/h block1 block2   esc/h b1   b2  dead/h b1   b2  leader b1   b2");
+for (const r of rows) console.log(`${r.arm}   ${r.id.padEnd(5)} ${r.leader.padEnd(13)} ${r.level.padStart(3)}  ${k(r.xp[0]).padStart(12)} ${k(r.xp[1]).padStart(6)}  ${f1(r.esc[0]).padStart(9)} ${f1(r.esc[1]).padStart(4)}  ${f1(r.dead[0]).padStart(9)} ${f1(r.dead[1]).padStart(4)}  ${f1(r.lead[0]).padStart(9)} ${f1(r.lead[1]).padStart(4)}`);
 const xp = effect((r) => Math.log(r.xp[0] / r.xp[1]));
 const esc = effect((r) => r.esc[0] - r.esc[1]);
 const dead = effect((r) => r.dead[0] - r.dead[1]);
@@ -60,3 +60,5 @@ const pct = (x) => `${x >= 0 ? "+" : ""}${Math.round(100 * (Math.exp(x) - 1))}%`
 if (xp) console.log(`\nXP per hour with ${opt.label}: ${pct(xp.est)} (${pct(xp.lo)} to ${pct(xp.hi)}), ${xp.n} groups`);
 if (esc) console.log(`Escapes per hour with ${opt.label}: ${esc.est >= 0 ? "+" : ""}${esc.est.toFixed(1)} (${esc.lo.toFixed(1)} to ${esc.hi.toFixed(1)})`);
 if (dead) console.log(`Deaths per hour with ${opt.label}: ${dead.est >= 0 ? "+" : ""}${dead.est.toFixed(1)} (${dead.lo.toFixed(1)} to ${dead.hi.toFixed(1)})`);
+const lead = effect((r) => r.lead[0] - r.lead[1]);
+if (lead) console.log(`Leader deaths per hour with ${opt.label}: ${lead.est >= 0 ? "+" : ""}${lead.est.toFixed(2)} (${lead.lo.toFixed(2)} to ${lead.hi.toFixed(2)})`);
