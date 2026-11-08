@@ -118,6 +118,24 @@ Pieces with no level gate that can be done at any time:
 
 Everything else is raid or late.
 
+## Chains the coordinator runs
+
+`data/quests.json` holds the chains below besides the Warrior, Cleric, Necromancer, Bard torch relay and Paladin ones. A chain with `needs` runs only while the account holds the items it hands in. A chain counts as done for a character that carries its reward or an item of its `doneIf`, which lists what a later hand-in turns the reward into.
+
+| Chain | Class | Scripts | Left for hand |
+| --- | --- | --- | --- |
+| `rogue-epic-parchment` | Rogue | `kaladimb/Founy_Jestands`, `neriakc/Tani_N-Mar`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor` | Anson's classic spawn row has `min_expansion` 12, so the step waits 45 minutes and the chain retries after 12 hours. Eldreth takes 100 platinum, which a hand-in step cannot carry. Stanos' Pouch (`qcat/Malka_Rale`) is skipped because "see stanos" spawns Stanos without it |
+| `shaman-epic-spear` | Shaman | `emeraldjungle/Spirit_Sentinel_` | The Iksar Scale needs Lord Rak`Ashiir, a chance spawn after black reaver deaths. Both Sentinels in the zone carry the name, so the walk may pick the one without the Spear script. The gem chain (`butcher/a_lesser_spirit` to the Opaque Gem) only raises faction and is not added. Ooglyn's step needs a wait at an underwater point |
+| `bard-epic-maligar` | Bard | `southkarana/Baenar_Swiftsong`, `soldunga/Marfen_Binkdirple`, `unrest/Serra`, `qey2hh1/Maligar`, `qey2hh1/Konia_Swiftfoot` | One chain, because the Note to Maligar is spent mid way. Level 38 for the doppleganger fight |
+| `bard-epic-forpar` | Bard | `steamfont/Forpar_Fizfla` | Chromodrac, Red Wurm and Onyx Drake guts (Kelkim), the lute parts and the final hand-in need raid level drops |
+| `enchanter-epic-ink` | Enchanter | `qcat/Reania_Jukle`, `gukbottom/a_ghoul_scribe` | Whether a hostile scribe opens a trade is unverified. White Paper needs Thrackin Griften (L55), so E1 and Jeb wait |
+| `enchanter-epic-pen` | Enchanter | `akanon/Rilgor_Plegnog` | Shining Metallic Robes come from the arch magus or Yendar Starpyre |
+| `wizard-epic-sprocket` | Wizard | `butcher/Kandin_Firepot` | Camin and Dargon take 1,000 and 850 platinum. Arantir's ring needs a bare hail, which a step cannot send |
+| `shadow-knight-epic-soulcase` | Shadow Knight | `tox/Knarthenne_Skurl` | Every later step is a L45 or higher fight or a Plane drop |
+| `magician-epic-magikot`, `-mastery`, `-elements`, `-orb`, `-broom`, `-shovel` | Magician | `commons/Jahsohn_Aksot`, `najena/Akksstaff`, `butcher/Walnan`, `lakerathe/Rykas`, `soltemple/Vira` | The four Elements and the final spell (`skyfire/Jennus_Lyklobar`, `firiona/Tiblner_Milnik`, `cauldron/Jinalis_Andir`, `airplane/Kihun_Solstin`) need raid drops. The optional Rykas token is skipped. Star Ruby and Ruby come from merchants outside Soltemple |
+
+No Monk, Druid or Ranger chain exists. Their first steps need L44 or higher drops (Immortals, the Corruptor's tome) or a timed ceremony with script-spawned fights (the Telin to Teloa relay). The Freeport guild armor quests (`freportw/Klom_Jysun`, `Shana_Liskia`) need dozens of dropped pelts and shells that nothing farms.
+
 ## Ranking by value and effort
 
 Value is what the finished item adds to the account that nothing else supplies, read from item, spell and wiki data. Effort counts the late kills, respawn lockouts and errand hours in the class sections. Each epic is class-locked and almost every piece is NO DROP, so a second character of the same class repeats the whole chain. The order is an inference.

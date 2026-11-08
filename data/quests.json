@@ -2,6 +2,13 @@
   "warrior-epic-1": {
     "class": "Warrior",
     "reward": "Totem of the Freezing War",
+    "doneIf": [
+      "Totem of Fiery War",
+      "Mark of the Sword",
+      "Tenal's note to Kargek",
+      "Red Scabbard",
+      "Jagged Blade of War"
+    ],
     "steps": [
       {
         "zone": "freporte",
@@ -43,6 +50,9 @@
     "class": "Bard",
     "minLevel": 20,
     "reward": "Maestro's Symphony Page 24 Top",
+    "doneIf": [
+      "Singing Short Sword"
+    ],
     "steps": [
       {
         "zone": "qey2hh1",
@@ -91,6 +101,13 @@
     "class": "Necromancer",
     "minLevel": 20,
     "reward": "Symbol of the Apprentice",
+    "doneIf": [
+      "Scaled Symbol of the Serpent",
+      "Symbol of Testing",
+      "Symbol of Insanity",
+      "Journal of Drendico",
+      "Scythe of the Shadowed Soul"
+    ],
     "needs": [
       "Head of Sir Edwin Motte"
     ],
@@ -109,6 +126,11 @@
     "class": "Cleric",
     "minLevel": 34,
     "reward": "Coral Statue of Tarew",
+    "doneIf": [
+      "Orb of Frozen Water",
+      "Orb of the Triumvirate",
+      "Water Sprinkler of Nem Ankh"
+    ],
     "needs": [
       "Lord Bergurgle's Crown"
     ],
@@ -152,6 +174,11 @@
     "class": "Paladin",
     "minLevel": 10,
     "reward": "Pure Crystal",
+    "doneIf": [
+      "Gleaming Crested Breastplate",
+      "Mark of Atonement",
+      "Fiery Defender"
+    ],
     "steps": [
       {
         "zone": "kaladimb",
@@ -179,29 +206,539 @@
       }
     ]
   },
-  "paladin-epic-goo": {
+  "paladin-epic-note": {
     "class": "Paladin",
-    "minLevel": 10,
-    "reward": "Edible Goo",
+    "minLevel": 15,
+    "reward": "Sealed Note",
+    "doneIf": [
+      "SoulFire",
+      "Fiery Avenger",
+      "Fiery Defender"
+    ],
     "needs": [
       "Fire Beetle Eye"
     ],
     "steps": [
       {
+        "zone": "freporte",
+        "npc": "Tykar Renlin",
+        "buy": {
+          "merchant": "Henna Treghost",
+          "items": [
+            "Drom's Champagne"
+          ]
+        },
+        "give": [
+          "Drom's Champagne",
+          "Drom's Champagne",
+          "Drom's Champagne",
+          "Drom's Champagne"
+        ],
+        "expect": "Bunker Cell #1",
+        "waitMin": 45
+      },
+      {
+        "zone": "freportw",
+        "craft": {
+          "recipeId": 7597,
+          "skillId": 65,
+          "quantity": 5,
+          "output": {
+            "item": "Bog Juice",
+            "id": 16581
+          }
+        },
+        "expect": "Bog Juice"
+      },
+      {
         "zone": "freportw",
         "craft": {
           "recipeId": 1858,
           "skillId": 60,
+          "quantity": 5,
           "inputs": [
             "Fire Beetle Eye"
           ],
           "output": {
             "item": "Edible Goo",
             "id": 13498
-          },
-          "quantity": 5
+          }
         },
         "expect": "Edible Goo"
+      },
+      {
+        "zone": "freportw",
+        "npc": "a prisoner",
+        "give": [
+          "Bunker Cell #1",
+          "Bog Juice",
+          "Edible Goo"
+        ],
+        "expect": "H. K. 102"
+      },
+      {
+        "zone": "highkeep",
+        "npc": "Bank Clerk Jaylin",
+        "give": [
+          "H. K. 102"
+        ],
+        "expect": "Sealed Note"
+      }
+    ]
+  },
+  "paladin-epic-hayle": {
+    "class": "Paladin",
+    "minLevel": 22,
+    "reward": "Note",
+    "doneIf": [
+      "SoulFire",
+      "Fiery Avenger",
+      "Fiery Defender"
+    ],
+    "needs": [
+      "Sealed Note"
+    ],
+    "steps": [
+      {
+        "zone": "paw",
+        "npc": "Brother Hayle",
+        "give": [
+          "Sealed Note"
+        ],
+        "expect": "Note"
+      }
+    ]
+  },
+  "rogue-epic-parchment": {
+    "class": "Rogue",
+    "minLevel": 12,
+    "reward": "Combined Parchment",
+    "doneIf": [
+      "Scribbled Parchment",
+      "Tattered Parchment",
+      "Translated Parchment",
+      "Sealed Box",
+      "General's Pouch",
+      "Ragebringer"
+    ],
+    "steps": [
+      {
+        "zone": "kaladimb",
+        "npc": "Founy Jestands",
+        "say": [
+          "pickpocket"
+        ],
+        "expect": "Stained Parchment Top"
+      },
+      {
+        "zone": "neriakc",
+        "npc": "Tani N`Mar",
+        "say": [
+          "pickpocket"
+        ],
+        "expect": "Stained Parchment Bottom"
+      },
+      {
+        "zone": "highpass",
+        "npc": "Anson McBale",
+        "say": [
+          "see stanos"
+        ],
+        "waitMin": 45
+      },
+      {
+        "zone": "highpass",
+        "npc": "Stanos Herkanor",
+        "give": [
+          "Stained Parchment Top",
+          "Stained Parchment Bottom"
+        ],
+        "expect": "Combined Parchment"
+      }
+    ],
+    "retryMin": 720
+  },
+  "shaman-epic-spear": {
+    "class": "Shaman",
+    "minLevel": 46,
+    "reward": "Spear of Fate",
+    "needs": [
+      "Iksar Scale"
+    ],
+    "steps": [
+      {
+        "zone": "emeraldjungle",
+        "npc": "Spirit Sentinel",
+        "give": [
+          "Iksar Scale"
+        ],
+        "expect": "Spear of Fate"
+      }
+    ]
+  },
+  "bard-epic-maligar": {
+    "class": "Bard",
+    "minLevel": 38,
+    "reward": "Maestro's Symphony Page 24 Bottom",
+    "doneIf": [
+      "Singing Short Sword"
+    ],
+    "steps": [
+      {
+        "zone": "southkarana",
+        "npc": "Baenar Swiftsong",
+        "say": [
+          "request",
+          "history",
+          "realm",
+          "gnome",
+          "face",
+          "ghouls",
+          "seen a child",
+          "doll"
+        ],
+        "expect": "Solusek Mining Company Invoice"
+      },
+      {
+        "zone": "soldunga",
+        "npc": "Marfen Binkdirple",
+        "give": [
+          "Solusek Mining Company Invoice"
+        ],
+        "expect": "Mechanical Doll"
+      },
+      {
+        "zone": "unrest",
+        "npc": "Serra",
+        "give": [
+          "Mechanical Doll"
+        ],
+        "expect": "Note for Baenar"
+      },
+      {
+        "zone": "southkarana",
+        "npc": "Baenar Swiftsong",
+        "give": [
+          "Note for Baenar"
+        ],
+        "expect": "Note to Maligar"
+      },
+      {
+        "zone": "qey2hh1",
+        "npc": "Maligar",
+        "give": [
+          "Note to Maligar"
+        ]
+      },
+      {
+        "zone": "qey2hh1",
+        "kill": "Enraged Doppleganger",
+        "waitSec": 120
+      },
+      {
+        "zone": "southkarana",
+        "npc": "Baenar Swiftsong",
+        "give": [
+          "Maligar's Head"
+        ],
+        "expect": "Mahlin's Mystical Bongos"
+      },
+      {
+        "zone": "qey2hh1",
+        "npc": "Konia Swiftfoot",
+        "give": [
+          "Mahlin's Mystical Bongos"
+        ],
+        "expect": "Maestro's Symphony Page 24 Bottom"
+      }
+    ]
+  },
+  "bard-epic-forpar": {
+    "class": "Bard",
+    "minLevel": 20,
+    "reward": "Forpar's Note to Himself",
+    "doneIf": [
+      "Mystical Lute Head",
+      "Singing Short Sword"
+    ],
+    "steps": [
+      {
+        "zone": "steamfont",
+        "npc": "Forpar Fizfla",
+        "say": [
+          "components"
+        ],
+        "expect": "Forpar's Note to Himself"
+      }
+    ]
+  },
+  "enchanter-epic-ink": {
+    "class": "Enchanter",
+    "minLevel": 33,
+    "reward": "Ink of the Dark",
+    "doneIf": [
+      "Copy of Notes",
+      "Jeb's Seal",
+      "Bundle of Staves",
+      "Staff of the Serpent"
+    ],
+    "steps": [
+      {
+        "zone": "qcat",
+        "npc": "Reania Jukle",
+        "say": [
+          "ink of the dark",
+          "supply"
+        ],
+        "expect": "Empty Ink Vial"
+      },
+      {
+        "zone": "gukbottom",
+        "npc": "a ghoul scribe",
+        "give": [
+          "Empty Ink Vial"
+        ],
+        "expect": "Ink of the Dark",
+        "waitMin": 60
+      }
+    ],
+    "retryMin": 240
+  },
+  "enchanter-epic-pen": {
+    "class": "Enchanter",
+    "minLevel": 30,
+    "reward": "Mechanical Pen",
+    "doneIf": [
+      "Copy of Notes",
+      "Jeb's Seal",
+      "Bundle of Staves",
+      "Staff of the Serpent"
+    ],
+    "needs": [
+      "Shining Metallic Robes"
+    ],
+    "steps": [
+      {
+        "zone": "akanon",
+        "npc": "Rilgor Plegnog",
+        "give": [
+          "Shining Metallic Robes"
+        ],
+        "expect": "Mechanical Pen"
+      }
+    ]
+  },
+  "wizard-epic-sprocket": {
+    "class": "Wizard",
+    "minLevel": 10,
+    "reward": "Golem Sprocket",
+    "doneIf": [
+      "Green Oil",
+      "Staff of Gabstik",
+      "Magically Sealed Bag",
+      "Staff of the Four"
+    ],
+    "steps": [
+      {
+        "zone": "butcher",
+        "npc": "Kandin Firepot",
+        "say": [
+          "what oil"
+        ],
+        "expect": "Golem Sprocket"
+      }
+    ]
+  },
+  "shadow-knight-epic-soulcase": {
+    "class": "Shadow Knight",
+    "minLevel": 10,
+    "reward": "Soulcase",
+    "doneIf": [
+      "Heart of the Innocent",
+      "Corrupted Ghoulbane",
+      "Innoruuk's Curse"
+    ],
+    "steps": [
+      {
+        "zone": "tox",
+        "npc": "Knarthenne Skurl",
+        "say": [
+          "heart of an innocent"
+        ],
+        "expect": "Soulcase"
+      }
+    ]
+  },
+  "magician-epic-magikot": {
+    "class": "Magician",
+    "minLevel": 20,
+    "reward": "Words of Magi`kot",
+    "doneIf": [
+      "Power of the Orb",
+      "Element of Fire",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Torn Page of Magi`kot pg. 1",
+      "Torn Page of Magi`kot pg. 2",
+      "Torn Page of Magi`kot pg. 3"
+    ],
+    "steps": [
+      {
+        "zone": "commons",
+        "npc": "Jahsohn Aksot",
+        "give": [
+          "Torn Page of Magi`kot pg. 1",
+          "Torn Page of Magi`kot pg. 2",
+          "Torn Page of Magi`kot pg. 3"
+        ],
+        "expect": "Words of Magi`kot"
+      }
+    ]
+  },
+  "magician-epic-mastery": {
+    "class": "Magician",
+    "minLevel": 20,
+    "reward": "Words of Mastery",
+    "doneIf": [
+      "Power of the Orb",
+      "Element of Fire",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Torn Page of Mastery Fire",
+      "Torn Page of Mastery Wind",
+      "Torn Page of Mastery Earth",
+      "Torn Page of Mastery Water"
+    ],
+    "steps": [
+      {
+        "zone": "najena",
+        "npc": "Akksstaff",
+        "give": [
+          "Torn Page of Mastery Fire",
+          "Torn Page of Mastery Wind",
+          "Torn Page of Mastery Earth",
+          "Torn Page of Mastery Water"
+        ],
+        "expect": "Words of Mastery"
+      }
+    ]
+  },
+  "magician-epic-elements": {
+    "class": "Magician",
+    "minLevel": 28,
+    "reward": "Power of the Elements",
+    "doneIf": [
+      "Power of the Orb",
+      "Element of Fire",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Power of Fire",
+      "Power of Wind",
+      "Power of Earth",
+      "Power of Water"
+    ],
+    "steps": [
+      {
+        "zone": "butcher",
+        "npc": "Walnan",
+        "give": [
+          "Power of Fire",
+          "Power of Wind",
+          "Power of Earth",
+          "Power of Water"
+        ],
+        "expect": "Power of the Elements"
+      }
+    ]
+  },
+  "magician-epic-orb": {
+    "class": "Magician",
+    "minLevel": 28,
+    "reward": "Power of the Orb",
+    "doneIf": [
+      "Element of Fire",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Words of Magi`kot",
+      "Words of Mastery",
+      "Power of the Elements"
+    ],
+    "steps": [
+      {
+        "zone": "lakerathe",
+        "npc": "Rykas",
+        "give": [
+          "Words of Magi`kot",
+          "Words of Mastery",
+          "Power of the Elements"
+        ],
+        "expect": "Power of the Orb"
+      }
+    ]
+  },
+  "magician-epic-broom": {
+    "class": "Magician",
+    "minLevel": 22,
+    "reward": "Broom of Trilon",
+    "doneIf": [
+      "Element of Earth",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Broom",
+      "Cyclops Toes",
+      "Griffon Feathers",
+      "Star Ruby"
+    ],
+    "steps": [
+      {
+        "zone": "soltemple",
+        "npc": "Vira",
+        "give": [
+          "Broom",
+          "Cyclops Toes",
+          "Griffon Feathers",
+          "Star Ruby"
+        ],
+        "expect": "Broom of Trilon"
+      }
+    ]
+  },
+  "magician-epic-shovel": {
+    "class": "Magician",
+    "minLevel": 22,
+    "reward": "Shovel of Ponz",
+    "doneIf": [
+      "Element of Earth",
+      "Spell: Summon Orb",
+      "Orb of Mastery"
+    ],
+    "needs": [
+      "Shovel",
+      "Hill Giant Toes",
+      "Gargoyle Eye",
+      "Ruby"
+    ],
+    "steps": [
+      {
+        "zone": "soltemple",
+        "npc": "Vira",
+        "give": [
+          "Shovel",
+          "Hill Giant Toes",
+          "Gargoyle Eye",
+          "Ruby"
+        ],
+        "expect": "Shovel of Ponz"
       }
     ]
   }

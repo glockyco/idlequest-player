@@ -1081,8 +1081,9 @@
   };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
-  // too, and gives it equipped to the character it suits best, in the party or not, so the tab
-  // never switches characters. A move that fails is recorded and the next one runs.
+  // too, or buys it from the merchant its `buy` names after travelling to that zone, and gives it
+  // equipped to the character it suits best, in the party or not, so the tab never switches
+  // characters. A move that fails is recorded and the next one runs.
   const gearTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
     for (const mv of task.moves) {
@@ -1109,8 +1110,9 @@
     task.result = `${task.moves.filter((m) => m.done).length} of ${task.moves.length} moves`;
   };
   // A quest runs its `steps` for each member while that member is the active character, because
-  // quest NPCs answer and reward the character in front of them. A step travels to its zone, pulls
-  // the items it hands over from whoever on the account holds them, then talks to its NPC with
+  // quest NPCs answer and reward the character in front of them. A step travels to its zone, buys
+  // the items `buy` names (`{ merchant, items }`, a merchant of that zone), pulls the other items it
+  // hands over from whoever on the account holds them, then talks to its NPC with
   // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
   // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), or crafts
   // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id } }`, the inputs the catalog
@@ -1145,6 +1147,7 @@
       const need = { ...(s.each ?? {}) };
       for (const item of [...(s.give ?? []), ...(s.craft?.inputs ?? [])]) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
+        if (s.buy?.items?.includes(item) && i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
         while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
       }
       if (s.craft) {
@@ -1166,6 +1169,19 @@
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
       }
+      // An NPC that shares a spawn point with others is up only part of the time, so a step with
+      // `waitMin` waits until the zone lists it.
+      if (s.npc && s.waitMin) {
+        const wanted = enemyPattern(s.npc);
+        await step(`wait for ${s.npc}`, async () => {
+          for (const end = now() + s.waitMin * 60000; ; await sleep(15000)) {
+            // Right after a zone change the server may not have the zone's spawns yet, so the next round asks again.
+            await i.refreshSpawns().catch(() => {});
+            if ((i.zoneSpawns?.spawns ?? []).some((x) => wanted.test(x.name ?? ""))) return;
+            if (now() > end) throw new Error(`${s.npc} did not spawn within ${s.waitMin} minutes`);
+          }
+        }, s.waitMin * 60000 + 30000);
+      }
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
       if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
       if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give), 60000);
@@ -1174,7 +1190,11 @@
         Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
       }
       if (s.expect) {
-        for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) await sleep(500);
+        // An NPC's SummonItem lands on the cursor, which the bags count leaves out.
+        for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) {
+          if (i.bagSpace().cursor === s.expect) await autoPlace();
+          await sleep(500);
+        }
         if (i.carried(s.expect) < 1) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
       }
       m.at = k + 1;

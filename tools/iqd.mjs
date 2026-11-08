@@ -502,7 +502,9 @@ class Daemon {
     const have = {};
     const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
-      holders[id] = await carriers(q.reward);
+      // A character is done with a chain while it carries the reward or an item of a later chain
+      // that the reward was spent on (`doneIf`), so a spent reward does not restart the chain.
+      holders[id] = [...new Set((await Promise.all([q.reward, ...(q.doneIf ?? [])].map(carriers))).flat())];
       const steps = [...new Set(q.steps.map((s) => s.expect).filter((e) => e && e !== q.reward))];
       started[id] = [...new Set((await Promise.all(steps.map(carriers))).flat())];
       for (const n of q.needs ?? []) have[n] ??= (await search(n)).filter((m) => m.item === n).reduce((a, m) => a + m.n, 0);

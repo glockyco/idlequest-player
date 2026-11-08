@@ -756,6 +756,28 @@
   const dialogueLoading = () => [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
   const dialogueOpen = () => !dialogueLoading() && (document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0 || Boolean(giveItemsReady()));
   const spawnOf = (name) => (zoneSpawns?.spawns ?? []).find((x) => looseName(x.name).includes(looseName(name))) ?? null;
+  // The client's zone sync state (`current` with `stateSessionId` and `zoneRevision`), which its own
+  // spawn requests send along.
+  let zoneSync;
+  const findZoneSync = () => {
+    if (zoneSync === undefined) zoneSync = allExports().find((v) => { try { return v && typeof v === "object" && v.current && "zoneRevision" in v.current; } catch { return false; } }) ?? null;
+    return zoneSync;
+  };
+  /**
+   * Ask the server for the zone's spawns now (GetZoneSpawnsRequest, read-only, the request the
+   * client sends on zone entry and for Spawn Camp) and keep them as the zone's spawn list, because
+   * the list otherwise holds only what stood there at entry. Resolves with the number of spawns.
+   */
+  const refreshSpawns = async () => {
+    const e = findZoneSync()?.current;
+    if (!e) throw new Error("the client's zone sync state was not found");
+    const cb = stores.combat.getState();
+    const zone = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName;
+    const r = await socket.sendCorrelatedJsonRequest(1062, 1063, { zoneName: zone, stateSessionId: e.stateSessionId, zoneRevision: e.zoneRevision, sourceZoneId: e.zoneId, sourceInstanceId: e.zoneInstance, questMovementVersion: 7 }, 9000);
+    if (!r?.success) throw new Error(r?.error ?? "no zone spawns");
+    zoneSpawns = { t: Date.now(), spawns: r.spawns ?? [] };
+    return zoneSpawns.spawns.length;
+  };
   const pathToRow = (name) => [...document.querySelectorAll(".merchant-name")].map((el) => el.parentElement).find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && looseName(p.querySelector(".merchant-name")?.textContent).includes(looseName(name)));
   /** Click `name`'s row in the Path To list, which walks there. */
   const walkTowards = async (name) => {
@@ -1018,6 +1040,8 @@
       for (let k = 0; k < 20 && carried(item) === before; k++) await pause(200);
       if (carried(item) === before) break;
     }
+    // The merchant's window stays open after a purchase and keeps an NPC's dialogue from opening.
+    await closeWindows();
     return { bought, platinum: stores.character.getState().characterProfile?.platinum ?? null };
   };
   /**
@@ -1206,6 +1230,7 @@
     pullItem,
     giveItem,
     buyItem,
+    refreshSpawns,
     craftItem,
     sellCursor,
     closeWindows,
