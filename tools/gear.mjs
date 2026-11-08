@@ -1,6 +1,6 @@
 // Best gear for a class at a level, and where it drops or who sells it.
 //
-//   bun tools/gear.mjs <class> --level N [--race dwarf] [--slot head] [--mob-max N] [--top 3] [--data dir]
+//   bun tools/gear.mjs <class> --level N [--race dwarf] [--slot head] [--mob-max N] [--top 3] [--list data/gear/p99-velious-preraid.json] [--data dir]
 //   bun tools/gear.mjs --party [roster.json] --level N [--mob-max N] [--top 3]
 //   class: warrior cleric paladin ranger shadowknight druid monk bard rogue shaman necromancer wizard magician enchanter
 //   race: human barbarian erudite woodelf highelf darkelf halfelf dwarf troll ogre halfling gnome iksar vahshir
@@ -53,6 +53,10 @@ const root = opt("data", process.env.IQ_CONTENT ?? `${homedir()}/src/github.com/
 const mobMax = Number(opt("mob-max", level + 6));
 const top = Number(opt("top", 3));
 const slotFilter = opt("slot", null)?.toLowerCase();
+// A curated list, such as data/gear/p99-velious-preraid.json, limits the candidates to items one
+// group can get, because the score alone ranks raid drops first.
+const listFile = opt("list", null);
+const listed = listFile ? new Set((JSON.parse(await readFile(listFile, "utf8")).rows ?? []).map((r) => r.item)) : null;
 
 // The score and the damage cap at the level asked for (the party plan may name classes of any level).
 const capFor = (c, lvl = level) => capForLevel(c, lvl);
@@ -67,7 +71,7 @@ const zoneName = await liveZoneNames(root);
 const cands = new Map(); // id -> item with slot names and score
 const allItems = new Map();
 for await (const i of rows("items")) {
-  if (!i.slots || i.augtype || i.bagslots) continue;
+  if (!i.slots || i.augtype || i.bagslots || (listed && !listed.has(i.Name))) continue;
   const slots = slotName(i.slots);
   if (!slots.length) continue;
   allItems.set(i.id, { raw: i, id: i.id, name: i.Name, slots, req: i.reqlevel ?? 0, classes: i.classes ?? 0, races: i.races ?? 0, ac: i.ac, hp: i.hp, mana: i.mana, int: i.aint, wis: i.awis, dmg: i.damage, delay: i.delay, twoHand: [1, 4, 35].includes(i.itemtype), nodrop: i.nodrop, price: i.price });

@@ -132,10 +132,14 @@ divided by delay, the comparison the IdleQuest wiki gives. `--party` reads a sav
 result (`me` and `party`, each with class, race and `items`). Save the roster from an eval cell
 first: `await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones
 it prints are the bot's band rows (`data/band-rotations.json`) for the level and the next band.
+At high levels the score ranks raid drops first, so `--list data/gear/p99-velious-preraid.json`
+limits it to the P99 wiki's pre-raid picks, items one group can get. `bun tools/drops.mjs item
+--list <names.json>` checks such a list for drop sources.
 
 ```sh
 bun tools/gear.mjs warrior --level 21 --race dwarf --slot primary --top 5
 bun tools/gear.mjs --party runs/roster.json --level 30   # whole-party upgrade plan (merchant, in-rotation, high-gain drops)
+bun tools/gear.mjs warrior --level 60 --list data/gear/p99-velious-preraid.json   # best pre-raid item per slot
 ```
 
 ## Predicting XP per hour
