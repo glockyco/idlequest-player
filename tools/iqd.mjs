@@ -26,11 +26,12 @@ export const THRESHOLDS = {
   idleSec: 120, // idle or dead without a bot pause or a raid
   noKillSec: 300, // no kill without a bot pause or a raid
   heapShare: 0.85, // share of the JS heap limit
+  taskMin: 60, // a coordinator task running longer than this (the longest, a farm, runs 120 under its own errand)
   snapshotEverySec: 300, // a character's snapshot is written at least this often
 };
 
 /** Attention kinds that describe a state. They resolve themselves when the state ends. */
-export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap"];
+export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap", "longtask"];
 
 // ---- Database -----------------------------------------------------------------------------------
 
@@ -154,6 +155,12 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   }
   if (snap.heap?.limit && snap.heap.used / snap.heap.limit > thresholds.heapShare) {
     item("act", "heap", `heap:${label}`, `${label}: page heap at ${snap.heap.used} of ${snap.heap.limit} MB`);
+  }
+  // A task holds its tab under a bot pause, which stops the stall clocks above, so a task that
+  // runs far longer than tasks take (a wait for an NPC that never spawns) is its own condition.
+  const task = snap.bot.task;
+  if (task?.status === "running" && task.startedAt && now - task.startedAt > thresholds.taskMin * 60000) {
+    item("act", "longtask", `longtask:${label}`, `${label}: ${task.kind} task running for ${Math.round((now - task.startedAt) / 60000)} min${task.step ? ` at "${task.step}"` : ""}`);
   }
 
   for (const a of snap.bot.alerts ?? []) {

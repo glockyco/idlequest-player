@@ -253,3 +253,11 @@ test("a later finished task settles a failed one, and playing again settles an i
   at(snap({ activity: { act: "fight", why: null, since: T0 + 90 * SEC }, bot: bot({ task: { status: "done", endedAt: T0 + 80 * SEC } }) }), T0 + 120 * SEC);
   expect(notes()).toEqual([["alert-task", "a later task finished"], ["alert-idle", "the tab plays again"]]);
 });
+
+test("a task running past an hour under its bot pause raises a long-task item, a shorter one does not", () => {
+  const tasked = (startedAt: number) => ok(snap({ kills: { last: T0 }, bot: { enabled: true, pauseUntil: T0 + 7200 * SEC, task: { kind: "quest", status: "running", step: "wait for Anson McBale", startedAt }, alerts: [] } }));
+  expect(kinds(run(() => tasked(T0 - 59 * 60 * SEC), 1, 30))).toEqual([]);
+  const res = run(() => tasked(T0 - 61 * 60 * SEC), 1, 30);
+  expect(kinds(res)).toEqual(["longtask"]);
+  expect(res.items[0].text).toContain("wait for Anson McBale");
+});
