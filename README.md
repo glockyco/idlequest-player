@@ -337,9 +337,9 @@ back when the camp says its points respawn, a held camp after 15 minutes, and ot
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward nor an item of `doneIf`, which names
-what a later step spends the reward on, one task per tab. Members who carry the
-reward of an earlier step always run, and the others at most as many as the account holds copies of
-the items it `needs`. A chain that stopped part way goes on after the last step `expect` the member
+what a later step spends the reward on, one task per tab. Members who carry the item of the step
+that uses up what the chain `needs`, or of a later step, always run, and the others at most as many
+as the account holds copies of those items. A chain that stopped part way goes on after the last step `expect` the member
 carries. A step talks to its `npc` with `say` keywords, waiting up to `waitMin` for an NPC that
 shares its spawn point to appear, gives it `give`, hands in `each`, buys `buy` from a merchant, or fights
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or

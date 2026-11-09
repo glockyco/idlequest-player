@@ -40,6 +40,18 @@ export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
 }
 
 /**
+ * The items that show a carrier of them part way through quest chain `q` with the pieces it needs
+ * (`needs`) behind it: the `expect` of every step from the first one that uses a needed piece up, by
+ * a `give` or a craft input, or of every step when the chain needs nothing. A carrier of an earlier
+ * step's item has begun the chain but still needs the pieces.
+ */
+export function progressItems(q) {
+  const needs = q.needs ?? [];
+  const at = needs.length ? q.steps.findIndex((s) => needs.some((n) => (s.give ?? []).includes(n) || (s.craft?.inputs ?? []).includes(n))) : 0;
+  return [...new Set(q.steps.slice(Math.max(0, at)).map((s) => s.expect).filter((e) => e && e !== q.reward))];
+}
+
+/**
  * Copies of opportunity `o`'s item the account needs: its `count`, or for a piece of quest chain
  * `o.quest` one for each member who needs the chain, so a piece its hand-ins use up is hunted
  * again only while someone still needs it.
@@ -97,9 +109,9 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
   for (const [id, q] of Object.entries(quests)) {
-    // A quest that hands over a dropped item runs for as many members as the account holds copies
-    // outside the chain's needers (`have`), and for every member part way through, whose first step
-    // already took its copy. A pull never takes another needer's copy (`avoid`).
+    // A quest that uses up a dropped item runs for as many members as the account holds copies
+    // outside the chain's needers (`have`), and for every member already past the step that uses
+    // it up (`started`, from `progressItems`). A pull never takes another needer's copy (`avoid`).
     let copies = Math.min(Infinity, ...(q.needs ?? []).map((n) => have[n] ?? 0));
     const needers = chainNeeders(id, { quests, holders, members: tabs.flatMap((t) => t.members) });
     for (const t of tabs) {

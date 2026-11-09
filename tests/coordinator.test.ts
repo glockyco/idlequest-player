@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, decide, piecesNeeded } from "../tools/lib/coordinator.mjs";
+import { assignZones, decide, piecesNeeded, progressItems } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -295,4 +295,25 @@ test("no two quest chains give the same reward to the same class, and every hunt
   expect(keys.filter((k, n) => keys.indexOf(k) !== n)).toEqual([]);
   const ops = JSON.parse(await Bun.file(new URL("../data/opportunities.json", import.meta.url)).text());
   expect(ops.filter((o: { quest?: string }) => o.quest && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
+});
+
+test("a chain member is past its needed pieces only from the step that uses them up", () => {
+  // The Paladin's Sealed Note chain: its craft takes the Fire Beetle Eye at the third step.
+  const q = {
+    reward: "Sealed Note",
+    needs: ["Fire Beetle Eye"],
+    steps: [
+      { give: ["Drom's Champagne"], expect: "Bunker Cell #1" },
+      { craft: { inputs: [] }, expect: "Bog Juice" },
+      { craft: { inputs: ["Fire Beetle Eye"] }, expect: "Edible Goo" },
+      { give: ["Bunker Cell #1", "Bog Juice", "Edible Goo"], expect: "H. K. 102" },
+      { give: ["H. K. 102"], expect: "Sealed Note" },
+    ],
+  };
+  // A Bunker Cell or Bog Juice holder still needs an eye, and the reward is no progress item.
+  expect(progressItems(q)).toEqual(["Edible Goo", "H. K. 102"]);
+  // A chain that needs nothing is under way from its first step's item, and a hand-in of the needed
+  // piece counts like a craft.
+  expect(progressItems({ ...q, needs: [] })).toEqual(["Bunker Cell #1", "Bog Juice", "Edible Goo", "H. K. 102"]);
+  expect(progressItems({ ...q, needs: ["Drom's Champagne"] })).toEqual(["Bunker Cell #1", "Bog Juice", "Edible Goo", "H. K. 102"]);
 });

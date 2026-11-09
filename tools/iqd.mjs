@@ -499,7 +499,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, crowdedZones, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, crowdedZones, piecesNeeded, progressItems, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -555,8 +555,9 @@ class Daemon {
       // A character is done with a chain while it carries the reward or an item of a later chain
       // that the reward was spent on (`doneIf`), so a spent reward does not restart the chain.
       holders[id] = [...new Set((await Promise.all([q.reward, ...(q.doneIf ?? [])].map(carriers))).flat())];
-      const steps = [...new Set(q.steps.map((s) => s.expect).filter((e) => e && e !== q.reward))];
-      started[id] = [...new Set((await Promise.all(steps.map(carriers))).flat())];
+      // A step's item shows progress only once the chain's needed pieces lie behind it
+      // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
+      started[id] = [...new Set((await Promise.all(progressItems(q).map(carriers))).flat())];
       if (!q.needs?.length) continue;
       // A copy a needer of the chain carries is its own: it is not free for others (`have`), and a
       // needer that carries every piece runs like one part way through.
