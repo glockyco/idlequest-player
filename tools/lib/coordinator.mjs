@@ -56,7 +56,8 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
  *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
- * - `owned`: opportunities whose item the account holds in enough copies, `{ [id]: true }` (tools/iqd.mjs counts them).
+ * - `owned`: opportunities whose item the account holds in enough copies, `{ [id]: true }` (tools/iqd.mjs counts them),
+ *   and `carriedBy`, who carries each opportunity's item, `{ [id]: [name] }`.
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
  * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, needs, steps, retryMin } }`, `holders`,
@@ -70,7 +71,7 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's
  * errand and `stopTask` its running task.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -122,11 +123,14 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     if (owned[o.id]) continue;
     // Pieces from the same enemies (the four Mastery pages) need one group on them, not four.
     if (o.kind === "errand" && (tabs.some((t) => t.errand?.zone === o.zone && t.errand?.keep === o.keep) || out.some((a) => a.spec?.zone === o.zone && a.spec?.keep === o.keep))) continue;
+    // The leader loots, and a lore piece it already carries stays on the corpse, so a group whose
+    // leader carries the piece does not hunt it until a member has taken it.
+    const looter = (t) => !(carriedBy[o.id] ?? []).includes(t.members[0]?.name);
     const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
-    if (!tab || !free(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
+    if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);

@@ -62,6 +62,13 @@ test("a piece is hunted by its group until owned, waits for its time of day and 
   expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history })).toHaveLength(1);
 });
 
+test("a group whose leader carries the piece does not hunt it", () => {
+  const tabs = [tab("A", "G1", 40)];
+  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A0"] } })).toEqual([]);
+  // A copy another character carries leaves the hunt to the group.
+  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A3"] } })).toHaveLength(1);
+});
+
 test("a hunt that reported its next respawn comes back then, earlier or later than the retry interval", () => {
   const tabs = [tab("A", "G1", 40)];
   const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt, ms: 120000 }];

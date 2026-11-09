@@ -551,6 +551,7 @@ class Daemon {
       started[id].push(...needers.filter((who) => rows.every((r) => r.some((m) => m.who === who))));
     }
     const owned = {};
+    const carriedBy = {};
     // An opportunity is done once the account holds the copies its characters need (`piecesNeeded`),
     // wherever they lie, because Inventory Search moves NO DROP pieces between characters. Only
     // pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
@@ -559,7 +560,11 @@ class Daemon {
     // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
     const queue = opportunities.filter(reachable);
     await Promise.all(Array.from({ length: 4 }, async () => {
-      for (let o; (o = queue.shift()); ) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= piecesNeeded(o, { quests, holders, members });
+      for (let o; (o = queue.shift()); ) {
+        const rows = (await search(o.item)).filter((m) => m.item === o.item);
+        owned[o.id] = rows.reduce((a, m) => a + m.n, 0) >= piecesNeeded(o, { quests, holders, members });
+        carriedBy[o.id] = rows.map((m) => m.who);
+      }
     }));
     // The wanted enemies' spawn points, read once from the content snapshot.
     const { spawnPoints } = await import("./lib/content.mjs");
@@ -599,7 +604,7 @@ class Daemon {
     // What the hunts, errands and quest chains are for is never sold, wherever it is looted.
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...Object.values(quests).flatMap((q) => [q.reward, ...(q.doneIf ?? []), ...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])])].filter(Boolean))].sort();
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, started, have, gear, held, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
