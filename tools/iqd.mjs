@@ -590,6 +590,9 @@ class Daemon {
     }
     const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
     if (dropped.length) this.log(`coordinator: ${dropped.length} wanted drops in the groups' rotations (${dropped.map((o) => `${o.item} for ${o.group}`).join(", ")})`);
+    // What the hunts, errands and quest chains are for is never sold, wherever it is looted.
+    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...Object.values(quests).flatMap((q) => [q.reward, ...(q.doneIf ?? []), ...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])])].filter(Boolean))].sort();
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
     const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, started, have, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);

@@ -48,6 +48,8 @@
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
     companionTactics: { cure: false },
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
+    keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, never sold
+    keepBag: true, // keep kept items in one bag marked No Sell and No Declutter (`keepBag`)
     // Never sold as single items: spell research pieces, which Auto Bank usually banks first, also
     // the pages named like "Salil's Writ Pg. 64".
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b|\\bPg\\. ?\\d",
@@ -223,7 +225,7 @@
         kept.set(r.itemid, (kept.get(r.itemid) ?? 0) + 1);
         continue;
       }
-      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || config.gearKeepIds.includes(r.itemid) || reagents.has(r.itemid)) continue;
+      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || config.gearKeepIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name) || reagents.has(r.itemid)) continue;
       if (!groups.has(r.itemid)) groups.set(r.itemid, []);
       groups.get(r.itemid).push(r);
     }
@@ -567,14 +569,15 @@
   const GENERAL_SLOTS = [22, 23, 24, 25, 26, 27, 28, 29];
   const BANK_SLOTS = [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007];
   const slotRow = (i, slot) => (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === 0 && r.slot === slot);
+  const rowAt = (i, p) => (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === p.bag && r.slot === p.slot);
   // A move can end without a change or a message, so it is checked and sent again.
   const moveSlot = async (i, from, to) => {
-    const id = slotRow(i, from)?.itemInstanceId;
+    const id = rowAt(i, from)?.itemInstanceId;
     for (let k = 0; k < 3 && id != null; k++) {
-      await i.stores.character.getState().moveItemToSlot({ bag: 0, slot: from }, { bag: 0, slot: to });
+      await i.stores.character.getState().moveItemToSlot(from, to);
       for (let w = 0; w < 6; w++) {
         await sleep(500);
-        if (slotRow(i, to)?.itemInstanceId === id) return true;
+        if (rowAt(i, to)?.itemInstanceId === id) return true;
       }
     }
     return false;
@@ -586,7 +589,7 @@
       const bag = GENERAL_SLOTS.map((s) => ({ s, n: inv.filter((r) => r.bag === s + 1).length })).sort((a, b) => a.n - b.n)[0].s;
       const bank = BANK_SLOTS.find(free);
       const name = slotRow(i, bag)?.itemDetails?.Name ?? slotRow(i, bag)?.itemDetails?.name ?? `the bag in slot ${bag}`;
-      if (bank != null) log(`moved ${name} to bank slot ${bank} to make room for ${i.bagSpace().cursor}: ${(await moveSlot(i, bag, bank)) ? "done" : "failed"}`);
+      if (bank != null) log(`moved ${name} to bank slot ${bank} to make room for ${i.bagSpace().cursor}: ${(await moveSlot(i, { bag: 0, slot: bag }, { bag: 0, slot: bank })) ? "done" : "failed"}`);
     }
     return autoPlace();
   };
@@ -596,7 +599,42 @@
       const general = GENERAL_SLOTS.find((s) => !slotRow(i, s));
       if (general == null) return;
       const row = slotRow(i, bank);
-      if ((row?.itemDetails?.bagslots ?? 0) > 0) log(`moved ${row.itemDetails.Name ?? row.itemDetails.name ?? "a bag"} back from bank slot ${bank}: ${(await moveSlot(i, bank, general)) ? "done" : "failed"}`);
+      if ((row?.itemDetails?.bagslots ?? 0) > 0) log(`moved ${row.itemDetails.Name ?? row.itemDetails.name ?? "a bag"} back from bank slot ${bank}: ${(await moveSlot(i, { bag: 0, slot: bank }, { bag: 0, slot: general })) ? "done" : "failed"}`);
+    }
+  };
+
+  // The server's Delete Clutter empties a full inventory of the NO DROP items it cannot sell, wanted
+  // gear included, but it skips bags marked No Declutter, and the server's Auto-Sell, which the bot
+  // keeps off, skips bags marked No Sell. So kept NO DROP items (`gearKeepIds`, `keepItemIds`,
+  // `keepNames`) lie in one bag marked both, the largest general bag unless one is marked already:
+  // a few moves each tick put them in and the rest out. Kept items the server can sell are safe
+  // anywhere, because the bot's own cleanup never sells them.
+  const keepBag = async (i) => {
+    if (!config.keepBag || i.bagSpace().cursor) return;
+    const cb = i.stores.combat.getState();
+    const inv = () => i.stores.character.getState().characterProfile?.inventory ?? [];
+    const bags = GENERAL_SLOTS.map((s) => slotRow(i, s)).filter((r) => (r?.itemDetails?.bagslots ?? 0) > 0);
+    if (!bags.length) return;
+    const noSell = new Set(cb.noAutoSellBagInstanceIds ?? []);
+    const noClutter = new Set(cb.noDeclutterBagInstanceIds ?? []);
+    const keep = bags.find((r) => noSell.has(r.itemInstanceId) && noClutter.has(r.itemInstanceId)) ?? bags.find((r) => noSell.has(r.itemInstanceId) || noClutter.has(r.itemInstanceId)) ?? [...bags].sort((a, b) => b.itemDetails.bagslots - a.itemDetails.bagslots)[0];
+    if (!noSell.has(keep.itemInstanceId)) cb.toggleNoAutoSellBag(keep.itemInstanceId);
+    if (!noClutter.has(keep.itemInstanceId)) cb.toggleNoDeclutterBag(keep.itemInstanceId);
+    if (!noSell.has(keep.itemInstanceId) || !noClutter.has(keep.itemInstanceId)) log(`marked the bag in general slot ${keep.slot} No Sell and No Declutter for kept items`);
+    const inner = keep.slot + 1;
+    const kept = (r) => {
+      const d = r.itemDetails ?? {};
+      return d.nodrop === 0 && (config.gearKeepIds.includes(r.itemid) || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name));
+    };
+    const freeIn = (b) => Array.from({ length: b.itemDetails.bagslots }, (_, s) => ({ bag: b.slot + 1, slot: s })).filter((p) => !rowAt(i, p));
+    for (let n = 0; n < 4; n++) {
+      const items = inv().filter((r) => r.bag >= 23 && r.bag <= 30 && !(r.itemDetails?.bagslots > 0));
+      const out = items.find((r) => r.bag === inner && !kept(r));
+      const into = items.find((r) => r.bag !== inner && kept(r));
+      const room = freeIn(keep)[0];
+      const elsewhere = bags.filter((b) => b !== keep).flatMap(freeIn)[0];
+      const move = into && room ? [into, room] : out && elsewhere ? [out, elsewhere] : null;
+      if (!move || !(await moveSlot(i, { bag: move[0].bag, slot: move[0].slot }, move[1]))) return;
     }
   };
 
@@ -1957,6 +1995,7 @@
       await upkeepIfDue(i);
       await sellSurplus(i);
       await restoreBags(i);
+      await keepBag(i);
       state.lastError = null;
     } catch (e) {
       const msg = String(e?.message ?? e);

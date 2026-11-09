@@ -430,6 +430,9 @@ test("cleanup sells extra copies first, then singles by value, and keeps food, r
   });
   const names = bot.surplus().map((s) => s.name);
   expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer", "Solist's Icy Wand"]);
+  // A name the coordinator's hunts or quests are for is never sold.
+  bot.config.keepNames = ["Rusty Mace"];
+  expect(bot.surplus().map((s) => s.name)).toEqual(["Legionnaire's Bracer", "Legionnaire's Bracer", "Solist's Icy Wand"]);
 });
 
 test("cleanup keeps the last copy of a quest turn-in item and sells its extra copies", async () => {
@@ -1359,6 +1362,54 @@ test("a container on the cursor with every general slot taken sends the emptiest
     await tick;
     expect(at(0, 27)?.itemInstanceId).toBe(527);
     expect(inv.filter((r) => r.bag === 28)).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("kept NO DROP items move into one bag marked No Sell and No Declutter, and other items move out of it", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number; nodrop?: number } };
+    const bag = (slot: number, size: number): Row => ({ bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: size } });
+    const item = (b: number, slot: number, itemid: number, Name: string): Row => ({ bag: b, slot, itemid, itemInstanceId: 1000 + itemid, itemDetails: { Name, bagslots: 0, nodrop: 0 } });
+    // The 10-slot bag in general slot 23 holds a junk item, and a wanted NO DROP helm and a wanted
+    // cloak the server can sell lie in the bag in slot 22.
+    const cloak: Row = { ...item(23, 1, 9, "Fine Cloak"), itemDetails: { Name: "Fine Cloak", bagslots: 0, nodrop: 1 } };
+    const inv: Row[] = [bag(22, 6), bag(23, 10), item(23, 0, 7, "Opoline Helm"), cloak, item(24, 0, 8, "Spider Femur")];
+    (f.me as unknown as { inventory: Row[] }).inventory = inv;
+    const at = (b: number, s: number) => inv.find((r) => r.bag === b && r.slot === s);
+    Object.assign(f.sheet, {
+      moveItemToSlot: async (from: { bag: number; slot: number }, to: { bag: number; slot: number }) => {
+        const r = at(from.bag, from.slot);
+        if (r && !at(to.bag, to.slot)) Object.assign(r, to);
+      },
+    });
+    Object.assign(f.combat, {
+      noAutoSellBagInstanceIds: [] as number[],
+      noDeclutterBagInstanceIds: [] as number[],
+      toggleNoAutoSellBag(id: number) {
+        f.combat.noAutoSellBagInstanceIds.push(id);
+      },
+      toggleNoDeclutterBag(id: number) {
+        f.combat.noDeclutterBagInstanceIds.push(id);
+      },
+    });
+    f.bot.config.gearKeepIds = [7, 9];
+    const tick = f.bot.tick();
+    for (let k = 0; k < 12; k++) {
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    await tick;
+    expect([f.combat.noAutoSellBagInstanceIds, f.combat.noDeclutterBagInstanceIds]).toEqual([[523], [523]]);
+    expect(inv.find((r) => r.itemDetails.Name === "Opoline Helm")?.bag).toBe(24);
+    expect(inv.find((r) => r.itemDetails.Name === "Spider Femur")?.bag).toBe(23);
+    expect(cloak.bag).toBe(23);
+    // With everything in its place the next tick moves nothing and marks nothing again.
+    await f.bot.tick();
+    expect([f.combat.noAutoSellBagInstanceIds.length, inv.find((r) => r.itemid === 7)?.bag]).toEqual([1, 24]);
   } finally {
     vi.useRealTimers();
   }
