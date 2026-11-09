@@ -441,6 +441,8 @@ test("cleanup keeps the last copy of a quest turn-in item and sells its extra co
   Object.assign(me, { inventory: [item(0, 16539, "Hill Giant Toes", 200), item(1, 16539, "Hill Giant Toes", 200), item(2, 1, "Rusty Mace", 100)] });
   Object.assign(iq, { questItems: [16539] });
   expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
+  // Bags with almost no room left give up the last quest item too, after the cheaper single.
+  expect(bot.surplus(true).map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace", "Hill Giant Toes"]);
 });
 
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {

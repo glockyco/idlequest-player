@@ -205,10 +205,12 @@
    * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
    * with `singles`, the last copies, lowest total value first, except items with an effect, food,
    * drink, research pieces and quest turn-in items (`window.iq.questItems`, from
-   * tools/quest-items.mjs), because these sales bypass the client's Keep Epic Quest Items. What
-   * some character can wear better is already in `gearKeepIds`.
+   * tools/quest-items.mjs), because these sales bypass the client's Keep Epic Quest Items. With
+   * `last`, for bags with almost no room left, the items with an effect and the quest turn-in items
+   * are sold too, because that list holds common loot and full bags stop all looting. What some
+   * character can wear better is already in `gearKeepIds`.
    */
-  const surplus = (i, singles = false) => {
+  const surplus = (i, singles = false, last = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const noSell = new Set(i.stores.combat.getState().noAutoSellBagInstanceIds ?? []);
     const general = new Map(inv.filter((r) => r.bag === 0 && r.slot >= 22 && r.slot <= 29).map((r) => [r.slot, r]));
@@ -232,7 +234,7 @@
     const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
     const keepName = new RegExp(config.keepNamePattern, "i");
     const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
-    const singleOk = (r) => !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !questItems.has(r.itemid);
+    const singleOk = (r) => !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && (last || (!hasEffect(r.itemDetails) && !questItems.has(r.itemid)));
     const extra = [];
     const single = [];
     for (const [id, rows] of groups) {
@@ -262,7 +264,9 @@
     let sold = 0;
     let copper = 0;
     const names = [];
-    for (const s of surplus(i, true)) {
+    // Bags with almost no room left and nothing else to sell give up the quest and effect items too.
+    const list = surplus(i, true);
+    for (const s of list.length || space.free >= 2 ? list : surplus(i, true, true)) {
       if (free >= config.targetFreeSlots || sold >= config.sellPerTick) break;
       // The client sells whatever sits at (bag, slot) when the call runs, so check it is still ours.
       const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === s.bag && r.slot === s.slot);
@@ -2036,8 +2040,8 @@
     fastTick,
     /** Roots on party members and pets with their end times, and who could dispel them. */
     roots: () => ({ roots: partyRoots(iq()), dispellers: dispellers(iq()) }),
-    /** What the next cleanup would sell, in order: extra copies, then cheap single items. */
-    surplus: () => surplus(iq(), true),
+    /** What the next cleanup would sell, in order: extra copies, then single items, with `last` also quest and effect items. */
+    surplus: (last = false) => surplus(iq(), true, last),
     /** The gems the upkeep would set for the leader's class, in gem order: [{gem, role, id, name, level}]. */
     spellPlan: () => spellPlan(iq()),
     /** The resurrection the bot would buy from `offers` ({ percent, price } in pp) with `coinPp` carried, or null to respawn. */
