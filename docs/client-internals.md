@@ -552,14 +552,73 @@ leader stays at the dialog and AutoLevel stays stopped.
   scripts in `C/effective/quests/sleeper` and `skyshrine` are empty files, so nothing is
   sized on him.
 
+### How a raid fight runs
+
+Read from the release in `.re/releases/20261108T004644-064bc896/pretty/` (abbreviations below).
+Raid mode is not AutoLevel with more members: a member acts only on its command and on the
+orders the raid holds, and nothing else moves or casts.
+
+- Melee: only Warriors, Paladins, Shadow Knights, Rangers, Monks, Bards and Rogues swing (`OQ`,
+  `OST` 65209-65214), and only in melee range of their target (`isRaidActorInMeleeRange`, `CVE`
+  5895, 5924). Pets swing when their command is attacking.
+- Casting needs an order. A member casts only for the automatic heal mode (`autoHealMode`), the
+  nuke order (`autoNukeOrder`), a maintained effect (`ongoingActions`, slows, debuffs and mezzes
+  that are recast when they wear off) or a queued single cast (`pendingActions`). A Cleric,
+  Druid, Shaman, Wizard, Magician, Necromancer or Enchanter under "attacking" with no order does
+  nothing: in the first raid four of them dealt 0 damage in 15 minutes.
+- Roles decide who nukes. The class templates give Necromancer, Wizard and Magician the role
+  "Caster DPS", Cleric and Druid "Healers", Shaman, Bard and Enchanter "Utility", Warrior, Paladin
+  and Shadow Knight "Tanks", and Ranger, Monk and Rogue "Melee DPS" (`OST` 27801-34390). The nuke
+  modes "DPS: Balanced" and "DPS: All Out" nuke with Caster DPS only, "All: All Out" with every
+  member that has a nuke, healers included (`s61`, `OST` 65206-65208).
+- Heal modes: "CLR" modes heal with Clerics only and "All" modes with every member that has a
+  heal (`CVE` 5450). "Balanced" keeps the class's mana reserve, "All Out" spends to zero. The mode
+  stays set across fights, and healing runs between fights too. "All: Balanced" kept the leader
+  alive in the first raid.
+- The raid engine's order functions (`setRaidAutoHealing`, `startRaidAutoNuking`,
+  `startRaidOngoingAction`, `requestRaidSpell`, `queueRaidCategorySpell`, `CVE` 8378-8387) are not
+  exported from their chunk, so a script reaches them only through the raid window or the raid
+  store's state. `setRaidAutoHealing(mode)` sets `autoHealMode` and nothing else that matters
+  (`XL`, `CVE` 7049). `startRaidAutoNuking(mode, target)` sets `autoNukeOrder` to `{ id, mode,
+  target, preparing }`, prepares the fight and clears `preparing` (`CVE` 6960). The engine nukes
+  for the order while its target is engaged and `combatActive` is on (`CVE` 7015-7020). In the
+  window, a nuke mode's radio only starts a target pick, and the order starts when an enemy is
+  clicked (`CVE` 10720-10729).
+- Range: the store writes `rangeState: "inCombatRange"` with every attack command (`OST` 71046)
+  and never measures it, so it says nothing about distance. Real range is the 3D scene's.
+- Moving: All Attack gives every member the target as its raid target. Melee members walk to melee
+  range, and casters whose spells give them a range walk to that range and wait there for an order
+  (`CVE` 427651-427691). `positionAtTarget(target)` (Run To Target, `OST` 71904-71940) sends every
+  member and the leader toward the target without attacking, except members already attacking in
+  a fight.
+- The leader moves through a loop that runs with each rendered frame (`CVE` 438211-438323). A new
+  `playerOrder` revision turns the leader's auto attack on for "attacking". The loop then walks to
+  melee range of the leader's raid target, but it stands still while that target is missing or
+  dead, while the combat store's `isCasting` is on and while another navigation runs. In the first
+  raid the leader stood 12 minutes under an attack order in a visible tab at 60 frames per second
+  before he walked to the target, and which of these held him is open.
+- End of a fight: `finishCombat` runs when no engaged enemy remains (`OST` 72130) and clears the
+  nuke order, maintained effects and queued casts, but not the heal mode. A fleeing enemy stays
+  engaged, and melee skips it. While the leader is dead the fight stays open until a revive or a
+  release. Recruits keep their HP and mana between fights, and fallen recruits get up at 10 HP
+  once no enemy is left ("1 fallen raid member gets back up to rest.", `CVE` 7688). A kill gives
+  the leader normal kill XP with the usual line, "You have defeated an unkempt fanatic and gained
+  270400 experience!", after "Raid combat ended: no engaged enemies remaining."
+- The leader's death: `RaidLeaderLifecycle` (1226) records the death, a revive or a release. In
+  the window, Heal & Revive, a revive spell and then the leader in the roster lets a living member
+  cast it, and the leader comes back with the spell's share of HP and no mana. Two raid deaths of
+  the leader cost no XP. A release respawns the leader at the bind point after 15 seconds and
+  keeps raid mode on.
+- Raid time is checked when a fight starts. The client does not end a fight when the hour runs
+  out.
+
 ### Running a raid from a script
 
 Read from the release in `.re/releases/20261108T004644-064bc896/pretty/` (`OST` OSTsR53r.js, `CVE`
 CVEP2_Ra.js, `0ea` 0eakiHJI.js, `CAU` CAUokwED.js). The bridge's `iq.raid` wraps these steps and the
-bot's raid task (`iqBot.raid`, `iq.raid()` in the SDK) runs them in order. With a leader below 46,
-the status read, the daily boss list's refusal, a refused Start Raid (the party is released, the
-window closes again and the bot rejoins the party) and a task without raid time have run live.
-Buying time, recruiting, attacking and ending a fight have not.
+bot's raid task (`iqBot.raid`, `iq.raid()` in the SDK) runs them in order. With group 1's leader at
+46, buying time, recruiting five account characters, attacking an unkempt fanatic and a kill have
+run once.
 
 - Start: the party panel's Start Raid (`CVE` 415903) releases the account companions
   (`releaseAccountCharactersForCamp`, "Your party has been disbanded."), then calls the raid store's
@@ -575,8 +634,8 @@ Buying time, recruiting, attacking and ending a fight have not.
   fight, so a script calls that function (`raidTime` in the bridge) and not the bare request.
 - Recruits: `addGuildMember(characterId, leaderLevel)` (`OST` 71607) loads the character's snapshot
   with `GuildRaidCharacterProjectionRequest` (1194) and appends it. It refuses during combat and for
-  characters outside the account and guild. Only the recruit list hides characters below 46, and
-  the store adds them, so the server's answer to a lower recruit is open. `addGuildMembers(ids,
+  characters outside the account and guild. Only the recruit list hides characters below 46: the
+  store adds them, and the server accepted recruits at levels 44 and 45. `addGuildMembers(ids,
   leaderLevel)` is Add All, four at a time. `removeMember(memberId)` takes the member id, not the
   character id, and works only in the setup view. Before the first fight the roster must be
   validated, which the attack path does by itself.
@@ -594,10 +653,10 @@ Buying time, recruiting, attacking and ending a fight have not.
   ..."), and a kill sends `CombatClientEnd` (1113) with `victory` and `raidMemberCount`, answered
   by `CombatEnded` (1029) and the loot in the RAID LOOT tab. A dead leader goes through
   `RaidLeaderLifecycle` (1226) and can still command the raid. A wipe releases the leader.
-- End: the End Raid button calls the combat service's `abandonRaid()` (`0ea` 42776), which
+- End: the End Raid button calls the combat service's `abandonRaid()` (`0ea` 42793), which
   stops a running fight with `StopCombat` (1026) or releases a dead leader, then calls the
   store's `endRaid()`. The store's `endRaid()` alone ends raid mode in the page and refuses while a
-  fight runs, the leader is dead or an end is pending (`main.pretty.js:71210-71214`). Outside a
+  fight runs, the leader is dead or an end is pending (`OST` 71247-71251). Outside a
   fight the server left `StopCombat` unanswered for 10 seconds, and the pending end then blocked
   `endRaid()` until the page reloaded, so the bridge's `iq.raid.end()` uses `endRaid()` out of a
   fight. Nothing brings the party back or restarts AutoLevel afterwards. The bot's party and
@@ -606,9 +665,7 @@ Buying time, recruiting, attacking and ending a fight have not.
   `combatActive`, `leaderDead`, `lifecyclePending`, `lifecycleError`, `roster[]`, `engagedEnemies[]`,
   `focusTarget`, `openingTarget` and `eventLog`. A roster member carries `displayName`,
   `source.characterId`, `className`, `role`, `level`, `hp`, `maxHp`, `mana`, `maxMana`, `alive`,
-  `command`, `rangeState`, `damageDone` and `hate` (`yQ`, `main.pretty.js:64332-64390`). A recruit
+  `command`, `rangeState`, `damageDone` and `hate` (`yQ`, `OST` 64324-64400). A recruit
   joins at full HP and mana. DOM test ids: `raid-setup-panel`, `raid-recruit-<characterId>`,
   `raid-member-<id>` and `raid-loot-window`.
-- Open until a level 46 leader tries it: what `start` returns, whether the server refuses recruits
-  below 46 or caps the roster, the daily boss keys, the kill line's wording in raid mode, and
-  whether a raid stays active after a wipe.
+- Open: whether the server caps the roster, and whether a raid stays active after a wipe.
