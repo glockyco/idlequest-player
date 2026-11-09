@@ -67,7 +67,7 @@ the account's platinum after it stays above the raid budget of the coming days.
 | e by level | modeled (leveling plan, lever 7) |
 | s per member | measured over the last two hours once a group's tagged damage lines span an hour, else the class's melee share of one sixth |
 | Survival | AC and HP count for one sixth of the leveling model's 0.5% per 100, until the damage each member takes is measured |
-| T | assumed 10 levels, until the gear plan tracks what replaces an item |
+| T | assumed 10 levels, while each gear pass records how long items stay in a slot (`wear` table, `tools/lib/wear.mjs`), which replaces the assumption once replaced stints span the level bands |
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
 | `visitHours` 0.1 | assumed, to be measured from the first visits |
 | `killMargin` 3 | assumed, to be checked against the guard's escapes |

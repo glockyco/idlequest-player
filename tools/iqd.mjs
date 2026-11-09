@@ -17,6 +17,7 @@ import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
+import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -71,6 +72,7 @@ export function openDb(path) {
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
+  db.run(WEAR_SCHEMA);
   return db;
 }
 
@@ -846,6 +848,8 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
+    // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
+    recordWear(this.db, survey, now);
     const { attachEffects, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
     const { contentRoot } = await import("./lib/content.mjs");
     // The merchant goods, the drops of the band rotations and of the gear picks (data/gear-picks.json,
