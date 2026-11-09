@@ -1292,6 +1292,67 @@ test("an NPC wait ends at once while another NPC holds the spawn point, and wait
   }
 });
 
+test("a container on the cursor with every general slot taken sends the emptiest bag to the bank, and the bag comes back once a slot is free", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number } };
+    const bagWith = (slot: number, n: number): Row[] => [
+      { bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: 8 } },
+      ...Array.from({ length: n }, (_, k) => ({ bag: slot + 1, slot: k, itemid: 1, itemInstanceId: 1000 + slot * 10 + k, itemDetails: { Name: "Rock", bagslots: 0 } })),
+    ];
+    // Eight bags fill the general slots, and the one in slot 27 holds the fewest items.
+    const inv: Row[] = [22, 23, 24, 25, 26, 27, 28, 29].flatMap((s) => bagWith(s, s === 27 ? 2 : 8));
+    (f.me as unknown as { inventory: Row[] }).inventory = inv;
+    const at = (bag: number, slot: number) => inv.find((r) => r.bag === bag && r.slot === slot);
+    // Like the client, a move takes the bag's contents along and leaves an occupied target alone.
+    Object.assign(f.sheet, {
+      moveItemToSlot: async (from: { bag: number; slot: number }, to: { bag: number; slot: number }) => {
+        const r = at(from.bag, from.slot);
+        if (!r || at(to.bag, to.slot)) return;
+        r.slot = to.slot;
+        for (const c of inv) if (c.bag === from.slot + 1) c.bag = to.slot + 1;
+      },
+    });
+    Object.assign(f.iq, {
+      clientFn: (name: string) => () => {
+        const held = at(0, 30);
+        const general = [22, 23, 24, 25, 26, 27, 28, 29].find((s) => !at(0, s));
+        if (name === "autoPlace" && held && general != null) held.slot = general;
+      },
+      bagSpace: () => ({ free: 5, capacity: 64, cursor: at(0, 30)?.itemDetails.Name ?? null }),
+      carried: (item: string) => inv.filter((r) => !(r.bag === 0 && r.slot === 30) && r.itemDetails.Name === item).length,
+      talkToNpc: async () => {},
+      giveToNpc: async () => {
+        inv.push({ bag: 0, slot: 30, itemid: 17323, itemInstanceId: 9000, itemDetails: { Name: "Soulcase", bagslots: 10 } });
+      },
+    });
+    f.bot.quest({ members: ["Me"], steps: [{ zone: "freporte", npc: "Kargek Redblade", give: ["Rock"], expect: "Soulcase" }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(at(0, 2000)?.itemInstanceId).toBe(527);
+    expect(inv.filter((r) => r.bag === 2001)).toHaveLength(2);
+    expect(at(0, 27)?.itemDetails.Name).toBe("Soulcase");
+
+    // While the container holds the slot the bag stays banked, and once it is used up the bag returns.
+    await f.bot.tick();
+    expect(at(0, 2000)?.itemInstanceId).toBe(527);
+    inv.splice(inv.indexOf(at(0, 27)!), 1);
+    const tick = f.bot.tick();
+    for (let k = 0; k < 10; k++) {
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    await tick;
+    expect(at(0, 27)?.itemInstanceId).toBe(527);
+    expect(inv.filter((r) => r.bag === 28)).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest running when the bot is reinstalled goes on under the new install", async () => {
   vi.useFakeTimers();
   try {

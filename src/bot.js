@@ -559,6 +559,46 @@
   // The client's auto-place call, which puts the cursor item into the first place that fits.
   const autoPlace = () => iq().clientFn("autoPlace")();
 
+  // A container fits only an empty general slot, and with a bag in each one it stays on the
+  // cursor, which stops looting. The bag with the fewest items then moves to a free personal bank
+  // slot, which the client allows away from a banker, and `restoreBags` brings it back once a
+  // general slot is free again. Nothing else puts bags in the personal bank.
+  const GENERAL_SLOTS = [22, 23, 24, 25, 26, 27, 28, 29];
+  const BANK_SLOTS = [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007];
+  const slotRow = (i, slot) => (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === 0 && r.slot === slot);
+  // A move can end without a change or a message, so it is checked and sent again.
+  const moveSlot = async (i, from, to) => {
+    const id = slotRow(i, from)?.itemInstanceId;
+    for (let k = 0; k < 3 && id != null; k++) {
+      await i.stores.character.getState().moveItemToSlot({ bag: 0, slot: from }, { bag: 0, slot: to });
+      for (let w = 0; w < 6; w++) {
+        await sleep(500);
+        if (slotRow(i, to)?.itemInstanceId === id) return true;
+      }
+    }
+    return false;
+  };
+  const placeCursor = async (i) => {
+    const free = (slot) => !slotRow(i, slot);
+    if ((slotRow(i, 30)?.itemDetails?.bagslots ?? 0) > 0 && !GENERAL_SLOTS.some(free)) {
+      const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
+      const bag = GENERAL_SLOTS.map((s) => ({ s, n: inv.filter((r) => r.bag === s + 1).length })).sort((a, b) => a.n - b.n)[0].s;
+      const bank = BANK_SLOTS.find(free);
+      const name = slotRow(i, bag)?.itemDetails?.Name ?? slotRow(i, bag)?.itemDetails?.name ?? `the bag in slot ${bag}`;
+      if (bank != null) log(`moved ${name} to bank slot ${bank} to make room for ${i.bagSpace().cursor}: ${(await moveSlot(i, bag, bank)) ? "done" : "failed"}`);
+    }
+    return autoPlace();
+  };
+  const restoreBags = async (i) => {
+    if (i.bagSpace().cursor) return;
+    for (const bank of BANK_SLOTS) {
+      const general = GENERAL_SLOTS.find((s) => !slotRow(i, s));
+      if (general == null) return;
+      const row = slotRow(i, bank);
+      if ((row?.itemDetails?.bagslots ?? 0) > 0) log(`moved ${row.itemDetails.Name ?? row.itemDetails.name ?? "a bag"} back from bank slot ${bank}: ${(await moveSlot(i, bank, general)) ? "done" : "failed"}`);
+    }
+  };
+
   const watchCursor = async (i) => {
     const held = i.bagSpace().cursor;
     if (!held) {
@@ -576,7 +616,7 @@
     // A person may be holding it on purpose, so wait longer before putting it away, and try once.
     if (!state.cursorPlaced && config.cursorPlaceSec > 0 && heldSec > config.cursorPlaceSec) {
       state.cursorPlaced = true;
-      const r = await autoPlace();
+      const r = await placeCursor(i);
       await sleep(1500);
       const still = i.bagSpace().cursor;
       log(`auto-placed cursor item ${held}: ${r?.message ?? "no reply"}${still ? `; cursor still holds ${still}` : ""}`);
@@ -1206,12 +1246,12 @@
         Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
       }
       if (s.expect) {
-        // An NPC's SummonItem lands on the cursor, which the bags count leaves out.
-        for (let w = 0; w < 10 && i.carried(s.expect) < 1; w++) {
-          if (i.bagSpace().cursor === s.expect) await autoPlace();
-          await sleep(500);
-        }
-        if (i.carried(s.expect) < 1) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
+        // An NPC's SummonItem lands on the cursor, which the bags count leaves out. A container fits
+        // only an empty general slot, so it may stay there, and it counts as received.
+        const held = () => i.carried(s.expect) > 0 || i.bagSpace().cursor === s.expect;
+        for (let w = 0; w < 10 && !held(); w++) await sleep(500);
+        if (i.bagSpace().cursor === s.expect) await placeCursor(i);
+        if (!held()) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
       }
       m.at = k + 1;
     }
@@ -1909,6 +1949,7 @@
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);
       await sellSurplus(i);
+      await restoreBags(i);
       state.lastError = null;
     } catch (e) {
       const msg = String(e?.message ?? e);

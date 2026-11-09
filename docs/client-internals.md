@@ -473,6 +473,12 @@ instead of walking to a merchant.
   The help text says eligible banked scrolls teach the active character and its grouped account
   characters missing spells (`engine.pretty.js:423172`). Unverified: the interval, the order and
   any timer, since the client has no code for it and the server probably runs it.
+- Personal bank: slots 2000 to 2007 of bag 0, and a bag in bank slot `s` keeps its contents in bag
+  `s + 1` (`OSTsR53r.js:15789-15799`). `moveItemToSlot({bag: 0, slot: from}, {bag: 0, slot: to})`
+  moves an item or a whole bag between a general slot (22 to 29) and a bank slot without a banker
+  or the bank window. The client refuses a container inside another container and a move onto an
+  occupied slot. A move can also end without a change or a message, as one did in a live test, so
+  a script checks the target slot and sends the move again.
 
 ### Key Options and AutoLevel settings (`stores.combat`)
 
