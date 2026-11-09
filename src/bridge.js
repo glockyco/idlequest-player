@@ -1017,7 +1017,9 @@
   const buyItem = async (item, merchant, count = 1) => {
     const cb = () => stores.combat.getState();
     const ms = () => stores.merchant.getState();
-    if (ms().selectedMerchant?.name !== merchant) {
+    // A merchant still selected after an earlier purchase has an empty item list once its window
+    // closed, so it is selected again then too.
+    if (ms().selectedMerchant?.name !== merchant || !(ms().merchantItems ?? []).length) {
       const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
       if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
       row.parentElement.click();
