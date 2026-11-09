@@ -551,6 +551,16 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     vi.advanceTimersByTime(61000);
     await late.bot.tick();
     expect(late.moves).toEqual(["permafrost", "guktop"]);
+
+    // A crowded errand zone, whose enemies other players take, ends the errand before its minutes.
+    const crowded = await install();
+    crowded.bot.config.rotation = ["guktop"];
+    crowded.combat.currentZone = 65;
+    await crowded.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 60 });
+    Object.assign(crowded.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
+    await crowded.bot.tick();
+    expect(crowded.bot.state.errand).toBeNull();
+    expect(crowded.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(true);
   } finally {
     vi.useRealTimers();
   }

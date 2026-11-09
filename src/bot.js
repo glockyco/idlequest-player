@@ -637,13 +637,14 @@
   // ladder of remedies (docs/plans/controller.md, principle 3). A rung runs once the cause has
   // lasted `afterSec`, the next one if the same cause outlasts `afterSec` again, and a rung with
   // nothing to do passes to the next at once. When the ladder is used up, an alert wakes a script.
-  // "off" is keepAutoLevel's, "afterKill" is the client's own pause after a kill, and an errand
-  // waits for its spawns on purpose, so it gets the restarts only.
+  // "off" is keepAutoLevel's and "afterKill" is the client's own pause after a kill. An errand
+  // waits for its spawns on purpose, so it gets its own ladder (`errand`, the restarts by default),
+  // except that a crowded errand zone, whose enemies other players take, ends the errand.
   const REMEDIES = {
     waitAttack: { afterSec: 20, rungs: ["restart"] },
     readyWait: { afterSec: 30, rungs: ["restart"] },
     noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"] },
-    crowded: { afterSec: 60, rungs: ["widen", "move"] },
+    crowded: { afterSec: 60, rungs: ["widen", "move"], errand: ["leave"] },
     noEnemies: { afterSec: 0, rungs: ["widen", "move"] },
   };
   const restartAutoLevel = (cb) => {
@@ -676,6 +677,11 @@
       return null;
     },
     move: async (i, cb, why) => (nextZone(i) && (await rotate(i, why)) ? "moved to another rotation zone" : null),
+    leave: (i, cb, why) => {
+      if (!state.errand) return null;
+      endErrand(i, why, true);
+      return "ended the errand";
+    },
   };
   // The setters overwrite each other in this order (docs/client-internals.md).
   const setLimits = (cb, l) => {
@@ -734,7 +740,7 @@
     let c = state.idleCase;
     if (!c || c.why !== a.why) c = state.idleCase = { why: a.why, rung: 0, at: a.since };
     if (now() - c.at < spec.afterSec * 1000) return;
-    const rungs = state.errand ? spec.rungs.filter((r) => r === "restart") : spec.rungs;
+    const rungs = state.errand ? (spec.errand ?? spec.rungs.filter((r) => r === "restart")) : spec.rungs;
     const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.longName ?? "this zone";
     while (c.rung < rungs.length) {
       const done = await remedies[rungs[c.rung++]](i, cb, `idle (${a.why}) in ${zone}`);
