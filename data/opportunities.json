@@ -5,7 +5,7 @@
     "zone": "gukbottom",
     "keep": "bloodthirsty ghoul|frenzied ghoul",
     "item": "Torn Page of Magi`kot pg. 3",
-    "count": 4,
+    "quest": "magician-epic-magikot",
     "retryMin": 30
   },
   {
@@ -14,7 +14,7 @@
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Fire",
-    "count": 4,
+    "quest": "magician-epic-mastery",
     "minutes": 60,
     "retryMin": 120,
     "levels": [
@@ -28,7 +28,7 @@
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Wind",
-    "count": 4,
+    "quest": "magician-epic-mastery",
     "minutes": 60,
     "retryMin": 120,
     "levels": [
@@ -42,7 +42,7 @@
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Earth",
-    "count": 4,
+    "quest": "magician-epic-mastery",
     "minutes": 60,
     "retryMin": 120,
     "levels": [
@@ -56,7 +56,7 @@
     "zone": "najena",
     "keep": "magician",
     "item": "Torn Page of Mastery Water",
-    "count": 4,
+    "quest": "magician-epic-mastery",
     "minutes": 60,
     "retryMin": 120,
     "levels": [
@@ -79,7 +79,7 @@
     "zone": "lakerathe",
     "keep": "Lord Bergurgle",
     "item": "Lord Bergurgle's Crown",
-    "count": 8,
+    "quest": "cleric-epic-1",
     "retryMin": 25
   },
   {
@@ -97,7 +97,7 @@
     "zone": "permafrost",
     "keep": "goblin wizard",
     "item": "Heart of Frost",
-    "count": 5,
+    "quest": "warrior-epic-fiery",
     "camp": false,
     "retryMin": 60
   },

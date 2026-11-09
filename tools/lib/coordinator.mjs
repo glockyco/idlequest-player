@@ -34,14 +34,25 @@ export const AA_POLICY = { allocation: 100, level: 60 };
 export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
 /**
+ * Copies of opportunity `o`'s item the account needs: its `count`, or for a piece of quest chain
+ * `o.quest` one for each of `members` of the chain's class and level who does not hold the chain
+ * (`holders`), so a piece its hand-ins use up is hunted again only while someone still needs it.
+ */
+export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
+  const q = quests[o.quest];
+  if (!q) return o.count ?? 1;
+  return members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[o.quest] ?? []).includes(m.name)).length;
+}
+
+/**
  * The tasks to queue now. Inputs:
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
- * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count, camp, when, retryMin, points }]`,
+ * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
  *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
- * - `owned`: opportunities whose item the account holds in `count` copies, `{ [id]: true }`.
+ * - `owned`: opportunities whose item the account holds in enough copies, `{ [id]: true }` (tools/iqd.mjs counts them).
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
  * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, needs, steps, retryMin } }`, `holders`,

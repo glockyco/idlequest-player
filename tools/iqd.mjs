@@ -496,7 +496,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -531,17 +531,6 @@ class Daemon {
     };
     const stock = {};
     for (const m of await search("Lightstone")) if (m.item === "Greater Lightstone" || m.item === "Lightstone") stock[m.item] = (stock[m.item] ?? 0) + m.n;
-    const owned = {};
-    // An opportunity is done once the account holds `count` copies (one for each character that needs
-    // the piece), wherever they lie, because Inventory Search moves NO DROP pieces between characters.
-    // Only pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
-    const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
-    const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
-    // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
-    const queue = opportunities.filter(reachable);
-    await Promise.all(Array.from({ length: 4 }, async () => {
-      for (let o; (o = queue.shift()); ) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
-    }));
     const holders = {};
     const started = {};
     const have = {};
@@ -554,6 +543,18 @@ class Daemon {
       started[id] = [...new Set((await Promise.all(steps.map(carriers))).flat())];
       for (const n of q.needs ?? []) have[n] ??= (await search(n)).filter((m) => m.item === n).reduce((a, m) => a + m.n, 0);
     }
+    const owned = {};
+    // An opportunity is done once the account holds the copies its characters need (`piecesNeeded`),
+    // wherever they lie, because Inventory Search moves NO DROP pieces between characters. Only
+    // pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
+    const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
+    const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
+    const members = tabs.flatMap((t) => t.members);
+    // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
+    const queue = opportunities.filter(reachable);
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      for (let o; (o = queue.shift()); ) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= piecesNeeded(o, { quests, holders, members });
+    }));
     // The wanted enemies' spawn points, read once from the content snapshot.
     const { spawnPoints } = await import("./lib/content.mjs");
     this.points ??= new Map();

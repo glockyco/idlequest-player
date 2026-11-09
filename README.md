@@ -324,8 +324,9 @@ it reads the account's lightstones and the items of `data/opportunities.json` wi
 Search and queues tasks through each bot's own task API (`tools/lib/coordinator.mjs` decides). A
 batch of at least two stones per member goes to the group with the lowest levels as a hand-in,
 also when it farms: the hand-in ends its farm errand, which the next pass gives back. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
-copies the roster needs, `when` of `night` or `day`, and `kind`) runs for its group until the
-account holds those copies: an
+copies the roster needs or the `quest` chain the piece is for, `when` of `night` or `day`, and `kind`)
+runs for its group until the account holds those copies, which for a `quest` is one for each member
+of the chain's class and level who has not done it: an
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt
 camps the enemies' spawn points with the client's Spawn Camp, placeholders included. A hunt comes
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after

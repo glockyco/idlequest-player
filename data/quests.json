@@ -46,6 +46,31 @@
     ],
     "minLevel": 10
   },
+  "warrior-epic-fiery": {
+    "class": "Warrior",
+    "minLevel": 10,
+    "reward": "Totem of Fiery War",
+    "doneIf": [
+      "Mark of the Sword",
+      "Tenal's note to Kargek",
+      "Red Scabbard",
+      "Jagged Blade of War"
+    ],
+    "needs": [
+      "Heart of Frost"
+    ],
+    "steps": [
+      {
+        "zone": "eastkarana",
+        "npc": "Tenal Redblade",
+        "give": [
+          "Totem of the Freezing War",
+          "Heart of Frost"
+        ],
+        "expect": "Totem of Fiery War"
+      }
+    ]
+  },
   "bard-epic-1": {
     "class": "Bard",
     "minLevel": 20,

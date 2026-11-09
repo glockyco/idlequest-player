@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, decide } from "../tools/lib/coordinator.mjs";
+import { assignZones, decide, piecesNeeded } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -24,6 +24,21 @@ test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
   const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] })).toEqual([{ label: "A", kind: "stopTask", id: null, spec: null, why: 'quest task running for 91 min at "wait for Tykar Renlin"' }]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] })).toEqual([]);
+});
+
+test("a quest piece is needed once for each member of the chain's class and level who has not done it", () => {
+  const quests = { "warrior-epic-fiery": { class: "Warrior", minLevel: 10 } };
+  const members = [
+    { name: "Tank", class: "Warrior", level: 22 },
+    { name: "Done", class: "Warrior", level: 45 },
+    { name: "Young", class: "Warrior", level: 8 },
+    { name: "Healer", class: "Cleric", level: 22 },
+  ];
+  const heart = { id: "war-heart", item: "Heart of Frost", quest: "warrior-epic-fiery" };
+  expect(piecesNeeded(heart, { quests, holders: { "warrior-epic-fiery": ["Done"] }, members })).toBe(1);
+  expect(piecesNeeded(heart, { quests, holders: { "warrior-epic-fiery": ["Done", "Tank"] }, members })).toBe(0);
+  // Without a quest the fixed count holds.
+  expect(piecesNeeded({ id: "x", item: "Ring", count: 3 }, { quests, members })).toBe(3);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
