@@ -21,6 +21,8 @@ export const DEFAULTS = {
   // A task running this long, half again the hour that raises the long-task alert, waits for
   // something that is not coming (an NPC that never spawns), so it stops and the tab hunts again.
   taskStopMin: 90,
+  // The highest level a character reaches. From here its XP goes to AA.
+  levelCap: 60,
 };
 
 /**
@@ -130,9 +132,10 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
- * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
+ * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points, armor }]`,
  *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
- *   which camps the enemies' spawn points unless `camp` is false (gray enemies, which a camp skips).
+ *   which camps the enemies' spawn points unless `camp` is false, when it fights them through Enemy Targets wherever they stand.
+ *   `armor` marks a gear pick (by `levels`, no quest or group) that fits no weapon slot (tools/iqd.mjs).
  * - `missing`: copies of each opportunity's item the account still needs, `{ [id]: n }` (tools/iqd.mjs counts them),
  *   and `carriedBy`, who carries each opportunity's item, `{ [id]: [name] }`.
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
@@ -212,8 +215,13 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     // The leader loots, and a lore piece it already carries stays on the corpse, so a group whose
     // leader carries the piece does not hunt it until a member has taken it.
     const looter = (t) => !(carriedBy[o.id] ?? []).includes(t.members[0]?.name);
+    // Armor and jewelry add almost nothing to XP per hour while a group levels (leveling plan,
+    // lever 7), so a camp for them would cost the group's XP for nothing. It waits until every member
+    // is at the level cap, when it costs only AA XP, and then any such group may take it.
+    const capped = (t) => t.members.every((m) => (m.level ?? 0) >= cfg.levelCap);
+    const fits = (t) => (o.armor && o.kind !== "errand" ? capped(t) : mean(t) >= o.levels[0] && mean(t) <= o.levels[1]);
     const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && fits(t)).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
     if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;

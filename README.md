@@ -347,7 +347,9 @@ of the chain's class and level who has not done it: an
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt
 camps the enemies' spawn points with the client's Spawn Camp, placeholders included. A hunt comes
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
-`retryMin` minutes. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
+`retryMin` minutes. A gear pick (by `levels`, without a group or quest) that fits no weapon slot is
+camped only by a group whose members are all at level 60, because armor and jewelry add almost
+nothing to XP per hour while leveling (leveling plan, lever 7). Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file

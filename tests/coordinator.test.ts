@@ -88,6 +88,18 @@ test("a chain whose reward a later chain takes stays done, and a finished chain'
   expect(keep).toEqual(expect.arrayContaining(["Sealed Note", "Note", "Badge", "SoulFire"]));
 });
 
+test("an armor camp waits until a whole group is at the level cap, and a weapon camp does not", () => {
+  const helm = { id: "gear-helm", levels: [40, 52], zone: "kael", keep: "Sergeant Breldimer", item: "Helm", count: 3, retryMin: 10, armor: true };
+  const blade = { ...helm, id: "gear-blade", item: "Blade", armor: false };
+  const leveling = [tab("A", "G1", 45)];
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [helm] })).toEqual([]);
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade] })).toMatchObject([{ id: "gear-blade" }]);
+  // At 60 the camp costs only AA XP, outside the pick's level range too.
+  expect(decide({ now: NOW, tabs: [tab("B", "G2", 60)], opportunities: [helm] })).toMatchObject([{ label: "B", id: "gear-helm" }]);
+  // The same piece as an errand inside normal hunting runs while the group levels.
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [{ ...helm, kind: "errand" }] })).toMatchObject([{ kind: "errand" }]);
+});
+
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);

@@ -532,6 +532,12 @@ class Daemon {
     } catch {
       /* no opportunities file */
     }
+    // A gear pick (an opportunity by `levels` with no quest or group) is armor or jewelry unless it
+    // fits a weapon slot, read once from the content snapshot.
+    const { itemSlots, WEAPON_SLOTS } = await import("./lib/content.mjs");
+    const picks = opportunities.filter((o) => o.levels && !o.quest && !o.group);
+    if (!this.itemSlots || picks.some((o) => !this.itemSlots.has(o.item))) this.itemSlots = await itemSlots(picks.map((o) => o.item)).catch(() => new Map());
+    for (const o of picks) if (this.itemSlots.get(o.item) != null) o.armor = (this.itemSlots.get(o.item) & WEAPON_SLOTS) === 0;
     let farms = [];
     try {
       farms = JSON.parse(await readFile(join(REPO, "data/farms.json"), "utf8"));
