@@ -153,7 +153,9 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
-    if (item.loreflag && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
+    // A lore item (loregroup -1 in the content rows) is one per character, so a second copy is refused.
+    const lore = item.loregroup === -1 || item.loreflag || String(item.lore ?? "").startsWith("*");
+    if (lore && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
     const out = [];
     const gainIn = (slot) => value(p, new Map([...mine, [slot, item]])) - value(p, mine);

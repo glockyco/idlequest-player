@@ -1102,7 +1102,10 @@
         }
         if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
         const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: true }), 30000);
-        if (!r.ok) throw new Error(`the transfer was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
+        // A move retried after a reinstall may find the item already given, which the server
+        // reports as a lore conflict, so that refusal means the receiver has it.
+        const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));
+        if (!given) throw new Error(`the transfer was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
         Object.assign(mv, { done: true, lines: r.lines });
       } catch (e) {
         if (e instanceof TaskStopped) throw e;
