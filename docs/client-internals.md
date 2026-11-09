@@ -244,6 +244,67 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js`.
   plus a flat bonus from level 28 for melee classes that is larger for two-handers (`sd`
   16699-16706). STR enters only through offense. Haste divides the delay (`g9` 62778-62790).
 
+### Off hand and dual wield
+
+Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` unless named.
+
+- What may go in slot 14 (Secondary) is decided at equip time in `wt` (`B7YhzEJy.js` 2335-2380).
+  The item's `slots` bit must include Secondary and the item's `classes` and `races` must fit.
+  A two-handed main hand (`itemtype` 1, 4 or 35) refuses any off-hand item, and a two-hander
+  refuses to go on while the off hand is full. A one-hander of `itemtype` 0, 2, 3 or 36 also
+  needs a Dual Wield skill (skill 22) of at least 1 in the character's skills. Shields (`itemtype`
+  8), instruments and other off-hand items need no skill. The check reads the character's
+  trained skill value and not a level, so a class that has the skill only has it from the level
+  its cap row becomes non-zero.
+- A class's Dual Wield cap per level is not in the client or in `idlequest-content`. The client
+  asks the server (`GET /api/skill-caps?class=<id>&level=<n>`, `CVEP2_Ra.js` 422736), which
+  returns the cap of every skill by id, index 22 for Dual Wield. `data/skill-caps.json` keeps
+  only levels 46 to 60. Read from the server for every level, the skill first has a cap above
+  zero at level 1 for Monk (12), 13 for Warrior (70) and Rogue (83), and 17 for Ranger (90) and
+  Bard (90). Cleric, Paladin, Shadow Knight, Druid, Shaman, Necromancer, Wizard, Magician and
+  Enchanter never have it. The cap at 60 is 240 Warrior, 240 Ranger, 210 Bard, 245 Rogue and
+  252 Monk.
+- `YL` (22170-22262) reads the equipped items. A weapon in the off hand with `damage` above 0
+  sets `hasOffhand` and takes `offhandDamage` (capped at the level's weapon cap like the main
+  hand), `offhandDelayMs` (`delay` times 100) and `offhandSkillId` from its `itemtype`. An
+  `itemtype` 8 item sets `hasShield` instead and nothing else. An item with no `damage`, such
+  as an instrument, sets neither. Stat build does not look at the Dual Wield skill, so
+  `hasOffhand` is true for a Warrior at level 1 holding a weapon, and the skill is checked at
+  swing time.
+- A Monk with Dual Wield above 0, an empty off hand (any item in slot 14 blocks it) and a main
+  hand that is not a two-hander gets an off-hand fist (`YL` 22231-22239): the same fist table as
+  the main hand, hand-to-hand skill, no proc.
+- Fists come from `di` (21748-21754), which takes the level and the race. Iksar (race 128, `OL`)
+  use the table `UL` and every other Monk race uses `jL` (21713-21747). `jL` is a table by
+  level: damage 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 from level 1, 5, 10, 15, 20, 25, 30, 35,
+  40, 45, 50, delay 36 below 25, then 35, 34, 33, 32, 31, 30 at 25, 30, 35, 40, 45, 50, and
+  29, 28, 27, 26 at 53, 56, 59, 60. `UL` is the same but one delay step later.
+- The off hand has its own swing timer. `CZ` (63220-63255) swings it whenever `hasOffhand`,
+  `offhandDelayMs` is above 0 and its timer is at 0, then restarts it at the off-hand delay with
+  haste and slow applied (`g9`), so a faster off hand swings more often than the main hand.
+- A due off-hand swing goes through `IZ` (63049-63062) before it hits. It fails if the Dual Wield
+  skill is 0, if the main hand is two-handed (`weaponTwoHanded`, or a main-hand skill of 2, 3
+  or 77, the two-handed skills), or, when a discipline does not force it, if `tZ` (62364) rolls against `Rt`
+  (16696-16698). The chance is `min(1, (skill + level) / 400)`. The skill is the character's
+  current Dual Wield value, so with the cap at 60 it is 0.75 for a Warrior or Ranger, 0.76 for
+  a Rogue, 0.68 for a Bard and 0.78 for a Monk, and at level 13 with a cap of 70 about 0.21.
+  The class does not enter. A failed roll costs the swing and the timer, and nothing else.
+- A successful off-hand swing `bZ` (63029) is one `U3(..., true)` hit, then a Double Attack roll
+  as for the main hand (`kZ`), so the off hand can swing two or three times. `U3` uses the
+  off-hand damage, skill accuracy and `offhandWrath`, but not the flat melee bonus of `sd`
+  (`aZ` is skipped for the off hand), and the off-hand weapon's proc is rolled separately.
+  Backstab and the other skills use the main hand only.
+- Any one-hander of types 0, 2, 3 and 36 fits the off hand of a class with the skill. Only the
+  main hand has to be piercing for a Rogue's Backstab (`sZ` requires weapon skill 36).
+- A shield counts for its stats, `ac` among them, like any worn item, and for nothing else in
+  the swing code. No block or parry chance reads `hasShield`. It enables Bash: `rp` (62395) is
+  true for Warrior, Paladin and Shadow Knight (class 1, 3, 5) with `hasShield`, and for those
+  classes without a shield when the race is Barbarian, Troll or Ogre (race 2, 9, 10). Bash also
+  needs the Bash skill above 0. The shield's own `magic` flag is kept as `shieldMagic` for
+  the magic-weapon check.
+- A two-hander does not lose an off hand to anything but the equip rule. Swapping from a
+  dual-wield pair to a two-hander means unequipping the off hand first.
+
 ### Bard instruments
 
 Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` unless named.
