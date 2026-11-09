@@ -48,8 +48,9 @@
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
     companionTactics: { cure: false },
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
-    // Never sold as single items: spell research pieces, which Auto Bank usually banks first.
-    keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
+    // Never sold as single items: spell research pieces, which Auto Bank usually banks first, also
+    // the pages named like "Salil's Writ Pg. 64".
+    keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b|\\bPg\\. ?\\d",
     keepItemTypes: [14, 15], // never sold as single items: food and drink
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert

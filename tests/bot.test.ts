@@ -423,6 +423,7 @@ test("cleanup sells extra copies first, then singles by value, and keeps food, r
       item(4, 4, "Words of Tyranny", 200),
       item(5, 5, "Solist's Icy Wand", 10000),
       item(8, 7, "Charm of Vigor", 50, { worneffect: 12 }),
+      item(9, 8, "Salil's Writ Pg. 64", 50000),
       item(6, 10015, "Malachite", 50),
       item(7, 6, "Bone Chips", 15, { nodrop: 0 }),
     ],
