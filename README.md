@@ -343,8 +343,9 @@ the items it `needs`. A chain that stopped part way goes on after the last step 
 carries. A step talks to its `npc` with `say` keywords, waiting up to `waitMin` for an NPC that
 shares its spawn point to appear, gives it `give`, hands in `each`, buys `buy` from a merchant, or fights
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or
-crafts `craft`: the recipe's catalog ingredients are bought into the Tradeskill Bank, its other inputs
-pulled, and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). Each experiment in
+crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
+catalog ingredients one set lacks, with one of each of its `inputs` (the components the catalog does
+not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). Each experiment in
 `data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
 `without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at

@@ -1108,32 +1108,46 @@
     return { bought, platinum: stores.character.getState().characterProfile?.platinum ?? null };
   };
   /**
-   * Craft `quantity` attempts (1, 20 or 100) of tradeskill recipe `recipeId` with the Advanced
-   * recipe window's own requests (docs/plans/systems-research.md, section 2): buy the sets of its
-   * catalog ingredients the Tradeskill Bank lacks, craft (the server accepts no container, 0), and
-   * withdraw `output` from the bank into the bags. Resolves with the
-   * craft reply's counts and the number withdrawn.
+   * Craft tradeskill recipe `recipeId` with the Advanced recipe window's own requests
+   * (docs/plans/systems-research.md, section 2), up to `quantity` attempts and until `until`
+   * successes: each attempt buys the catalog ingredients the Tradeskill Bank lacks for one set and
+   * crafts once (the server accepts no container, 0). Then `output` is withdrawn from the bank into
+   * the bags. The catalog answers for one set only, so a batch would run out after the first
+   * attempt whenever the bank held exactly one set. Resolves with the attempts' counts and the
+   * number withdrawn.
    */
-  const craftItem = async (recipeId, { quantity = 1, skillId, containerItemId = 0, output = null }) => {
+  const craftItem = async (recipeId, { quantity = 1, until = Infinity, skillId, containerItemId = 0, output = null }) => {
     const p = () => stores.character.getState().characterProfile;
-    const cat = await socket.sendJsonRequest(1045, 1046, { recipeId });
-    if (cat?.purchasable?.length) {
-      const b = await socket.sendJsonRequest(1047, 1048, { recipeId, quantity }, quantity > 1 ? 30000 : 10000);
-      if (!b?.success) throw new Error(`buying the ingredients failed: ${b?.error ?? "no reply"}`);
+    const done = { attempted: 0, successes: 0, failures: 0, skillUp: null, newSkillValue: null };
+    while (done.attempted < quantity && done.successes < until) {
+      const cat = await socket.sendJsonRequest(1045, 1046, { recipeId });
+      if (cat?.purchasable?.length) {
+        const b = await socket.sendJsonRequest(1047, 1048, { recipeId, quantity: 1 }, 10000);
+        if (!b?.success) throw new Error(`buying the ingredients failed: ${b?.error ?? "no reply"}`);
+      }
+      const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity: 1, skillId, containerItemId }, 30000);
+      // A component the catalog does not sell can run out mid-way, which ends the attempts.
+      if (!r?.success) {
+        if (done.attempted > 0) break;
+        throw new Error(`the craft failed: ${r?.error ?? r?.message ?? "no reply"}`);
+      }
+      done.attempted += r.attempted ?? 1;
+      done.successes += r.successes ?? 0;
+      done.failures += r.failures ?? 0;
+      done.skillUp = r.skillUp ?? done.skillUp;
+      done.newSkillValue = r.newSkillValue ?? done.newSkillValue;
     }
-    const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity, skillId, containerItemId }, 30000);
-    if (!r?.success) throw new Error(`the craft failed: ${r?.error ?? r?.message ?? "no reply"}`);
     let withdrawn = 0;
-    if (output != null && r.successes > 0) {
+    if (output != null && done.successes > 0) {
       const bank = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "read" }, 10000);
-      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: r.successes, revision: bank?.revision }, 10000);
+      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: done.successes, revision: bank?.revision }, 10000);
       if (!w?.success) throw new Error(`withdrawing the result failed: ${w?.error ?? "no reply"}`);
       await pause(700);
       await clientFn("autoPlace")();
       await pause(700);
-      withdrawn = w.quantity ?? r.successes;
+      withdrawn = w.quantity ?? done.successes;
     }
-    return { attempted: r.attempted, successes: r.successes, failures: r.failures, skillUp: r.skillUp ?? null, newSkillValue: r.newSkillValue ?? null, withdrawn };
+    return { ...done, withdrawn };
   };
   /**
    * Give a carried `item` to account character `characterId`, in the party or not, equipped when

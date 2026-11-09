@@ -1656,6 +1656,37 @@ test("a gear move with a merchant travels there, buys the item and gives it, and
   }
 });
 
+test("a craft step carries one of each input per attempt and stops at its first success", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const bags: Record<string, Record<string, number>> = {};
+    const mine = () => (bags[f.sheet.characterProfile.name] ??= {});
+    const crafts: object[] = [];
+    Object.assign(f.iq, {
+      carried: (item: string) => mine()[item] ?? 0,
+      pullItem: async (item: string) => {
+        mine()[item] = (mine()[item] ?? 0) + 1;
+        return { got: true, from: "Embrogg", reply: "Transferred." };
+      },
+      // A failed attempt uses its eye up too: the first fails, the second succeeds.
+      craftItem: async (recipeId: number, opts: object) => {
+        crafts.push({ recipeId, eyes: mine()["Fire Beetle Eye"], ...opts });
+        mine()["Fire Beetle Eye"] -= 2;
+        mine()["Edible Goo"] = 1;
+        return { attempted: 2, successes: 1, failures: 1, withdrawn: 1 };
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], name: "goo", steps: [{ zone: "freportw", craft: { recipeId: 1858, skillId: 60, quantity: 3, inputs: ["Fire Beetle Eye"], output: { item: "Edible Goo", id: 13498 } }, expect: "Edible Goo" }] });
+    await runToEnd(f);
+    expect(crafts).toEqual([{ recipeId: 1858, eyes: 3, quantity: 3, until: 1, skillId: 60, output: 13498 }]);
+    expect(f.bot.state.task.status).toBe("done");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a companion without the kept tactics gets them", async () => {
   const f = await install();
   delete (f.iq.stores.partySpells.getState() as { overridesByCompanion: Record<string, unknown> }).overridesByCompanion["character:10"];

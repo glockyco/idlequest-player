@@ -1277,7 +1277,10 @@
         }
       }
       const need = { ...(s.each ?? {}) };
-      for (const item of [...(s.give ?? []), ...(s.craft?.inputs ?? [])]) need[item] = (need[item] ?? 0) + 1;
+      for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
+      // A craft's `inputs` are the components its catalog does not sell, one per attempt, and a
+      // failed attempt uses them up too, so the step carries one for each of its attempts.
+      for (const item of s.craft?.inputs ?? []) need[item] = (need[item] ?? 0) + (s.craft.quantity ?? 1);
       for (const [item, n] of Object.entries(need)) {
         if (s.buy?.items?.includes(item) && i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
         // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
@@ -1285,7 +1288,8 @@
       }
       if (s.craft) {
         const c = s.craft;
-        const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: c.quantity ?? 1, skillId: c.skillId, output: c.output.id }), 120000);
+        // The step's item is one success, so the attempts stop there.
+        const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: c.quantity ?? 1, until: 1, skillId: c.skillId, output: c.output.id }), 120000);
         log(`craft: ${c.output.item} ${r.successes} of ${r.attempted}${r.newSkillValue != null ? `, skill ${r.newSkillValue}` : ""}`);
       }
       // A hand-in that summons the next step's enemy waits for the party at full HP and mana, because
