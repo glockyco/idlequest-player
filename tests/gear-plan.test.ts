@@ -1,7 +1,8 @@
 // Checks the roster gear plan (tools/lib/gear-plan.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
+import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { fists, itemCard, mergeSurvey, planGear, walkValue } from "../tools/lib/gear-plan.mjs";
+import { damageShares, fists, itemCard, mergeSurvey, planGear, walkValue } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -41,13 +42,35 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
   // A weapon replaces the Monk's fists (10 at 34 delay at level 30) whatever its type, and a
-  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. Gains are the
-  // change of the melee value in tenths of a percent: the Long Sword is 143% over the Rusty Sword,
-  // the Great Axe 22% over the Monk's two fists.
-  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 1426.99], ["Great Axe", "Mnk", 218.43]]);
+  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. The Long Sword's
+  // melee is 143% over the Rusty Sword, the Great Axe's 22% over the Monk's two fists, and an
+  // unmeasured member's melee counts for one sixth of the party's damage at the XP elasticity.
+  const weight = elasticity(30) / 6;
+  const plan = planGear({ survey, items, people }).moves;
+  expect(plan.map((m) => [m.item, m.to])).toEqual([["Long Sword", "War"], ["Great Axe", "Mnk"]]);
+  expect(plan.map((m) => m.gain / weight)).toEqual([expect.closeTo(1427, 0), expect.closeTo(218.4, 0)]);
   // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
+});
+
+test("a weapon goes to the member whose melee is the larger share of the party's damage", () => {
+  const people = [
+    { name: "War", cls: "warrior", level: 30, race: "", shares: { melee: 0.05, spell: 0 } },
+    { name: "Mnk", cls: "monk", level: 30, race: "", shares: { melee: 0.4, spell: 0 } },
+  ];
+  const survey = [row("War", 4, "Equipped", 13, 1), row("Mnk", 4, "Equipped", 13, 2), row("Holder", 3, "Carried", 26, 3)];
+  // The Long Sword adds about as much melee to either, so it goes to the Monk, whose melee deals 40%.
+  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Long Sword", "Mnk"]]);
+});
+
+test("damage shares count once a group's tagged lines span an hour, and a silent member's share is 0", () => {
+  const members = new Map([["G1", ["War", "Mag", "Clr"]]]);
+  const row = (minutes: number) => ({ group: "G1", damage: { total: 1000, minutes, melee: { War: 300, Mag: 50 }, spell: { Mag: 150 }, pet: { Mag: 500 }, shield: {} } });
+  expect(damageShares([row(59)], members).size).toBe(0);
+  const shares = damageShares([row(60)], members);
+  // The Magician's pet counts in the total but not in its own share, which its gear does not raise.
+  expect(Object.fromEntries(shares)).toEqual({ War: { melee: 0.3, spell: 0 }, Mag: { melee: 0.05, spell: 0.15 }, Clr: { melee: 0, spell: 0 } });
 });
 
 const bardItems = new Map([
@@ -63,9 +86,9 @@ const bRow = (who: string, itemId: number, location: string, slot: number, inst:
 const walk = { share: 0.12, other: 45, selo: 45 };
 test("a Bard carries a percussion instrument in its bags by the walk it speeds up, and keeps its own", () => {
   const people = [{ name: "Brd", cls: "bard", level: 30, race: "", walk }];
-  // A Hand Drum (18) raises the walk from 190% to 226% of base speed: 12% x (1 - 190/226) of the
-  // group's time, counted for six members. The off-hand dagger stays.
-  expect(walkValue(18, walk)).toBeCloseTo(10 * 6 * 100 * 0.12 * (1 - 190 / 226));
+  // A Hand Drum (18) raises the walk from 190% to 226% of base speed, which saves the group 12% x
+  // (1 - 190/226) of its time. The off-hand dagger stays.
+  expect(walkValue(18, walk)).toBeCloseTo(10 * 100 * 0.12 * (1 - 190 / 226));
   const survey = [bRow("Brd", 22, "Equipped", 14, 1), bRow("Holder", 20, "Carried", 25, 2)];
   expect(planGear({ survey, items: bardItems, people }).moves).toMatchObject([{ item: "Hand Drum", to: "Brd", slot: "bags", slotNum: null, gain: Math.round(walkValue(18, walk) * 100) / 100, replaces: null }]);
   // Without a run song to speed up, an instrument is worth nothing.
@@ -170,8 +193,9 @@ test("the off hand takes a one-hander for a Warrior from level 13, a shield for 
   const main = (who: string) => row(who, 3, "Equipped", 13, 1);
   const person = (cls: string, level: number) => ({ name: "Me", cls, level, race: "" });
   const moves = (cls: string, level: number, survey: ReturnType<typeof row>[]) => planGear({ survey, items, people: [person(cls, level)] }).moves.map((m) => [m.item, m.slot, m.gain]);
-  // The Warrior at 13 swings the off hand 83/400 of the time: 0.2075 x 6/20 over a 9/25 sword, 17%.
-  expect(moves("warrior", 13, [main("Me"), carried[0]])).toEqual([["Twin Dagger", "secondary", 172.92]]);
+  // The Warrior at 13 swings the off hand 83/400 of the time: 0.2075 x 6/20 over a 9/25 sword, 17%
+  // of its melee, weighed as an unmeasured member's at the XP elasticity of level 13.
+  expect(moves("warrior", 13, [main("Me"), carried[0]])).toEqual([["Twin Dagger", "secondary", expect.closeTo((172.92 * elasticity(13)) / 6, 1)]]);
   expect(moves("warrior", 12, [main("Me"), carried[0]])).toEqual([]);
   // A Paladin never has the skill, so only the shield is offered.
   expect(moves("paladin", 30, [main("Me"), ...carried])).toEqual([["Buckler", "secondary", expect.any(Number)]]);

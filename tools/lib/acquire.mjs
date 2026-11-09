@@ -31,11 +31,11 @@ export const ACQUIRE = {
 
 /**
  * V: the hours of its group's progress one copy of a wanted item adds while it is worn, from the
- * taker's output gain (`w.gain`, tenths of a percent), its share of the party's damage (one of six),
- * the XP elasticity at its level, and the hours it is worn, `wearLevels` at the taker's pace
- * (`hoursPerLevel[w.to]`, which the coordinator measures from the group's XP per hour).
+ * gain to the taker's group's XP rate (`w.gain`, tenths of a percent, the gear plan's `xpGain`) and
+ * the hours it is worn, `wearLevels` at the taker's pace (`hoursPerLevel[w.to]`, which the
+ * coordinator measures from the group's XP per hour).
  */
-export const copyValue = (w, hoursPerLevel = {}) => (w.gain / 1000) * (1 / 6) * elasticity(w.level ?? 0) * ACQUIRE.wearLevels * (hoursPerLevel[w.to] ?? 0);
+export const copyValue = (w, hoursPerLevel = {}) => (w.gain / 1000) * ACQUIRE.wearLevels * (hoursPerLevel[w.to] ?? 0);
 
 /**
  * The ways tab `t` can hunt gear target `x` (an enemy of the gear plan's `targets`), each

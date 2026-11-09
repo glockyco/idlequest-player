@@ -4,8 +4,9 @@
 // items that are an upgrade for someone, which nothing may sell. tools/iqd.mjs runs it in the
 // coordinator and queues the moves as a gear task (`iqBot.gear`), tools/handdown.mjs prints it.
 //
-// Armor and jewelry are scored as a set by what they add to the wearer's own output (`outputValue`
-// in tools/lib/gear-data.mjs, tenths of a percent), with the client's caps on haste and
+// Every gain is in tenths of a percent of the wearer's group's XP rate (`xpGain`): what armor and
+// jewelry add to the wearer's melee and spells (`outputValue` in tools/lib/gear-data.mjs), weighed by
+// its measured share of the party's damage, and what they save the party, with the client's caps on haste and
 // regeneration. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
 // the client's flat main-hand bonus and proc damage), for Monks too, whose fists a weapon replaces (docs/client-internals.md,
 // Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
@@ -16,6 +17,7 @@
 // so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
 // replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
 // shield never replaces a weapon.
+import { elasticity } from "./acquire.mjs";
 import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
@@ -48,11 +50,24 @@ const MAIN_HAND_TYPE = { rogue: PIERCING };
  */
 export const BUY_PP = 20;
 /**
- * A weapon's gain in `outputValue`'s unit (tenths of a percent of the wearer's output): the change in
- * its melee value over what it swings now, times the class's melee share, so weapon and armor gains
- * compare and share one threshold.
+ * How much of the party's XP rate one percent of a member's melee or spell damage is worth: the XP
+ * elasticity at its level times its measured share of the party's damage (`p.shares`, from
+ * `damageShares`), or for a member not measured yet its class's melee share (`MELEE_SHARE`) of one
+ * sixth of the party.
  */
-const meleeGain = (delta, now, p) => (now > 0 ? (1000 * delta * (MELEE_SHARE[groupOf(p.cls)] ?? 0)) / now : 0);
+export const damageWeights = (p) => {
+  const e = elasticity(p.level);
+  const m = MELEE_SHARE[groupOf(p.cls)] ?? 0;
+  const s = p.shares ?? { melee: m / 6, spell: (1 - m) / 6 };
+  return { melee: e * s.melee, spells: e * s.spell };
+};
+/** A gain by channel (`outputValue`'s `{ melee, spells, party }`) in tenths of a percent of the party's XP rate. */
+export const xpGain = (ch, p) => {
+  const w = damageWeights(p);
+  return w.melee * ch.melee + w.spells * ch.spells + ch.party;
+};
+/** A weapon's gain: the change in its melee value over what it swings now, as a melee percent weighed like armor's. */
+const meleeGain = (delta, now, p) => (now > 0 ? (damageWeights(p).melee * 1000 * delta) / now : 0);
 
 // Item kinds for Inventory Search, which matches names anywhere and lists at most 200 rows.
 const KINDS = ["Bracer", "Ring", "Mask", "Cloak", "Cape", "Boots", "Shoes", "Gloves", "Gauntlets", "Helm", "Cap", "Robe", "Tunic", "Breastplate", "Leggings", "Pants", "Sleeves", "Vambraces", "Belt", "Girdle", "Earring", "Necklace", "Amulet", "Choker", "Shield", "Sword", "Dagger", "Staff", "Mace", "Axe", "Spear", "Bow", "Hammer", "Club", "Wand", "Mantle", "Shoulder", "Collar", "Veil", "Band", "Stud", "Armor", "Coif", "Skullcap", "Wristband", "Greaves", "Jerkin", "Shirt", "Hood", "Scimitar", "Blade", "Rapier", "Flail", "Warhammer", "Knife", "Fist", "Totem", "Idol", "Charm", "Medallion", "Pendant", "Bandolier", "Sash", "Gorget", "Brooch", "Torque", "Circlet", "Crown"];
@@ -83,8 +98,25 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery? }`): its output value (`outputValue` in gear-data.mjs). */
-export const setValue = (items, p) => outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery });
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, shares? }`), in `xpGain`'s unit. */
+export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery }), p);
+
+/**
+ * Each member's share of its party's damage, melee and spells apart, from `bun tools/groups.mjs
+ * --json` rows (`damage`, the lines the bridge tagged by source). A group counts once its tagged
+ * lines span `minMinutes` of play, since one zone's or one fight's mix says little, and then a
+ * member without a line of its own has a share of 0. `members` maps each group to its members'
+ * names. Returns a Map of name to `{ melee, spell }`.
+ */
+export function damageShares(rows, members, minMinutes = 60) {
+  const out = new Map();
+  for (const r of rows) {
+    const d = r.damage;
+    if (!(d?.total > 0) || !(d.minutes >= minMinutes)) continue;
+    for (const name of members.get(r.group) ?? []) out.set(name, { melee: (d.melee?.[name] ?? 0) / d.total, spell: (d.spell?.[name] ?? 0) / d.total });
+  }
+  return out;
+}
 
 /**
  * Each character's part in its group's recovery, from `bun tools/groups.mjs --json` rows: the
@@ -121,15 +153,15 @@ export function percussionMod(worn, bags = []) {
   return Math.min(36, best);
 }
 /**
- * What a percussion modifier is worth, in `outputValue`'s unit for six members, against none: the
- * share of the group's time spent moving (`walk.share`) times the walking time a faster party saves.
+ * What a percussion modifier is worth, in `xpGain`'s unit, against none: the share of the group's
+ * time spent moving (`walk.share`) times the walking time a faster party saves.
  * The party walks at 1 + run speed / 100, where the run speed is the other supplied speed
  * (`walk.other`, percent) plus the run song's (`walk.selo`, percent at modifier 10) times mod / 10.
  */
 export function walkValue(mod, walk) {
   if (!walk || !(walk.share > 0)) return 0;
   const speed = (m) => 100 + (walk.other ?? 0) + ((walk.selo ?? 0) * m) / 10;
-  return 10 * 6 * 100 * walk.share * (1 - speed(10) / speed(mod));
+  return 10 * 100 * walk.share * (1 - speed(10) / speed(mod));
 }
 /**
  * Each Bard's walk, from `bun tools/groups.mjs --json` rows: the group's move share, and from the
@@ -207,8 +239,9 @@ const fits = (item, p, slot) =>
 /**
  * `survey`: rows of `iq.searchAccount()` (`characterName`, `itemId`, `itemName`, `itemInstanceId`,
  * `location` "Equipped" with its `slot`, or "Carried", and `blockReason`). `items`: item id to its
- * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk? }]`
- * with `cls` a gear-data class key and `walk` a Bard's (`walkShares`). `minGain`: the smallest gain
+ * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk?, shares? }]`
+ * with `cls` a gear-data class key, `walk` a Bard's (`walkShares`) and `shares` its damage shares
+ * (`damageShares`). `minGain`: the smallest gain
  * worth a move. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
  * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
  * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
@@ -228,7 +261,7 @@ const fits = (item, p, slot) =>
  * which covers the drops. A copy beyond that demand is surplus.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
- * `outputValue`'s unit, tenths of a percent of the wearer's output.
+ * `xpGain`'s unit, tenths of a percent of the wearer's group's XP rate, and `minGain` is 0.05% of it.
  * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
  * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
  * worn now (`setValue`, plus a Bard's walk value, weapons left out), after this pass's moves, and after the moves and every wanted drop; and for each
@@ -236,7 +269,7 @@ const fits = (item, p, slot) =>
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp = 0, drops = [], copyValue = (w) => w.gain }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], copyValue = (w) => w.gain }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -318,10 +351,10 @@ export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp 
   const keepInstances = new Set();
 
   // Greedy by gain: the best offer is taken, its copy and the receiver's slot are spent, and the
-  // receiver's other offers are scored again against the set it now wears. Armor and weapons use
-  // different units, but never compete for one copy, because only items without damage count as
-  // armor. An item on the account wins a tie with a merchant's, and a merchant's copies never run
-  // out, while the platinum and the one zone of a pass do.
+  // receiver's other offers are scored again against the set it now wears. Armor and weapons share
+  // one unit, and only items without damage count as armor. An item on the account wins a tie with
+  // a merchant's, and a merchant's copies never run out, while the platinum and the one zone of a
+  // pass do.
   const moves = [];
   const spent = new Set();
   let budget = buyPp;

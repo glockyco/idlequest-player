@@ -44,29 +44,29 @@ test("a proc adds its damage at the wearer's level, (0.5 + DEX/170) times a minu
 
 test("a worn effect counts like the stats it gives, from its required level, and a focus by its best item", () => {
   // Worn STR (SPA 4) adds offense for a Warrior like the same STR on the item.
-  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 40)).toBeCloseTo(outputValue([{ astr: 15 }], "warrior", 40));
-  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 20)).toBe(0);
+  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 40).melee).toBeCloseTo(outputValue([{ astr: 15 }], "warrior", 40).melee);
+  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 20).melee).toBe(0);
   // Worn haste (SPA 11, 100 plus the percent) counts as the highest item haste.
-  expect(outputValue([{ wornEffects: [{ spa: 11, value: 121 }] }, { haste: 15 }], "warrior", 40)).toBeCloseTo(outputValue([{ haste: 21 }], "warrior", 40));
-  // A 10% mana cost focus (SPA 132) is worth 10% of a caster's output, and of two only the better counts.
+  expect(outputValue([{ wornEffects: [{ spa: 11, value: 121 }] }, { haste: 15 }], "warrior", 40).melee).toBeCloseTo(outputValue([{ haste: 21 }], "warrior", 40).melee);
+  // A 10% mana cost focus (SPA 132) is worth 10% of a caster's spells, and of two only the better counts.
   const focus = (v: number) => ({ focusEffects: [{ spa: 132, value: v }] });
-  expect(outputValue([focus(10)], "wizard", 40)).toBe(100);
-  expect(outputValue([focus(10), focus(5)], "wizard", 40)).toBe(100);
-  expect(outputValue([focus(10)], "warrior", 40)).toBe(0);
+  expect(outputValue([focus(10)], "wizard", 40)).toEqual({ melee: 0, spells: 100, party: 0 });
+  expect(outputValue([focus(10), focus(5)], "wizard", 40).spells).toBe(100);
+  expect(outputValue([focus(10)], "warrior", 40).spells).toBe(0);
 });
 
 test("mana regeneration is worth the group time its wearer's refill holds the party", () => {
   const ring = [{ manaregen: 5 }];
   // A Necromancer the party waited for 20% of the time, with no supply: 5 regen refills 10% faster,
-  // so 20% x (1 - 1/1.1) of the group's time, counted for six members.
-  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(10 * 6 * 100 * 0.2 * (1 - 1 / 1.1));
+  // so the party saves 20% x (1 - 1/1.1) of its time.
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }).party).toBeCloseTo(10 * 100 * 0.2 * (1 - 1 / 1.1));
   // The party never waits for it: nothing.
-  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0, regen: 0 } })).toBe(0);
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0, regen: 0 } }).party).toBe(0);
   // Supply at the cap of 50 leaves nothing to gain, and item regeneration counts at most 15.
-  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 50 } })).toBe(0);
-  expect(outputValue([{ manaregen: 30 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(outputValue([{ manaregen: 15 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }));
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 50 } }).party).toBe(0);
+  expect(outputValue([{ manaregen: 30 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }).party).toBeCloseTo(outputValue([{ manaregen: 15 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }).party);
   // Item mana shrinks the share of the pool a fight spends: 100 on a 1,000 pool rests 1/11 shorter.
-  expect(outputValue([{ mana: 100 }], "necromancer", 30, { pool: 1000, recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(10 * 6 * 100 * 0.2 * (1 - 1000 / 1100));
+  expect(outputValue([{ mana: 100 }], "necromancer", 30, { pool: 1000, recovery: { share: 0.2, regen: 0 } }).party).toBeCloseTo(10 * 100 * 0.2 * (1 - 1000 / 1100));
 });
 
 test("farm hours are respawn over spawn chance and drop chance", () => {

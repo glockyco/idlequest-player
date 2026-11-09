@@ -11,14 +11,16 @@
 // item's base price in platinum; what a merchant asks may differ. Items with neither source are
 // shown as "quest or unknown".
 //
-// Armor and jewelry are ranked by what they add to the wearer's own output, `outputValue` in
-// tools/lib/gear-data.mjs (tenths of a percent: offense and haste for melee, mana and regeneration
-// for spell casters, a little for AC and HP), and weapon slots by `weaponRatio`: base damage capped
-// at the level's limit over delay, plus the client's flat main-hand bonus and the weapon's proc
-// damage. Both and the source tables are in tools/lib/gear-data.mjs.
+// Armor and jewelry are ranked by what they add to the group's XP rate, `xpGain` in
+// tools/lib/gear-plan.mjs (tenths of a percent: offense and haste for melee, mana and regeneration
+// for spell casters, a little for AC and HP, weighed as for a member whose damage share is not
+// measured), and weapon slots by `weaponRatio`: base damage capped at the level's limit over delay,
+// plus the client's flat main-hand bonus and the weapon's proc damage. The source tables are in
+// tools/lib/gear-data.mjs.
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachEffects, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, rows as contentRows, slotName, weaponRatio } from "./lib/gear-data.mjs";
+import { xpGain } from "./lib/gear-plan.mjs";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => {
@@ -54,7 +56,7 @@ const listed = listFile ? new Set((JSON.parse(await readFile(listFile, "utf8")).
 
 // The value and the damage cap at the level asked for (the party plan may name classes of any level).
 const capFor = (c, lvl = level) => capForLevel(c, lvl);
-const scoreFor = (i, c) => outputValue([i], c, level);
+const scoreFor = (i, c) => xpGain(outputValue([i], c, level), { cls: c, level });
 const group = groupOf(cls);
 const damageCap = capFor(cls);
 const score = (i) => scoreFor(i, cls);
@@ -182,7 +184,7 @@ for (const [slot] of Object.entries(SLOTS)) {
     const st = [it.ac && `ac ${it.ac}`, it.hp && `hp ${it.hp}`, it.mana && `mana ${it.mana}`, it.int && `int ${it.int}`, it.wis && `wis ${it.wis}`, it.dmg && `${it.dmg}/${it.delay} ratio ${it.ratio.toFixed(2)}${it.twoHand ? " 2H" : ""}`].filter(Boolean).join(" ");
     const src = (sources.get(it.id) ?? []).sort((a, b) => b.drop * b.spawn - a.drop * a.spawn).slice(0, 2);
     const sold = (sellers.get(it.id) ?? []).slice(0, 2);
-    console.log(`  ${it.name.padEnd(30)} score ${it.score.toFixed(0).padStart(4)}  ${st}${it.nodrop === 0 ? " [no drop]" : ""}`);
+    console.log(`  ${it.name.padEnd(30)} score ${it.score.toFixed(1).padStart(5)}  ${st}${it.nodrop === 0 ? " [no drop]" : ""}`);
     if (!src.length && !sold.length) console.log("      quest or unknown");
     for (const s of sold) console.log(`      sold by ${s.npc} in ${s.zone}, base price ${((it.price ?? 0) / 1000).toFixed(1)} pp`);
     for (const s of src) console.log(`      ${s.npc} (L${s.level}) in ${s.zone}: ${(s.drop * 100).toFixed(0)}% drop, ${(s.spawn * 100).toFixed(0)}% spawn, ${s.points} points, ${Number.isFinite(s.respawn) ? `respawn ${s.respawn}s` : "no respawn timer"}`);

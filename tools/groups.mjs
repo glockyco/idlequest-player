@@ -32,33 +32,62 @@ async function analyze(leader) {
   }
 }
 
-// Deaths of the group's own characters, and the leader's among them with the XP they cost ("You
-// lose N experience."). The bot repeats each death as a line of its own, and pets with generated
-// names die as well, so only chat lines naming the leader or a member count.
-async function deaths(leader, members) {
+// The leader's chat lines inside the window, newest first.
+async function windowEvents(leader) {
   try {
     const lines = (await readFile(`${REPO}runs/live/${leader}/events.jsonl`, "utf8")).trimEnd().split("\n");
-    const n = { all: 0, leader: 0, xpLost: 0 };
+    const out = [];
     for (let k = lines.length - 1; k >= 0; k--) {
       const e = JSON.parse(lines[k]);
       if (e.t < since) break;
-      if (e.t > until || e.type === "bot") continue;
-      const victim = /^(.+?) has been slain!$/.exec(e.text)?.[1];
-      const mine = /^You have been slain/.test(e.text);
-      if (mine || members.includes(victim)) n.all++;
-      if (mine) n.leader++;
-      n.xpLost += Number(/^You lose (\d+) experience/.exec(e.text)?.[1] ?? 0);
+      if (e.t <= until && e.type !== "bot") out.push(e);
     }
-    return n;
+    return out;
   } catch {
     return null;
   }
+}
+
+// Deaths of the group's own characters, and the leader's among them with the XP they cost ("You
+// lose N experience."). The bot repeats each death as a line of its own, and pets with generated
+// names die as well, so only chat lines naming the leader or a member count.
+function deaths(events, members) {
+  const n = { all: 0, leader: 0, xpLost: 0 };
+  for (const e of events) {
+    const victim = /^(.+?) has been slain!$/.exec(e.text)?.[1];
+    const mine = /^You have been slain/.test(e.text);
+    if (mine || members.includes(victim)) n.all++;
+    if (mine) n.leader++;
+    n.xpLost += Number(/^You lose (\d+) experience/.exec(e.text)?.[1] ?? 0);
+  }
+  return n;
+}
+
+// The party's damage by source, from the lines the bridge tagged (`by`, `kind`, `dmg`): each
+// member's melee, spells, pet and damage shield, the total, and the minutes between the first and
+// the last tagged line, which say how much play the shares rest on.
+const DAMAGE_KINDS = ["melee", "spell", "pet", "shield"];
+function damage(events) {
+  const d = { total: 0, minutes: 0, ...Object.fromEntries(DAMAGE_KINDS.map((k) => [k, {}])) };
+  let first = Infinity;
+  let last = -Infinity;
+  for (const e of events) {
+    if (!(e.dmg > 0) || !DAMAGE_KINDS.includes(e.kind)) continue;
+    d[e.kind][e.by] = (d[e.kind][e.by] ?? 0) + e.dmg;
+    d.total += e.dmg;
+    first = Math.min(first, e.t);
+    last = Math.max(last, e.t);
+  }
+  if (d.total > 0) d.minutes = (last - first) / 60000;
+  return d;
 }
 
 const out = [];
 for (const g of roster.groups.filter((x) => x.members?.length)) {
   const leader = g.members[0];
   const a = await analyze(leader);
+  const events = await windowEvents(leader);
+  const died = events && deaths(events, g.members);
   const snap = db.query("SELECT snap FROM sessions WHERE leader = ? AND ended IS NULL ORDER BY id DESC LIMIT 1").get(leader);
   const sn = snap?.snap ? JSON.parse(snap.snap) : null;
   const limiter = Object.entries(a?.recover?.limiterSeconds ?? {}).sort((x, y) => y[1] - x[1])[0];
@@ -81,7 +110,9 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     idle: a?.activity ? idleRows.reduce((s, [, v]) => s + v.share, 0) : null,
     idleCause: idleCause ? idleCause[0].replace(/^idle\//, "") : null,
     escapes: a?.escapes?.count ?? null,
-    ...(await deaths(leader, g.members).then((d) => ({ deaths: d?.all ?? null, leaderDeaths: d?.leader ?? null, xpLost: d?.xpLost ?? null }))),
+    deaths: died?.all ?? null,
+    leaderDeaths: died?.leader ?? null,
+    xpLost: died?.xpLost ?? null,
     waitedFor: limiter ? `${limiter[0]} ${Math.round(limiter[1])}s` : null,
     // Seconds of recovery each member's bar held the party, by `<name>:<hp|mana>` ("me" is the leader).
     limiters: a?.recover?.limiterSeconds ?? {},
@@ -89,6 +120,8 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     supportManaRegen: sn?.leader?.supportManaRegen ?? null,
     // The party's run speed and its Bard's run song, from the leader's last snapshot.
     runSpeed: sn?.runSpeed ?? null,
+    // The party's damage by source (`damage`), for each member's share in the gear value.
+    damage: events ? damage(events) : null,
   });
 }
 

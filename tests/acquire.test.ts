@@ -13,11 +13,11 @@ test("the XP elasticity follows the model's table between its levels", () => {
   expect(elasticity(60)).toBe(0.85);
 });
 
-test("a copy adds its relative gain of the group's XP rate for the hours it is worn", () => {
-  // 10% for a level 30 character, 1.5 hours a level: 0.1 x 1/6 x 0.753 x 10 x 1.5 hours.
-  expect(copyValue(item(100, 1), { X1: 1.5 })).toBeCloseTo(0.1 * (1 / 6) * elasticity(30) * ACQUIRE.wearLevels * 1.5);
+test("a copy adds its gain to the group's XP rate for the hours it is worn", () => {
+  // 1% of the group's XP rate, 1.5 hours a level: 0.01 x 10 levels x 1.5 hours.
+  expect(copyValue(item(10, 1), { X1: 1.5 })).toBeCloseTo(0.01 * ACQUIRE.wearLevels * 1.5);
   // A taker whose group's pace is unknown adds nothing yet.
-  expect(copyValue(item(100, 1), {})).toBe(0);
+  expect(copyValue(item(10, 1), {})).toBe(0);
 });
 
 test("drops that roll on their own shorten the hunting for the first copy, and a shared zone costs a share of it", () => {

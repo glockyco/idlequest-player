@@ -480,6 +480,31 @@
     return lines;
   };
 
+  // Who dealt an outgoing damage line, for each member's share of the party's damage (the gear
+  // value's damage shares, docs/plans/gear-acquisition.md): `by` the member, or a pet's owner, and
+  // `kind` "melee" or "spell" for the member's own, which its gear raises, "pet" for its pet's and
+  // "shield" for a damage shield it wears, which come from the pet's own power and from buffs. Pets
+  // carry generated names that change at each summon, so the owner is looked up as the line arrives.
+  const DAMAGE_LINES = [
+    [/^(You|[A-Z][\w`']*) [a-z]+(?: on)? .+? for (\d+) damage\.$/, "melee"],
+    [/^.+? has taken (\d+) damage from (your|[A-Z][\w`']*'s) spell\.$/, "spell"],
+    [/^(Your|[A-Z][\w`']*'s) damage shield [a-z]+ .+? for (\d+) points\.$/, "shield"],
+  ];
+  const damageOf = (text) => {
+    for (const [re, kind] of DAMAGE_LINES) {
+      const m = re.exec(text);
+      if (!m) continue;
+      const [who, n] = kind === "spell" ? [m[2], m[1]] : [m[1], m[2]];
+      const me = stores.character.getState().characterProfile;
+      const name = /^(You|your|Your)$/.test(who) ? me?.name : who.replace(/'s$/, "");
+      const pet = (stores.companions.getState().companions ?? []).find((c) => c.name === name && c.petOwnerId);
+      if (!pet) return { by: name, kind, dmg: Number(n) };
+      const owner = pet.petOwnerCharacterId === me?.id ? me?.name : (stores.companions.getState().companions ?? []).find((c) => c.id === pet.petOwnerId)?.name;
+      return owner ? { by: owner, kind: "pet", dmg: Number(n) } : null;
+    }
+    return null;
+  };
+
   // Read-only subscription; never replaces a client callback.
   let lastChatId = stores.chat.getState().nextId - 1;
   const unsubChat = stores.chat.subscribe((state) => {
@@ -488,7 +513,7 @@
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
-      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text });
+      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...(m.type === "COMBAT_OUTGOING" ? damageOf(m.text) : null) });
       // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.
       if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
         lastSpellBuy = Date.now();

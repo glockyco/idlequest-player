@@ -53,29 +53,30 @@ export const scoreFor = (i, c, level) => statScore(i, c, level) + HASTE_WEIGHT *
 // Classes whose mana comes from WIS (`gD` in the client); the other mana classes use INT.
 const WIS_CLASSES = new Set(["cleric", "paladin", "ranger", "druid", "shaman"]);
 const NO_MANA = new Set(["warrior", "monk", "rogue"]);
-// The share of a class's output that is melee; the rest is spells, paid for with mana.
+// The share of a class's output that is melee; the rest is spells, paid for with mana. The gear plan
+// uses it only for a member whose damage shares are not measured yet.
 export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
 /**
- * What a set of worn armor and jewelry adds to a character's own output, in tenths of a percent, from
+ * What a set of worn armor and jewelry adds to a character, in tenths of a percent, by channel, from
  * the client's formulas (docs/client-internals.md, "What item stats and effects do"):
- * - melee: offense (2/3 a point of STR, 1 a point of ATK) through the damage roll, and the highest
- *   item haste (at most 50) as swing rate;
- * - recovery: AutoLevel pulls only once every bar is full, and the out-of-fight refill is 2.5% of the
- *   maximum per 600 ms times 1 + min(regen / 50, 1), so a rest lasts the share of the bar a fight
- *   spent over that rate. Item mana and INT or WIS (80 × level / 425 mana a point) shrink the share
- *   of the pool (`pool`, else a typical 30 mana a level) a fight spends, a mana cost focus (SPA 132)
- *   shrinks the mana it spends, and item `manaregen` (at most 15) adds to the party supply's
- *   regeneration. With `recovery` (`{ share, regen }`, the group's recovery share times the wearer's
- *   part of the waits, and the supply's regeneration) the gain is the group time the shorter rest
- *   saves, counted for the six members. Without it, the pool and the focus count as their percent
- *   and each regeneration point as 2% of the spell share;
- * - spells: spell damage and spell haste focus percent of the spell share;
- * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
- *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
- * A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste, regeneration, HP and
- * mana like the item's own fields, and a spell focus (`focusEffects`) its best mana cost reduction,
- * spell damage and spell haste percent to the spell share.
- * Resists and the stats the client does not use for this class count for nothing.
+ * - `melee`, of the wearer's melee damage: offense (2/3 a point of STR, 1 a point of ATK) through the
+ *   damage roll, and the highest item haste (at most 50) as swing rate;
+ * - `spells`, of the wearer's spell damage: spell damage and spell haste focus percent, and without
+ *   `recovery` the mana it can spend: item mana and INT or WIS (80 × level / 425 mana a point) as a
+ *   percent of the pool (`pool`, else a typical 30 mana a level), each point of `manaregen` (at most
+ *   15) as 2% and a mana cost focus (SPA 132) by its percent;
+ * - `party`, of the party's XP rate: with `recovery` (`{ share, regen }`, the group's recovery share
+ *   times the wearer's part of the waits, and the supply's regeneration) the group time a shorter
+ *   rest saves, since AutoLevel pulls only once every bar is full and the out-of-fight refill is 2.5%
+ *   of the maximum per 600 ms times 1 + min(regen / 50, 1), so a rest lasts the share of the bar a
+ *   fight spent over that rate; and survival, AC and HP (STA at about 6 HP a point at 60) at the
+ *   leveling model's 0.5% per 100 for the member that takes the hits, assumed one of six (leveling
+ *   plan, lever 7), which undervalues them for raids until the raid model weighs them.
+ * The gear plan weighs `melee` and `spells` by the wearer's share of the party's damage (`xpGain` in
+ * tools/lib/gear-plan.mjs). A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste,
+ * regeneration, HP and mana like the item's own fields, and a spell focus (`focusEffects`) its best
+ * mana cost reduction, spell damage and spell haste percent. Resists and the stats the client does
+ * not use for this class count for nothing.
  */
 export const outputValue = (items, c, level, { pool, recovery } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
@@ -110,20 +111,19 @@ export const outputValue = (items, c, level, { pool, recovery } = {}) => {
     }
     if (i.focusEffects && level >= (i.reqlevel ?? 0)) for (const { spa, value } of i.focusEffects) if (spa in focus) focus[spa] = Math.max(focus[spa], value);
   }
-  const meleeShare = MELEE_SHARE[groupOf(c)];
-  const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
-  // Spell output: a lower mana cost (recovery is the mana spent), more spell damage and faster casts,
-  // each a percent of the spell share.
+  const melee = ((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50);
   const regen = Math.min(manaregen, 15);
   const added = mana + ((80 * level) / 425) * stat;
   const base = pool > 0 ? pool : 30 * level;
   const refill = (r) => 1 / (1 + Math.min(r, 50) / 50);
   const r0 = recovery?.regen ?? 0;
   const cheaper = 1 - focus[132] / 100;
-  const rest = NO_MANA.has(c) ? 0 : recovery ? 6 * 100 * recovery.share * (1 - ((cheaper * base) / (base + added)) * (refill(r0 + regen) / refill(r0))) : (1 - meleeShare) * ((100 * added) / base + 2 * regen + focus[132]);
-  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * (focus[124] + focus[127]);
-  const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
-  return 10 * (melee + spells + rest + survival);
+  const caster = !NO_MANA.has(c);
+  const rest = caster && recovery ? 100 * recovery.share * (1 - ((cheaper * base) / (base + added)) * (refill(r0 + regen) / refill(r0))) : 0;
+  const spendable = caster && !recovery ? (100 * added) / base + 2 * regen + focus[132] : 0;
+  const spells = caster ? focus[124] + focus[127] + spendable : 0;
+  const survival = (0.005 * (ac + hp + ((6 * level) / 60) * sta)) / 6;
+  return { melee: 10 * melee, spells: 10 * spells, party: 10 * (rest + survival) };
 };
 
 // A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee

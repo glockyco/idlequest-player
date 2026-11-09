@@ -280,7 +280,7 @@ bun tools/fights.mjs
 ```
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
-and slot where it adds most: armor and jewelry as a set by what they add to the wearer's output (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste for melee, mana and regeneration for spell casters, a little for AC and HP), with the
+and slot where it adds most to its group's XP rate (`xpGain` in `tools/lib/gear-plan.mjs`): armor and jewelry as a set by what they add to the wearer's melee and spells (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste, mana and regeneration, a little for AC and HP), weighed by the wearer's measured share of the party's damage, and by the party time they save, with the
 client's haste and regeneration caps, the main hand by `weaponRatio` against what the hand
 swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
 saves the group (docs/client-internals.md, Bard instruments). Merchant

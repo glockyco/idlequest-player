@@ -822,7 +822,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { BUY_PP, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
+    const { BUY_PP, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -857,8 +857,9 @@ class Daemon {
     // Each character's last recorded maximum mana, which an item's mana is a share of.
     const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
     // Each character's part in its group's recovery over the last two hours, which mana regeneration
-    // shortens (`recoveryShares`), and each Bard's walk, which its percussion instrument speeds up
-    // (`walkShares`). A character the party never waited for gets a zero share.
+    // shortens (`recoveryShares`), each Bard's walk, which its percussion instrument speeds up
+    // (`walkShares`), and each member's melee and spell share of its party's damage, by which its gear
+    // counts (`damageShares`). A character the party never waited for gets a zero recovery share.
     const proc = Bun.spawn(["bun", join(REPO, "tools/groups.mjs"), "--last", "120", "--json"], { stdout: "pipe", stderr: "ignore" });
     const groupRows = await new Response(proc.stdout).json().catch(() => []);
     const recoveryOf = recoveryShares(groupRows);
@@ -868,7 +869,11 @@ class Daemon {
     const { spellEffects } = await import("./lib/spell-value.mjs");
     const seloAt = (id, level) => (this.spellRows.has(id) ? (spellEffects(this.spellRows.get(id), level).find((e) => e.spa === 3)?.value ?? 0) : 0);
     const walkOf = walkShares(groupRows, seloAt);
-    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name) }));
+    const groupOfName = rosterGroups();
+    const members = new Map();
+    for (const [name, g] of groupOfName) members.set(g, [...(members.get(g) ?? []), name]);
+    const shareOf = damageShares(groupRows, members);
+    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name), shares: shareOf.get(p.name) }));
     const { copyValue } = await import("./lib/acquire.mjs");
     const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel) });
     // The 40 best targets are all the hunts and the dashboard's list need.

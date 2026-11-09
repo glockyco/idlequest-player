@@ -12,18 +12,23 @@ code is `tools/lib/acquire.mjs`, and `decide` in `tools/lib/coordinator.mjs` app
 A copy is worth the progress it adds to its taker's group while it is worn, and costs the progress
 the hunting group gives up to get it.
 
-    V = g × s × e × T        C = H × k
+    V = g × T        C = H × k
+    g = e × (s_melee × Δmelee + s_spell × Δspells) + Δparty
 
 | Term | Meaning | Source |
 | --- | --- | --- |
-| g | the item's gain to its wearer's output, against what the wearer has after this pass's moves | `outputValue` and `weaponRatio` in `tools/lib/gear-data.mjs` |
-| s | the wearer's share of the party's damage | 1/6 for every member |
+| g | the copy's gain to the taker's group's XP rate, against what the taker has after this pass's moves (`xpGain`) | `xpGain` in `tools/lib/gear-plan.mjs` |
+| Δmelee, Δspells | the change of the taker's own melee and spell damage | `outputValue` and `weaponRatio` in `tools/lib/gear-data.mjs` |
+| Δparty | the party time or XP the item saves directly: shorter rests, a Bard's faster walk, survival | `outputValue` and `walkValue` |
+| s_melee, s_spell | the taker's melee and spell share of the party's damage | measured from the fight lines the bridge tags by source (`damageShares`), else the class's melee share of one sixth |
 | e | the change of XP per hour for a change of party damage, by level | the leveling model, leveling plan lever 7 |
-| T | the hours the copy is worn | 10 levels at the pace of the wearer's group, the pace of level 59 at 60, where AA XP takes the place of levels |
+| T | the hours the copy is worn | 10 levels at the pace of the taker's group, the pace of level 59 at 60, where AA XP takes the place of levels |
 | H | the expected hunting hours for one copy | respawn over spawn chance, drop chance and points, from the content snapshot |
 | k | the share of the hunting group's XP lost while it hunts | 0 inside its rotation, the measured or modeled rate of the trip zone outside it |
 
-`g × s × e` is the relative gain of the group's XP rate, so `V` is in hours of the group's progress.
+`g` is the relative gain of the group's XP rate, so `V` is in hours of the group's progress. The
+same `g` decides the gear plan's moves, so an item goes to the member it adds most XP through: a
+weapon to the member whose melee deals most of the party's damage, not to a pet class whose pet does.
 A copy is worth getting when `V > C`. A group's time is what each choice spends, so the pair of free
 group and target with the most `(V - C) / H` goes first, then the best pair of what is left. A target
 whose best group is busy goes to another free group while it still gains there, and otherwise waits.
@@ -57,7 +62,8 @@ the account's platinum after it stays above the raid budget of the coming days.
 | Quantity | Status |
 | --- | --- |
 | e by level | modeled (leveling plan, lever 7) |
-| s per member | assumed 1/6, while at 29-31 the two pets dealt 42% of the damage and two companions 4% each (leveling plan, lever 7), to be measured per member from the fight logs |
+| s per member | measured over the last two hours once a group's tagged damage lines span an hour, else the class's melee share of one sixth |
+| Survival | AC and HP count for one sixth of the leveling model's 0.5% per 100, until the damage each member takes is measured |
 | T | assumed 10 levels, until the gear plan tracks what replaces an item |
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
 | `visitHours` 0.1 | assumed, to be measured from the first visits |
