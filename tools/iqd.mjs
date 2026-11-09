@@ -617,17 +617,29 @@ class Daemon {
     // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
     settleHistory(state.history, tabs.map((t) => t.task));
     const held = await this.experimentPass(now, tabs, state);
-    // Hours a level takes each character at its group's measured rate, the pace at which gear pays
-    // (`copyValue` in tools/lib/acquire.mjs). A character at 60 earns AA XP at the pace of level 59.
+    // Hours a level takes each character at its group's own XP per hour over the last two hours of
+    // minute totals, minutes with a task left out (another member is active then, and a trip zone
+    // pays its own rate): the pace at which gear pays (`copyValue` in tools/lib/acquire.mjs). A
+    // character at 60 earns AA XP at the pace of level 59.
     const rates = await this.loadRates();
     const { estimate } = await import("./lib/rates.mjs");
     const { xpStart } = await import("./lib/xp.mjs");
     const hoursPerLevel = {};
+    const sinceMinute = Math.floor((now - 2 * 3600000) / 60000);
     for (const t of tabs) {
-      const level = t.members[0]?.level ?? 0;
-      const xph = estimate(rates, t.zone, level, now)?.xph;
-      if (xph > 0) for (const m of t.members) hoursPerLevel[m.name] = (xpStart(Math.min(59, m.level ?? level) + 1) - xpStart(Math.min(59, m.level ?? level))) / xph;
+      let xp = 0;
+      let sec = 0;
+      for (const m of this.db.query("SELECT sec, xp FROM minutes WHERE grp = ? AND minute >= ?").all(t.group, sinceMinute)) {
+        const s = JSON.parse(m.sec);
+        if (s.task > 0) continue;
+        xp += m.xp;
+        sec += Object.values(s).reduce((a, b) => a + b, 0);
+      }
+      const xph = sec >= 1800 ? (3600 * xp) / sec : 0;
+      if (xph > 0) for (const m of t.members) hoursPerLevel[m.name] = (xpStart(Math.min(59, m.level ?? 0) + 1) - xpStart(Math.min(59, m.level ?? 0))) / xph;
     }
+    // Each group's kills per hour from the last gear pass's report, which bound a common drop's hours per copy.
+    this.killsPerHour ??= metaGet(this.db, "gear")?.killsPerHour ?? {};
     const gear = await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
@@ -651,7 +663,7 @@ class Daemon {
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, zoneShare });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     for (const a of actions) {
@@ -875,7 +887,10 @@ class Daemon {
     const shareOf = damageShares(groupRows, members);
     const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name), shares: shareOf.get(p.name) }));
     const { copyValue } = await import("./lib/acquire.mjs");
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel) });
+    // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
+    this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
+    const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // The 40 best targets are all the hunts and the dashboard's list need.
     this.targetWants = targets.slice(0, 40);
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
@@ -886,7 +901,7 @@ class Daemon {
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
     metaSet(this.db, "gearSheets", { t: now, sheets: Object.fromEntries(characters.map((c) => [c.name, c.slots])), items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops, targets: this.targetWants });
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }

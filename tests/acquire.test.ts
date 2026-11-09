@@ -1,6 +1,6 @@
 // Checks the gear acquisition model (tools/lib/acquire.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { ACQUIRE, bestWay, copyValue, elasticity, netRate, ways } from "../tools/lib/acquire.mjs";
+import { ACQUIRE, bestWay, copyHours, copyValue, elasticity, netRate, ways } from "../tools/lib/acquire.mjs";
 
 const member = (name: string, level: number) => ({ name, level });
 const tab = (level: number, zone: string) => ({ label: "A", group: "G1", zone, rotation: [zone], members: [member("A0", level)] });
@@ -18,6 +18,15 @@ test("a copy adds its gain to the group's XP rate for the hours it is worn", () 
   expect(copyValue(item(10, 1), { X1: 1.5 })).toBeCloseTo(0.01 * ACQUIRE.wearLevels * 1.5);
   // A taker whose group's pace is unknown adds nothing yet.
   expect(copyValue(item(10, 1), {})).toBe(0);
+});
+
+test("a common drop takes at least one kill-time per expected copy, however many points respawn", () => {
+  // 67 points at 400 s would give a copy every 36 s, but a group that kills 84 an hour finds a 13% drop every 5.5 min.
+  const wolf = { spawn: 1 };
+  expect(copyHours({ hours: 0.01, drop: 0.13 }, wolf, 84)).toBeCloseTo(1 / (84 * 0.13));
+  // A rare spawn stays bound by its respawns (1.4 h against 0.6 h of kills), and without a kill rate the respawns alone count.
+  expect(copyHours({ hours: 1.4, drop: 1 }, { spawn: 0.02 }, 84)).toBe(1.4);
+  expect(copyHours({ hours: 0.01, drop: 0.13 }, wolf, 0)).toBe(0.01);
 });
 
 test("drops that roll on their own shorten the hunting for the first copy, and a shared zone costs a share of it", () => {

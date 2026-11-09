@@ -38,27 +38,34 @@ export const ACQUIRE = {
 export const copyValue = (w, hoursPerLevel = {}) => (w.gain / 1000) * ACQUIRE.wearLevels * (hoursPerLevel[w.to] ?? 0);
 
 /**
+ * The hunting hours for one copy of item `w` from enemy `x` for a group that kills `killsPerHour`:
+ * the respawns bound it (`w.hours`, every point cleared as it respawns), and so does the kill rate,
+ * since each kill is the enemy with the `spawn` chance and drops the item with the `drop` chance.
+ */
+export const copyHours = (w, x, killsPerHour) => Math.max(w.hours, killsPerHour > 0 ? 1 / (killsPerHour * (x.spawn ?? 1) * (w.drop ?? 1)) : 0);
+
+/**
  * The ways tab `t` can hunt gear target `x` (an enemy of the gear plan's `targets`), each
  * `{ kind, hours, value, cost }` for one copy or one visit, in hours of the group's progress:
- * - errand: inside the group's rotation, `hours` the expected hunting until the first wanted copy,
- *   free, or `sharedCost` of those hours in a zone another tab plays;
+ * - errand: inside the group's rotation, `hours` the expected hunting until the first wanted copy
+ *   (`copyHours` at the group's `killsPerHour`), free;
  * - camp: outside it, the same hours, less the share of the group's XP the trip zone pays
  *   (`zoneShare(t, zone)`);
  * - visit: outside it, `visitHours`, worth the chance the enemy is up on one of its points on
  *   arrival, 1 - (1 - spawn)^points, times each item's drop chance and copy value.
+ * An errand or a camp costs `sharedCost` of its hours more in a zone another tab plays or travels to.
  * The items' drops roll on their own, so a copy of any of them comes every `1 / sum(1 / hours)`
  * hours, and its value is the items' value per hour of hunting times that.
  */
-export function ways(t, x, { tabs = [], hoursPerLevel = {}, zoneShare = () => 0 } = {}) {
-  const perHour = x.items.reduce((s, w) => s + copyValue(w, hoursPerLevel) / w.hours, 0);
-  const hours = 1 / x.items.reduce((s, w) => s + 1 / w.hours, 0);
-  if ((t.rotation ?? []).includes(x.zone)) {
-    const shared = tabs.some((o) => o !== t && o.zone === x.zone);
-    return [{ kind: "errand", hours, value: perHour * hours, cost: shared ? ACQUIRE.sharedCost * hours : 0 }];
-  }
+export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0 } = {}) {
+  const each = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, killsPerHour[t.group]));
+  const perHour = x.items.reduce((s, w, k) => s + copyValue(w, hoursPerLevel) / each[k], 0);
+  const hours = 1 / each.reduce((s, h) => s + 1 / h, 0);
+  const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost * hours : 0;
+  if ((t.rotation ?? []).includes(x.zone)) return [{ kind: "errand", hours, value: perHour * hours, cost: shared }];
   const up = 1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1);
   return [
-    { kind: "camp", hours, value: perHour * hours, cost: Math.max(0, 1 - Math.min(1, zoneShare(t, x.zone) ?? 0)) * hours },
+    { kind: "camp", hours, value: perHour * hours, cost: Math.min(1, Math.max(0, 1 - Math.min(1, zoneShare(t, x.zone) ?? 0)) + (shared ? ACQUIRE.sharedCost : 0)) * hours },
     { kind: "visit", hours: ACQUIRE.visitHours, value: up * x.items.reduce((s, w) => s + (w.drop ?? 1) * copyValue(w, hoursPerLevel), 0), cost: ACQUIRE.visitHours, up },
   ];
 }

@@ -22,16 +22,19 @@ the hunting group gives up to get it.
 | Δparty | the party time or XP the item saves directly: shorter rests, a Bard's faster walk, survival | `outputValue` and `walkValue` |
 | s_melee, s_spell | the taker's melee and spell share of the party's damage | measured from the fight lines the bridge tags by source (`damageShares`), else the class's melee share of one sixth |
 | e | the change of XP per hour for a change of party damage, by level | the leveling model, leveling plan lever 7 |
-| T | the hours the copy is worn | 10 levels at the pace of the taker's group, the pace of level 59 at 60, where AA XP takes the place of levels |
-| H | the expected hunting hours for one copy | respawn over spawn chance, drop chance and points, from the content snapshot |
+| T | the hours the copy is worn | 10 levels at the pace of the taker's group, its own XP per hour over the last two hours of minute totals without task minutes, the pace of level 59 at 60, where AA XP takes the place of levels. Without a measured pace a copy's worth is unknown, and the target says so |
+| H | the expected hunting hours for one copy | the longer of the respawns' bound (respawn over spawn chance, drop chance and points, from the content snapshot) and the kill rate's (one over the hunting group's kills per hour times spawn and drop chance, `copyHours`) |
 | k | the share of the hunting group's XP lost while it hunts | 0 inside its rotation, the measured or modeled rate of the trip zone outside it |
 
 `g` is the relative gain of the group's XP rate, so `V` is in hours of the group's progress. The
 same `g` decides the gear plan's moves, so an item goes to the member it adds most XP through: a
 weapon to the member whose melee deals most of the party's damage, not to a pet class whose pet does.
-A copy is worth getting when `V > C`. A group's time is what each choice spends, so the pair of free
-group and target with the most `(V - C) / H` goes first, then the best pair of what is left. A target
-whose best group is busy goes to another free group while it still gains there, and otherwise waits.
+A copy is worth getting when `V > C`. A group's time is what each choice spends, and one copy fills
+one character's slot, so the assignment is greedy with re-evaluation: the pair of free group and
+target with the most `(V - C) / H` goes first, then every other pair is valued again without the
+taker slots that pair serves and with its zone occupied, so a second group there pays the shared
+cost. A target whose best group is busy goes to another free group while it still gains there, and
+otherwise waits.
 
 A copy serves one character. Each item counts at its best taker, and each character slot once. An
 enemy's worth adds its items, since each drop rolls on its own, so a copy of any of them comes every

@@ -17,7 +17,7 @@
 // so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
 // replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
 // shield never replaces a weapon.
-import { elasticity } from "./acquire.mjs";
+import { copyHours, elasticity } from "./acquire.mjs";
 import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
@@ -248,7 +248,8 @@ const fits = (item, p, slot) =>
  * `[{ itemId, zone, npc, npcLevel, hours, spawn, drop, points, respawn }]` with `hours` the expected
  * hunting per copy, which become wants for every character they would serve. `copyValue(w)` weighs
  * a wanted copy for ranking the enemies, the acquisition model's `copyValue` (tools/lib/acquire.mjs),
- * and by default its gain.
+ * and by default its gain. `killsPerHour`, the account's typical kill rate, bounds the hours per
+ * copy of a common drop (`copyHours`).
  * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], keep: { counts:
  * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }],
  * targets: [{ zone, npc, rate, firstHours, items }] }`,
@@ -269,7 +270,7 @@ const fits = (item, p, slot) =>
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], copyValue = (w) => w.gain }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], copyValue = (w) => w.gain, killsPerHour = 0 }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -404,16 +405,18 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       for (const o of offer(r, p)) {
         if (o.gain < 2 * minGain) continue;
         const k = `${p.name}:${o.slot}`;
-        const entry = { item: r.itemName, itemId: d.itemId, to: p.name, slot: o.slot === "bags" ? "bags" : SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours };
+        // Hours per copy at the account's typical kill rate (`copyHours`), and the respawns' bound
+        // alone (`respawnHours`), from which the coordinator takes each group's own kill rate.
+        const entry = { item: r.itemName, itemId: d.itemId, to: p.name, slot: o.slot === "bags" ? "bags" : SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: Math.round(100 * copyHours(d, d, killsPerHour)) / 100 };
         const best = want.get(k);
-        if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) {
+        if (!best || o.gain > best.gain || (o.gain === best.gain && entry.hours < best.hours)) {
           want.set(k, entry);
           wantSlot.set(k, o.slot);
         }
         const tk = `${d.zone}|${d.npc}`;
         // The taker's level and the enemy's level, spawn chance per point, points and respawn, and the
         // item's drop chance, for weighing a camp or a visit (tools/lib/acquire.mjs).
-        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, offers: [] }).get(tk)).offers.push({ ...entry, level: p.level, drop: d.drop ?? null, key: k });
+        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, offers: [] }).get(tk)).offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, key: k });
       }
     }
   }
