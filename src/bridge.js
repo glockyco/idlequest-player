@@ -1112,6 +1112,12 @@
   const buyItem = async (item, merchant, count = 1) => {
     const cb = () => stores.combat.getState();
     const ms = () => stores.merchant.getState();
+    // The client selects a merchant and opens its window only once the party stands in range
+    // (`openMerchantForEntity`), and the selection with its goods outlives the window. So a merchant
+    // left selected by an earlier visit would pass for an arrival while the party still walks: the
+    // window is closed and the selection cleared first, and the wait is for the open window.
+    if (cb().isMerchantWindowOpen) cb().closeMerchantWindow();
+    ms().setSelectedMerchant(null);
     // Every purchase closes the merchant's window at its end, which removes the PURCHASE button
     // while the merchant can stay selected with its goods, so the merchant is selected every time.
     const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
@@ -1121,18 +1127,23 @@
     for (let end = Date.now() + 180000; !goods; await pause(1000)) {
       if (Date.now() > end) throw new Error(`${merchant} did not open`);
       const m = ms();
-      if (m.selectedMerchant?.name !== merchant || m.isLoadingItems || !(m.merchantItems ?? []).length) continue;
+      if (!cb().isMerchantWindowOpen || m.selectedMerchant?.name !== merchant || m.isLoadingItems || !(m.merchantItems ?? []).length) continue;
       goods = m.merchantItems.find((g) => g.item?.name === item) ?? false;
       if (goods === false) throw new Error(`${merchant} does not sell ${item}`);
     }
     let bought = 0;
     for (; bought < count; bought++) {
-      // The PURCHASE button shows only for an item considered from the merchant's side, once the
-      // merchant's window is open again.
+      // The PURCHASE button buys what the merchant's window considered when it last rendered. The
+      // window considers its first item once its goods load, which replaces a consider made before
+      // it (a Long Sword was bought for a Hand Drum), so this one waits for that, and the button is
+      // pressed only once the window shows this item and the button is enabled again, since it stays
+      // disabled for a moment after a consider while the client is busy.
+      for (let k = 0; k < 20 && !ms().consideredItem; k++) await pause(250);
       ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
+      const shown = () => ms().consideredItem?.item?.id === goods.item.id && [...document.querySelectorAll("body *")].some((el) => el.childElementCount === 0 && el.textContent.trim() === item);
       let button = null;
-      for (let k = 0; k < 20 && !(button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE")); k++) await pause(250);
-      if (!button || button.disabled) break;
+      for (let k = 0; k < 20 && !(shown() && (button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE" && !b.disabled))); k++) await pause(250);
+      if (!button || !shown()) break;
       const before = carried(item);
       button.click();
       for (let k = 0; k < 20 && carried(item) === before; k++) await pause(200);
