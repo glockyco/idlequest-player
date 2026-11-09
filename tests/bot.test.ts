@@ -545,14 +545,15 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     await farm.bot.tick();
     expect(farm.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
 
-    // An errand without its item wakes a script, and a party outside its rotation moves back into it.
+    // An errand without its item only notes, because the coordinator retries it, and a party outside
+    // its rotation moves back into it.
     const late = await install();
     late.bot.config.rotation = ["guktop"];
     late.combat.currentZone = 65;
     await late.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 30 });
     vi.advanceTimersByTime(31 * 60000);
     await late.bot.tick();
-    expect(late.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(true);
+    expect(late.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
     expect(late.moves).toEqual(["permafrost"]);
     vi.advanceTimersByTime(61000);
     await late.bot.tick();
@@ -1413,6 +1414,8 @@ test("an NPC wait ends at once while another NPC holds the spawn point, and wait
     expect(f.bot.state.task.error).toContain("Tykar Renlin cannot spawn while Lozani holds its spawn point");
     // The occupant may stand for days, so the task asks to come back in six hours.
     expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(5.9 * 3600000);
+    // The coordinator's retry handles it, so the failure notes without asking for attention.
+    expect(f.bot.state.alerts.filter((a) => a.kind === "task").map((a) => a.wake)).toEqual([false]);
 
     // An empty point respawns, so the wait goes on until the NPC stands there.
     zone.spawns = [];

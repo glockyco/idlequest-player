@@ -1686,7 +1686,8 @@
       } finally {
         if (mine()) {
           task.endedAt = now();
-          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : ""}; ${taskSummary(task)}`, task.status === "failed");
+          // A failure that says when to come back is handled by the coordinator's retry, so it only notes.
+          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
           state.pauseUntil = 0;
           state.pauseReason = null;
           state.restartNow ??= `the ${task.kind} task`;
@@ -1841,8 +1842,8 @@
     if (!e.widened) widenForErrand(i, e);
     const cb = i.stores.combat.getState();
     if (e.item && hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
-    // An errand without an item farms its enemies until its time is up, which is not a failure.
-    if (now() > e.until) return endErrand(i, e.item ? `no ${e.item} after ${e.minutes} minutes` : `${e.minutes} minutes done`, Boolean(e.item));
+    // An errand that runs out of time had no luck, which the coordinator retries, so it only notes.
+    if (now() > e.until) return endErrand(i, e.item ? `no ${e.item} after ${e.minutes} minutes` : `${e.minutes} minutes done`, false);
     if (i.guard?.phase !== "leaving" && zoneShort(i) !== e.zone) return endErrand(i, `the party left ${e.zone}`, true);
     const escapes = (i.guard?.trips ?? []).filter((t) => t.zone === cb.currentZone && t.t >= e.since);
     if (config.rotateEscapes > 0 && escapes.length >= config.rotateEscapes) return endErrand(i, `${escapes.length} guard escapes`, true);
