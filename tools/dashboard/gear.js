@@ -121,7 +121,7 @@ function renderSheet(sheet) {
           return `<li><span class="sn">${esc(SLOT_LABEL[s.slotNum])}</span> ${own} <span class="muted">to</span> <b>${esc(best?.name ?? s.optimal.item)}</b> <span class="muted">${esc(sourceText(s))}</span></li>`;
         })
         .join("")
-    : `<li class="muted">Every slot is at the best the account's items, the merchants and the wanted drops give.</li>`;
+    : `<li class="muted">No item from the account, the merchants or the wanted drops beats a worn one by enough: 0.5% of the wearer's output for a move, 1% for a drop. Armor and jewelry that add only AC and HP are worth almost nothing to XP per hour while leveling.</li>`;
   el.innerHTML = `<div class="sheet-head"><span class="cname">${esc(sheet.name)}</span><span class="muted">${esc(sheet.group)} · ${esc(sheet.race ?? "?")} ${esc(sheet.class ?? "?")} · level ${sheet.level ?? "?"}${sheet.xpPct != null ? ` (${Math.round(sheet.xpPct)}%)` : ""}</span></div>
     <div class="sheet-score">${head}</div>
     <div class="sheet-body">
@@ -134,7 +134,7 @@ function renderSheet(sheet) {
       </div>
       <div class="changes"><h4>What lifts the score</h4><ul class="plainlist">${list}</ul>
         <div class="totals-wrap">${totalsTable(sheet)}</div>
-        <p class="muted small">The score counts armor and jewelry by the gear pass's stat score. Weapons are listed but not scored. Optimal is the best the account's items, the merchants and the wanted drops give, not the best in the game. Hover a slot for its item.</p></div>
+        <p class="muted small">Items are valued by the share of the wearer's output they add (outputValue and weaponRatio in tools/lib/gear-data.mjs). Optimal is the best the account's items, the merchants and the wanted drops give, not the best in the game. Hover a slot for its item.</p></div>
     </div>`;
 }
 
