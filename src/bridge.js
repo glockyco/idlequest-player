@@ -800,7 +800,25 @@
   };
   const dialogueLoading = () => [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
   const dialogueOpen = () => !dialogueLoading() && (document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0 || Boolean(giveItemsReady()));
-  const spawnOf = (name) => (zoneSpawns?.spawns ?? []).find((x) => looseName(x.name).includes(looseName(name))) ?? null;
+  // Several NPCs can share a name and a spawn point (West Freeport's two prisoners), and only the
+  // one standing there can talk, so the spawned one comes first.
+  const spawnOf = (name) => {
+    const all = (zoneSpawns?.spawns ?? []).filter((x) => looseName(x.name).includes(looseName(name)));
+    return all.find((x) => x.state === "alive") ?? all[0] ?? null;
+  };
+  // The scene's world-interaction port, which the client hands to its UI through a React context,
+  // read from the provider's props in the React tree. It walks the party (`navigateToGroundPositionEQ`)
+  // and calls couriers (`summonCourier`).
+  const worldPort = () => {
+    for (const el of document.querySelectorAll("body *")) {
+      const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+      for (let f = key ? el[key] : null; f; f = f.return) {
+        const v = f.memoizedProps?.value;
+        if (v && typeof v.summonCourier === "function") return v;
+      }
+    }
+    throw new Error("world interaction port not found");
+  };
   // The client's zone sync state (`current` with `stateSessionId` and `zoneRevision`), which its own
   // spawn requests send along.
   let zoneSync;
@@ -846,8 +864,18 @@
     }
     return null;
   };
-  /** Click `name`'s row in the Path To list, which walks there. */
+  /**
+   * Walk towards quest NPC `name`. The client only opens the dialogue of an NPC loaded in the scene
+   * near the party, so a spawned NPC is walked to by its spawn position with the client's own ground
+   * navigation, which also finds ways into places such as a jail cell. Without a spawn record the
+   * Path To row walks there.
+   */
   const walkTowards = async (name) => {
+    const spawn = spawnOf(name);
+    if (spawn?.state === "alive" && Number.isFinite(spawn.x)) {
+      worldPort().navigateToGroundPositionEQ({ x: spawn.x, y: spawn.y, z: spawn.z ?? 0 }, () => {}, () => {});
+      return;
+    }
     const row = await pathToFind(() => pathToRow(name));
     if (!row) throw new Error(`quest NPC "${name}" is not in the Path To list`);
     row.click();
@@ -862,13 +890,19 @@
    * Items is available.
    */
   const talkToNpc = async (name, keywords = [], { timeoutMs = 120000 } = {}) => {
+    await refreshSpawns().catch(() => {});
     await walkTowards(name);
     let still = 0;
     let walks = 1;
     let hailedAt = 0;
     let was = null;
     for (let end = Date.now() + timeoutMs; !dialogueOpen(); ) {
-      if (Date.now() > end) throw new Error(`the dialogue of ${name} did not open`);
+      if (Date.now() > end) {
+        const spawn = spawnOf(name);
+        const distance = spawn && lastPos ? Math.round(Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y)) : null;
+        const at = lastPos ? `${Math.round(lastPos.x)}, ${Math.round(lastPos.y)}, ${Math.round(lastPos.z ?? 0)}` : "unknown";
+        throw new Error(`the dialogue of ${name} did not open: ${spawn ? `${distance ?? "?"} units from its spawn at ${Math.round(spawn.x)}, ${Math.round(spawn.y)}, ${Math.round(spawn.z ?? 0)}` : "not in the spawn list"}, party at ${at} after ${walks} walk(s)${hailedAt ? ", hailed" : ", never hailed"}`);
+      }
       await pause(1000);
       // A run against an obstacle keeps the run state, so a party that has not moved counts as still.
       const moved = was && lastPos ? Math.hypot(lastPos.x - was.x, lastPos.y - was.y) > 2 : true;
@@ -887,9 +921,10 @@
         continue;
       }
       hailedAt = Date.now();
-      // The zone's NPC list can lag a zone change, while the spawn list arrives with the zone.
+      // The spawned NPC is the one that answers. The zone's NPC list can lag a zone change and
+      // lists every NPC of the name, also those not standing in the zone.
       const listed = (stores.combat.getState().currentZoneNPCs ?? []).find((n) => looseName(n.name).includes(looseName(name)));
-      const npc = listed ? { id: listed.id, name: listed.name } : spawn && { id: spawn.npcId ?? spawn.id, name: spawn.name };
+      const npc = spawn ? { id: spawn.npcId ?? spawn.id, name: spawn.name } : listed && { id: listed.id, name: listed.name };
       if (!npc) throw new Error(`${name} is not in this zone`);
       await clientFn("hail")(npc.id, String(npc.name).replace(/_/g, " "));
     }
@@ -1129,7 +1164,7 @@
       // A component the catalog does not sell can run out mid-way, which ends the attempts.
       if (!r?.success) {
         if (done.attempted > 0) break;
-        throw new Error(`the craft failed: ${r?.error ?? r?.message ?? "no reply"}`);
+        throw new Error(`the craft failed: ${r?.error || r?.message || (r ? JSON.stringify(r).slice(0, 300) : "no reply")}`);
       }
       done.attempted += r.attempted ?? 1;
       done.successes += r.successes ?? 0;
@@ -1308,6 +1343,7 @@
     giveItem,
     buyItem,
     refreshSpawns,
+    worldPort,
     craftItem,
     sellCursor,
     closeWindows,

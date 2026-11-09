@@ -179,20 +179,9 @@
   const sellAt = (bag, slot) => iq().clientFn("sell")(bag, slot);
   // The call behind the Auto Bank macro: a banker courier arrives and sends crafting ingredients
   // and spell scrolls to the tradeskill bank. Nothing is sold or destroyed. It takes the scene's
-  // world-interaction port, which the client hands to its UI through a React context, so it is
-  // read from the provider's props in the React tree. It reports in chat and returns nothing.
-  const interactionPort = () => {
-    for (const el of document.querySelectorAll("body *")) {
-      const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
-      for (let f = key ? el[key] : null; f; f = f.return) {
-        const v = f.memoizedProps?.value;
-        if (v && typeof v.summonCourier === "function") return v;
-      }
-    }
-    throw new Error("world interaction port not found");
-  };
+  // world-interaction port (`worldPort` in src/bridge.js). It reports in chat and returns nothing.
   const autoBank = async () => {
-    await iq().clientFn("autoBank")("banker", interactionPort());
+    await iq().clientFn("autoBank")("banker", iq().worldPort());
     return null;
   };
 
