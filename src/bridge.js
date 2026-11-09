@@ -779,21 +779,33 @@
     return zoneSpawns.spawns.length;
   };
   const pathToRow = (name) => [...document.querySelectorAll(".merchant-name")].map((el) => el.parentElement).find((p) => p && /QUEST NPC/i.test(p.textContent ?? "") && looseName(p.querySelector(".merchant-name")?.textContent).includes(looseName(name)));
-  /** Click `name`'s row in the Path To list, which walks there. */
-  const walkTowards = async (name) => {
+  /**
+   * The Path To list row `find()` returns, or null. Right after a zone change the list can still show
+   * the old zone, so it is opened afresh once, and a zone whose NPC data failed to load has an empty
+   * list until the client fetches it again (`updateCurrentZoneNPCs`), which the second attempt asks for.
+   */
+  const pathToFind = async (find) => {
     const cb = () => stores.combat.getState();
-    // Right after a zone change the list can still show the old zone or be empty, so it is opened afresh once.
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt && cb().isMerchantListOpen) cb().toggleMerchantList();
-      if (attempt) await pause(500);
+      if (attempt) {
+        if (cb().isMerchantListOpen) cb().toggleMerchantList();
+        if (!(cb().currentZoneNPCs ?? []).length) await cb().updateCurrentZoneNPCs?.().catch(() => {});
+        await pause(500);
+      }
       if (!cb().isMerchantListOpen) cb().toggleMerchantList();
       for (let k = 0; k < 40; k++) {
-        const row = pathToRow(name);
-        if (row) return row.click();
+        const row = find();
+        if (row) return row;
         await pause(300);
       }
     }
-    throw new Error(`quest NPC "${name}" is not in the Path To list`);
+    return null;
+  };
+  /** Click `name`'s row in the Path To list, which walks there. */
+  const walkTowards = async (name) => {
+    const row = await pathToFind(() => pathToRow(name));
+    if (!row) throw new Error(`quest NPC "${name}" is not in the Path To list`);
+    row.click();
   };
   /**
    * Walk to quest NPC `name` in this zone and open its dialogue, which arriving does for most
@@ -1006,17 +1018,7 @@
     const cb = () => stores.combat.getState();
     const ms = () => stores.merchant.getState();
     if (ms().selectedMerchant?.name !== merchant) {
-      // Right after a zone change the list can still show the old zone, so it is opened afresh once.
-      let row = null;
-      for (let attempt = 0; attempt < 2 && !row; attempt++) {
-        if (attempt && cb().isMerchantListOpen) cb().toggleMerchantList();
-        if (attempt) await pause(1000);
-        if (!cb().isMerchantListOpen) cb().toggleMerchantList();
-        for (let k = 0; k < 40 && !row; k++) {
-          await pause(250);
-          row = [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? ""));
-        }
-      }
+      const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
       if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
       row.parentElement.click();
     }
