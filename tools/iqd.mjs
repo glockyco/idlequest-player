@@ -394,6 +394,37 @@ export function applySettingsInPage(a) {
   return changed;
 }
 
+/**
+ * Make the tab's AA settings match `a`: `allocation` percent for the active character and its
+ * account companions, and the level rule that pauses it below `a.level` for both
+ * (docs/plans/systems-research.md, section 1). Uses the Alternate Advancement window's own
+ * request. The server refuses both below the unlock level (46), so the allocation covers the
+ * characters past it and the rule waits for the host to reach it. The allocation goes first,
+ * because the window does not allocate while the rule pauses a character. Returns what it changed.
+ */
+export async function aaInPage(a) {
+  const host = window.iq.stores.character.getState().characterProfile.id;
+  const send = (action, extra) => window.iq.socket.sendCorrelatedJsonRequest(1237, 1238, { action, ...extra, hostCharacterId: host }, 10000);
+  let r = await send("get", {});
+  if (!r?.success) throw new Error(r?.error ?? "no advancement state");
+  const done = [];
+  const unlock = r.state.unlockLevel ?? 46;
+  const off = (r.state.party ?? []).filter((m) => m.level >= unlock && m.allocation !== a.allocation);
+  if (off.length) {
+    r = await send("allocate", { allocation: a.allocation, targets: off.map((m) => ({ characterId: m.characterId, leaseId: m.leaseId })) });
+    if (!r?.success) throw new Error(r?.error ?? "allocation refused");
+    done.push(`${a.allocation}% for ${off.map((m) => m.name).join(", ")}`);
+  }
+  for (const scope of r.state.characterLevel >= unlock ? ["player", "companions"] : []) {
+    const rule = r.state.levelRules?.[scope];
+    if (rule?.enabled && rule.level === a.level) continue;
+    r = await send("levelRule", { ruleScope: scope, levelRule: { enabled: true, level: a.level }, expectedRulesRevision: r.state.levelRules?.revision ?? 0 });
+    if (!r?.success) throw new Error(r?.error ?? `${scope} level rule refused`);
+    done.push(`${scope} paused below ${a.level}`);
+  }
+  return done;
+}
+
 /** Give the bot the items the roster gear plan wants kept, which its cleanup never sells. */
 export function setGearKeepInPage(a) {
   window.iqBot.set({ gearKeepIds: a.ids });
@@ -465,7 +496,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));

@@ -23,6 +23,13 @@ export const DEFAULTS = {
   taskStopMin: 90,
 };
 
+/**
+ * Every character's AA settings: all XP to AA, paused below level 60, because a rank gives 2 stat
+ * points for 75M XP while a level below 60 gives far more for less (docs/plans/systems-research.md,
+ * section 1).
+ */
+export const AA_POLICY = { allocation: 100, level: 60 };
+
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
 export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
