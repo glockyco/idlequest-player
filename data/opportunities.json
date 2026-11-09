@@ -123,5 +123,930 @@
     "count": 7,
     "camp": false,
     "retryMin": 10
+  },
+  {
+    "id": "gear-loam-encrusted-pantaloons",
+    "levels": [
+      43,
+      55
+    ],
+    "zone": "hole",
+    "keep": "Stonegrinder Minion",
+    "item": "Loam Encrusted Pantaloons",
+    "count": 20,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-giant-scalemail-sleeves",
+    "levels": [
+      39,
+      51
+    ],
+    "zone": "kael",
+    "keep": "Sergeant Breldimer",
+    "item": "Giant Scalemail Sleeves",
+    "count": 31,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-loam-encrusted-sleeves",
+    "levels": [
+      43,
+      55
+    ],
+    "zone": "hole",
+    "keep": "bejeweled elemental",
+    "item": "Loam Encrusted Sleeves",
+    "count": 20,
+    "retryMin": 20
+  },
+  {
+    "id": "gear-shrewd-cloak-of-the-kin",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "skyshrine",
+    "keep": "Count Taloob",
+    "item": "Shrewd Cloak of the Kin",
+    "count": 72,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-shroud-of-nature",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "nurga",
+    "keep": "goblin warder",
+    "item": "Shroud of Nature",
+    "count": 10,
+    "retryMin": 18
+  },
+  {
+    "id": "gear-footpads-of-the-tiger",
+    "levels": [
+      34,
+      46
+    ],
+    "zone": "stonebrunt",
+    "keep": "Snowbeast",
+    "item": "Footpads of the Tiger",
+    "count": 4,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-marr-s-promise",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "rathemtn",
+    "keep": "Tabien the Goodly",
+    "item": "Marr's Promise",
+    "count": 26,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-book-of-obulus",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "karnor",
+    "keep": "spectral turnkey",
+    "item": "Book of Obulus",
+    "count": 41,
+    "retryMin": 24
+  },
+  {
+    "id": "gear-tattered-mantle",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "burningwood",
+    "keep": "Gullerback",
+    "item": "Tattered Mantle",
+    "count": 49,
+    "retryMin": 5
+  },
+  {
+    "id": "gear-icy-skull",
+    "levels": [
+      40,
+      52
+    ],
+    "zone": "kael",
+    "keep": "Icecrafter Leyreon",
+    "item": "Icy Skull",
+    "count": 59,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-mantle-of-the-elder-serpent",
+    "levels": [
+      34,
+      46
+    ],
+    "zone": "stonebrunt",
+    "keep": "Slyder the Ancient",
+    "item": "Mantle of the Elder Serpent",
+    "count": 25,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-golden-efreeti-boots",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "soldungb",
+    "keep": "Efreeti Lord Djarn",
+    "item": "Golden Efreeti Boots",
+    "count": 67,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-cracked-leather-belt",
+    "levels": [
+      32,
+      44
+    ],
+    "zone": "hole",
+    "keep": "Lost Spirit",
+    "item": "Cracked Leather Belt",
+    "count": 31,
+    "retryMin": 20
+  },
+  {
+    "id": "gear-decisive-boots-of-the-kin",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "skyshrine",
+    "keep": "Count Darchen",
+    "item": "Decisive Boots of the Kin",
+    "count": 20,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-diamond-wedding-band",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "frozenshadow",
+    "keep": "Nosja",
+    "item": "Diamond Wedding Band",
+    "count": 71,
+    "retryMin": 7
+  },
+  {
+    "id": "gear-medicine-totem",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "frontiermtns",
+    "keep": "Blugtigin",
+    "item": "Medicine Totem",
+    "count": 71,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-kylong-war-helm",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "charasis",
+    "keep": "Skeleton Sepulcher",
+    "item": "Kylong War Helm",
+    "count": 42,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-crude-stein",
+    "levels": [
+      30,
+      42
+    ],
+    "zone": "oggok",
+    "keep": "Bouncer Mrang",
+    "item": "Crude Stein",
+    "count": 27,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-crystal-chitin-shield",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "velketor",
+    "keep": "Crystal Fang",
+    "item": "Crystal Chitin Shield",
+    "count": 44,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-reliant-cap-of-the-kin",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "skyshrine",
+    "keep": "Count Morin",
+    "item": "Reliant Cap of the Kin",
+    "count": 21,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-ornate-velium-pendant",
+    "levels": [
+      39,
+      51
+    ],
+    "zone": "thurgadinb",
+    "keep": "Councilor Icelok",
+    "item": "Ornate Velium Pendant",
+    "count": 58,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-ry-gorr-oracle-shield",
+    "levels": [
+      38,
+      50
+    ],
+    "zone": "eastwastes",
+    "keep": "Oracle of Ry`Gorr",
+    "item": "Ry`Gorr Oracle Shield",
+    "count": 48,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-crystal-chitin-gauntlets",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "velketor",
+    "keep": "crystalline hunter",
+    "item": "Crystal Chitin Gauntlets",
+    "count": 48,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-frozen-shadow-chain-chestguard",
+    "levels": [
+      28,
+      40
+    ],
+    "zone": "frozenshadow",
+    "keep": "angry chef",
+    "item": "Frozen Shadow Chain Chestguard",
+    "count": 17,
+    "retryMin": 7
+  },
+  {
+    "id": "gear-silver-chitin-hand-wraps",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "velketor",
+    "keep": "Frenzied Velium Broodling",
+    "item": "Silver Chitin Hand Wraps",
+    "count": 72,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-ring-of-the-ancients",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "sro",
+    "keep": "^an ancient cyclops",
+    "item": "Ring of the Ancients",
+    "count": 71,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-silver-steel-gauntlets",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "kael",
+    "keep": "Vkjor",
+    "item": "Silver Steel Gauntlets",
+    "count": 5,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-crystal-spider-eyes",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "velketor",
+    "keep": "Crystal Eyes",
+    "item": "Crystal Spider Eyes",
+    "count": 72,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-mud-covered-leather-leggings",
+    "levels": [
+      32,
+      44
+    ],
+    "zone": "hole",
+    "keep": "Lost Spirit",
+    "item": "Mud Covered Leather Leggings",
+    "count": 9,
+    "retryMin": 20
+  },
+  {
+    "id": "gear-braided-ivy-cords",
+    "levels": [
+      12,
+      24
+    ],
+    "zone": "lfaydark",
+    "keep": "Bracken Underbrush",
+    "item": "Braided Ivy Cords",
+    "count": 15,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-crystal-chitin-circlet",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "velketor",
+    "keep": "crystalline hunter",
+    "item": "Crystal Chitin Circlet",
+    "count": 71,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-hangman-s-noose",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "trakanon",
+    "keep": "Hangman",
+    "item": "Hangman's Noose",
+    "count": 72,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-ceremonial-iksar-chestplate",
+    "levels": [
+      39,
+      51
+    ],
+    "zone": "trakanon",
+    "keep": "Crusader Zoglic",
+    "item": "Ceremonial Iksar Chestplate",
+    "count": 41,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-mucilaginous-girdle",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "charasis",
+    "keep": "Sentient Bile",
+    "item": "Mucilaginous Girdle",
+    "count": 70,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-bracer-of-midnight",
+    "levels": [
+      37,
+      49
+    ],
+    "zone": "kael",
+    "keep": "Wenglawks Kkeak",
+    "item": "Bracer of Midnight",
+    "count": 4,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-ring-of-the-frost-spiders",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "velketor",
+    "keep": "Frenzied Velium Stalker",
+    "item": "Ring of the Frost Spiders",
+    "count": 20,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-silver-dragon-tattoo",
+    "levels": [
+      43,
+      55
+    ],
+    "zone": "kael",
+    "keep": "Nojas Blackfist",
+    "item": "Silver Dragon Tattoo",
+    "count": 70,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-rune-etched-wedding-band",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "frozenshadow",
+    "keep": "Daman",
+    "item": "Rune Etched Wedding Band",
+    "count": 72,
+    "retryMin": 7
+  },
+  {
+    "id": "gear-petrified-erudite-heart-amulet",
+    "levels": [
+      32,
+      44
+    ],
+    "zone": "soldungb",
+    "keep": "kobold noble",
+    "item": "Petrified Erudite Heart Amulet",
+    "count": 25,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-meditative-blanket",
+    "levels": [
+      39,
+      51
+    ],
+    "zone": "trakanon",
+    "keep": "Titail Sinok",
+    "item": "Meditative Blanket",
+    "count": 72,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-crystal-chitin-armplates",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "velketor",
+    "keep": "crystalline hunter",
+    "item": "Crystal Chitin Armplates",
+    "count": 48,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-flayed-coldain-skin-leggings",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "kael",
+    "keep": "Bjoskhua Blackfist",
+    "item": "Flayed Coldain-Skin Leggings",
+    "count": 41,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-obsidian-bead-hoop",
+    "levels": [
+      22,
+      34
+    ],
+    "zone": "soldunga",
+    "keep": "Singe",
+    "item": "Obsidian Bead Hoop",
+    "count": 72,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-crystal-chitin-boots",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "velketor",
+    "keep": "crystalline hunter",
+    "item": "Crystal Chitin Boots",
+    "count": 48,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-rune-etched-icewurm-fang",
+    "levels": [
+      40,
+      52
+    ],
+    "zone": "kael",
+    "keep": "Oracle Zardukel",
+    "item": "Rune Etched Icewurm Fang",
+    "count": 8,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-adamantite-epaulets",
+    "levels": [
+      30,
+      42
+    ],
+    "zone": "gukbottom",
+    "keep": "ghoul cavalier",
+    "item": "Adamantite Epaulets",
+    "count": 25,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-skullchip-bracelet",
+    "levels": [
+      32,
+      44
+    ],
+    "zone": "frontiermtns",
+    "keep": "Miner Bordakn",
+    "item": "Skullchip Bracelet",
+    "count": 38,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-boots-of-dark-passage",
+    "levels": [
+      40,
+      52
+    ],
+    "zone": "kael",
+    "keep": "Guard Falldrryn",
+    "item": "Boots of Dark Passage",
+    "count": 4,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-fayguard-parrying-dagger",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "charasis",
+    "keep": "Crypt Keeper",
+    "item": "Fayguard Parrying Dagger",
+    "count": 5,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-runed-cowl",
+    "levels": [
+      31,
+      43
+    ],
+    "zone": "gukbottom",
+    "keep": "ghoul sage",
+    "item": "Runed Cowl",
+    "count": 25,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-hand-of-the-reaper",
+    "levels": [
+      42,
+      54
+    ],
+    "zone": "charasis",
+    "keep": "Bile Sentinel",
+    "item": "Hand of the Reaper",
+    "count": 7,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-adamantite-club",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "charasis",
+    "keep": "Spectre Sepulcher",
+    "item": "Adamantite Club",
+    "count": 4,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-skull-shaped-barbute",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "gukbottom",
+    "keep": "ghoul lord",
+    "item": "Skull-shaped Barbute",
+    "count": 25,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-nightshade-wreath",
+    "levels": [
+      28,
+      40
+    ],
+    "zone": "mistmoore",
+    "keep": "Maid Issis",
+    "item": "Nightshade Wreath",
+    "count": 46,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-crystal-lined-slippers",
+    "levels": [
+      29,
+      41
+    ],
+    "zone": "crystal",
+    "keep": "crystal purifier",
+    "item": "Crystal Lined Slippers",
+    "count": 67,
+    "retryMin": 20
+  },
+  {
+    "id": "gear-impskin-gloves",
+    "levels": [
+      20,
+      32
+    ],
+    "zone": "soldunga",
+    "keep": "Kindle",
+    "item": "Impskin Gloves",
+    "count": 58,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-silver-chitin-wristband",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "velketor",
+    "keep": "Frenzied Velium Broodling",
+    "item": "Silver Chitin Wristband",
+    "count": 31,
+    "retryMin": 15
+  },
+  {
+    "id": "gear-dark-mail-gauntlets",
+    "levels": [
+      36,
+      48
+    ],
+    "zone": "gukbottom",
+    "keep": "ghoul sentinel",
+    "item": "Dark Mail Gauntlets",
+    "count": 26,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-grim-pauldrons",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "trakanon",
+    "keep": "Dreadlord Fanrik",
+    "item": "Grim Pauldrons",
+    "count": 21,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-tree-weave",
+    "levels": [
+      38,
+      50
+    ],
+    "zone": "dreadlands",
+    "keep": "mountain giant patriarch",
+    "item": "Tree Weave",
+    "count": 34,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-djarn-s-amethyst-ring",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "soldungb",
+    "keep": "Efreeti Lord Djarn",
+    "item": "Djarn's Amethyst Ring",
+    "count": 72,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-guardians-mace",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "charasis",
+    "keep": "Skeleton Sepulcher",
+    "item": "Guardians Mace",
+    "count": 9,
+    "retryMin": 21
+  },
+  {
+    "id": "gear-earring-of-essence",
+    "levels": [
+      29,
+      41
+    ],
+    "zone": "frontiermtns",
+    "keep": "Soothsayer Dregzak",
+    "item": "Earring of Essence",
+    "count": 72,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-golden-ear-stud",
+    "levels": [
+      10,
+      22
+    ],
+    "zone": "lakerathe",
+    "keep": "gnoll embalmer",
+    "item": "Golden Ear Stud",
+    "count": 59,
+    "when": "day",
+    "retryMin": 7
+  },
+  {
+    "id": "gear-boots-of-the-huntsman",
+    "levels": [
+      43,
+      55
+    ],
+    "zone": "thurgadinb",
+    "keep": "Grand Huntsman Darral",
+    "item": "Boots of the Huntsman",
+    "count": 38,
+    "retryMin": 350
+  },
+  {
+    "id": "gear-spiroc-feather-spaulders",
+    "levels": [
+      35,
+      47
+    ],
+    "zone": "timorous",
+    "keep": "spiroc roostmaster",
+    "item": "Spiroc Feather Spaulders",
+    "count": 13,
+    "retryMin": 120
+  },
+  {
+    "id": "gear-iksar-scaled-gloves",
+    "levels": [
+      26,
+      38
+    ],
+    "zone": "warslikswood",
+    "keep": "Grachnist the Destroyer",
+    "item": "Iksar Scaled Gloves",
+    "count": 46,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-crown-of-the-froglok-kings",
+    "levels": [
+      41,
+      53
+    ],
+    "zone": "gukbottom",
+    "keep": "froglok king",
+    "item": "Crown of the Froglok Kings",
+    "count": 68,
+    "retryMin": 29
+  },
+  {
+    "id": "gear-white-bear-pelt-cloak",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "kael",
+    "keep": "Trooper Derheim",
+    "item": "White Bear Pelt Cloak",
+    "count": 4,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-sentry-gauntlets",
+    "levels": [
+      29,
+      41
+    ],
+    "zone": "skyshrine",
+    "keep": "Sentry Nombole",
+    "item": "Sentry Gauntlets",
+    "count": 43,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-trakasaur-s-tooth",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "trakanon",
+    "keep": "Trakanasaur Rex",
+    "item": "Trakasaur's Tooth",
+    "count": 4,
+    "retryMin": 10
+  },
+  {
+    "id": "gear-gem-of-rage",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "kael",
+    "keep": "Reivaj the Battlerager",
+    "item": "Gem of Rage",
+    "count": 30,
+    "retryMin": 9
+  },
+  {
+    "id": "gear-crown-of-the-forlorn",
+    "levels": [
+      18,
+      30
+    ],
+    "zone": "warrens",
+    "keep": "King Gragnar",
+    "item": "Crown of the Forlorn",
+    "count": 45,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-sleeves-of-the-ancients",
+    "levels": [
+      22,
+      34
+    ],
+    "zone": "frontiermtns",
+    "keep": "Varithyx",
+    "item": "Sleeves of the Ancients",
+    "count": 35,
+    "retryMin": 11
+  },
+  {
+    "id": "gear-prowling-leopard-leggings",
+    "levels": [
+      31,
+      43
+    ],
+    "zone": "stonebrunt",
+    "keep": "Prowler of the Jungle",
+    "item": "Prowling Leopard Leggings",
+    "count": 54,
+    "retryMin": 20
+  },
+  {
+    "id": "gear-tranquil-staff",
+    "levels": [
+      35,
+      47
+    ],
+    "zone": "karnor",
+    "keep": "skeletal warlord",
+    "item": "Tranquil Staff",
+    "count": 4,
+    "retryMin": 24
+  },
+  {
+    "id": "gear-imbued-fighters-staff",
+    "levels": [
+      44,
+      56
+    ],
+    "zone": "sebilis",
+    "keep": "frenzied pox scarab",
+    "item": "Imbued Fighters Staff",
+    "count": 4,
+    "retryMin": 11
   }
 ]

@@ -496,7 +496,10 @@ class Daemon {
     const owned = {};
     // An opportunity is done once the account holds `count` copies (one for each character that needs
     // the piece), wherever they lie, because Inventory Search moves NO DROP pieces between characters.
-    for (const o of opportunities) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
+    // Only pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
+    const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
+    const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
+    for (const o of opportunities.filter(reachable)) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
     const holders = {};
     const started = {};
     const have = {};
