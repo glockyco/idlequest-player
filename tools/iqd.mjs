@@ -626,14 +626,14 @@ class Daemon {
     // What the hunts, errands and quest chains are for is never sold, wherever it is looted.
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...Object.values(quests).flatMap((q) => [q.reward, ...(q.doneIf ?? []), ...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])])].filter(Boolean))].sort();
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
         // An errand travels to its zone inside this call, after waiting for the fight at hand, which
         // takes up to about 30 s, so a shorter limit reported errands as not queued that had started.
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
-        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null });
+        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null, code: this.code });
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {

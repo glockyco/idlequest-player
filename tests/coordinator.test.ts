@@ -59,6 +59,17 @@ test("a quest that said when to come back waits until then instead of its retry 
   expect(decide({ now: NOW, tabs, quests, history: history(NOW - 60000) })).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
 });
 
+test("a failure under older code is retried at once after a deploy, and only once", () => {
+  const quests = { "paladin-epic-note": { class: "Paladin", minLevel: 15, retryMin: 120, steps: [{ zone: "freportw", npc: "a prisoner" }] } };
+  const tabs = [tab("A", "G2", 20, { members: [{ name: "Pal", class: "Paladin", level: 20 }] })];
+  const failed = (code: string) => [{ t: NOW - 40 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", status: "failed", code }];
+  expect(decide({ now: NOW, tabs, quests, history: failed("old"), code: "new" })).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
+  // Failed under the code that runs now, it waits its retry interval.
+  expect(decide({ now: NOW, tabs, quests, history: failed("new"), code: "new" })).toEqual([]);
+  // A run that ended well comes back after its interval, whatever the code.
+  expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" })).toEqual([]);
+});
+
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);

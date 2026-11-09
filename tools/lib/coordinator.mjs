@@ -115,17 +115,22 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
  * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
  *   errands by level range, because both change the limits the arms compare.
- * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
+ * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id, code }]`, where `code` is the
+ *   bot and bridge code the task ran under, and `code` the code the tabs run now.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's
  * errand and `stopTask` its running task.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
   // any other task holds its tab for `taskGapMin`, so a failing task cannot loop.
   const recent = (label) => history.some((h) => h.label === label && !h.nextAt && now - h.t < cfg.taskGapMin * 60000);
   const free = (t) => !busy.has(t.label) && !recent(t.label) && !out.some((o) => o.label === t.label);
+  // A task comes back after the time its last run said (`nextAt`, a respawn) or after `retryMin`. A
+  // failure under older code comes back at once, because the deploy since may have fixed its cause,
+  // and a repeat under the new code waits as usual.
+  const due = (last, retryMin) => !last || (last.status === "failed" && code != null && last.code != null && last.code !== code) || now >= (last.nextAt ?? last.t + retryMin * 60000);
 
   // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
   // a hunt without one, still running or ended unseen, by the time since it started, at most the
@@ -158,8 +163,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
       const who = [...begun, ...fresh];
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
-      // A task that said when to come back, such as a wait for a spawn point another NPC holds, sets the retry.
-      if (last && now < (last.nextAt ?? last.t + (q.retryMin ?? 120) * 60000)) continue;
+      if (!due(last, q.retryMin ?? 120)) continue;
       copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }
@@ -187,8 +191,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
-    // Come back when the last hunt said its points respawn, or after `retryMin` without that.
-    if (last && now < (last.nextAt ?? last.t + (o.retryMin ?? 30) * 60000)) continue;
+    if (!due(last, o.retryMin ?? 30)) continue;
     if (o.kind !== "errand" && huntMs(tab.label) >= cfg.huntShare * 3600000) continue;
     // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
