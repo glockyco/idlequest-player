@@ -2041,9 +2041,18 @@
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },
-    /** Stop the running task after its current step. The bot then gives the tab back to its leader. */
+    /**
+     * Stop the running task. The tab hunts again at once: a step in progress, such as a long wait for
+     * an NPC, would otherwise hold the task's pause until it ends, and the task stops at its next step.
+     */
     stopTask() {
-      if (state.task?.status === "running") state.task.status = "stopped";
+      if (state.task?.status === "running") {
+        state.task.status = "stopped";
+        state.pauseUntil = 0;
+        state.pauseReason = null;
+        state.restartNow ??= `the stopped ${state.task.kind} task`;
+        setTimeout(tick, 500);
+      }
       return state.task && { ...state.task };
     },
 
