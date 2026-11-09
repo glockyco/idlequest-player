@@ -341,7 +341,8 @@ export function crowdedZones(tabs, now) {
 
 // The share of its time a group idled on an errand in a zone another group played (group 4, once).
 const SHARED_COST = 0.4;
-// A trip out of the rotation gives up the group's XP for its length, and its zone's XP is not counted.
+// A trip out of the rotation gives up the group's XP for its length, less the XP the trip's zone
+// pays where `rates` measured it there (`zoneShare`).
 const TRIP_COST = 1;
 // The most levels a target may stand above the group's leader.
 const KILL_MARGIN = 3;
@@ -358,18 +359,19 @@ export const targetWorth = (x, hoursPerLevel = {}) => x.items.reduce((s, w) => s
  * experiment, whose arms a hunt would change) takes the target with the most worth over its cost
  * (`targetWorth`) among those it can kill (at most `KILL_MARGIN` levels above its leader) in zones no
  * tab found crowded by other players lately. The cost per hour is none in the tab's rotation, where
- * it hunts anyway, `SHARED_COST` there in a zone another tab plays, and `TRIP_COST` outside it. A
- * group whose members are all at `cfg.levelCap` pays only AA XP, so any worth pays. In the rotation
- * the hunt is an errand inside normal hunting, outside it a hunt task. `tabs` are `decide`'s,
- * `crowded` and `held` Sets of zones and groups. Returns `{ errands: [{ target, group, kind }],
- * status: [text] }` with one status per target.
+ * it hunts anyway, `SHARED_COST` there in a zone another tab plays, and `TRIP_COST` outside it less
+ * the share of its XP the trip's zone pays (`zoneShare(t, zone)`, the measured rate there over the
+ * rate where the tab is, or 0 unmeasured). A group whose members are all at `cfg.levelCap` pays only
+ * AA XP, so any worth pays. In the rotation the hunt is an errand inside normal hunting, outside it
+ * a hunt task. `tabs` are `decide`'s, `crowded` and `held` Sets of zones and groups. Returns
+ * `{ errands: [{ target, group, kind }], status: [text] }` with one status per target.
  */
-export function assignTargets({ targets, tabs, crowded = new Set(), held = new Set(), hoursPerLevel = {}, cfg = DEFAULTS }) {
+export function assignTargets({ targets, tabs, crowded = new Set(), held = new Set(), hoursPerLevel = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
   const free = (t) => !t.errand && t.task?.status !== "running" && !held.has(t.group);
   const lead = (t) => t.members[0]?.level ?? 0;
   const capped = (t) => t.members.length && t.members.every((m) => (m.level ?? 0) >= cfg.levelCap);
   const killable = (t, x) => x.npcLevel == null || x.npcLevel <= lead(t) + KILL_MARGIN;
-  const cost = (t, x) => (capped(t) ? 0 : !(t.rotation ?? []).includes(x.zone) ? TRIP_COST : tabs.some((o) => o !== t && o.zone === x.zone) ? SHARED_COST : 0);
+  const cost = (t, x) => (capped(t) ? 0 : !(t.rotation ?? []).includes(x.zone) ? Math.max(0, TRIP_COST - Math.min(1, zoneShare(t, x.zone) ?? 0)) : tabs.some((o) => o !== t && o.zone === x.zone) ? SHARED_COST : 0);
   const worth = (t, x) => (capped(t) ? x.perHour : targetWorth(x, hoursPerLevel));
   const errands = [];
   const taken = new Map();

@@ -643,7 +643,14 @@ class Daemon {
     const crowded = crowdedZones(tabs, now);
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
-    const { errands, status } = assignTargets({ targets: this.targetWants, tabs, crowded, held, hoursPerLevel });
+    // The share of a tab's XP per hour a trip zone pays at its leader's level, where both are measured.
+    const zoneShare = (t, zone) => {
+      const level = t.members[0]?.level ?? 0;
+      const there = estimate(rates, zone, level, now)?.xph;
+      const here = estimate(rates, t.zone, level, now)?.xph;
+      return there > 0 && here > 0 ? there / here : 0;
+    };
+    const { errands, status } = assignTargets({ targets: this.targetWants, tabs, crowded, held, hoursPerLevel, zoneShare });
     for (const { target: best, group, kind } of errands) opportunities.push({ id: targetId(best), group, ...(kind === "errand" ? { kind } : {}), zone: best.zone, keep: best.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), item: best.items[0].item, count: 1, retryMin: kind === "errand" ? 120 : 60, minutes: 30 });
     if (errands.length) this.log(`coordinator: ${errands.length} wanted targets (${errands.map((e) => `${e.target.npc} in ${e.target.zone} for ${e.group}, ${e.kind}`).join(", ")})`);
     // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
