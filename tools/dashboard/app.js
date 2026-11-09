@@ -170,9 +170,9 @@ function renderCoordinator(s) {
   if (!s.daemon?.coordinate) return void ($("coord").innerHTML = `<p class="muted">Off. Start the collector with <code>--coordinate</code> to let it queue hand-ins and hunts.</p>`);
   if (!c?.last) return void ($("coord").innerHTML = `<p class="muted">No pass yet.</p>`);
   const stock = Object.entries(c.last.stock ?? {}).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
-  const owned = Object.entries(c.last.owned ?? {}).map(([k, v]) => `${k} ${v ? "owned" : "open"}`).join(", ") || "none";
+  const open = Object.entries(c.last.missing ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "none";
   $("coord").innerHTML =
-    `<p>Last pass ${dur(s.now - c.last.t)} ago. Lightstones on the account: ${esc(stock)}. Opportunities: ${esc(owned)}.</p>` +
+    `<p>Last pass ${dur(s.now - c.last.t)} ago. Lightstones on the account: ${esc(stock)}. Copies still missing: ${esc(open)}.</p>` +
     table(["Time", "Tab", "Task", "Opportunity"], [...c.history].reverse().slice(0, 20).map((h) => [clock(h.t), esc(h.label), esc(h.kind), esc(h.id ?? "")]));
 }
 

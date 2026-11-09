@@ -54,12 +54,22 @@ test("a chain that needs a piece runs for as many members as there are free copi
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);
-  expect(decide({ now: NOW, tabs, opportunities: [page], owned: { p3: true } })).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], missing: { p3: 0 } })).toEqual([]);
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, when: "night" }] })).toEqual([]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, { gameHour: 21 })], opportunities: [{ ...page, when: "night" }] })).toHaveLength(1);
   const history = [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history })).toEqual([]);
   expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history })).toHaveLength(1);
+});
+
+test("quest pieces go first, the one most characters still miss first, and gear hunts keep the file order", () => {
+  const tabs = [tab("A", "G1", 40)];
+  const gear = { id: "gear-belt", group: "G1", zone: "kurn", keep: "a skeleton", item: "Belt" };
+  const head = { id: "nec-motte", group: "G1", zone: "freporte", keep: "Sir Edwin Motte", item: "Head", quest: "nec" };
+  const ring = { id: "clr-gimblox", group: "G1", zone: "soldunga", keep: "Lord Gimblox", item: "Ring", quest: "clr" };
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 7, "clr-gimblox": 1 } })[0].id).toBe("nec-motte");
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 1 } })[0].id).toBe("clr-gimblox");
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 0 } })[0].id).toBe("gear-belt");
 });
 
 test("a group whose leader carries the piece does not hunt it", () => {

@@ -550,7 +550,7 @@ class Daemon {
       q.needs.forEach((n, k) => (have[n] = Math.min(have[n] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0))));
       started[id].push(...needers.filter((who) => rows.every((r) => r.some((m) => m.who === who))));
     }
-    const owned = {};
+    const missing = {};
     const carriedBy = {};
     // An opportunity is done once the account holds the copies its characters need (`piecesNeeded`),
     // wherever they lie, because Inventory Search moves NO DROP pieces between characters. Only
@@ -562,7 +562,7 @@ class Daemon {
     await Promise.all(Array.from({ length: 4 }, async () => {
       for (let o; (o = queue.shift()); ) {
         const rows = (await search(o.item)).filter((m) => m.item === o.item);
-        owned[o.id] = rows.reduce((a, m) => a + m.n, 0) >= piecesNeeded(o, { quests, holders, members });
+        missing[o.id] = Math.max(0, piecesNeeded(o, { quests, holders, members }) - rows.reduce((a, m) => a + m.n, 0));
         carriedBy[o.id] = rows.map((m) => m.who);
       }
     }));
@@ -604,7 +604,7 @@ class Daemon {
     // What the hunts, errands and quest chains are for is never sold, wherever it is looted.
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...Object.values(quests).flatMap((q) => [q.reward, ...(q.doneIf ?? []), ...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])])].filter(Boolean))].sort();
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history });
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -639,7 +639,7 @@ class Daemon {
       this.log(`coordinator: ${t.label} aa: ${done.join("; ")}`);
     }
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
     metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
   }
