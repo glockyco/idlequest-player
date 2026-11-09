@@ -348,6 +348,9 @@ export function drainInPage(a) {
 
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
+// The raid budget a gear pass leaves untouched: an hour of raid time and a casino boss potion a day
+// (docs/plans/leveling-plan.md, lever 9).
+const RAID_PP_PER_DAY = 5300;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
 /** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only. */
@@ -836,7 +839,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { BUY_PP, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
+    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -855,7 +858,7 @@ class Daemon {
     // The merchant goods, the drops of the band rotations and of the gear picks (data/gear-picks.json,
     // sources outside the rotations), and their item rows, read once.
     if (!this.shop) {
-      const goods = await merchantGoods(contentRoot(), { maxPp: BUY_PP });
+      const goods = await merchantGoods(contentRoot());
       this.shop = goods.shop;
       this.items = goods.items;
       const dropped = await zoneDrops(contentRoot(), JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8")));
@@ -894,7 +897,7 @@ class Daemon {
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // The 40 best targets are all the hunts and the dashboard's list need.
     this.targetWants = targets.slice(0, 40);
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the

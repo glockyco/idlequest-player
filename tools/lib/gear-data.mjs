@@ -308,17 +308,16 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
 
 /**
  * The merchant goods the roster gear plan may buy (tools/lib/gear-plan.mjs `shop`): items sold in a
- * city of data/shop-zones.json at a base price of at most `maxPp` platinum that carry stats, armor,
- * a weapon's damage or an instrument, with up to two sellers each. Only cities, because a party of
- * any level can shop there. Resolves with `{ shop: [{ itemId, merchant, zone,
- * price }], items: Map(id -> content row) }`.
+ * city of data/shop-zones.json that carry stats, armor, a weapon's damage or an instrument, with up
+ * to two sellers each. Only cities, because a party of any level can shop there. Resolves with
+ * `{ shop: [{ itemId, merchant, zone, price }], items: Map(id -> content row) }`, prices in platinum.
  */
-export async function merchantGoods(root, { maxPp }) {
+export async function merchantGoods(root) {
   const sold = new Set();
   for await (const m of rows(root, "merchantlist")) sold.add(m.item);
   const items = new Map();
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
-  for await (const i of rows(root, "items")) if (sold.has(i.id) && i.price / 1000 <= maxPp && i.slots > 0 && stats.some((k) => i[k] > 0)) items.set(i.id, i);
+  for await (const i of rows(root, "items")) if (sold.has(i.id) && i.slots > 0 && stats.some((k) => i[k] > 0)) items.set(i.id, i);
   const { sellers } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root), maxNpcLevel: -1 });
   const cities = new Set(JSON.parse(await readFile(new URL("../../data/shop-zones.json", import.meta.url), "utf8")));
   const shop = [];

@@ -285,7 +285,8 @@ client's haste and regeneration caps, the main hand by `weaponRatio` against wha
 swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
 saves the group (docs/client-internals.md, Bard instruments). Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
-buys for at most `BUY_PP` platinum in one city. `iqd run --coordinate` runs the plan every hour:
+buys in one city for at most the account's last hour of income less the raid budget's share
+(`buyBudget`), pulling coin from the largest account balance when the leader carries too little. `iqd run --coordinate` runs the plan every hour:
 worn items and the leaders' bags come from each party's own inventories, the companions' carried
 items from Inventory Search, and the moves run as one gear task (`iqBot.gear`), which buys or pulls
 each item and gives it equipped to its receiver, or into the bags for a Bard's instrument, in the party or not. Each bot keeps what the plan

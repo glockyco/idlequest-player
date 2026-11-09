@@ -45,10 +45,12 @@ export const fists = (cls, level, race) => {
 // The weapon type each class's main hand must keep.
 const MAIN_HAND_TYPE = { rogue: PIERCING };
 /**
- * Platinum one gear pass may spend at merchants. Merchant goods within it already replace empty
- * slots and starter items, and a pass an hour keeps the spending small against the account's coin.
+ * Platinum one gear pass may spend at merchants: what the account earned in the hour before it
+ * (`platPerHour` of every group, the pass runs hourly), less the raid budget's share of that hour,
+ * so purchases spend income and the standing coin stays for raids (`docs/plans/gear-acquisition.md`).
+ * `rows` are `bun tools/groups.mjs --json` rows, `raidPpPerDay` the raid budget.
  */
-export const BUY_PP = 20;
+export const buyBudget = (rows, raidPpPerDay) => Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24);
 /**
  * How much of the party's XP rate one percent of a member's melee or spell damage is worth: the XP
  * elasticity at its level times its measured share of the party's damage (`p.shares`, from

@@ -45,7 +45,7 @@ enemy's worth adds its items, since each drop rolls on its own, so a copy of any
 | Way | H | k | When it is chosen |
 | --- | --- | --- | --- |
 | Move | none | none | the account holds a free copy (the gear plan's moves) |
-| Purchase | none | platinum | a merchant in a city sells it, within `BUY_PP` platinum a pass |
+| Purchase | none | platinum | a merchant in a city sells it, within the pass's platinum budget |
 | Errand | hours per copy | 0, or `sharedCost` when another group plays the zone | the enemy's zone is in the group's rotation |
 | Camp | hours per copy | 1 less the share of the group's XP the trip zone pays | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours` | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival, `1 - (1 - spawn)^points`, times each drop chance and copy value |
@@ -55,10 +55,11 @@ than `killMargin` levels above the hunting group's leader is not hunted.
 
 ## Platinum
 
-The account earns about 5,600 pp an hour and holds far more than it spends, so a fixed budget per
-pass (`BUY_PP`) leaves purchases undone that would pay. Platinum is worth little until its uses run
-short, of which the raid budget is the largest. The rule to build: a purchase pays when `V > 0` and
-the account's platinum after it stays above the raid budget of the coming days.
+Platinum is worth little until its uses run short, of which the raid budget is the largest, and the
+account earns far more than it spends. So a gear pass, which runs hourly, may spend what the account
+earned in the hour before it (the groups' `platPerHour`) less the raid budget's share of that hour
+(`buyBudget`), and a purchase pays when its gain clears the move threshold. The standing coin stays
+for raids. A leader that carries too little for a purchase pulls the largest account balance first.
 
 ## Measured and assumed
 

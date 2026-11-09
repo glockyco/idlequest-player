@@ -3,7 +3,10 @@
 // account: which carried item each character should wear, and from whom it comes. The coordinator
 // in tools/iqd.mjs runs the same plan and carries it out as a gear task.
 //
-//   bun tools/handdown.mjs [items.json] [--content <idlequest-content clone>] [--min-gain 5] [--json]
+//   bun tools/handdown.mjs [items.json] [--content <idlequest-content clone>] [--min-gain 0.5] [--buy-pp 0] [--json]
+//
+// `--min-gain` is in tenths of a percent of the group's XP rate, and `--buy-pp` the platinum the plan
+// may spend at merchants (iqd spends the account's last hour of income less the raid budget).
 //
 // `items.json` is the survey (`iq.searchAccount()` writes runs/state/account-items.json). Races
 // come from the iqd database (runs/iq.db), groups from data/roster.json and item stats from the
@@ -13,13 +16,14 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { attachEffects, merchantGoods, rows } from "./lib/gear-data.mjs";
-import { BUY_PP, planGear, rosterPeople } from "./lib/gear-plan.mjs";
+import { planGear, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     content: { type: "string", default: `${homedir()}/src/github.com/brynnb/idlequest-content` },
-    "min-gain": { type: "string", default: "5" },
+    "min-gain": { type: "string", default: "0.5" },
+    "buy-pp": { type: "string", default: "0" },
     json: { type: "boolean", default: false },
   },
 });
@@ -30,13 +34,13 @@ const groupOf = new Map(roster.groups.flatMap((g) => (g.members ?? []).map((n) =
 const db = new Database(`${REPO}runs/iq.db`, { readonly: true });
 const raceOf = new Map(db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
 const ids = new Set(survey.map((r) => r.itemId));
-const { shop, items } = await merchantGoods(opt.content, { maxPp: BUY_PP });
+const { shop, items } = await merchantGoods(opt.content);
 for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
 await attachEffects(items, opt.content);
 
 const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
 const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
-const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: BUY_PP });
+const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: Number(opt["buy-pp"]) });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));
 else {
   const byGroup = Map.groupBy(moves, (m) => groupOf.get(m.to));

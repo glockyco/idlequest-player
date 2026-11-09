@@ -1223,6 +1223,12 @@
         if (mv.buy && i.carried(mv.item) < 1) {
           if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
           if (i.bagSpace().free < 1) await keepReserve(i, true);
+          // The gear plan spends account coin, so a leader that carries too little pulls the
+          // largest account balance first (Manage Money), as for a resurrection. Whether that
+          // sufficed shows in the purchase, which reports the platinum carried when it fails.
+          const p = i.stores.character.getState().characterProfile ?? {};
+          const short = (mv.buy.price ?? 0) - (p.platinum ?? 0);
+          if (short > 0) log(`gear: ${(await pullCoin(i, short).catch((e) => `no pull (${e.message})`)) ?? "no balance large enough"} for ${mv.item} (${mv.buy.price} pp)`);
           const r = await step(`buy ${mv.item} from ${mv.buy.merchant}`, () => i.buyItem(mv.item, mv.buy.merchant, 1), 240000);
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
@@ -2305,7 +2311,7 @@
     gear({ moves }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone } } : {}) })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },
