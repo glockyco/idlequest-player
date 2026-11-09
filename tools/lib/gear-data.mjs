@@ -54,7 +54,7 @@ export const scoreFor = (i, c, level) => statScore(i, c, level) + HASTE_WEIGHT *
 const WIS_CLASSES = new Set(["cleric", "paladin", "ranger", "druid", "shaman"]);
 const NO_MANA = new Set(["warrior", "monk", "rogue"]);
 // The share of a class's output that is melee; the rest is spells, paid for with mana.
-const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
+export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
 /**
  * What a set of worn armor and jewelry adds to a character's own output, in tenths of a percent, from
  * the client's formulas (docs/client-internals.md, "What item stats and effects do"):

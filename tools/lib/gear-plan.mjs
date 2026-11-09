@@ -16,7 +16,7 @@
 // so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
 // replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
 // shield never replaces a weapon.
-import { BIT, CLASS_KEYS, RACE, SLOT_BY_NUM, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
+import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 const PRIMARY = 13;
@@ -47,8 +47,12 @@ const MAIN_HAND_TYPE = { rogue: PIERCING };
  * slots and starter items, and a pass an hour keeps the spending small against the account's coin.
  */
 export const BUY_PP = 20;
-/** A main hand must beat the worn one by this much damage per delay to be worth a move. */
-export const MIN_RATIO_GAIN = 0.03;
+/**
+ * A weapon's gain in `outputValue`'s unit (tenths of a percent of the wearer's output): the change in
+ * its melee value over what it swings now, times the class's melee share, so weapon and armor gains
+ * compare and share one threshold.
+ */
+const meleeGain = (delta, now, p) => (now > 0 ? (1000 * delta * (MELEE_SHARE[groupOf(p.cls)] ?? 0)) / now : 0);
 
 // Item kinds for Inventory Search, which matches names anywhere and lists at most 200 rows.
 const KINDS = ["Bracer", "Ring", "Mask", "Cloak", "Cape", "Boots", "Shoes", "Gloves", "Gauntlets", "Helm", "Cap", "Robe", "Tunic", "Breastplate", "Leggings", "Pants", "Sleeves", "Vambraces", "Belt", "Girdle", "Earring", "Necklace", "Amulet", "Choker", "Shield", "Sword", "Dagger", "Staff", "Mace", "Axe", "Spear", "Bow", "Hammer", "Club", "Wand", "Mantle", "Shoulder", "Collar", "Veil", "Band", "Stud", "Armor", "Coif", "Skullcap", "Wristband", "Greaves", "Jerkin", "Shirt", "Hood", "Scimitar", "Blade", "Rapier", "Flail", "Warhammer", "Knife", "Fist", "Totem", "Idol", "Charm", "Medallion", "Pendant", "Bandolier", "Sash", "Gorget", "Brooch", "Torque", "Circlet", "Crown"];
@@ -174,11 +178,11 @@ const fits = (item, p, slot) =>
  * holds no free copy of, as many copies as characters would still gain from one after the moves,
  * which covers the drops. A copy beyond that demand is surplus.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
- * by `2 * minGain` (armor) or `2 * MIN_RATIO_GAIN` (main hand), the dropped items worth hunting for.
+ * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
+ * `outputValue`'s unit, tenths of a percent of the wearer's output.
  * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
  * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
- * worn now (`setValue`, a Bard's instruments included, weapons left out because their ratio is
- * another unit), after this pass's moves, and after the moves and every wanted drop; and for each
+ * worn now (`setValue`, a Bard's instruments included, weapons left out), after this pass's moves, and after the moves and every wanted drop; and for each
  * of the 22 slots of the paper doll (`DOLL_SLOTS`) the item worn now (`{ itemId, name }`), the last
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
@@ -241,15 +245,15 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       // A one-hander counts for its swings, with the chance that they happen, and replaces only
       // a weapon or nothing.
       if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
-        const gain = chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld);
-        if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
+        const gain = meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+        if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
       }
     }
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
     if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && setValue([item], p) >= (held ? setValue([held], p) : 0)) {
-      const gain = weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld);
-      if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
+      const gain = meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+      if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;
   };
@@ -279,7 +283,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (zone == null || o.r.buy.zone === zone));
   const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy) ? o : a), null);
   for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
-    const best = top(offers.filter((o) => !o.weapon)) ?? top(offers);
+    const best = top(offers);
     const { r, p, slot, gain } = best;
     const replaced = worn.get(p.name).get(slot) ?? null;
     moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: SLOT_BY_NUM[slot], slotNum: slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
@@ -314,7 +318,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     const r = virtual(d.itemId);
     for (const p of people) {
       for (const o of offer(r, p)) {
-        if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain) || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
+        if (o.gain < 2 * minGain || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
         const k = `${p.name}:${o.slot}`;
         const best = want.get(k);
         if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) {

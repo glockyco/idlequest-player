@@ -41,9 +41,10 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
   // A weapon replaces the Monk's fists (10 at 34 delay at level 30) whatever its type, and a
-  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. At 30 a
-  // two-hander's hit also carries the client's flat bonus, which the gain counts.
-  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.1]]);
+  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. Gains are the
+  // change of the melee value in tenths of a percent: the Long Sword is 143% over the Rusty Sword,
+  // the Great Axe 22% over the Monk's two fists.
+  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 1426.99], ["Great Axe", "Mnk", 218.43]]);
   // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
@@ -136,14 +137,15 @@ test("the off hand takes a one-hander for a Warrior from level 13, a shield for 
   const main = (who: string) => row(who, 3, "Equipped", 13, 1);
   const person = (cls: string, level: number) => ({ name: "Me", cls, level, race: "" });
   const moves = (cls: string, level: number, survey: ReturnType<typeof row>[]) => planGear({ survey, items, people: [person(cls, level)] }).moves.map((m) => [m.item, m.slot, m.gain]);
-  // The Warrior at 13 swings the off hand 83/400 of the time: 0.2075 x 6/20.
-  expect(moves("warrior", 13, [main("Me"), carried[0]])).toEqual([["Twin Dagger", "secondary", 0.06]]);
+  // The Warrior at 13 swings the off hand 83/400 of the time: 0.2075 x 6/20 over a 9/25 sword, 17%.
+  expect(moves("warrior", 13, [main("Me"), carried[0]])).toEqual([["Twin Dagger", "secondary", 172.92]]);
   expect(moves("warrior", 12, [main("Me"), carried[0]])).toEqual([]);
   // A Paladin never has the skill, so only the shield is offered.
   expect(moves("paladin", 30, [main("Me"), ...carried])).toEqual([["Buckler", "secondary", expect.any(Number)]]);
   expect(moves("paladin", 30, [main("Me"), carried[0]])).toEqual([]);
-  // A Warrior with both takes the shield and then keeps it, because a weapon replaces no shield.
-  expect(moves("warrior", 30, [main("Me"), ...carried]).map((m) => m[0])).toEqual(["Buckler"]);
+  // A Warrior with both takes the dagger, whose off-hand swings add more output than the shield's
+  // stats, and keeps it, because a shield replaces no weapon.
+  expect(moves("warrior", 30, [main("Me"), ...carried]).map((m) => m[0])).toEqual(["Twin Dagger"]);
   // A two-hander in the main hand takes neither.
   const axe = row("Me", 5, "Equipped", 13, 1);
   expect(moves("warrior", 30, [axe, ...carried])).toEqual([]);

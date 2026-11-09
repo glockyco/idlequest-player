@@ -603,7 +603,7 @@ const share = (score, of) => (of > 0 ? Math.min(1, score / of) : null);
  * set score of its armor and jewelry now, after the queued moves and at the target, which is what
  * the moves and every wanted drop would give it, and the shares of the target. `share` is the mean
  * of the characters' shares now and `afterMoves` the mean after the queued moves. Weapons are not
- * in the score (their damage ratio is another unit).
+ * in the score, because their gain is relative to the weapon worn and has no absolute value to sum.
  */
 export function gearView(db, { roster }) {
   const plan = metaRow(db, "gearPlan");
