@@ -183,12 +183,14 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   Against same-level or higher casters a modifier 1 dispel mostly fails. `analyze.mjs` reports waits
   with cure or dispel casts separately ("Between pulls").
 - Roots between pulls: the wait reads each member's and pet's active effects from the effects
-  registry (`getEffects(entityId).active`, `OK.pretty.js:804-809`). Entity ids are
-  `character:<id>`, `bot:<owner>:<id>` and `pet:<owner>:<summonInstanceId>`
-  (`main.pretty.js:3820-3833`). Each effect carries `spellId`, `casterLevel` and `remainingTicks`
-  (`BQ.pretty.js:20683-20692`), so the remaining root time and the dispel chance are known in
-  advance. The bot uses this to turn cures on only for roots worth dispelling (`dispelRoots` in
-  `src/bot.js`).
+  registry (`getEffects(entityId).active`, `OK.pretty.js:804-809`) and tests them with the root
+  test the release exports (`V0` in `OSTsR53r.js`). Entity ids are `character:<id>`,
+  `bot:<owner>:<id>` and `pet:<owner>:<summonInstanceId>` (`main.pretty.js:3820-3833`). Each
+  effect carries `spellId`, `casterLevel` and `remainingTicks` (`BQ.pretty.js:20683-20692`), so
+  the remaining root time and the dispel chance are known in advance. The bridge finds the
+  registry and the root test by their source (`service.effects` and `fn.rootState` in
+  `CLIENT_SURFACE`) and lists the party's roots as `iq.roots()`, and the bot turns cures on only for
+  roots worth dispelling (`dispelRoots` in `src/bot.js`).
 
 ### Auto Attack, pulls and direct starts
 

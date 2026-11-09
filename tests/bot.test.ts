@@ -171,11 +171,9 @@ async function install(partyIds: number[] = []) {
     },
     mods: {
       game: { G: { getInstance: () => runtime } },
-      effects: {
-        l: { records: effects, getEffects: (id: string) => ({ active: effects.get(id) ?? [] }) },
-        cm: ({ effects: list }: { effects: { root: boolean }[] }) => ({ isRooted: list.some((e) => e.root) }),
-      },
     },
+    // Like the bridge, the roots on the party from the client's effects registry.
+    roots: () => [...effects].flatMap(([id, list]) => list.filter((e) => e.root).map((e) => ({ id, app: `${id}|${e.effectId}`, spellId: e.spellId, casterLevel: e.casterLevel, endsAt: Date.now() + e.remainingTicks * 6000 }))),
     command,
     // Like the bridge, a tactic for an account companion lands in the party spells store.
     setTactic: (who: string, key: string, value: unknown) => {

@@ -72,11 +72,15 @@
       raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
       // What a click on an NPC sends, (npcId, name). Bun reformats the sources it loads, so the pattern allows spaces.
       hail: /^function [\w$]+\(\s*e,\s*t,\s*n\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*e,\s*t,\s*n\s*\);?\s*\}$/,
+      // The control state of an entity from its active effects, ({ effects }) => { isRooted, ... }:
+      // the readiness wait's root test ("Waiting for root to wear off the party").
+      rootState: /^function [\w$]+\(\s*\w+\s*\)\s*\{[\s\S]{0,500}remainingTicks[\s\S]{0,300}stunMs[\s\S]{0,200}hardControlled[\s\S]{0,100}feignDeath[\s\S]{0,40}\}$/,
     };
     // Client service objects, found by one method and pieces of its source like FUNCTIONS. The
     // bundle also exports a stand-in whose every method returns false, so a name is not enough.
     const SERVICES = {
       combat: { method: "abandonRaid", needle: ["Raid abandonment was not confirmed"] }, // raid fights, the raid leader's death and End Raid
+      effects: { method: "getEffects", needle: ["records.get", "effects"] }, // the effects registry: every entity's active effects by entity id
     };
     const matches = (needle, src) => (needle instanceof RegExp ? needle.test(src) : needle.every((s) => src.includes(s)));
     const isService = (v, { method, needle }) => {
@@ -1337,6 +1341,24 @@
       const k = byName ? `character:${byName.characterId}` : /^\d+$/.test(String(who)) ? `character:${who}` : `bot:${me.id}:${who}`;
       stores.partySpells.getState().setTactic(k, key, value);
       return { key: k, overrides: stores.partySpells.getState().overridesByCompanion[k] };
+    },
+    /**
+     * The roots on the leader, the account companions and their pets, as the readiness wait sees
+     * them in the client's effects registry: `[{ id, app, spellId, casterLevel, endsAt }]`, where
+     * `app` names one application of the root. Runtime roots count down in 6-second ticks.
+     */
+    roots() {
+      const reg = services.effects;
+      const rootState = functions.rootState;
+      if (!reg || !rootState) return [];
+      const ids = reg.records instanceof Map ? [...reg.records.keys()] : Object.keys(reg.records ?? {});
+      const out = [];
+      for (const id of ids) {
+        if (!/^(character|pet):/.test(id)) continue;
+        // A runtime root's `effectId` repeats for the same spell, so it names the application.
+        for (const e of reg.getEffects(id)?.active ?? []) if (rootState({ effects: [e] }).isRooted) out.push({ id, app: e.applicationId ?? `${id}|${e.effectId}`, spellId: e.spellId, casterLevel: e.casterLevel ?? 0, endsAt: e.expiresAtMs ?? Date.now() + (e.remainingTicks ?? 0) * 6000 });
+      }
+      return out;
     },
     /**
      * The raid window's own actions (docs/client-internals.md, "How a raid fight runs" and "Running

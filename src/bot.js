@@ -806,7 +806,7 @@
   const watchIdle = async (i, cb) => {
     const a = i.activity?.();
     const spec = a?.act === "idle" ? REMEDIES[a.why] : null;
-    // A rooted member keeps the readiness wait on, and Nullify Magic (`watchRoots`) breaks roots.
+    // A rooted member keeps the readiness wait on, and the root dispel (`dispelRoots`) breaks roots.
     if (!spec || (a.why === "readyWait" && partyRoots(i).length)) return void (state.idleCase = null);
     let c = state.idleCase;
     // An errand has its own ladder, so the case starts over when one begins or ends.
@@ -910,20 +910,9 @@
     1526: ["Annul Magic", 9],
     1697: ["Recant Magic", 9],
   };
-  const effectsModule = (i) => Object.values(i.mods ?? {}).find((m) => typeof m?.l?.getEffects === "function" && typeof m.cm === "function");
-  const partyRoots = (i) => {
-    const fx = effectsModule(i);
-    if (!fx) return [];
-    const recs = fx.l.records;
-    const ids = recs instanceof Map ? [...recs.keys()] : Object.keys(recs ?? {});
-    const out = [];
-    for (const id of ids) {
-      if (!/^(character|pet):/.test(id)) continue;
-      // Runtime roots carry `remainingTicks` (6 s each) and an `effectId` that repeats for the same spell.
-      for (const e of fx.l.getEffects(id)?.active ?? []) if (fx.cm({ effects: [e] }).isRooted) out.push({ id, app: e.applicationId ?? `${id}|${e.effectId}`, spellId: e.spellId, casterLevel: e.casterLevel ?? 0, endsAt: e.expiresAtMs ?? now() + (e.remainingTicks ?? 0) * 6000 });
-    }
-    return out;
-  };
+  // The party's roots with their end times, from the bridge (`iq.roots()`), which reads the client's
+  // effects registry the way the readiness wait does.
+  const partyRoots = (i) => i.roots?.() ?? [];
   const dispelChance = (level, rootCaster, mod = 1) => {
     const d = level + mod - 1 - rootCaster;
     return Math.min(100, Math.max(10, 32 + (d > 0 ? 7 * d : 2 * d))) / 100;
