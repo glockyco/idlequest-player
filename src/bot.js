@@ -1516,14 +1516,20 @@
       i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
   };
+  // How close Run To Target brings the leader before the attack, in the scene's distance units.
+  const RAID_REACH = 30;
   // A raid fights one target with the leader and recruited account characters in the client's raid
-  // mode (`window.iq.raid`), where AutoLevel is off and the leader commands the fight. The task
-  // buys an hour of raid time when none is left and an hour costs at most `maxPp`, releases the
-  // party, recruits `members`, targets the boss (a daily boss by `bossKey`, or the enemy in the
-  // zone whose name matches `target`), attacks with everyone, and follows the fight until the
-  // boss dies, the raid wipes or `minutes` pass. Then it ends the raid, and the bot's party and
-  // AutoLevel keepers restore the group. `task.fight` keeps what a wipe is read from: duration,
-  // each member's damage and survival, and the raid log's last lines.
+  // mode (`window.iq.raid`, docs/client-internals.md "How a raid fight runs"), where AutoLevel is off
+  // and a member casts only on an order. The task buys an hour of raid time when none is left and
+  // an hour costs at most `maxPp`, releases the party, recruits `members`, targets the boss (a daily
+  // boss by `bossKey`, or the enemy in the zone whose name matches `target`), sets the heal mode
+  // `heal`, walks the raid to the boss, attacks with everyone and gives the nuke order `nuke`. It
+  // follows the fight until the boss dies, the raid wipes or `minutes` pass, has a living member
+  // revive the leader when he falls, and always ends raid mode, after which the bot's party and
+  // AutoLevel keepers restore the group. `task.fight` keeps what a fight is read from: duration,
+  // each member's damage, HP and mana, the leader's deaths and revives, the raid log's last lines
+  // and a trace every 5 s of the leader's order, auto attack, casting and navigation, his distance
+  // to the boss and the boss's HP.
   const raidTask = async (i, task, step) => {
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
@@ -1560,29 +1566,71 @@
         }
         throw new Error(`no ${task.target ?? task.bossKey} to target in ${zoneShort(i)}`);
       }, 90000);
+      const distance = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).find((x) => x.spawnInstanceId === boss.spawnInstanceId)?.distance ?? null;
+      if (task.heal) await step("heal mode", async () => raid.heal(task.heal), 10000);
+      // Run To Target first, so the leader stands at the boss before the fight: in the first raid
+      // he stood 12 minutes under an attack order. A boss out of reach does not hold the fight.
+      await step(`move to ${boss.name}`, async () => {
+        raid.position();
+        for (let k = 0; k < 30; k++) {
+          await sleep(2000);
+          const d = distance();
+          if (d != null && d <= RAID_REACH) return;
+        }
+        log(`task raid: the raid is ${Math.round(distance() ?? -1)} away from ${boss.name} after a minute`);
+      }, 75000);
       const t0 = now();
-      await step(`attack ${boss.name}`, async () => raid.attack(), 15000);
-      task.fight = { boss: boss.name, startedAt: t0 };
+      await step(`attack ${boss.name}`, () => raid.attack(), 30000);
+      if (task.nuke) await step("nuke order", async () => raid.nuke(task.nuke), 10000);
+      task.fight = { boss: boss.name, startedAt: t0, deaths: 0, revives: 0, trace: [] };
       const bossAlive = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => x.spawnInstanceId === boss.spawnInstanceId);
       const outcome = await step(`fight ${boss.name}`, async () => {
-        let s;
+        let traced = 0;
+        let dead = false;
+        let reviveAt = 0;
         while (now() < task.startedAt + task.minutes * 60000) {
           await sleep(2000);
-          s = raid.state();
-          task.fight.roster = s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive }));
+          const s = raid.state();
+          task.fight.roster = s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
+          task.fight.leaderDamage = s.leaderDamage;
           task.fight.log = s.log.slice(-15);
+          if (now() - traced >= 5000) {
+            traced = now();
+            const e = s.enemies.find((x) => x.id === boss.spawnInstanceId);
+            const l = s.leader ?? {};
+            task.fight.trace.push({ s: Math.round((now() - t0) / 1000), hp: l.hp, order: `${l.order}#${l.revision}`, aa: l.autoAttack, cast: l.casting, nav: l.navigating, d: distance() == null ? null : Math.round(distance()), boss: e?.hp ?? null, up: s.roster.filter((m) => m.alive).length });
+            if (task.fight.trace.length > 240) task.fight.trace.shift();
+          }
+          if (s.leaderDead) {
+            if (!dead) task.fight.deaths++;
+            dead = true;
+            // The fight stays open while the leader is dead, so a living member brings him back.
+            if (!s.pending && now() >= reviveAt && s.roster.some((m) => m.alive)) {
+              reviveAt = now() + 15000;
+              await raid.revive().then(
+                () => task.fight.revives++,
+                (e) => log(`task raid: revive failed: ${e?.message ?? e}`),
+              );
+            }
+            if (s.roster.some((m) => m.alive)) continue;
+          } else dead = false;
           if (s.combat) continue;
-          // The kill line's wording in raid mode is unverified, so a boss gone from the alive list counts too.
           if (killedSince(i, enemyPattern(boss.name), t0) || !bossAlive()) return "killed";
           return s.leaderDead || !s.roster.some((m) => m.alive) ? "wiped" : "ended";
         }
         return "time is up";
       }, task.minutes * 60000 + 60000);
       Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
-      task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing`;
+      task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
       if (outcome === "killed") alert("raid", `killed ${boss.name}`, true);
     } finally {
-      await raid.end().catch((e) => log(`task raid: end raid failed: ${e?.message ?? e}`));
+      // An end that has to stop a fight waits for the server, so it gets a second try. A raid left
+      // on keeps the group from leveling.
+      await raid.end().catch(async (e) => {
+        log(`task raid: end raid failed: ${e?.message ?? e}`);
+        await sleep(10000);
+        await raid.end().catch((e2) => alert("raid", `raid mode is still on: ${e2?.message ?? e2}`, true));
+      });
     }
   };
   const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask };
@@ -2176,17 +2224,18 @@
      * Fight one raid target with the leader and the account characters `members` (names or ids),
      * as a task in the page (`raidTask`): `target`, a regular expression for an enemy of level 51
      * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. An hour of raid time is
-     * bought only when none is left and it costs at most `maxPp`. The task ends when the boss dies,
-     * the raid wipes or `minutes` pass, and `task.fight` records the fight. Returns a copy of the
-     * task, which `state.task` keeps up to date.
+     * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode and
+     * `nuke` the nuke order (`iq.raid.heal` and `iq.raid.nuke`), null for none. The task ends when
+     * the boss dies, the raid wipes or `minutes` pass, and `task.fight` records the fight. Returns
+     * a copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, zone = null, maxPp = 0, minutes = 15 }) {
+    raid({ members, target = null, bossKey = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced" }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of members) if (!findCharacter(iq(), m)) throw new Error(`no account character ${m}`);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, heal, nuke, startedAt: now() };
       log(`task raid: ${target ?? bossKey}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },

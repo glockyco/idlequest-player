@@ -1203,8 +1203,9 @@ test("a summoned enemy that is up already sends the member to the fight, and an 
 });
 
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
-// and ends in a kill or a wipe.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000 } = {}) {
+// and ends in a kill or a wipe. `leaderFalls` kills the leader once, mid-fight, and `endFails`
+// makes that many calls of `end` throw.
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0 } = {}) {
   const calls: string[] = [];
   const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
   (f.iq as unknown as { raid: object }).raid = {
@@ -1221,9 +1222,12 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       r.roster = [{ name: "Tagujazolu", damage: 0, alive: true }, { name: "Edroun", damage: 0, alive: true }];
       return ids;
     },
-    attack: () => {
+    heal: (mode: string) => calls.push(`heal ${mode}`),
+    position: () => calls.push(`position ${f.combat.targetNPC?.name}`),
+    attack: async () => {
       calls.push(`attack ${f.combat.targetNPC?.name}`);
       r.combat = true;
+      if (leaderFalls) setTimeout(() => (r.leaderDead = true), fightMs / 2);
       setTimeout(() => {
         r.combat = false;
         r.roster = r.roster.map((m) => ({ ...m, damage: 500, alive: outcome === "killed" }));
@@ -1231,23 +1235,35 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
         else r.leaderDead = true;
       }, fightMs);
     },
-    state: () => ({ combat: r.combat, leaderDead: r.leaderDead, roster: r.roster, log: [] }),
-    end: async () => (calls.push("end"), (r.active = false)),
+    nuke: (mode: string) => calls.push(`nuke ${mode}`),
+    revive: async () => {
+      calls.push("revive");
+      r.leaderDead = false;
+    },
+    state: () => ({ combat: r.combat, leaderDead: r.leaderDead, pending: false, roster: r.roster, enemies: [], leader: { hp: 100, order: "attacking", revision: 1 }, log: [] }),
+    end: async () => {
+      calls.push("end");
+      if (endFails-- > 0) throw new Error("the raid was not abandoned: Request timeout for opcode 1026");
+      r.active = false;
+    },
   };
-  f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55 } as { spawnInstanceId: number; name: string });
+  f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55, distance: 12 } as { spawnInstanceId: number; name: string });
   Object.assign(f.runtime, { selectEnemyTarget: () => (f.combat.targetNPC = { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
   return calls;
 }
 
-test("a raid task buys time when none is left, recruits, kills its target and ends the raid", async () => {
+test("a raid task buys time when none is left, recruits, sets its orders, kills its target and ends the raid", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f);
     f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500 });
     await runToEnd(f);
-    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "attack Lord_Nagafen", "end"]);
-    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2 } });
+    // The heal mode stands before the fight, the raid walks to the boss first, and the nuke order
+    // needs the running fight.
+    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "end"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2, deaths: 0 } });
+    expect(f.bot.state.task.fight.trace.length).toBeGreaterThan(0);
     expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toHaveLength(1);
   } finally {
     vi.useRealTimers();
@@ -1259,9 +1275,9 @@ test("a raid task records a wipe, and without raid time it stops before releasin
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, outcome: "wiped" });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", heal: null, nuke: null });
     await runToEnd(f);
-    expect(calls).toEqual(["time", "open", "recruit 10", "attack Lord_Nagafen", "end"]);
+    expect(calls).toEqual(["time", "open", "recruit 10", "position Lord_Nagafen", "attack Lord_Nagafen", "end"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "wiped", alive: 0 } });
 
     const g = await install([10, 20]);
@@ -1270,6 +1286,40 @@ test("a raid task records a wipe, and without raid time it stops before releasin
     await runToEnd(g);
     expect(g.bot.state.task.status).toBe("failed");
     expect(none).not.toContain("open");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid task has a living member revive the fallen leader and fights on", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, leaderFalls: true, fightMs: 20000 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen" });
+    await runToEnd(f);
+    expect(calls.filter((c) => c === "revive")).toHaveLength(1);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", deaths: 1, revives: 1 } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid end that fails is tried again, and a raid left on asks for attention", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, endFails: 1 });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    await runToEnd(f);
+    expect(calls.filter((c) => c === "end")).toHaveLength(2);
+    expect(f.bot.state.alerts.some((a) => a.kind === "raid" && /still on/.test(a.text))).toBe(false);
+
+    const g = await install([10, 20]);
+    fakeRaid(g, { timeLeft: true, endFails: 2 });
+    g.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    await runToEnd(g);
+    expect(g.bot.state.alerts.find((a) => a.kind === "raid" && /still on/.test(a.text))?.wake).toBe(true);
   } finally {
     vi.useRealTimers();
   }

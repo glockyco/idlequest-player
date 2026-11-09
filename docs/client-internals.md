@@ -594,12 +594,17 @@ orders the raid holds, and nothing else moves or casts.
 - The leader moves through a loop that runs with each rendered frame (`CVE` 438211-438323). A new
   `playerOrder` revision turns the leader's auto attack on for "attacking". The loop then walks to
   melee range of the leader's raid target, but it stands still while that target is missing or
-  dead, while the combat store's `isCasting` is on and while another navigation runs. In the first
-  raid the leader stood 12 minutes under an attack order in a visible tab at 60 frames per second
-  before he walked to the target, and which of these held him is open.
+  dead, while the combat store's `isCasting` is on and while another navigation runs. With Run To
+  Target first and one All Attack that the script waits on, the leader stood at the target with
+  auto attack on from the first second. In the first raid, with two All Attack calls and no Run
+  To Target, he stood 12 minutes in a visible tab at 60 frames per second, and which condition
+  held him is open.
 - End of a fight: `finishCombat` runs when no engaged enemy remains (`OST` 72130) and clears the
   nuke order, maintained effects and queued casts, but not the heal mode. A fleeing enemy stays
-  engaged, and melee skips it. While the leader is dead the fight stays open until a revive or a
+  engaged, and melee skips it: an unkempt fanatic fled 85 units at 22% HP, out of melee and spell
+  range, while the leader navigated toward it without closing in, and came back a minute later.
+  Root and blind stop a flee, a mez, stun, fear or charm keeps one from starting, and undead never
+  flee (`0ea` 4399-4466). While the leader is dead the fight stays open until a revive or a
   release. Recruits keep their HP and mana between fights, and fallen recruits get up at 10 HP
   once no enemy is left ("1 fallen raid member gets back up to rest.", `CVE` 7688). A kill gives
   the leader normal kill XP with the usual line, "You have defeated an unkempt fanatic and gained
@@ -611,6 +616,10 @@ orders the raid holds, and nothing else moves or casts.
   keeps raid mode on.
 - Raid time is checked when a fight starts. The client does not end a fight when the hour runs
   out.
+- The raid window can close during a fight while raid mode and the fight go on (`isRaidOpen`
+  false, view "setup", cause open). The command panels exist only in the open window on the
+  combat view, so a script that uses them opens that view first, as the client's own
+  `returnFromLoot()` does.
 
 ### Running a raid from a script
 
@@ -644,7 +653,17 @@ run once.
   and an NPC of level 51 or more or an engaged enemy, then sets `openingTarget`. A watcher sends
   `StartCombat` (1025) with `singleFight: true` for that target (`CVE` 5770, `0ea` 44025). Without
   a target argument it attacks the leader's target, `combat.targetNPC`, which the Enemy Targets
-  action sets in raid mode (`selectEnemyTarget` with the NPC type id).
+  action sets in raid mode (`selectEnemyTarget` with the NPC type id). The first fight with
+  recruits validates the roster with the server first (`prepareCombatForTarget`, `OST`
+  71510-71540), so the fight starts a few seconds after the call, and `iq.raid.attack()` waits
+  for `combatActive`. A second attack call in that window raced the first in the first raid.
+- Orders: `iq.raid.heal(mode)` sets `autoHealMode` and `iq.raid.nuke(mode)` sets `autoNukeOrder`
+  for the running fight's target, the fields the window's panels set through the raid engine.
+  `iq.raid.position()` is Run To Target (`positionAtTarget`). `iq.raid.revive()` opens Heal &
+  Revive (`toggleCommandPanel("heal")`), picks the first revive spell in the panel's Revive group
+  and then `raid-member-player`, the steps a person takes in the window. `iq.raid.state().leader`
+  holds the leader's order, auto attack, casting and navigation, which decide whether his frame
+  loop moves him.
 - Daily bosses: `DailyRaidBossesRequest` (1222) with `{ characterId, zoneId }` lists them, and the
   same request with `bossKey` summons one (`CVE` 415155). The reply holds `resetsRemaining`,
   `nextResetAtMs` and `bosses[{ key, name, zoneName, status, availableAtMs, expiresAtMs,

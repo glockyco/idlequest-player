@@ -301,8 +301,10 @@ export async function attach(tab) {
      * (account character names) against `target`, a regular expression for an enemy above level
      * 50 in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()` in the page. It buys an hour
      * of raid time only when none is left and it costs at most `maxPp`, e.g. `{ members, target:
-     * "Nagafen", zone: "soldungb", maxPp: 2500 }`. Resolves with the finished task, whose `fight`
-     * holds the outcome, duration and each member's damage and survival, or throws with it.
+     * "Nagafen", zone: "soldungb", maxPp: 2500 }`. `heal` (default "all-balanced") and `nuke`
+     * (default "dps-balanced") are the raid's heal mode and nuke order, null for none. Resolves
+     * with the finished task, whose `fight` holds the outcome, duration, each member's damage, HP
+     * and mana, the leader's deaths and revives and a trace every 5 s, or throws with it.
      */
     async raid({ timeoutMs = 3600000, ...opts }) {
       return handle.runTask("raid", opts, timeoutMs);

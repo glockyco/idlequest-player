@@ -1315,14 +1315,41 @@
       return { key: k, overrides: stores.partySpells.getState().overridesByCompanion[k] };
     },
     /**
-     * The raid window's own actions (docs/client-internals.md, "Running a raid from a script").
-     * Each checks its effect and throws when the client refused, with the client's reason where
-     * it gives one. The bot's raid task decides roster, target and when to stop.
+     * The raid window's own actions (docs/client-internals.md, "How a raid fight runs" and "Running
+     * a raid from a script"). Each checks its effect and throws when the client refused, with the
+     * client's reason where it gives one. The bot's raid task decides roster, target, orders and
+     * when to stop.
      */
     raid: {
-      /** Raid mode, the fight, the roster and the engaged enemies, for a script to follow a raid. */
+      /**
+       * Raid mode, the fight, the roster and the engaged enemies, for a script to follow a raid.
+       * `leader` holds what the leader's frame loop moves and swings by: the order, auto attack,
+       * casting and whether another navigation runs. `heal` and `nuke` are the standing orders.
+       */
       state() {
         const r = stores.raid.getState();
+        const c = stores.combat.getState();
+        const p = stores.character.getState().characterProfile ?? {};
+        const scene = (() => {
+          try {
+            return runtime()?.combatScene ?? null;
+          } catch {
+            return null;
+          }
+        })();
+        const near = (() => {
+          try {
+            return scene?.getAliveCombatTargetList?.() ?? [];
+          } catch {
+            return [];
+          }
+        })();
+        let navigating = null;
+        try {
+          navigating = scene?.isAutoNavigating?.() ?? null;
+        } catch {
+          /* the scene is loading */
+        }
         return {
           active: Boolean(r.raidModeActive),
           open: Boolean(r.isRaidOpen),
@@ -1332,8 +1359,11 @@
           pending: Boolean(r.lifecyclePending),
           error: r.lifecycleError ?? null,
           leaderDamage: r.leaderDamageDone ?? 0,
+          leader: { hp: p.curHp ?? null, maxHp: p.maxHp ?? null, mana: p.mana ?? null, maxMana: p.maxMana ?? null, order: r.playerOrder?.command ?? null, revision: r.playerOrder?.revision ?? null, autoAttack: Boolean(c.isAutoAttackEnabled), casting: Boolean(c.isCasting), navigating },
+          heal: r.autoHealMode ?? null,
+          nuke: r.autoNukeOrder ? { mode: r.autoNukeOrder.mode, preparing: Boolean(r.autoNukeOrder.preparing) } : null,
           roster: (r.roster ?? []).map((m) => ({ id: m.id, characterId: m.source?.characterId ?? null, name: m.displayName ?? null, className: m.className ?? null, role: m.role ?? null, level: m.level, hp: m.hp, maxHp: m.maxHp, mana: m.mana ?? null, maxMana: m.maxMana ?? null, alive: m.alive !== false, command: m.command ?? null, rangeState: m.rangeState ?? null, damage: m.damageDone ?? 0, hate: m.hate ?? 0 })),
-          enemies: (r.engagedEnemies ?? []).map((e) => ({ id: e.spawnInstanceId, name: e.name ?? e.npcName ?? null, level: e.level ?? null, hp: e.hp ?? e.curHp ?? null, maxHp: e.maxHp ?? null })),
+          enemies: (r.engagedEnemies ?? []).map((e) => ({ id: e.spawnInstanceId, name: e.name ?? e.npcName ?? null, level: e.level ?? null, hp: e.hp ?? e.curHp ?? null, maxHp: e.maxHp ?? null, fleeing: Boolean(e.fleeing), distance: near.find((a) => a.spawnInstanceId === e.spawnInstanceId)?.distance ?? null })),
           log: (r.eventLog ?? []).slice(-30).map((e) => (typeof e === "string" ? e : (e.text ?? e.message ?? JSON.stringify(e)))),
         };
       },
@@ -1374,14 +1404,80 @@
         return stores.raid.getState().roster.map((m) => m.source?.characterId).filter((id) => id != null);
       },
       /**
-       * Every raid member attacks the leader's target (`combat.targetNPC`, set by the Enemy Targets
-       * action, which only targets in raid mode): an NPC above level 50 or an engaged enemy.
+       * Run To Target: the leader and every member not already fighting walk to the leader's target
+       * (`combat.targetNPC`) without attacking.
        */
-      attack() {
+      position() {
+        const npc = stores.combat.getState().targetNPC;
+        if (!npc?.spawnInstanceId) throw new Error("the leader has no target");
+        stores.raid.getState().positionAtTarget();
+        if (stores.raid.getState().positioningTarget?.spawnInstanceId !== npc.spawnInstanceId) throw new Error(`the raid did not move to ${npc.name}: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
+        return this.state();
+      },
+      /**
+       * All Attack: the leader and every member attack the leader's target (`combat.targetNPC`, set
+       * by the Enemy Targets action, which only targets in raid mode), an NPC above level 50 or an
+       * engaged enemy. Melee members walk to melee range and casters to their spell range, where
+       * they wait for orders. The first fight with recruits checks the roster with the server first,
+       * so this resolves once the fight has started.
+       */
+      async attack() {
         const npc = stores.combat.getState().targetNPC;
         if (!npc?.spawnInstanceId) throw new Error("the leader has no target");
         stores.raid.getState().setAllCommand("attacking", npc);
+        for (let k = 0; k < 30 && !stores.raid.getState().combatActive; k++) await new Promise((res) => setTimeout(res, 500));
         if (!stores.raid.getState().combatActive) throw new Error(`the raid did not attack ${npc.name}: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
+        return this.state();
+      },
+      /**
+       * The Heal & Revive panel's automatic healing: "clr-balanced" and "clr-all-out" heal with
+       * Clerics, "all-balanced" and "all-all-out" with every member that has a heal, and null turns
+       * it off. Balanced keeps each class's mana reserve. The mode stays set across fights.
+       */
+      heal(mode) {
+        if (mode !== null && !["clr-balanced", "all-balanced", "clr-all-out", "all-all-out"].includes(mode)) throw new Error(`unknown heal mode ${mode}`);
+        if (!stores.raid.getState().raidModeActive) throw new Error("raid mode is off");
+        // The panel's setRaidAutoHealing sets this field, which the raid engine reads every tick.
+        stores.raid.setState({ autoHealMode: mode });
+        return this.state();
+      },
+      /**
+       * The Nuke panel's order against the running fight's target: "dps-balanced" and "dps-all-out"
+       * nuke with Necromancers, Wizards and Magicians, "all-all-out" with every member that has a
+       * nuke, healers included. The client ends the order with the fight.
+       */
+      nuke(mode) {
+        if (!["dps-balanced", "dps-all-out", "all-all-out"].includes(mode)) throw new Error(`unknown nuke mode ${mode}`);
+        const r = stores.raid.getState();
+        const target = r.focusTarget ?? r.openingTarget;
+        if (!r.combatActive || !target?.spawnInstanceId) throw new Error("no running fight to nuke in");
+        // The panel's startRaidAutoNuking ends with this order once the fight is prepared, which a
+        // running fight is. The raid engine nukes for it while its target is engaged.
+        stores.raid.setState({ autoNukeOrder: { id: `${r.raidSessionId}:auto-nuke:iq-${Date.now()}`, mode, target, preparing: false } });
+        return this.state();
+      },
+      /**
+       * Heal & Revive for the dead leader, as in the raid window: open the panel, choose its first
+       * revive spell a living member can cast, then the leader in the roster. Resolves once the
+       * leader stands again.
+       */
+      async revive() {
+        const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+        if (!stores.raid.getState().leaderDead) return this.state();
+        // The client records the death with the server first and takes no revive until it has.
+        for (let k = 0; k < 20 && stores.raid.getState().lifecyclePending; k++) await wait(500);
+        const r = stores.raid.getState();
+        if (r.commandPanel !== "heal") r.toggleCommandPanel("heal");
+        await wait(400);
+        const spell = document.querySelector('[aria-label="Revive"] button:not([disabled])');
+        if (!spell) throw new Error("no living raid member can revive the leader");
+        spell.click();
+        await wait(400);
+        const leader = document.querySelector('[data-testid="raid-member-player"]');
+        if (!leader) throw new Error("the raid roster shows no leader to revive");
+        (leader.querySelector("button") ?? leader).click();
+        for (let k = 0; k < 30 && stores.raid.getState().leaderDead; k++) await wait(500);
+        if (stores.raid.getState().leaderDead) throw new Error(`the leader was not revived: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
         return this.state();
       },
       /** The daily raid bosses of the current zone (`DailyRaidBossesRequest`), or with `bossKey` summon that boss. */
