@@ -400,8 +400,10 @@ export function assignTargets({ targets, tabs, crowded = new Set(), held = new S
     const bestTab = able.reduce((a, t) => (net(t) > net(a) ? t : a));
     const w = worth(bestTab, x);
     const c = cost(bestTab, x);
-    if (w <= c) return `not worth it yet: ${w.toFixed(2)} h of XP an hour against ${c.toFixed(1)} for ${bestTab.group}`;
-    if (!free(bestTab)) return `worth it for ${bestTab.group}, which is ${held.has(bestTab.group) ? "held by an experiment" : "busy"}`;
+    // In percent of an hour of the group's XP: what an hour of hunting it brings in gear, and what it costs.
+    const pct = (v) => `${Math.round(100 * v)}%`;
+    if (w <= c) return `not worth it yet for ${bestTab.group}: an hour of hunting it brings gear worth ${pct(w)} of an hour of its XP and costs ${pct(c)}`;
+    if (!free(bestTab)) return `worth it for ${bestTab.group} (gear worth ${pct(w)} of an hour of its XP against ${pct(c)}), which is ${held.has(bestTab.group) ? "held by an experiment" : "busy"}`;
     return "its groups took better targets";
   });
   return { errands, status };

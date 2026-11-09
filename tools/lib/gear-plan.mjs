@@ -382,10 +382,10 @@ export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp 
         }
         const tk = `${d.zone}|${d.npc}`;
         // For weighing a trip (`assignTargets`): the taker's level, the enemy's level, and the last
-        // level the item serves (`until`). A pick names its levels. An item from a band row's zone
-        // stays in its slot past the row, so it serves to 10 levels above its enemy, like the
-        // 12-level windows of the picks, an assumption until the gear plan tracks replacements.
-        const until = d.pick ? d.levels?.[1] : d.npcLevel != null ? d.npcLevel + 10 : d.levels?.[1];
+        // level the item serves (`until`). An upgrade serves from now until a better item replaces
+        // it, which the plan does not model yet, so it counts for 10 levels from the taker's level,
+        // like the 12-level windows of the picks, and not past 60.
+        const until = Math.min(60, p.level + 10);
         (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, offers: [] }).get(tk)).offers.push({ ...entry, level: p.level, until: until ?? null, key: k });
       }
     }

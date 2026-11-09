@@ -133,7 +133,7 @@ test("a free group takes the target whose worth beats its cost most, and each ta
   expect(status).toEqual(["errand queued for G1", "hunt queued for G3", "its groups took better targets", "too strong for every group (level 50)", "zone crowded by other players"]);
   // A trip that is worth less than the XP it costs does not run, and says so.
   const poor = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel });
-  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet: 0.50 h of XP an hour against 1.0 for G3"]);
+  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet for G3: an hour of hunting it brings gear worth 50% of an hour of its XP and costs 100%"]);
   // A trip zone that pays 70% of the group's XP costs only the other 30%.
   const paid = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel, zoneShare: () => 0.7 });
   expect(paid.errands.map((e) => [e.target.npc, e.kind])).toEqual([["a warder", "hunt"]]);
@@ -141,7 +141,7 @@ test("a free group takes the target whose worth beats its cost most, and each ta
   expect(assignTargets({ targets, tabs: [{ ...tabs[1], errand: { zone: "unrest", keep: "a fiend" } }], hoursPerLevel }).status[0]).toBe("hunting: G2");
   const held = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), held: new Set(["G1", "G3"]), hoursPerLevel });
   // The status names the group the target pays for, which waits here for its experiment.
-  expect([held.errands, held.status[1]]).toEqual([[], "worth it for G1, which is held by an experiment"]);
+  expect([held.errands, held.status[1]]).toEqual([[], "worth it for G1 (gear worth 126% of an hour of its XP against 100%), which is held by an experiment"]);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
