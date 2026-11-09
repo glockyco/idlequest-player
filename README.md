@@ -145,6 +145,15 @@ bun tools/gear.mjs --party runs/roster.json --level 30   # whole-party upgrade p
 bun tools/gear.mjs warrior --level 60 --list data/gear/p99-velious-preraid.json   # best pre-raid item per slot
 ```
 
+Tradeskills: `tools/tradeskills.mjs` lists a skill's recipes with their cost per attempt from the
+crafting catalog, or the components no catalog sells, and the cheapest catalog ladder between two
+skill values. Its success rule matched the measured attempts, and its skill-up rate is a model
+until crafting measures it ([systems research](docs/plans/systems-research.md), section 2).
+
+```sh
+bun tools/tradeskills.mjs tinkering --recipes --to 148
+```
+
 ## Predicting XP per hour
 
 `tools/predict.mjs` estimates XP per hour per character for every zone at a party level, from the content snapshot (clone it as above) and the client's own hit, mitigation and resist formulas. It runs in a second or two.
