@@ -1017,13 +1017,11 @@
   const buyItem = async (item, merchant, count = 1) => {
     const cb = () => stores.combat.getState();
     const ms = () => stores.merchant.getState();
-    // A merchant still selected after an earlier purchase has an empty item list once its window
-    // closed, so it is selected again then too.
-    if (ms().selectedMerchant?.name !== merchant || !(ms().merchantItems ?? []).length) {
-      const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
-      if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
-      row.parentElement.click();
-    }
+    // Every purchase closes the merchant's window at its end, which removes the PURCHASE button
+    // while the merchant can stay selected with its goods, so the merchant is selected every time.
+    const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
+    if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
+    row.parentElement.click();
     let goods = null;
     for (let end = Date.now() + 180000; !goods; await pause(1000)) {
       if (Date.now() > end) throw new Error(`${merchant} did not open`);
@@ -1034,10 +1032,11 @@
     }
     let bought = 0;
     for (; bought < count; bought++) {
-      // The PURCHASE button shows only for an item considered from the merchant's side.
+      // The PURCHASE button shows only for an item considered from the merchant's side, once the
+      // merchant's window is open again.
       ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
-      await pause(250);
-      const button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE");
+      let button = null;
+      for (let k = 0; k < 20 && !(button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE")); k++) await pause(250);
       if (!button || button.disabled) break;
       const before = carried(item);
       button.click();
