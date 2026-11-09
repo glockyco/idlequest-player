@@ -71,31 +71,6 @@
       }
     ]
   },
-  "necromancer-epic-apprentice": {
-    "class": "Necromancer",
-    "minLevel": 20,
-    "reward": "Symbol of the Apprentice",
-    "doneIf": [
-      "Scaled Symbol of the Serpent",
-      "Symbol of Testing",
-      "Symbol of Insanity",
-      "Journal of Drendico",
-      "Scythe of the Shadowed Soul"
-    ],
-    "needs": [
-      "Head of Sir Edwin Motte"
-    ],
-    "steps": [
-      {
-        "zone": "lakerathe",
-        "npc": "Kazen Fecae",
-        "give": [
-          "Head of Sir Edwin Motte"
-        ],
-        "expect": "Symbol of the Apprentice"
-      }
-    ]
-  },
   "bard-epic-1": {
     "class": "Bard",
     "minLevel": 20,

@@ -267,3 +267,12 @@ test("a running hunt counts by its elapsed time, and a new hunt gets only what i
   const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] });
   expect(a.spec.minutes).toBe(7);
 });
+
+test("no two quest chains give the same reward to the same class, and every hunt names a chain that exists", async () => {
+  // Two copies of one chain start together for one piece, and the one that loses the pull fails.
+  const quests = JSON.parse(await Bun.file(new URL("../data/quests.json", import.meta.url)).text());
+  const keys = Object.values(quests).map((q: { class: string; reward: string }) => `${q.class}: ${q.reward}`);
+  expect(keys.filter((k, n) => keys.indexOf(k) !== n)).toEqual([]);
+  const ops = JSON.parse(await Bun.file(new URL("../data/opportunities.json", import.meta.url)).text());
+  expect(ops.filter((o: { quest?: string }) => o.quest && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
+});
