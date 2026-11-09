@@ -1308,6 +1308,21 @@ test("a raid task has a living member revive the fallen leader and fights on", a
   }
 });
 
+test("any task that takes the tab ends a running errand as finished, not failed", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    fakeRaid(f, { timeLeft: true });
+    await f.bot.errand({ zone: "permafrost", keep: "wisp", item: "Diamond Wedding Band", minutes: 60 });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    expect(f.bot.state.errand).toBeNull();
+    expect(f.bot.state.alerts.find((a) => a.kind === "errand")).toMatchObject({ wake: false, text: expect.stringContaining("raid task took the tab") });
+    await runToEnd(f);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid end that fails is tried again, and a raid left on asks for attention", async () => {
   vi.useFakeTimers();
   try {

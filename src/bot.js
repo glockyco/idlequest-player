@@ -1638,8 +1638,6 @@
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (!members.length) throw new Error(`a ${kind} needs members`);
     for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
-    // A task takes the tab, so a running errand ends here, as finished and not failed.
-    if (state.errand) endErrand(iq(), `${kind} task took the tab`, false);
     state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
     return { ...runTask(state.task) };
   };
@@ -1650,6 +1648,8 @@
         ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   const runTask = (task) => {
+    // A task takes the tab, so a running errand ends here, as finished and not failed.
+    if (state.errand) endErrand(iq(), `${task.kind} task took the tab`, false);
     const runner = Math.random().toString(36).slice(2);
     Object.assign(task, { runner, status: "running", heartbeat: now() });
     const step = async (label, fn, timeoutMs) => {
