@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "id": "dots-off",
+    "a": ["G3", "G5", "G10"],
+    "b": ["G2", "G4", "G7"],
+    "blockMin": 90,
+    "setting": { "companionTactics": { "cure": false, "dot": false } },
+    "without": { "companionTactics": { "cure": false, "dot": true } }
+  }
+]
