@@ -95,7 +95,7 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
   expect(planGear({ survey, items: bardItems, people, songs: BARD_SONGS, shop }).moves).toHaveLength(1);
 });
 
-test("drops become wants for characters in their levels that gain enough after the moves", () => {
+test("drops become wants for characters in their levels that gain enough after the moves, and are kept once looted", () => {
   const people = [
     { name: "Tank", cls: "warrior", level: 20, race: "" },
     { name: "Old", cls: "warrior", level: 40, race: "" },
@@ -103,7 +103,9 @@ test("drops become wants for characters in their levels that gain enough after t
   const survey = [row("Tank", 2, "Equipped", 8, 1), row("Old", 2, "Equipped", 8, 2)];
   const drops = [{ itemId: 1, zone: "kurn", npc: "a skeleton", hours: 2, levels: [15, 25] }];
   // The Fine Cloak beats the Plain Cloak by far more than twice the armor threshold.
-  expect(planGear({ survey, items, people, drops }).drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }]);
+  const plan = planGear({ survey, items, people, drops });
+  expect(plan.drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }]);
+  expect(plan.wanted).toContain(1);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
 });

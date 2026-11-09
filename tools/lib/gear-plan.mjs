@@ -253,5 +253,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       }
     }
   }
+  // A wanted drop is an upgrade once it is looted, so it is kept like the account's own upgrades.
+  for (const d of want.values()) wanted.add(d.itemId);
   return { moves, wanted: [...wanted], drops: [...want.values()] };
 }
