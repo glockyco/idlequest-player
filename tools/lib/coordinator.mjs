@@ -286,22 +286,24 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
  * `{ id, a: [group], b: [group], blockMin, setting, without }`. In the first block arm A plays
  * with `setting` and arm B with `without`, in the second block the other way round, and then every
  * group of it keeps `without` until the experiment leaves the file. `started` maps an experiment
- * id to the time it started, which the caller keeps. Returns `{ settings: { [group]: partial },
- * events: [{ id, kind: "start" | "end", start }], held: Set of the groups an experiment
- * holds }`, where `held` groups get no farms, because a farm changes what the arms compare.
- * `ended` maps an experiment id to the time its end was reported.
+ * id to the time it started, and `running` to its `{ a, b, without }` as it started, both kept by
+ * the caller, so an experiment that leaves the file before its end still returns its groups to
+ * `without`. `ended` maps an experiment id to the time its end or drop was reported. Returns
+ * `{ settings: { [group]: partial }, events: [{ id, kind: "start" | "end" | "dropped", start }],
+ * held: Set of the groups an experiment holds }`, where `held` groups get no farms, because a farm
+ * changes what the arms compare.
  */
-export function experimentSettings({ now, experiments = [], started = {}, ended = {} }) {
+export function experimentSettings({ now, experiments = [], started = {}, ended = {}, running = {} }) {
   const settings = {};
   const events = [];
   const held = new Set();
+  const set = (groups, s) => {
+    for (const g of groups) settings[g] = { ...settings[g], ...s };
+  };
   for (const x of experiments) {
     const start = started[x.id] ?? now;
     if (started[x.id] == null) events.push({ id: x.id, kind: "start", start });
     const block = Math.floor((now - start) / (x.blockMin * 60000));
-    const set = (groups, s) => {
-      for (const g of groups) settings[g] = { ...settings[g], ...s };
-    };
     if (block >= 2) {
       set([...x.a, ...x.b], x.without);
       if (ended[x.id] == null) events.push({ id: x.id, kind: "end", start });
@@ -310,6 +312,12 @@ export function experimentSettings({ now, experiments = [], started = {}, ended 
     for (const g of [...x.a, ...x.b]) held.add(g);
     set(x.a, block === 0 ? x.setting : x.without);
     set(x.b, block === 0 ? x.without : x.setting);
+  }
+  const listed = new Set(experiments.map((x) => x.id));
+  for (const [id, x] of Object.entries(running)) {
+    if (listed.has(id) || ended[id] != null) continue;
+    set([...x.a, ...x.b], x.without);
+    events.push({ id, kind: "dropped", start: started[id] });
   }
   return { settings, events, held };
 }

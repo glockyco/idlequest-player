@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, decide, piecesNeeded, progressItems } from "../tools/lib/coordinator.mjs";
+import { assignZones, decide, experimentSettings, piecesNeeded, progressItems } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -162,8 +162,7 @@ test("a quest chain takes a tab before a camp would", () => {
   expect(decide({ now: NOW, tabs, quests, opportunities: [page] })).toMatchObject([{ label: "A", kind: "quest" }]);
 });
 
-test("an experiment gives arm A the setting and arm B the other in the first block, swaps, then ends on the other", async () => {
-  const { experimentSettings } = await import("../tools/lib/coordinator.mjs");
+test("an experiment gives arm A the setting and arm B the other in the first block, swaps, then ends on the other", () => {
   const x = { id: "con", a: ["G4"], b: ["G5"], blockMin: 90, setting: { limits: { minCon: 10 } }, without: { limits: { minCon: 4 } } };
   const first = experimentSettings({ now: NOW, experiments: [x] });
   expect(first.events).toEqual([{ id: "con", kind: "start", start: NOW }]);
@@ -183,6 +182,15 @@ test("an experiment gives arm A the setting and arm B the other in the first blo
   // A farm skips a held group and stops it when it farms.
   const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "nektulos", keep: "wisp" } })], farms: [farm], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
+});
+
+test("an experiment that leaves the file before its end returns its groups to the other setting once", () => {
+  const x = { id: "con", a: ["G4"], b: ["G5"], blockMin: 90, setting: { limits: { minCon: 10 } }, without: { limits: { minCon: 4 } } };
+  const running = { con: { a: x.a, b: x.b, without: x.without } };
+  expect(experimentSettings({ now: NOW + 100 * 60000, experiments: [x], started: { con: NOW }, running }).events).toEqual([]);
+  const dropped = experimentSettings({ now: NOW + 100 * 60000, experiments: [], started: { con: NOW }, running });
+  expect([dropped.settings, dropped.events, dropped.held.size]).toEqual([{ G4: x.without, G5: x.without }, [{ id: "con", kind: "dropped", start: NOW }], 0]);
+  expect(experimentSettings({ now: NOW + 101 * 60000, experiments: [], started: { con: NOW }, ended: { con: NOW + 100 * 60000 }, running }).events).toEqual([]);
 });
 
 test("stones reach the lowest group also while it farms", () => {

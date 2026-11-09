@@ -708,7 +708,9 @@ class Daemon {
    * Experiments from data/experiments.json (`experimentSettings` in tools/lib/coordinator.mjs): each
    * pass sets the arms' bot settings for the current block, records the start and the end in the
    * coordinator's state, and at the end registers a job with the crossover command that reads the
-   * result. Returns the groups the experiments hold.
+   * result. An experiment that leaves the file before its end returns its groups to `without` and
+   * registers no job. A file that does not parse changes nothing. Returns the groups the
+   * experiments hold.
    */
   async experimentPass(now, tabs, state) {
     const { experimentSettings } = await import("./lib/coordinator.mjs");
@@ -719,7 +721,8 @@ class Daemon {
       return new Set();
     }
     const ex = (state.experiments ??= { started: {}, ended: {} });
-    const { settings, events, held } = experimentSettings({ now, experiments, started: ex.started, ended: ex.ended });
+    ex.running ??= {};
+    const { settings, events, held } = experimentSettings({ now, experiments, started: ex.started, ended: ex.ended, running: ex.running });
     const note = (text) => {
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, null, text);
       this.log(`coordinator: ${text}`);
@@ -728,9 +731,15 @@ class Daemon {
       const x = experiments.find((y) => y.id === e.id);
       if (e.kind === "start") {
         ex.started[e.id] = e.start;
+        ex.running[e.id] = { a: x.a, b: x.b, without: x.without };
         note(`experiment ${e.id} started: A ${x.a.join(",")}, B ${x.b.join(",")}, blocks of ${x.blockMin} min`);
+      } else if (e.kind === "dropped") {
+        ex.ended[e.id] = now;
+        delete ex.running[e.id];
+        note(`experiment ${e.id} left data/experiments.json before its end: its groups are back on its other setting, and no crossover job was registered`);
       } else {
         ex.ended[e.id] = now;
+        delete ex.running[e.id];
         const cmd = `bun tools/crossover.mjs --start ${e.start} --block ${x.blockMin} --a ${x.a.join(",")} --b ${x.b.join(",")}`;
         const job = this.db.query("INSERT INTO jobs (purpose, command, output, started) VALUES (?, ?, ?, ?) RETURNING id").get(`experiment ${e.id}: read the crossover and record it in the plans`, cmd, null, now).id;
         note(`experiment ${e.id} ended, job #${job}: ${cmd}`);
