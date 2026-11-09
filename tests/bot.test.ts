@@ -1399,14 +1399,15 @@ test("a quest runs its steps in order for each member and stops at a step whose 
   }
 });
 
-test("an NPC wait ends at once while another NPC holds the spawn point, and waits while the point is empty", async () => {
+test("an NPC wait ends while a stronger NPC holds the spawn point, and waits while the point is empty", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     handInPage(f, {}, { ok: true });
     let note = 0;
-    const zone = { spawns: [{ name: "Lozani", spawn2Id: 3075, currentHp: 1200 }] as { name: string; spawn2Id: number; currentHp: number }[] };
+    // Lozani (30) stands more than three levels above the level 10 leader, so the party cannot clear the point.
+    const zone = { spawns: [{ name: "Lozani", spawn2Id: 3075, currentHp: 1200, level: 30, state: "alive" }] as { name: string; spawn2Id: number; currentHp: number; level?: number; state: string }[] };
     Object.assign(f.iq, {
       // The champagne is carried, the cell number comes from the hand-in.
       carried: (item: string) => (item === "Bunker Cell #1" ? note : 1),
@@ -1432,7 +1433,7 @@ test("an NPC wait ends at once while another NPC holds the spawn point, and wait
     f.bot.quest({ members: ["Edroun"], steps });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "running", step: "wait for Tykar Renlin" });
-    zone.spawns = [{ name: "Tykar_Renlin", spawn2Id: 3075, currentHp: 651 }];
+    zone.spawns = [{ name: "Tykar_Renlin", spawn2Id: 3075, currentHp: 651, state: "alive" }];
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done" });
   } finally {

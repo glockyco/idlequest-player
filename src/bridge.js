@@ -881,6 +881,23 @@
     row.click();
   };
   /**
+   * Walk the party to `pos` (`{ x, y, z }`, such as a spawn record) with the client's own ground
+   * navigation, and resolve once it stands within `radius` units. Rejects when it stays still for
+   * `stillMs`, such as at a blocked path.
+   */
+  const walkTo = async (pos, { radius = 40, stillMs = 20000 } = {}) => {
+    worldPort().navigateToGroundPositionEQ({ x: pos.x, y: pos.y, z: pos.z ?? 0 }, () => {}, () => {});
+    let was = lastPos;
+    let stillSince = Date.now();
+    for (;;) {
+      await pause(1000);
+      if (lastPos && Math.hypot(lastPos.x - pos.x, lastPos.y - pos.y) <= radius) return true;
+      if (was && lastPos && Math.hypot(lastPos.x - was.x, lastPos.y - was.y) > 2) stillSince = Date.now();
+      was = lastPos;
+      if (Date.now() - stillSince > stillMs) throw new Error(`the party stopped ${lastPos ? Math.round(Math.hypot(lastPos.x - pos.x, lastPos.y - pos.y)) : "?"} units short of ${Math.round(pos.x)}, ${Math.round(pos.y)}`);
+    }
+  };
+  /**
    * Walk to quest NPC `name` in this zone and open its dialogue, which arriving does for most
    * quest NPCs. A walk cut short by a fight or a blocked path is repeated, and when the party
    * stands near the NPC without a dialogue (Smith Tv`ysa in South Ro) the client's hail opens it.
@@ -1363,6 +1380,7 @@
     buyItem,
     refreshSpawns,
     worldPort,
+    walkTo,
     craftItem,
     sellCursor,
     closeWindows,

@@ -365,7 +365,8 @@ spends the reward on), nor the done items of a chain in the file that `needs` th
 that uses up what the chain `needs`, or of a later step, always run, and the others at most as many
 as the account holds copies of those items. A chain that stopped part way goes on after the last step `expect` the member
 carries. A step talks to its `npc` with `say` keywords, waiting up to `waitMin` for an NPC that
-shares its spawn point to appear, gives it `give`, hands in `each`, buys `buy` from a merchant, or fights
+shares its spawn point to appear (an occupant at most three levels above the leader is killed so the
+point rolls again, and a stronger one, or three fights without a kill, end the wait for six hours), gives it `give`, hands in `each`, buys `buy` from a merchant, or fights
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or
 crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
 catalog ingredients one set lacks, with one of each of its `inputs` (the components the catalog does

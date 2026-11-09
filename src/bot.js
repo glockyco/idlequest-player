@@ -1357,13 +1357,35 @@
             // Right after a zone change the server may not have the zone's spawns yet, so the next round asks again.
             await i.refreshSpawns().catch(() => {});
             const spawns = i.zoneSpawns?.spawns ?? [];
-            if (spawns.some((x) => wanted.test(x.name ?? ""))) return;
-            // A spawn point that another living NPC holds rolls again only when that NPC dies, and the
-            // party does not fight while it waits, so the wait cannot succeed (`points` from the
-            // content snapshot, which tools/iqd.mjs adds).
+            // The spawn list keeps a point's last NPC while it respawns, so only a living one counts.
+            if (spawns.some((x) => wanted.test(x.name ?? "") && x.state === "alive")) return;
+            // A spawn point that another living NPC holds rolls again only when that NPC dies (`points`
+            // from the content snapshot, which tools/iqd.mjs adds). The party walks to an occupant at
+            // most three levels above the leader and kills it there, where it is the closest of its
+            // kind, so the point rolls again within the wait, as for Kidadriar's ghoul scribe, whose
+            // point a wan ghoul knight held for seven attempts.
             const at = (s.points ?? []).map((p) => spawns.find((x) => x.spawn2Id === p));
-            // The occupant may stand for days, so the coordinator comes back after six hours (`retryAfterMs`).
-            if (at.length && at.every((x) => x && x.currentHp > 0)) throw Object.assign(new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`), { retryAfterMs: 6 * 3600000 });
+            if (at.length && at.every((x) => x && x.currentHp > 0)) {
+              const lead = i.stores.character.getState().characterProfile?.level ?? 0;
+              const held = at.filter((x) => x.state === "alive" && !wanted.test(x.name ?? ""));
+              const strong = held.filter((x) => (x.level ?? 0) > lead + 3);
+              // A stronger occupant may stand for days, so the coordinator comes back after six hours (`retryAfterMs`).
+              if (strong.length || !held.length) throw Object.assign(new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`), { retryAfterMs: 6 * 3600000 });
+              // The client pulls only a party at full HP and mana, as for a quest kill, so the fight
+              // waits up to four minutes for that. Three fights without a kill, which the guard ends
+              // when the active quest member is dying, mean the party cannot clear the point: Kidadriar's
+              // party escaped a wan ghoul knight, immune to its melee, and the zol ghoul knight that
+              // joined it three times. The coordinator comes back after six hours, as for a stronger occupant.
+              for (const x of held) {
+                for (const until = now() + 240000; !i.partyFull() && now() < until; ) await sleep(3000);
+                await i.walkTo(x);
+                const r = await directedKill(i, enemyPattern(`^${x.name}$`));
+                log(`quest: ${x.name.replace(/_/g, " ")} on ${s.npc}'s spawn point: ${r}`);
+                m.occupantLost = r === "lost" ? (m.occupantLost ?? 0) + 1 : 0;
+                if (m.occupantLost >= 3) throw Object.assign(new Error(`three fights with ${x.name.replace(/_/g, " ")} on ${s.npc}'s spawn point ended without a kill (${fightState(i)})`), { retryAfterMs: 6 * 3600000 });
+              }
+              continue;
+            }
             if (now() > end) throw new Error(`${s.npc} did not spawn within ${s.waitMin} minutes`);
           }
         }, s.waitMin * 60000 + 30000);
