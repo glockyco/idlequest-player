@@ -224,7 +224,10 @@ const escapes = [];
 
 // ---- Damage by source: who and what kills the enemies -----------------------------------------
 // Party members and pets are the names the samples list; the player's own lines start "You" or
-// "Your". Melee lines end "for N damage", spells "for N points of damage".
+// "Your". Melee lines end "for N damage", spells "for N points of damage". A DoT tick names its
+// caster but not its spell ("<enemy> has taken N damage from <caster>'s spell.", or "your spell").
+// An enemy's negative regeneration ticks "from a spell." with no caster, the same text a party
+// member's incoming tick carries, so those count as "no caster" only on names outside the party.
 const ours = new Set(samples.flatMap((s) => (s.party ?? []).map((m) => m[0])));
 const damage = {};
 {
@@ -236,6 +239,9 @@ const damage = {};
     else if ((m = /^You \w+ .+? for (\d+) (?:points? of )?damage/.exec(e.text))) add("me", "melee", +m[1]);
     else if ((m = /^(\w+)'s damage shield hit .+? for (\d+)/.exec(e.text))) { if (ours.has(m[1])) add(m[1], "damage shield", +m[2]); }
     else if ((m = /^(\w+)'s (.+?) hit .+? for (\d+) points? of damage/.exec(e.text))) { if (ours.has(m[1])) add(m[1], m[2], +m[3]); }
+    else if ((m = /^.+? has taken (\d+) damage from your spell\.$/.exec(e.text))) add("me", "DoT ticks", +m[1]);
+    else if ((m = /^.+? has taken (\d+) damage from (\w+)'s spell\.$/.exec(e.text))) { if (ours.has(m[2])) add(m[2], "DoT ticks", +m[1]); }
+    else if ((m = /^(.+?) has taken (\d+) damage from a spell\.$/.exec(e.text))) { if (!ours.has(m[1])) add("no caster", "DoT ticks", +m[2]); }
     else if ((m = /^(\w+) \w+ .+? for (\d+) (?:points? of )?damage/.exec(e.text))) { if (ours.has(m[1])) add(m[1], "melee", +m[2]); }
   }
 }
@@ -352,7 +358,8 @@ const result = {
   // The seconds from leaving to AutoLevel running again. The abandoned fight and the walk back
   // from the zone-in are not counted here, but show in kills per minute.
   escapes: { count: escapes.length, meanSec: +mean(escapes.map((e) => e.secs)).toFixed(1), totalSec: Math.round(escapes.reduce((s, e) => s + e.secs, 0)), byTrigger: escapes.reduce((o, e) => ((o[e.why] = (o[e.why] ?? 0) + 1), o), {}) },
-  // Share of the party's logged damage per member or pet, with its parts (melee, each spell, damage shield).
+  // Share of the party's logged damage per member or pet, and "no caster" for caster-less ticks, with
+  // its parts (melee, each spell, DoT ticks, damage shield).
   damage: Object.fromEntries(
     Object.entries(damage)
       .map(([who, parts]) => [who, Object.values(parts).reduce((a, b) => a + b, 0), parts])
