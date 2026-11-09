@@ -79,8 +79,29 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool? }`): its output value (`outputValue` in gear-data.mjs). */
-export const setValue = (items, p) => outputValue(items, p.cls, p.level, { pool: p.pool });
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery? }`): its output value (`outputValue` in gear-data.mjs). */
+export const setValue = (items, p) => outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery });
+
+/**
+ * Each character's part in its group's recovery, from `bun tools/groups.mjs --json` rows: the
+ * recovery share of the group's time times the share of the waits its mana bar held the party
+ * (`limiters`, "me" the leader), with the supply's mana regeneration, as `outputValue`'s
+ * `recovery`. Waits on HP count in the total but give no member a share, since mana regeneration
+ * does not shorten them. Returns a Map of name to `{ share, regen }`.
+ */
+export function recoveryShares(rows) {
+  const out = new Map();
+  for (const r of rows) {
+    const total = Object.values(r.limiters ?? {}).reduce((a, b) => a + b, 0);
+    if (!(total > 0) || !(r.recover > 0)) continue;
+    for (const [key, sec] of Object.entries(r.limiters)) {
+      const [who, bar] = key.split(":");
+      if (bar !== "mana") continue;
+      out.set(who === "me" ? r.leader : who, { share: (r.recover * sec) / total, regen: r.supportManaRegen ?? 0 });
+    }
+  }
+  return out;
+}
 
 // A song's skill and the instrument type that modifies it (docs/client-internals.md, Bard
 // instruments). Type 51 modifies every song.

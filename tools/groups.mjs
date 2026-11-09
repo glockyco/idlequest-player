@@ -83,6 +83,10 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     escapes: a?.escapes?.count ?? null,
     ...(await deaths(leader, g.members).then((d) => ({ deaths: d?.all ?? null, leaderDeaths: d?.leader ?? null, xpLost: d?.xpLost ?? null }))),
     waitedFor: limiter ? `${limiter[0]} ${Math.round(limiter[1])}s` : null,
+    // Seconds of recovery each member's bar held the party, by `<name>:<hp|mana>` ("me" is the leader).
+    limiters: a?.recover?.limiterSeconds ?? {},
+    // The party supply's mana regeneration, from the leader's last snapshot.
+    supportManaRegen: sn?.leader?.supportManaRegen ?? null,
   });
 }
 

@@ -282,8 +282,10 @@ export function snapshotInPage(a) {
     out.pageSession = iq.session;
     out.release = iq.release ?? null;
     out.code = iq.code ?? null;
+    // `supportManaRegen`: the mana regeneration the party's supply gives every member, which sets how
+    // fast the slowest bar refills between fights (docs/client-internals.md, Readiness wait).
     out.leader = p?.id
-      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, xp: ep?.current ?? null }
+      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
       : null;
     out.party = (cs.companions ?? []).map((c) => {
       const r = c.characterId != null ? byId[c.characterId] : null;
@@ -791,7 +793,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { BUY_PP, itemCard, planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
+    const { BUY_PP, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -825,7 +827,12 @@ class Daemon {
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
     // Each character's last recorded maximum mana, which an item's mana is a share of.
     const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
-    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
+    // Each character's part in its group's recovery over the last two hours, which mana regeneration
+    // shortens (`recoveryShares`). A character the party never waited for gets a zero share.
+    const proc = Bun.spawn(["bun", join(REPO, "tools/groups.mjs"), "--last", "120", "--json"], { stdout: "pipe", stderr: "ignore" });
+    const groupRows = await new Response(proc.stdout).json().catch(() => []);
+    const recoveryOf = recoveryShares(groupRows);
+    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined }));
     const { moves, keep, drops, picks, characters } = planGear({ survey, items: this.items, people, songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
     this.pickWants = picks;

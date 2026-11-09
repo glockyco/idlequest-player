@@ -62,7 +62,13 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  *   item haste (at most 50) as swing rate;
  * - spells: the share of the wearer's maximum mana (`pool`, else a typical 30 mana a level) that item mana and INT or WIS add (80 ×
  *   level / 425 mana a point), because out-of-fight regeneration is 2.5% of the maximum per 600 ms,
- *   so recovery shortens with the pool, and 2% faster regeneration a point of `manaregen` (at most 15);
+ *   so recovery shortens with the pool;
+ * - mana regeneration: item `manaregen` (at most 15) raises the out-of-fight refill by
+ *   1 + min(regen / 50, 1) with the party's supply, and AutoLevel pulls only once every bar is full,
+ *   so it is worth the group time the wearer's slower refill holds the party: with `recovery`
+ *   (`{ share, regen }`, the group's recovery share times the wearer's part of the waits, and the
+ *   supply's regeneration), that share times the refill it saves, counted for the six members,
+ *   and without it 2% of the spell share a point;
  * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
  *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
  * A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste, regeneration, HP and
@@ -70,7 +76,7 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * spell damage and spell haste percent to the spell share.
  * Resists and the stats the client does not use for this class count for nothing.
  */
-export const outputValue = (items, c, level, { pool } = {}) => {
+export const outputValue = (items, c, level, { pool, recovery } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
   // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
   const focus = { 124: 0, 127: 0, 132: 0 };
@@ -105,11 +111,14 @@ export const outputValue = (items, c, level, { pool } = {}) => {
   }
   const meleeShare = MELEE_SHARE[groupOf(c)];
   const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
-  // Spell output: the pool and regeneration that shorten recovery, a lower mana cost (recovery is the
-  // mana spent), more spell damage and faster casts, each a percent of the spell share.
-  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + 2 * Math.min(manaregen, 15) + focus[132] + focus[124] + focus[127]);
+  // Spell output: the pool that shortens recovery, a lower mana cost (recovery is the mana spent),
+  // more spell damage and faster casts, each a percent of the spell share.
+  const regen = Math.min(manaregen, 15);
+  const refill = (r) => 1 / (1 + Math.min(r, 50) / 50);
+  const rest = NO_MANA.has(c) ? 0 : recovery ? 6 * 100 * recovery.share * (1 - refill((recovery.regen ?? 0) + regen) / refill(recovery.regen ?? 0)) : (1 - meleeShare) * 2 * regen;
+  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + focus[132] + focus[124] + focus[127]);
   const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
-  return 10 * (melee + spells + survival);
+  return 10 * (melee + spells + rest + survival);
 };
 
 // A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee

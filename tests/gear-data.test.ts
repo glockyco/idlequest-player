@@ -55,6 +55,18 @@ test("a worn effect counts like the stats it gives, from its required level, and
   expect(outputValue([focus(10)], "warrior", 40)).toBe(0);
 });
 
+test("mana regeneration is worth the group time its wearer's refill holds the party", () => {
+  const ring = [{ manaregen: 5 }];
+  // A Necromancer the party waited for 20% of the time, with no supply: 5 regen refills 10% faster,
+  // so 20% x (1 - 1/1.1) of the group's time, counted for six members.
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(10 * 6 * 100 * 0.2 * (1 - 1 / 1.1));
+  // The party never waits for it: nothing.
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0, regen: 0 } })).toBe(0);
+  // Supply at the cap of 50 leaves nothing to gain, and item regeneration counts at most 15.
+  expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 50 } })).toBe(0);
+  expect(outputValue([{ manaregen: 30 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(outputValue([{ manaregen: 15 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }));
+});
+
 test("farm hours are respawn over spawn chance and drop chance", () => {
   expect(farmHours({ respawn: 640, spawn: 0.25, drop: 0.68 })).toBeCloseTo(640 / (0.25 * 0.68) / 3600, 10);
   expect(farmHours({ respawn: Infinity, spawn: 1, drop: 1 })).toBe(Infinity);
