@@ -411,7 +411,7 @@ test("a leader at 0 HP with no recovery pending camps and enters the world again
   }
 });
 
-test("cleanup sells extra copies first, then cheap singles, and keeps food, research pieces and dear items", async () => {
+test("cleanup sells extra copies first, then singles by value, and keeps food, research pieces and items with an effect", async () => {
   const { bot, me } = await install();
   const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });
   Object.assign(me, {
@@ -422,12 +422,13 @@ test("cleanup sells extra copies first, then cheap singles, and keeps food, rese
       item(3, 3, "Ration", 25, { itemtype: 14 }),
       item(4, 4, "Words of Tyranny", 200),
       item(5, 5, "Solist's Icy Wand", 10000),
+      item(8, 7, "Charm of Vigor", 50, { worneffect: 12 }),
       item(6, 10015, "Malachite", 50),
       item(7, 6, "Bone Chips", 15, { nodrop: 0 }),
     ],
   });
   const names = bot.surplus().map((s) => s.name);
-  expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer"]);
+  expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer", "Solist's Icy Wand"]);
 });
 
 test("cleanup keeps the last copy of a quest turn-in item and sells its extra copies", async () => {

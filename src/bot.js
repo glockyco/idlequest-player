@@ -32,22 +32,25 @@
     targetFreeSlots: 16, // and stop once this many are free
     keepCopies: 1, // copies (or stacks) of each item that are never sold as surplus
     autoBank: true, // when bags run low, first send ingredients and spell scrolls to the tradeskill bank
-    junkMaxCopper: 8000, // then sell single items whose merchant price is at most this (1000 = 1 platinum)
+    junkMaxCopper: 8000, // a cursor item the full bags cannot take is sold if its merchant price is at most this (1000 = 1 platinum)
     // Never sold, besides the reagents of the leader's own spells. Lightstones (10300) and Greater
     // Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
-    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false },
+    // The server's Auto-Sell empties full bags of every item it does not protect, which includes the
+    // gear plan's items between its survey and its pulls, so the bot's own cleanup (`surplus`) sells
+    // instead and keeps them.
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false },
     // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
     companionTactics: { cure: false },
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
-    // Never sold as cheap single items: spell research pieces, which Auto Bank usually banks first.
+    // Never sold as single items: spell research pieces, which Auto Bank usually banks first.
     keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b",
-    keepItemTypes: [14, 15], // never sold as cheap single items: food and drink
+    keepItemTypes: [14, 15], // never sold as single items: food and drink
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
@@ -197,12 +200,12 @@
    * items, items without a merchant price, `keepItemIds`, the gear plan's `gearKeepIds`, reagents of the leader's class spells,
    * equipped items, the cursor and bags marked No Sell, whose copies count as kept.
    * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
-   * with `cheap`, single items whose merchant price is at most `junkMaxCopper`, lowest total value
-   * first. Quest turn-in items (`window.iq.questItems`, from tools/quest-items.mjs) are never sold
-   * as cheap singles, because these sales bypass the client's Keep Epic Quest Items. Dearer single
-   * items are left for hand-downs or a person to review.
+   * with `singles`, the last copies, lowest total value first, except items with an effect, food,
+   * drink, research pieces and quest turn-in items (`window.iq.questItems`, from
+   * tools/quest-items.mjs), because these sales bypass the client's Keep Epic Quest Items. What
+   * some character can wear better is already in `gearKeepIds`.
    */
-  const surplus = (i, cheap = false) => {
+  const surplus = (i, singles = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const noSell = new Set(i.stores.combat.getState().noAutoSellBagInstanceIds ?? []);
     const general = new Map(inv.filter((r) => r.bag === 0 && r.slot >= 22 && r.slot <= 29).map((r) => [r.slot, r]));
@@ -226,14 +229,14 @@
     const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
     const keepName = new RegExp(config.keepNamePattern, "i");
     const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
-    const cheapOk = (r) => r.itemDetails.price <= config.junkMaxCopper && !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !questItems.has(r.itemid);
+    const singleOk = (r) => !hasEffect(r.itemDetails) && !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !questItems.has(r.itemid);
     const extra = [];
     const single = [];
     for (const [id, rows] of groups) {
       rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
       const keep = Math.max(0, config.keepCopies - (kept.get(id) ?? 0));
       for (const r of rows.slice(keep)) extra.push(row(r, rows.length));
-      if (cheap) for (const r of rows.slice(0, keep)) if (cheapOk(r)) single.push(row(r, rows.length));
+      if (singles) for (const r of rows.slice(0, keep)) if (singleOk(r)) single.push(row(r, rows.length));
     }
     extra.sort((a, b) => b.copies - a.copies || a.price - b.price);
     single.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
@@ -1857,6 +1860,9 @@
         state.pauseReason = null;
         state.restartNow ??= "the end of a pause";
       }
+      // The client options protect every character the tab plays, so they hold also while a task
+      // plays another character or a pause holds the tab.
+      if (i.stores.character.getState().characterProfile?.id && !i.stores.combat.getState().isZoneLoading) keepOptions(i.stores.combat.getState());
       // The other watchers serve the leader's party, so they wait while another character is active.
       if (reconcileLeader(i)) return;
       const cb = i.stores.combat.getState();
@@ -1885,7 +1891,6 @@
       keepParty(i, cb);
       await watchIdle(i, cb);
       keepLimits(i, cb);
-      keepOptions(cb);
       keepTactics(i);
       avoidTargets(i);
       keepAutoLevel(i, cb);
