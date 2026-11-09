@@ -407,7 +407,9 @@ export function applySettingsInPage(a) {
  * (docs/plans/systems-research.md, section 1). Uses the Alternate Advancement window's own
  * request. The server refuses both below the unlock level (46), so the allocation covers the
  * characters past it and the rule waits for the host to reach it. The allocation goes first,
- * because the window does not allocate while the rule pauses a character. Returns what it changed.
+ * because the window does not allocate while the rule pauses a character. Returns what it changed
+ * and the active character's AA state: `{ done, state: { name, level, points, spent, ranks, maxRanks, allocation } }`,
+ * where `maxRanks` sums the catalog's maximum ranks.
  */
 export async function aaInPage(a) {
   const host = window.iq.stores.character.getState().characterProfile.id;
@@ -429,7 +431,8 @@ export async function aaInPage(a) {
     if (!r?.success) throw new Error(r?.error ?? `${scope} level rule refused`);
     done.push(`${scope} paused below ${a.level}`);
   }
-  return done;
+  const s = r.state;
+  return { done, state: { name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null } };
 }
 
 /** Give the bot what the roster gear plan needs kept: copies per item the account is short of, and the copies its moves take. */
@@ -650,13 +653,18 @@ class Daemon {
       this.log(`coordinator: ${z.label} zone: ${z.rotation.join(", ")}, ${z.why}`);
     }
     metaSet(this.db, "rates", rates);
-    // AA settings for each party, outside tasks, which may have another character active.
+    // AA settings for each party, outside tasks, which may have another character active. The
+    // window's state also names the active character's points, spent points and ranks, kept per
+    // character in the meta key `aa` for the dashboard.
+    const aa = metaGet(this.db, "aa") ?? {};
     for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
-      const done = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 20000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), []));
-      if (!done?.length) continue;
-      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${done.join("; ")}`);
-      this.log(`coordinator: ${t.label} aa: ${done.join("; ")}`);
+      const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 20000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
+      if (r?.state) aa[r.state.name] = { ...r.state, t: now };
+      if (!r?.done?.length) continue;
+      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${r.done.join("; ")}`);
+      this.log(`coordinator: ${t.label} aa: ${r.done.join("; ")}`);
     }
+    metaSet(this.db, "aa", aa);
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
     state.last = { t: now, stock, missing, chains: chainSummary({ quests, holders, started, members }), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.

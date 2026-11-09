@@ -87,7 +87,9 @@ function renderGoal(s) {
     g.gear.share == null
       ? barRow("Gear", null, none(), `The gear pass has not saved its report yet. The pass runs once an hour.`)
       : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target score`, `The average character of ${g.gear.characters} wears ${pct(g.gear.share)} of the armor and jewelry score that the account's items, merchants and wanted drops give it, and ${pct(g.gear.afterMoves)} once the ${g.gear.moves ?? "?"} queued moves are done. ${g.gear.drops ?? "?"} wanted drops are listed. Pass ${ago(s.now, g.gear.passT)}.`, g.gear.afterMoves),
-    barRow("AA ranks", null, none(), `Ranks are not collected. ${g.aa.reached} of ${g.aa.characters} characters have reached level ${g.aa.level}, where AA opens.`),
+    g.aa.share == null
+      ? barRow("AA ranks", null, none(), `No character past level ${g.aa.level} has been recorded yet. ${g.aa.reached} of ${g.aa.characters} characters have reached it, where AA opens.`)
+      : barRow("AA ranks", g.aa.share, `${g.aa.trained} of ${g.aa.possible} ranks`, `${g.aa.recorded} recorded characters past level ${g.aa.level} have trained ${g.aa.trained} of the catalog's ${g.aa.possible} ranks and hold ${g.aa.points} unspent points. Their XP goes to AA only from level 60. ${g.aa.reached} of ${g.aa.characters} characters have reached ${g.aa.level}. Pass ${ago(s.now, g.aa.passT)}.`),
     g.epics.share == null
       ? barRow("Epics", null, none(), `The coordinator has not saved its chain summary yet. The last pass ${g.epics.passT ? ago(s.now, g.epics.passT) : "never"} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`)
       : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps`, `${g.epics.holders} characters hold an epic chain's item, ${g.epics.started} have started one and ${g.epics.needers} still need one, over ${g.epics.chains} chains (characters of the class at the chain's level). ${g.epics.missingCopies} copies of ${g.epics.missingPieces} chain pieces are still missing. Pass ${ago(s.now, g.epics.passT)}.`),

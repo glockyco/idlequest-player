@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
+import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -299,4 +299,13 @@ test("the gear view groups each character's scores by roster group, and the shee
   expect(sheet.slots[2].optimal).toBeNull();
   expect(Object.keys(sheet.items).sort()).toEqual(["1", "2", "3", "4", "5"]);
   expect(gearSheetView(db, "Unplanned", { roster, catalog }).found).toBe(false);
+});
+
+test("the AA bar counts trained ranks against the catalog for recorded characters past the unlock level", () => {
+  const aa = {
+    High: { level: 47, ranks: { 50001: 2, 50002: 1 }, maxRanks: 100, points: 4, t: 1000 },
+    Low: { level: 30, ranks: {}, maxRanks: 100, points: 0, t: 2000 },
+  };
+  expect(aaView(aa, { reached: 1, characters: 72 })).toMatchObject({ share: 0.03, recorded: 1, trained: 3, possible: 100, points: 4, passT: 1000 });
+  expect(aaView({}, { reached: 0, characters: 72 }).share).toBeNull();
 });
