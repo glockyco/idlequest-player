@@ -190,6 +190,8 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   if (snap.bot.task?.status === "done" && snap.bot.task.endedAt) settled["alert-task"] = snap.bot.task.endedAt;
   if (snap.activity && snap.activity.act !== "idle" && snap.activity.since) settled["alert-idle"] = snap.activity.since;
   if (snap.bags && !snap.bags.cursor) settled["alert-cursor"] = now;
+  // Room in the bags means new drops are looted again.
+  if (snap.bags?.free >= 4) settled["alert-lootFull"] = now;
   return { state: st, items, evaluated, settled };
 }
 
@@ -223,7 +225,7 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
   const newest = new Map(events.filter((e) => e.severity === "act").map((e) => [e.kind, e.id]));
   for (const e of events) {
     if (CONDITION_KINDS.includes(e.kind) || !(e.severity in EVENT_TTL_MS)) continue;
-    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty" }[e.kind] ?? "the tab plays again", now);
+    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room" }[e.kind] ?? "the tab plays again", now);
     else if (e.severity === "act" && newest.get(e.kind) !== e.id) resolveItem(db, e.id, `replaced by #${newest.get(e.kind)}`, now);
     else if (now - e.t >= EVENT_TTL_MS[e.severity] && (e.severity === "info" || !conditionOpen)) resolveItem(db, e.id, "expired", now);
   }
