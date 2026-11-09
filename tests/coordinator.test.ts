@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, decide, experimentSettings, piecesNeeded, progressItems } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, experimentSettings, piecesNeeded, progressItems, settleHistory } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -324,4 +324,36 @@ test("a chain member is past its needed pieces only from the step that uses them
   // piece counts like a craft.
   expect(progressItems({ ...q, needs: [] })).toEqual(["Bunker Cell #1", "Bog Juice", "Edible Goo", "H. K. 102"]);
   expect(progressItems({ ...q, needs: ["Drom's Champagne"] })).toEqual(["Bunker Cell #1", "Bog Juice", "Edible Goo", "H. K. 102"]);
+});
+
+test("settleHistory writes an ended task's outcome into its entry once, and leaves running tasks alone", () => {
+  const history = [
+    { t: 1000, label: "A", kind: "hunt", id: "o1", task: "hunt-1" },
+    { t: 2000, label: "B", kind: "quest", id: "q1", task: "quest-1" },
+    { t: 3000, label: "C", kind: "hunt", id: "o2", task: "hunt-2" },
+  ];
+  const tasks = [
+    { id: "hunt-1", status: "failed", step: "make room", error: "no free bag slot", startedAt: 1100, endedAt: 4100, nextAt: 9000 },
+    { id: "quest-1", status: "done", result: "got Sealed Note", startedAt: 2100, endedAt: 2600 },
+    { id: "hunt-2", status: "running", startedAt: 3100 },
+  ];
+  expect(settleHistory(history, tasks)).toBe(true);
+  expect(history[0]).toMatchObject({ status: "failed", step: "make room", error: "no free bag slot", result: null, ms: 3000, endedAt: 4100, nextAt: 9000 });
+  expect(history[1]).toMatchObject({ status: "done", result: "got Sealed Note", ms: 500 });
+  expect(history[2].status).toBeUndefined();
+  // Settled again with the same tasks, nothing changes.
+  expect(settleHistory(history, tasks)).toBe(false);
+});
+
+test("chainSummary lists holders, those who started a chain and those who still need it", () => {
+  const quests = { "paladin-epic-note": { class: "Paladin", reward: "Sealed Note", minLevel: 15, steps: [] } };
+  const members = [
+    { name: "Pal1", level: 30, class: "Paladin" },
+    { name: "Pal2", level: 30, class: "Paladin" },
+    { name: "Pal3", level: 30, class: "Paladin" },
+    { name: "Pal4", level: 10, class: "Paladin" }, // below the chain's level
+    { name: "Mage", level: 30, class: "Magician" },
+  ];
+  const summary = chainSummary({ quests, holders: { "paladin-epic-note": ["Pal1"] }, started: { "paladin-epic-note": ["Pal1", "Pal2"] }, members });
+  expect(summary).toEqual({ "paladin-epic-note": { class: "Paladin", reward: "Sealed Note", minLevel: 15, holders: ["Pal1"], started: ["Pal2"], needers: ["Pal2", "Pal3"] } });
 });

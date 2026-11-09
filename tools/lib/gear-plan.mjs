@@ -16,7 +16,7 @@
 // so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
 // replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
 // shield never replaces a weapon.
-import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, offhandChance, statScore, weaponRatio } from "./gear-data.mjs";
+import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, offhandChance, slotName, statScore, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 const PRIMARY = 13;
@@ -116,6 +116,58 @@ export function instrumentValue(items, level, songs) {
   return value;
 }
 
+/**
+ * The slots of the paper doll in the order of EverQuest's inventory window: the left column, the
+ * right column, then the hands, the ammo and the charm. Slot 21 is the ammo slot.
+ */
+export const DOLL_SLOTS = [1, 5, 3, 2, 6, 7, 8, 9, 10, 11, 4, 15, 16, 17, 12, 20, 18, 19, 13, 14, 21, 0];
+const slotLabel = (n) => SLOT_BY_NUM[n] ?? "ammo";
+const round1 = (x) => Math.round(x * 10) / 10;
+
+/** One person's entry of `planGear`'s `characters`. */
+function characterReport(p, { wornRows, worn, scoreNow, moves, wants, items, value }) {
+  const lastMove = new Map(moves.map((m) => [m.slotNum, m]));
+  const wanted = new Map(wants.map((w) => [w.slotNum, w]));
+  const target = new Map(worn);
+  for (const w of wants) target.set(w.slotNum, items.get(w.itemId));
+  const afterMoves = value(p, worn);
+  return {
+    name: p.name,
+    cls: p.cls,
+    level: p.level,
+    score: { now: round1(scoreNow), moves: round1(afterMoves), target: round1(Math.max(afterMoves, value(p, target))) },
+    slots: DOLL_SLOTS.map((n) => {
+      const m = lastMove.get(n);
+      const w = wanted.get(n);
+      return {
+        slotNum: n,
+        slot: slotLabel(n),
+        worn: wornRows.get(n) ?? null,
+        move: m ? { itemId: m.itemId, item: m.item, from: m.from, gain: m.gain, replaces: m.replaces, ...(m.buy ? { buy: m.buy } : {}) } : null,
+        drop: w ? { itemId: w.itemId, item: w.item, zone: w.zone, npc: w.npc, hours: w.hours, gain: w.gain } : null,
+      };
+    }),
+  };
+}
+
+/**
+ * The facts of an item row that the dashboard's tooltip shows, without the zeros: name, icon file
+ * number, the slots, classes and races as bit masks, AC, HP, mana, stats, resists, damage and delay,
+ * and the flags the client prints (NO DROP is `nodrop` 0, LORE any `loregroup`, MAGIC `magic` 1).
+ */
+export function itemCard(i) {
+  const out = { id: i.id, name: i.Name, icon: i.icon ?? 0, slots: slotName(i.slots ?? 0), classes: i.classes ?? 0, races: i.races ?? 0, reqlevel: i.reqlevel ?? 0, type: i.itemtype ?? 0 };
+  const put = (k, v) => v && (out[k] = v);
+  for (const k of ["ac", "hp", "mana", "endur", "astr", "asta", "aagi", "adex", "awis", "aint", "acha", "mr", "fr", "cr", "dr", "pr", "attack", "haste", "regen", "manaregen", "damage", "delay", "weight", "bardtype", "bardvalue", "damageshield", "avoidance", "accuracy"]) put(k, i[k]);
+  const flags = [];
+  if (i.nodrop === 0) flags.push("NO DROP");
+  if (i.loregroup && i.loregroup !== 0) flags.push("LORE");
+  if (i.magic === 1) flags.push("MAGIC");
+  if (i.artifactflag) flags.push("ARTIFACT");
+  if (flags.length) out.flags = flags;
+  return out;
+}
+
 const fits = (item, p, slot) =>
   item && item.slots & (1 << slot) && !(item.bagslots > 0) && item.classes & BIT[p.cls] && (!p.race || !RACE[p.race] || item.races & RACE[p.race]) && (item.reqlevel ?? 0) <= p.level;
 
@@ -137,6 +189,13 @@ const fits = (item, p, slot) =>
  * which covers the drops. A copy beyond that demand is surplus.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain` (armor) or `2 * MIN_RATIO_GAIN` (main hand), the dropped items worth hunting for.
+ * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
+ * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
+ * worn now (`setValue`, a Bard's instruments included, weapons left out because their ratio is
+ * another unit), after this pass's moves, and after the moves and every wanted drop; and for each
+ * of the 22 slots of the paper doll (`DOLL_SLOTS`) the item worn now (`{ itemId, name }`), the last
+ * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
+ * zone, npc, hours, gain }`).
  */
 export function planGear({ survey, items, people, minGain = 5, songs = [], shop = [], buyPp = 0, drops = [] }) {
   const byName = new Map(people.map((p) => [p.name, p]));
@@ -208,6 +267,10 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     return out;
   };
   const sources = () => [...free, ...goods];
+  // What each character wears before the moves, for the per-character report.
+  const wornNow = new Map(people.map((p) => [p.name, new Map(worn.get(p.name))]));
+  const wornRows = new Map(people.map((p) => [p.name, new Map(survey.filter((r) => r.location === "Equipped" && r.characterName === p.name).map((r) => [r.slot, { itemId: r.itemId, name: r.itemName }]))]));
+  const scoreNow = new Map(people.map((p) => [p.name, value(p, wornNow.get(p.name))]));
 
   let offers = sources().flatMap((r) => people.flatMap((p) => offer(r, p)));
   // The items the account holds that are an upgrade for someone, whose demand is checked again
@@ -258,6 +321,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   }
   // The drops worth hunting for, against what each character wears after this pass.
   const want = new Map();
+  const wantSlot = new Map();
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
     const r = virtual(d.itemId);
@@ -266,9 +330,12 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
         if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain) || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
         const k = `${p.name}:${o.slot}`;
         const best = want.get(k);
-        if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) want.set(k, { item: r.itemName, itemId: d.itemId, to: p.name, slot: SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours });
+        if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) {
+          want.set(k, { item: r.itemName, itemId: d.itemId, to: p.name, slot: SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours });
+          wantSlot.set(k, o.slot);
+        }
       }
     }
   }
-  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()] };
+  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }

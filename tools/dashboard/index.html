@@ -30,6 +30,16 @@
         <p class="muted small">Level bars show each group's share of the XP to level 60. Idle is the last hour. The timeline has one cell per minute, coloured by its main activity, with task spans below it and a dark mark where the leader died. Click a row for the party, bags, rotation and task history.</p>
       </section>
 
+      <section id="gear">
+        <div class="head">
+          <h2>Gear</h2>
+          <label class="muted small">Character sheet <select id="gear-select"></select></label>
+          <span class="legend"><span><i class="swatch now"></i>worn now</span><span><i class="swatch after"></i>after the queued moves</span><span>track: with the wanted drops</span></span>
+        </div>
+        <div id="gear-rows" class="gear-rows"></div>
+        <div id="sheet" class="panel sheet"></div>
+      </section>
+
       <div class="pair">
         <section class="panel" id="coordinator">
           <h2>Coordinator</h2>
@@ -41,6 +51,10 @@
         </section>
       </div>
 
+      <details id="d-epics">
+        <summary>Epic chains</summary>
+        <div id="epics"></div>
+      </details>
       <details id="d-eng">
         <summary>Engineering health</summary>
         <p class="muted">Manual interventions are the SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items. Both should fall per group-hour over time.</p>
@@ -75,6 +89,8 @@
         <div id="alerts"></div>
       </details>
     </main>
+    <div id="tip" class="tip" hidden></div>
+    <script src="/gear.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -503,7 +503,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, crowdedZones, piecesNeeded, progressItems, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -601,13 +601,9 @@ class Daemon {
       }
     }
     const state = metaGet(this.db, "coordinator") ?? { history: [] };
-    // A finished hunt reports when its points respawn, which is when to come back.
-    for (const h of state.history) {
-      const task = tabs.find((t) => t.label === h.label)?.task;
-      if (task?.id !== h.task || task.status === "running") continue;
-      if (task.nextAt) h.nextAt = task.nextAt;
-      if (task.endedAt) h.ms = task.endedAt - task.startedAt;
-    }
+    // A finished hunt reports when its points respawn, which is when to come back. Every cycle
+    // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
+    settleHistory(state.history, tabs.map((t) => t.task));
     const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
     // Wanted drops from the gear pass: for each group, the drop with the most gain per hour of
@@ -662,7 +658,7 @@ class Daemon {
       this.log(`coordinator: ${t.label} aa: ${done.join("; ")}`);
     }
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, missing, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, chains: chainSummary({ quests, holders, started, members }), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
     metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
   }
@@ -769,7 +765,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { BUY_PP, planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
+    const { BUY_PP, itemCard, planGear, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -795,12 +791,30 @@ class Daemon {
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
-    const { moves, keep, drops } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    const { moves, keep, drops, characters } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
+    // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
+    // start of a pass never wipes it: the scores in `gearPlan`, and in `gearSheets` each character's slots
+    // with the cards (name, icon, stats) of the items they name.
+    const cards = {};
+    for (const c of characters) for (const s of c.slots) for (const id of [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]) if (id != null && !cards[id] && this.items.has(id)) cards[id] = itemCard(this.items.get(id));
+    metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
+    metaSet(this.db, "gearSheets", { t: now, sheets: Object.fromEntries(characters.map((c) => [c.name, c.slots])), items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
     metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
+  }
+
+  /**
+   * Write the outcome of each ended task into the coordinator's history every cycle, so a task that
+   * a later one replaces between two passes still has its status and reason on record.
+   */
+  async recordOutcomes() {
+    const state = metaGet(this.db, "coordinator");
+    if (!state?.history?.length) return;
+    const { settleHistory } = await import("./lib/coordinator.mjs");
+    if (settleHistory(state.history, [...this.trackers.values()].map((t) => t.snap?.bot?.task))) metaSet(this.db, "coordinator", state);
   }
 
   async triggers() {
@@ -827,6 +841,7 @@ class Daemon {
     if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch(() => this.code);
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate });
+    await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
     await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
     await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
   }

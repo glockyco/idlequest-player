@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { dayStart, engineeringView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
+import { coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -92,7 +92,7 @@ test("group rows give every roster group one row with its activity, idle share, 
     t: now,
     bot: { enabled: true, rotation: ["guktop", "paw"], crowdedAt: { paw: now - 120000, dalnir: now - 60000 }, task: { id: "hunt-1", kind: "hunt", status: "failed", step: "make room", error: "no free bag slot", startedAt: now - 300000, endedAt: now - 240000 } },
   });
-  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history: [{ t: now - 300000, label: "Tank", kind: "hunt", id: "gear-shimmering-orb", task: "hunt-1", ms: 60000 }] }));
+  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history: [{ t: now - 300000, label: "Tank", kind: "hunt", id: "gear-shimmering-orb", task: "hunt-1", ms: 60000, status: "failed", step: "make room", error: "no free bag slot" }] }));
   db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, 'Tank', 'coordinator', 'hunt: Shimmering Orb for G1')").run(now - 300000);
   const catalog = makeCatalog({ opportunities: [{ id: "gear-shimmering-orb", item: "Shimmering Orb", retryMin: 30 }], zones: { guktop: "The Upper Guk", paw: "Splitpaw" } });
   const rows = groupRowsView(db, now, { roster: rosterView(db, roster), groupOf: new Map([["Tank", "G1"], ["Healer", "G1"], ["Solo", "G2"]]), catalog, report: [{ group: "G1", idle: 0.2, idleCause: "crowded", waitedFor: "Healer:mana 100s" }] });
@@ -221,4 +221,82 @@ test("the timeline has a cell per minute with data, task spans and death marks, 
   expect(bars.at(-2).deaths).toBe(1);
   expect(bars.at(-2).groupHours).toBeGreaterThan(0);
   expect(bars[0].groupHours).toBe(0);
+});
+
+test("the group's task history and the coordinator's outcomes show each task's own outcome", () => {
+  const db = openDb(":memory:");
+  const now = Date.now();
+  db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (1, 'Tank', 'Warrior', 'Human', ?, ?)").run(now, now);
+  db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (2, 'Solo', 'Wizard', 'Human', ?, ?)").run(now, now);
+  addSession(db, "Tank", now, { leader: { name: "Tank", level: 30 }, activity: { act: "fight", since: now }, t: now, bot: { enabled: true, rotation: [], crowdedAt: {}, task: { id: "hunt-3", kind: "hunt", status: "running", startedAt: now - 1000 } } });
+  const history = [
+    { t: now - 100 * 60000, label: "Tank", kind: "hunt", id: "o1", task: "hunt-1", ms: 600000, status: "failed", step: "make room", error: "no free bag slot", endedAt: now - 90 * 60000 },
+    { t: now - 60 * 60000, label: "Tank", kind: "hunt", id: "o2", task: "hunt-2", ms: 300000, status: "done", result: "got Orb", endedAt: now - 55 * 60000 },
+    { t: now - 60000, label: "Solo", kind: "quest", id: "q1", task: "quest-1" }, // no outcome yet
+    { t: now - 1000, label: "Tank", kind: "hunt", id: "o2", task: "hunt-3" },
+  ];
+  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history, last: { t: now, missing: {} } }));
+  const catalog = makeCatalog({ opportunities: [{ id: "o1", item: "Shell" }, { id: "o2", item: "Orb" }] });
+  const groupOf = new Map([["Tank", "G1"], ["Solo", "G2"]]);
+  const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank"] }, { id: "G2", members: ["Solo"] }] });
+  const rows = groupRowsView(db, now, { roster, groupOf, catalog });
+  expect(rows[0].details.history.map((h: { name: string; outcome: unknown }) => [h.name, (h.outcome as { status: string } | null)?.status ?? null])).toEqual([["Orb", null], ["Orb", "done"], ["Shell", "failed"]]);
+  expect(rows[0].details.history[2].outcome).toMatchObject({ error: "no free bag slot", step: "make room" });
+  // A failed task shows red on the timeline.
+  expect(rows[0].timeline.spans.map((s: { status: string }) => s.status)).toEqual(["done", "failed", "running"]);
+  const view = coordinatorView(db, now, { catalog, rows, groupOf });
+  expect(view?.outcomes.map((o: { name: string; status: string; group: string }) => [o.group, o.name, o.status])).toEqual([["G1", "Orb", "done"], ["G1", "Shell", "failed"]]);
+  expect(view?.outcomes[1]).toMatchObject({ error: "no free bag slot", step: "make room" });
+});
+
+test("the epics summary counts holders, starters and needers of the epic chains, and the goal bar is the done share", () => {
+  const chains = {
+    "paladin-epic-note": { class: "Paladin", reward: "Sealed Note", minLevel: 15, holders: ["A"], started: ["B"], needers: ["B", "C", "D"] },
+    "warrior-epic-1": { class: "Warrior", reward: "Totem", minLevel: 10, holders: ["E", "F"], started: [], needers: [] },
+    "other-quest": { class: "Cleric", reward: "X", minLevel: 1, holders: ["G"], started: [], needers: ["H"] },
+  };
+  const view = epicsView({ last: { chains } });
+  expect(view?.chains.map((c: { id: string }) => c.id)).toEqual(["paladin-epic-note", "warrior-epic-1"]);
+  expect([view?.holders, view?.started, view?.needers]).toEqual([3, 1, 3]);
+  expect(view?.share).toBeCloseTo(3 / 6);
+  expect(epicsView({ last: {} })).toBeNull();
+});
+
+test("the gear view groups each character's scores by roster group, and the sheet adds the optimal item and its source", () => {
+  const db = openDb(":memory:");
+  const now = Date.now();
+  const card = (id: number, name: string, extra = {}) => ({ id, name, icon: id, slots: ["head"], classes: 65535, races: 65535, reqlevel: 0, type: 10, ...extra });
+  const slot = (slotNum: number, slot: string, over = {}) => ({ slotNum, slot, worn: null, move: null, drop: null, ...over });
+  db.query("INSERT INTO meta (k, v) VALUES ('gearPlan', ?)").run(JSON.stringify({ t: now, characters: [{ name: "Tank", cls: "warrior", level: 30, score: { now: 50, moves: 75, target: 100 } }, { name: "Healer", cls: "cleric", level: 30, score: { now: 90, moves: 90, target: 90 } }] }));
+  db.query("INSERT INTO meta (k, v) VALUES ('gearSheets', ?)").run(JSON.stringify({
+    t: now,
+    sheets: {
+      Tank: [
+        slot(2, "head", { worn: { itemId: 1, name: "Cap" }, move: { itemId: 2, item: "Helm", from: "Holder", gain: 9, replaces: "Cap" }, drop: { itemId: 3, item: "Crown", zone: "kurn", npc: "a skeleton", hours: 4, gain: 20 } }),
+        slot(5, "neck", { worn: { itemId: 4, name: "Collar" }, move: { itemId: 5, item: "Pendant", from: null, gain: 6, replaces: "Collar", buy: { merchant: "Bob", zone: "kurn", price: 3 } } }),
+        slot(1, "ear"),
+      ],
+      Healer: [],
+    },
+    items: { 1: card(1, "Cap"), 2: card(2, "Helm"), 3: card(3, "Crown", { flags: ["NO DROP"] }), 4: card(4, "Collar"), 5: card(5, "Pendant") },
+  }));
+  const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank", "Healer", "Unplanned"] }] });
+  const catalog = makeCatalog({ zones: { kurn: "Kurn's Tower" } });
+  const view = gearView(db, { roster });
+  expect(view.characters).toBe(2);
+  expect(view.groups[0].characters.map((c: { name: string; share: number | null }) => [c.name, c.share])).toEqual([["Tank", 0.5], ["Healer", 1], ["Unplanned", null]]);
+  expect(view.groups[0].share).toBeCloseTo(0.75);
+  expect(view.share).toBeCloseTo(0.75);
+  expect(view.afterMoves).toBeCloseTo(0.875);
+
+  const sheet = gearSheetView(db, "Tank", { roster, catalog });
+  expect(sheet.found).toBe(true);
+  // The wanted drop is the optimal item and names its zone, enemy and hours, a merchant buy names the merchant, and an empty plan gives no optimal item.
+  expect(sheet.slots[0].optimal).toMatchObject({ kind: "drop", item: "Crown" });
+  expect(sheet.slots[0].drop).toMatchObject({ zoneName: "Kurn's Tower", npc: "a skeleton", hours: 4 });
+  expect(sheet.slots[1].optimal).toMatchObject({ kind: "buy", item: "Pendant" });
+  expect(sheet.slots[1].move.buy).toMatchObject({ merchant: "Bob", zoneName: "Kurn's Tower" });
+  expect(sheet.slots[2].optimal).toBeNull();
+  expect(Object.keys(sheet.items).sort()).toEqual(["1", "2", "3", "4", "5"]);
+  expect(gearSheetView(db, "Unplanned", { roster, catalog }).found).toBe(false);
 });

@@ -318,8 +318,11 @@ adds an intervention with actor `sdk`, the leader and the call's arguments.
 The dashboard at <http://127.0.0.1:4790/> answers, in this order, whether anything needs a person,
 how far the account is toward the goal and what the system does (`docs/plans/dashboard.md`): a
 status line, the items no mechanism handles, one bar per success criterion, one row per group
-(click for its party, bags, rotation and task history), the coordinator's tasks and decisions, and
-folded sections for engineering health, the roster, level trends, jobs and the alert history. It
+(click for its party, bags, rotation and task history), the coordinator's tasks and decisions, a
+gear section with a character sheet per roster character (each slot's worn item beside the best one
+the account's items, merchants and wanted drops give, with the game's icons and item tooltips, from
+the gear pass's meta keys `gearPlan` and `gearSheets`), and folded sections for engineering health,
+the roster, epic chains, level trends, jobs and the alert history. It
 reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for their reports, and it changes
 nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard.mjs`. `--port 0`
 starts `run` without it.

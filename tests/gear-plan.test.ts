@@ -1,7 +1,7 @@
 // Checks the roster gear plan (tools/lib/gear-plan.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { fists, planGear } from "../tools/lib/gear-plan.mjs";
+import { fists, itemCard, planGear } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -155,4 +155,33 @@ test("a Monk's fists follow the client's table by race", () => {
   expect(fists("monk", 60, "human")).toEqual({ damage: 14, delay: 26 });
   expect(fists("monk", 60, "iksar")).toEqual({ damage: 14, delay: 27 });
   expect(fists("warrior", 60, "human")).toEqual({ damage: 1, delay: 36 });
+});
+
+test("the character report gives each person's scores now, after the moves and with the wanted drops, and each slot's worn item, move and drop", () => {
+  const people = [
+    { name: "Tank", cls: "warrior", level: 20, race: "" },
+    { name: "Pal", cls: "paladin", level: 20, race: "" },
+  ];
+  // Pal wears no cloak and takes the carried Fine Cloak. Tank keeps the Plain Cloak, and a dropped Fine Cloak would beat it.
+  const survey = [row("Tank", 2, "Equipped", 8, 1), row("Holder", 1, "Carried", 25, 3)];
+  const drops = [{ itemId: 1, zone: "kurn", npc: "a skeleton", hours: 2, levels: [15, 25] }];
+  const { characters } = planGear({ survey, items, people, drops });
+  const [tank, pal] = characters;
+  const back = (c: { slots: { slot: string }[] }) => c.slots.find((s) => s.slot === "back");
+  expect(tank.score.now).toBe(tank.score.moves); // Tank gets no move
+  expect(tank.score.target).toBeGreaterThan(tank.score.now);
+  expect(back(tank)).toMatchObject({ worn: { itemId: 2, name: "Plain Cloak" }, move: null, drop: { item: "Fine Cloak", zone: "kurn", npc: "a skeleton", hours: 2 } });
+  expect(pal.score.now).toBe(0);
+  expect(pal.score.moves).toBeGreaterThan(0);
+  expect(pal.score.target).toBe(pal.score.moves); // nothing beats the Fine Cloak
+  expect(back(pal)).toMatchObject({ worn: null, move: { item: "Fine Cloak", from: "Holder", replaces: null }, drop: null });
+  // Every character lists the 22 slots of the paper doll in the inventory window's order, the ammo slot last but one.
+  expect(pal.slots.map((s) => s.slot).slice(0, 4)).toEqual(["ear", "neck", "face", "head"]);
+  expect(pal.slots.map((s) => s.slot).slice(-4)).toEqual(["primary", "secondary", "ammo", "charm"]);
+  expect(pal.slots.length).toBe(22);
+});
+
+test("an item card keeps the facts a tooltip prints and leaves out the zeros", () => {
+  const card = itemCard({ id: 3213, Name: "Kylong War Helm", icon: 625, slots: 4, classes: 33695, races: 65535, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, astr: 0, nodrop: 0, loregroup: -1, magic: 1, itemtype: 10 });
+  expect(card).toEqual({ id: 3213, name: "Kylong War Helm", icon: 625, slots: ["head"], classes: 33695, races: 65535, reqlevel: 0, type: 10, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, flags: ["NO DROP", "LORE", "MAGIC"] });
 });

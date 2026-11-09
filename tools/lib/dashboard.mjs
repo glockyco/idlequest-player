@@ -385,6 +385,9 @@ export function xpRate(minutes, now, hours = 24) {
   return groups ? { perHour, groups } : null;
 }
 
+/** The outcome the collector wrote into a coordinator history entry (`settleHistory`), or null while the task has none. */
+const outcomeOf = (h) => (h.status ? { status: h.status, result: h.result ?? null, error: h.error ?? null, step: h.step ?? null, endedAt: h.endedAt ?? (h.ms ? h.t + h.ms : null) } : null);
+
 /** The open sessions with their summary and the bot state the summary leaves out, by group id. */
 function sessionsByGroup(db, now, groupOf) {
   const out = new Map();
@@ -454,7 +457,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     const mine = history.filter((h) => h.label === leader);
     // Task spans: finished tasks from the coordinator's history (queued at `t`, took `ms`) and the task running now.
     const spans = [
-      ...mine.filter((h) => h.ms).map((h) => ({ from: h.t, to: h.t + h.ms, name: taskLabel(catalog, h), status: h.task && h.task === v?.bot.task?.id ? v.bot.task.status : "done" })),
+      ...mine.filter((h) => h.ms).map((h) => ({ from: h.t, to: h.t + h.ms, name: taskLabel(catalog, h), status: h.status ?? "done" })),
       ...(task?.status === "running" && v.bot.task.startedAt ? [{ from: v.bot.task.startedAt, to: now, name: task.name, status: "running" }] : []),
     ];
     const lines = [
@@ -494,7 +497,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
         rotation: (v?.bot.rotation ?? []).map((z) => ({ zone: zoneName(catalog, z), crowdedMs: v.bot.crowdedAt[z] ? now - v.bot.crowdedAt[z] : null })),
         crowded: Object.entries(v?.bot.crowdedAt ?? {}).filter(([z]) => !(v.bot.rotation ?? []).includes(z)).map(([z, at]) => ({ zone: zoneName(catalog, z), crowdedMs: now - at })),
         lines,
-        history: mine.slice(0, 12).map((h) => ({ t: h.t, kind: h.kind, name: taskLabel(catalog, h), ms: h.ms ?? null, retryAt: retryAt(catalog, h), outcome: h.task && h.task === v?.bot.task?.id ? { status: v.bot.task.status, result: v.bot.task.result, error: v.bot.task.error } : null })),
+        history: mine.slice(0, 12).map((h) => ({ t: h.t, kind: h.kind, name: taskLabel(catalog, h), ms: h.ms ?? null, retryAt: retryAt(catalog, h), outcome: outcomeOf(h) })),
       },
     };
   });
@@ -547,17 +550,98 @@ export function goalView(db, { roster, plan, groupOf, catalog }) {
   const slowest = eta.sort((a, b) => b.hours - a.hours)[0] ?? null;
   const coordinator = metaRow(db, "coordinator");
   const gear = metaRow(db, "gear");
+  const sheet = gearView(db, { roster });
+  const epics = epicsView(coordinator);
   const questPieces = [...catalog.opportunities.values()].filter((o) => o.quest);
   const missing = coordinator?.last?.missing ?? {};
   const wanted = questPieces.filter((o) => (missing[o.id] ?? 0) > 0);
   const reached = members.filter((m) => (m.level ?? 0) >= AA_LEVEL).length;
   return {
     levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null },
-    gear: { share: null, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: gear?.t ?? null },
+    gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: { share: null, level: AA_LEVEL, reached, characters: roster.characters },
-    epics: { share: null, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
+    epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
     raids: { share: null, level: AA_LEVEL, reached, characters: roster.characters },
   };
+}
+
+/**
+ * The epic quest chains of the last coordinator pass (`chainSummary`): per chain its class, reward,
+ * and how many characters hold it, have started it and still need it, and the share of the
+ * eligible character-steps (holders plus needers) that are done. Chains outside the epics (no
+ * "epic" in the id) are left out. Null before a pass that saved chains.
+ */
+export function epicsView(coordinator) {
+  const chains = coordinator?.last?.chains;
+  if (!chains) return null;
+  const list = Object.entries(chains)
+    .filter(([id]) => id.includes("epic"))
+    .map(([id, c]) => ({ id, class: c.class, reward: c.reward, minLevel: c.minLevel, holders: c.holders, started: c.started, needers: c.needers }));
+  const holders = list.reduce((a, c) => a + c.holders.length, 0);
+  const needers = list.reduce((a, c) => a + c.needers.length, 0);
+  return { chains: list, holders, needers, started: list.reduce((a, c) => a + c.started.length, 0), share: holders + needers ? holders / (holders + needers) : null };
+}
+
+// ---- Gear -----------------------------------------------------------------------------------------
+
+const share = (score, of) => (of > 0 ? Math.min(1, score / of) : null);
+
+/**
+ * The gear pass's scores per character (`gearPlan`), grouped as the roster: for each character the
+ * set score of its armor and jewelry now, after the queued moves and at the target, which is what
+ * the moves and every wanted drop would give it, and the shares of the target. `share` is the mean
+ * of the characters' shares now and `afterMoves` the mean after the queued moves. Weapons are not
+ * in the score (their damage ratio is another unit).
+ */
+export function gearView(db, { roster }) {
+  const plan = metaRow(db, "gearPlan");
+  const byName = new Map((plan?.characters ?? []).map((c) => [c.name, c]));
+  const groups = roster.groups.map((g) => ({
+    id: g.id,
+    characters: g.members.map((m) => {
+      const c = byName.get(m.name);
+      return { name: m.name, class: m.class, level: m.level, planned: Boolean(c), now: c?.score.now ?? null, moves: c?.score.moves ?? null, target: c?.score.target ?? null, share: c ? share(c.score.now, c.score.target) : null, afterMoves: c ? share(c.score.moves, c.score.target) : null };
+    }),
+  }));
+  const mean = (key) => {
+    const xs = groups.flatMap((g) => g.characters.map((c) => c[key])).filter((x) => x != null);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  };
+  for (const g of groups) {
+    const xs = g.characters.map((c) => c.share).filter((x) => x != null);
+    g.share = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  }
+  return { t: plan?.t ?? null, groups, characters: byName.size, share: mean("share"), afterMoves: mean("afterMoves") };
+}
+
+/**
+ * One character's sheet for the paper doll: the 22 slots in the inventory window's order, each with
+ * the item worn now, the optimal item (the wanted drop, which beats what the queued moves give, else
+ * the queued move) with where it comes from, and the cards of every item named, from `gearSheets`.
+ * `found` is false for a character the last gear pass did not plan.
+ */
+export function gearSheetView(db, name, { roster, catalog }) {
+  const sheets = metaRow(db, "gearSheets");
+  const plan = metaRow(db, "gearPlan");
+  const slots = sheets?.sheets?.[name];
+  const member = roster.groups.flatMap((g) => g.members.map((m) => ({ ...m, group: g.id }))).find((m) => m.name === name);
+  const entry = plan?.characters.find((c) => c.name === name);
+  if (!slots || !member) return { name, found: false };
+  const items = {};
+  const card = (id) => {
+    if (id != null && sheets.items[id]) items[id] = sheets.items[id];
+  };
+  const out = slots.map((s) => {
+    const drop = s.drop ? { ...s.drop, zoneName: zoneName(catalog, s.drop.zone) } : null;
+    const move = s.move ? { ...s.move, ...(s.move.buy ? { buy: { ...s.move.buy, zoneName: zoneName(catalog, s.move.buy.zone) } } : {}) } : null;
+    // The wanted drop beats the moved item (it is scored against the set after the moves), so it is the optimal item.
+    const optimal = drop ? { kind: "drop", itemId: drop.itemId, item: drop.item } : move ? { kind: move.buy ? "buy" : "move", itemId: move.itemId, item: move.item } : null;
+    card(s.worn?.itemId);
+    card(move?.itemId);
+    card(drop?.itemId);
+    return { slotNum: s.slotNum, slot: s.slot, worn: s.worn, move, drop, optimal };
+  });
+  return { name, found: true, t: sheets.t, group: member.group, class: member.class, race: member.race, level: member.level, xpPct: member.xpPct, score: entry?.score ?? null, share: entry ? share(entry.score.now, entry.score.target) : null, afterMoves: entry ? share(entry.score.moves, entry.score.target) : null, slots: out, items };
 }
 
 /** A retry that came due longer ago than this is not waiting for its turn but for a group that fits it, and is left out of the panel. */
@@ -573,10 +657,12 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   const history = state.history ?? [];
   const tasks = rows.filter((r) => r.task).map((r) => ({ group: r.id, leader: r.leader, ...r.task }));
   const running = tasks.filter((t) => t.status === "running").sort((a, b) => b.forMs - a.forMs);
-  const outcomes = tasks
-    .filter((t) => t.status !== "running" && t.agoMs != null)
-    .sort((a, b) => a.agoMs - b.agoMs)
-    .map((t) => ({ group: t.group, name: t.name, step: t.step, status: t.status, result: t.result, error: t.error, agoMs: t.agoMs }));
+  // Each task's own outcome, newest first, from the history the collector settles every cycle.
+  const outcomes = history
+    .filter((h) => h.status && outcomeOf(h).endedAt)
+    .sort((a, b) => outcomeOf(b).endedAt - outcomeOf(a).endedAt)
+    .slice(0, 12)
+    .map((h) => ({ group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h), step: h.step ?? null, status: h.status, result: h.result ?? null, error: h.error ?? null, agoMs: now - outcomeOf(h).endedAt }));
   // The newest history entry of each opportunity (of each tab for a quest) says when it comes up again.
   const latest = new Map();
   for (const h of history) latest.set(h.kind === "quest" ? `${h.id}@${h.label}` : (h.id ?? `${h.kind}@${h.label}`), h);

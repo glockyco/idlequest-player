@@ -40,6 +40,42 @@ export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
 }
 
 /**
+ * Where each quest chain stands, for the dashboard: its class, reward and level, `holders` (carry
+ * the reward or an item that stands for it), `started` (carry an item of the chain, not holders)
+ * and `needers` (`chainNeeders`: members of the class and level who do not hold it yet).
+ */
+export function chainSummary({ quests = {}, holders = {}, started = {}, members = [] }) {
+  return Object.fromEntries(
+    Object.entries(quests).map(([id, q]) => [
+      id,
+      { class: q.class, reward: q.reward, minLevel: q.minLevel ?? 1, holders: holders[id] ?? [], started: (started[id] ?? []).filter((n) => !(holders[id] ?? []).includes(n)), needers: chainNeeders(id, { quests, holders, members }) },
+    ]),
+  );
+}
+
+/**
+ * Write the outcome of each ended bot task into its history entry: when it ended, how long it took,
+ * its status (done, failed or stopped), the result or error and the step it stopped at, and when
+ * the task said to come back. `tasks` are the tabs' latest `bot.task` objects. Returns whether
+ * an entry changed.
+ */
+export function settleHistory(history, tasks) {
+  const byId = new Map(tasks.filter((t) => t?.id).map((t) => [t.id, t]));
+  let changed = false;
+  for (const h of history) {
+    const task = byId.get(h.task);
+    if (!task || task.status === "running") continue;
+    const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null };
+    for (const [k, v] of Object.entries(next)) {
+      if (v === undefined || h[k] === v) continue;
+      h[k] = v;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
  * The items that show a carrier of them part way through quest chain `q` with the pieces it needs
  * (`needs`) behind it: the `expect` of every step from the first one that uses a needed piece up, by
  * a `give` or a craft input, or of every step when the chain needs nothing. A carrier of an earlier

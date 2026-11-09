@@ -42,7 +42,7 @@ function table(head, rows, numeric = []) {
 /** `text` cut to `n` characters, with the whole text on hover. */
 const short = (text, n = 70) => (text == null ? "" : String(text).length > n ? `<span title="${esc(text)}">${esc(String(text).slice(0, n - 1))}~</span>` : esc(text));
 
-const meter = (share, cls = "") => `<div class="meter ${cls}"><i style="width:${(100 * Math.max(0, Math.min(1, share ?? 0))).toFixed(1)}%"></i></div>`;
+const meter = (share, cls = "", after = null) => `<div class="meter ${cls}">${after == null ? "" : `<i class="after" style="width:${(100 * Math.max(0, Math.min(1, after))).toFixed(1)}%"></i>`}<i style="width:${(100 * Math.max(0, Math.min(1, share ?? 0))).toFixed(1)}%"></i></div>`;
 
 // ---- Status line -------------------------------------------------------------------------------
 
@@ -69,8 +69,8 @@ function renderNeeds(s) {
   $("needs-handled").textContent = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `${h.label} ${h.n} (${h.how})`).join(", ")}.` : "";
 }
 
-function barRow(title, share, bar, text) {
-  return `<div class="goalrow"><div class="gl"><span class="gt">${esc(title)}</span><span class="gv">${bar}</span></div>${share == null ? `<div class="meter unknown"></div>` : meter(share)}<div class="gx">${text}</div></div>`;
+function barRow(title, share, bar, text, after = null) {
+  return `<div class="goalrow"><div class="gl"><span class="gt">${esc(title)}</span><span class="gv">${bar}</span></div>${share == null ? `<div class="meter unknown"></div>` : meter(share, "", after)}<div class="gx">${text}</div></div>`;
 }
 
 function renderGoal(s) {
@@ -84,9 +84,13 @@ function renderGoal(s) {
   const none = (what) => `<span class="muted">not measured yet</span>`;
   $("goal-bars").innerHTML = [
     barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP`, `${L.atTarget} of ${L.characters} characters at ${L.target}. Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}, mean ${L.meanLevel?.toFixed(1) ?? "-"}. ${eta}`),
-    barRow("Gear", null, none(), `Slot scores per character are not collected. The last gear pass ${g.gear.passT ? ago(s.now, g.gear.passT) : ""} queued ${g.gear.moves ?? "?"} moves and listed ${g.gear.drops ?? "?"} wanted drops.`),
+    g.gear.share == null
+      ? barRow("Gear", null, none(), `The gear pass has not saved its report yet. The pass runs once an hour.`)
+      : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target score`, `The average character of ${g.gear.characters} wears ${pct(g.gear.share)} of the armor and jewelry score that the account's items, merchants and wanted drops give it, and ${pct(g.gear.afterMoves)} once the ${g.gear.moves ?? "?"} queued moves are done. ${g.gear.drops ?? "?"} wanted drops are listed. Pass ${ago(s.now, g.gear.passT)}.`, g.gear.afterMoves),
     barRow("AA ranks", null, none(), `Ranks are not collected. ${g.aa.reached} of ${g.aa.characters} characters have reached level ${g.aa.level}, where AA opens.`),
-    barRow("Epics", null, none(), `Progress per class is not collected. The coordinator pass ${g.epics.passT ? ago(s.now, g.epics.passT) : ""} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`),
+    g.epics.share == null
+      ? barRow("Epics", null, none(), `The coordinator has not saved its chain summary yet. The last pass ${g.epics.passT ? ago(s.now, g.epics.passT) : "never"} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`)
+      : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps`, `${g.epics.holders} characters hold an epic chain's item, ${g.epics.started} have started one and ${g.epics.needers} still need one, over ${g.epics.chains} chains (characters of the class at the chain's level). ${g.epics.missingCopies} copies of ${g.epics.missingPieces} chain pieces are still missing. Pass ${ago(s.now, g.epics.passT)}.`),
     barRow("Raid kills", null, none(), `Kills are not collected. Raids open at level ${g.raids.level}, reached by ${g.raids.reached} of ${g.raids.characters} characters.`),
   ].join("");
 }
@@ -134,7 +138,7 @@ function timeline(tl) {
 
 function details(s, g) {
   const d = g.details;
-  const party = d.party.length ? d.party.map((m) => `<li><span class="name">${esc(m.name)}</span> <span class="muted">${esc(SHORT[m.class] ?? m.class ?? "")}</span> <b>${m.level ?? "?"}</b></li>`).join("") : `<li class="muted">no party known</li>`;
+  const party = d.party.length ? d.party.map((m) => `<li><a href="#gear" class="gearlink name" data-char="${esc(m.name)}" title="Show the gear sheet">${esc(m.name)}</a> <span class="muted">${esc(SHORT[m.class] ?? m.class ?? "")}</span> <b>${m.level ?? "?"}</b></li>`).join("") : `<li class="muted">no party known</li>`;
   const rotation = d.rotation.length ? d.rotation.map((z) => `${esc(z.zone)}${z.crowdedMs != null ? ` <span class="warn">crowded ${dur(z.crowdedMs)} ago</span>` : ""}`).join(", ") : `<span class="muted">none</span>`;
   const facts = [
     ["Bags", d.bags ? `${d.bags.free} free of ${d.bags.capacity}${d.bags.cursor ? `, cursor holds ${esc(d.bags.cursor)}` : ""}` : "-"],
@@ -218,7 +222,7 @@ function renderCoordinator(s) {
 function renderTime(s) {
   const bars = s.hourly;
   if (!bars.some((b) => b.groupHours > 0)) {
-    $("time-body").innerHTML = `<div class="slot">No minute totals yet. The collector writes them while it runs, and <code>bun tools/iqd.mjs minutes</code> fills the past from the recorded samples.</div>`;
+    $("time-body").innerHTML = `<div class="note">No minute totals yet. The collector writes them while it runs, and <code>bun tools/iqd.mjs minutes</code> fills the past from the recorded samples.</div>`;
     return;
   }
   const W = 560, H = 210, L = 34, B = 22, T = 10;
@@ -299,6 +303,14 @@ function renderRoster(s) {
   $("roster").innerHTML = `<div class="roster">${cells}</div>`;
 }
 
+function renderEpics(s) {
+  const e = s.epics;
+  $("d-epics").querySelector("summary").textContent = e ? `Epic chains (${e.chains.length}, ${e.holders} done, ${e.needers} to go)` : "Epic chains";
+  if (!e) return void ($("epics").innerHTML = `<p class="muted">The coordinator has not saved a chain summary yet.</p>`);
+  const names = (list) => (list.length > 4 ? `${esc(list.slice(0, 4).join(", "))} and ${list.length - 4} more` : esc(list.join(", ")) || "-");
+  $("epics").innerHTML = table(["Class", "Chain item", "From level", "Hold it", "Started", "Still need it"], e.chains.map((c) => [esc(c.class), esc(c.reward), c.minLevel, c.holders.length, c.started.length, `${c.needers.length} <span class="muted">${names(c.needers)}</span>`]), [2, 3, 4]) + `<p class="muted small">Holders carry the chain's reward or an item that stands for it. Needers are the characters of the class at the chain's level who do not hold it.</p>`;
+}
+
 function renderJobs(s) {
   const j = s.jobs;
   $("jobs-list").innerHTML =
@@ -356,7 +368,9 @@ async function refresh() {
     renderNeeds(s);
     renderGoal(s);
     renderGroups(s);
+    renderGear(s);
     renderCoordinator(s);
+    renderEpics(s);
     renderTime(s);
     renderEngineering(s);
     renderRoster(s);
@@ -375,6 +389,7 @@ $("group-table").addEventListener("keydown", (e) => {
     toggleGroup(e.target.closest("tr.grow"));
   }
 });
+initGear();
 $("trend-hours").addEventListener("change", renderTrends);
 $("d-trends").addEventListener("toggle", renderTrends);
 refresh();

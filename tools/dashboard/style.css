@@ -144,7 +144,7 @@ tr.drow td { background: var(--bg); padding: 10px 14px 14px; }
 
 /* Coordinator and time */
 .trio { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.slot { border: 1px dashed var(--border); border-radius: 6px; padding: 14px; color: var(--muted); font-size: 13px; }
+.note { border: 1px dashed var(--border); border-radius: 6px; padding: 14px; color: var(--muted); font-size: 13px; }
 
 /* Folded sections */
 details { margin-bottom: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; }
@@ -185,3 +185,74 @@ svg .grid { stroke: var(--border); }
 @media (max-width: 880px) {
   .pair, .trio, .split { grid-template-columns: 1fr; }
 }
+
+/* Gear: a summary per group and a character sheet with the paper doll. */
+#gear { margin-bottom: 14px; }
+#gear .head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+#gear-select { font: inherit; }
+.swatch { display: inline-block; width: 16px; height: 8px; border-radius: 4px; margin-right: 4px; vertical-align: 0; }
+.swatch.now { background: var(--accent); }
+.swatch.after { background: var(--accent); opacity: 0.35; }
+.meter { position: relative; }
+.meter i.after { position: absolute; left: 0; top: 0; opacity: 0.35; }
+.meter i:not(.after) { position: relative; }
+.gear-rows { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+.grow2 { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.grow2:last-child { border-bottom: 0; }
+.chipsrow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.gchip { font: inherit; text-align: left; background: transparent; color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px 4px; cursor: pointer; min-width: 0; }
+.gchip:hover { background: var(--bg); }
+.gchip.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.gchip .cn { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gchip .meter { display: block; height: 6px; margin-top: 3px; }
+
+.sheet { padding: 14px 16px; }
+.sheet-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sheet-head .cname { font-size: 18px; font-weight: 600; }
+.sheet-score { margin: 4px 0 12px; }
+.sheet-body { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
+.doll { display: grid; grid-template-columns: 56px 150px 56px; grid-template-rows: auto auto; column-gap: 10px; row-gap: 10px; background: #1b1d22; border: 1px solid #3a3d45; border-radius: 10px; padding: 12px; color: #e4e6ea; }
+.doll .col { display: flex; flex-direction: column; gap: 6px; }
+.doll .mid { display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+.doll .portrait { width: 100%; flex: 1; min-height: 120px; border-radius: 8px; background: radial-gradient(circle at 50% 35%, #3b4252, #22252c); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 13px; text-align: center; }
+.doll .portrait b { font-size: 15px; }
+.doll .legend2 { font-size: 11px; color: #a0a6b0; margin-top: 8px; line-height: 1.8; }
+.doll .bottom { grid-column: 1 / 4; display: flex; justify-content: center; gap: 14px; padding-top: 6px; border-top: 1px solid #3a3d45; }
+.slot { position: relative; width: 56px; height: 56px; }
+.slot .box { width: 52px; height: 52px; border: 2px solid #4b5160; border-radius: 6px; background: #0f1013; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.slot .box img { width: 40px; height: 40px; }
+.slot.empty .box { border-style: dashed; border-color: #3a3d45; }
+.slot .sl { font-size: 9px; color: #6d7380; text-transform: uppercase; letter-spacing: 0.03em; text-align: center; }
+.slot.upgrade .box { border-color: #6a8f5c; }
+.slot .opt { position: absolute; right: -5px; bottom: -5px; width: 28px; height: 28px; border: 2px solid #7fb069; border-radius: 6px; background: #0f1013; display: flex; align-items: center; justify-content: center; }
+.slot .opt img { width: 22px; height: 22px; }
+.slot .opt::after { content: "\25B2"; position: absolute; left: -7px; top: -8px; font-size: 9px; color: #7fb069; text-shadow: 0 0 2px #000; }
+.optsample { display: inline-block; width: 12px; height: 12px; border: 2px solid #7fb069; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+.box.mini { display: inline-block; width: 12px; height: 12px; border: 2px solid #4b5160; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+.changes { min-width: 0; }
+.changes li { padding: 3px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.changes .sn { display: inline-block; min-width: 72px; font-weight: 600; }
+a.gearlink { color: var(--accent); text-decoration: none; }
+a.gearlink:hover { text-decoration: underline; }
+
+/* The item window's tooltip. */
+.tip { position: fixed; z-index: 20; max-width: 320px; background: #101216; color: #dfe2e8; border: 1px solid #5a6070; border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.45; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); }
+.tip[hidden] { display: none; }
+.tip .tname { font-weight: 700; font-size: 13px; color: #f2d98a; margin-bottom: 2px; }
+.tip .tflags { color: #8fb7ff; font-weight: 600; }
+.tip .thead { color: #7fb069; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; margin-bottom: 2px; }
+.tip .tsrc { margin-top: 6px; color: #b8e6a8; }
+.tip .muted { color: #8d93a0; }
+
+@media (max-width: 1150px) {
+  .sheet-body { gap: 18px; }
+  .chipsrow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .sheet-body { grid-template-columns: 1fr; }
+}
+.totals-wrap { margin-top: 14px; max-width: 420px; }
+table.totals { font-size: 13px; }
+table.totals td.up { color: var(--good); font-weight: 600; }
+table.totals td.down { color: var(--bad); }
+.noicon { font-size: 12px; font-weight: 700; color: #8d93a0; }

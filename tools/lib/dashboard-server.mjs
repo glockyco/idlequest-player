@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
 import { rows as contentRows } from "./content.mjs";
-import { attentionView, coordinatorView, engineeringView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = join(REPO, "tools/dashboard");
@@ -75,7 +75,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
     groups: new Report(["tools/groups.mjs", "--json", "--last", "60"], 120000, log),
     plan: new Report(["tools/plan.mjs", "--json", "--levels", "46,50,55,60"], 600000, log),
   };
-  const files = { "/": ["index.html", "text/html"], "/app.js": ["app.js", "text/javascript"], "/style.css": ["style.css", "text/css"] };
+  const files = { "/": ["index.html", "text/html"], "/app.js": ["app.js", "text/javascript"], "/gear.js": ["gear.js", "text/javascript"], "/style.css": ["style.css", "text/css"] };
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
@@ -111,11 +111,18 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,
+          gear: gearView(db, { roster }),
+          epics: epicsView(meta("coordinator")),
           attention: { info: attention.info, resolved: attention.resolved, manual: attention.manual },
           engineering: engineeringView(db, now),
           jobs: jobsView(db),
           reports: { groups: report.at, plan: plan.at, planWindowMin: plan.value?.windowMin ?? null },
         });
+      }
+      // One character's sheet, from the gear pass's saved report.
+      if (url.pathname === "/api/gear") {
+        const catalog = makeCatalog({ zones: await zones() });
+        return json(gearSheetView(db, url.searchParams.get("name") ?? "", { roster: rosterView(db, readJson("data/roster.json", { groups: [] })), catalog }));
       }
       if (url.pathname === "/api/trends") {
         const hours = Math.min(24 * 30, Math.max(1, Number(url.searchParams.get("hours") ?? 24)));
