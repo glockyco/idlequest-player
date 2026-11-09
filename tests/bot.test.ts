@@ -262,9 +262,12 @@ test("the remedy table widens a crowded party's limits, then moves it, and wakes
     vi.advanceTimersByTime(30000);
     await p.bot.tick();
     expect([p.combat.minCon, p.moves]).toEqual([10, []]);
+    // A crowded minute marks the zone for the coordinator, which sends no errand there for a while.
+    expect(Object.keys(p.bot.state.crowdedAt ?? {})).toEqual([]);
     vi.advanceTimersByTime(31000);
     await p.bot.tick();
     expect([p.combat.minCon, p.moves]).toEqual([4, []]);
+    expect(Object.keys(p.bot.state.crowdedAt)).toEqual(["guktop"]);
     vi.advanceTimersByTime(61000);
     await p.bot.tick();
     expect(p.moves).toEqual(["permafrost"]);

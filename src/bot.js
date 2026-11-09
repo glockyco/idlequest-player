@@ -808,6 +808,8 @@
     // An errand has its own ladder, so the case starts over when one begins or ends.
     if (!c || c.why !== a.why || !!c.errand !== !!state.errand) c = state.idleCase = { why: a.why, rung: 0, at: a.since, errand: !!state.errand };
     if (now() - c.at < spec.afterSec * 1000) return;
+    // Crowding comes from other players, so the coordinator sends no errand there for a while (`crowdedAt`).
+    if (a.why === "crowded") (state.crowdedAt ??= {})[zoneShort(i)] = now();
     const rungs = state.errand ? (spec.errand ?? spec.rungs.filter((r) => r === "restart")) : spec.rungs;
     // A used-up ladder starts over after ten minutes, because a crowded zone empties again.
     if (c.rung >= rungs.length && now() - c.at > 600000) Object.assign(c, { rung: 0, at: now() });

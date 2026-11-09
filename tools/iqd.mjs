@@ -254,6 +254,7 @@ export function snapshotInPage(a) {
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
         rotation: bot.config.rotation ?? [],
+        crowdedAt: st.crowdedAt ?? {},
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep } : null,
         task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
@@ -504,7 +505,7 @@ class Daemon {
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     let opportunities = [];
     try {
@@ -594,11 +595,14 @@ class Daemon {
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
     // Wanted drops from the gear pass: for each group, the drop with the most gain per hour of
     // hunting among the zones of its rotation that no other group plays in, because a shared zone
-    // left group 4 idle 40% of its errand, as an errand inside normal hunting.
+    // left group 4 idle 40% of its errand, as an errand inside normal hunting. A zone any tab found
+    // crowded by other players in the last 45 minutes is skipped too, after group 1 idled a whole
+    // errand in a Temple of Solusek Ro it had just left as crowded.
+    const crowded = new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
     for (const t of tabs) {
       // The last gear pass's wants, kept in the db so a restart does not lose them for an hour.
       this.dropWants ??= metaGet(this.db, "gear")?.drops ?? [];
-      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone) && !tabs.some((o) => o !== t && o.zone === d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
+      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone) && !crowded.has(d.zone) && !tabs.some((o) => o !== t && o.zone === d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
       if (best) opportunities.push({ id: `drop-${best.to}-${best.slot}`, group: t.group, kind: "errand", zone: best.zone, keep: best.npc, item: best.item, count: 1, retryMin: 120, minutes: 30 });
     }
     const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
