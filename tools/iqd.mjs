@@ -880,6 +880,14 @@ class Daemon {
     tr.rowId = row.id;
     tr.prevLeader = tr.leader;
     tr.leader = leader?.name ?? tr.leader;
+    // A tab that vanished, as all of them do in a machine restart, is replaced by a new tab of the same
+    // leader, so the old session ends here: it kept a second card for each group on the dashboard and
+    // raised a gone item at every collector start.
+    for (const [id, other] of this.trackers) {
+      if (other === tr || other.leader !== tr.leader || !other.state.unreachableSince) continue;
+      if (other.rowId) this.db.query("UPDATE sessions SET ended = ? WHERE id = ?").run(now, other.rowId);
+      this.trackers.delete(id);
+    }
   }
 
   /**
