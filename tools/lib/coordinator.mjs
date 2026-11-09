@@ -92,7 +92,8 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
     const tab = o.levels
       ? tabs.filter((t) => free(t) && t.members.length && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
-    if (!tab || !free(tab)) continue;
+    // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
+    if (!tab || !free(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
