@@ -145,6 +145,13 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   mana if it is a mana class, and is not rooted (`OK.pretty.js:725-742`, `804-826`). A dead member
   has less than full HP, so it holds the wait too. While a root is active the wait shows "Waiting
   for root to wear off the party." and the time it lasts does not count against the limit.
+- Between fights every member regenerates every 600 ms by the same rule (release
+  20261108T004644, `0eakiHJI.js:20217-20231`, `24442-24632`): 2.5% of its maximum HP or mana,
+  raised by up to twice as its HP regeneration nears 100 or its mana regeneration (spell plus item
+  `ManaRegen`) nears 50, and a third of that for a starving leader. A full bar takes 24 seconds
+  without regeneration and 12 at 50. Mana comes back only 5 seconds after the member's last cast,
+  and HP 5 seconds after it last took damage. Level, class, Meditate and sitting do not enter, so
+  the wait depends on the share of the bar a fight spends.
 - The wait gives up after 2 minutes plus the time spent rooted and returns false
   (`OK.pretty.js:704`, `843`). So does a monitor that sees no HP, mana, root or cast progress for
   45 seconds (`OK.pretty.js:324`, `353-360`, `BQ.pretty.js:14439-14454`). The preparation result
