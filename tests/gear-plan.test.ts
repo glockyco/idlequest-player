@@ -1,6 +1,7 @@
 // Checks the roster gear plan (tools/lib/gear-plan.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { planGear } from "../tools/lib/gear-plan.mjs";
+import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
+import { fists, planGear } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -11,7 +12,8 @@ const items = new Map([
   item(3, "Long Sword", { slots: 1 << 13, damage: 9, delay: 25, itemtype: 0 }),
   item(4, "Rusty Sword", { slots: 1 << 13, damage: 4, delay: 30, itemtype: 0 }),
   item(5, "Great Axe", { slots: 1 << 13, damage: 20, delay: 40, itemtype: 1 }),
-  item(6, "Buckler", { slots: 1 << 14, ac: 3, itemtype: 8 }),
+  item(6, "Buckler", { slots: 1 << 14, ac: 6, itemtype: 8 }),
+  item(7, "Twin Dagger", { slots: (1 << 13) | (1 << 14), damage: 6, delay: 20, itemtype: 2 }),
 ]);
 const row = (who: string, itemId: number, location: string, slot: number, inst: number) => ({ characterName: who, characterId: who.length, itemId, itemName: items.get(itemId)!.Name, itemInstanceId: inst, location, slot, blockReason: "" });
 
@@ -33,9 +35,9 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
     { name: "Mnk", cls: "monk", level: 30, race: "" },
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
-  // A weapon replaces the Monk's fists (10 at 35 delay at level 30) whatever its type, and a
-  // two-hander pays for the off-hand fist it ends.
-  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.1]]);
+  // A weapon replaces the Monk's fists (10 at 34 delay at level 30) whatever its type, and a
+  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time.
+  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.06]]);
   // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
@@ -104,4 +106,44 @@ test("drops become wants for characters in their levels that gain enough after t
   expect(planGear({ survey, items, people, drops }).drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }]);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
+});
+
+test("the off-hand chance is (Dual Wield + level) / 400 for a class with the skill", () => {
+  expect(dualWieldSkill("warrior", 12)).toBe(0);
+  expect(offhandChance("warrior", 12)).toBe(0);
+  // Warrior: cap 70 at 13 and 240 at 60, the figures of docs/client-internals.md.
+  expect(offhandChance("warrior", 13)).toBeCloseTo(83 / 400);
+  expect(offhandChance("warrior", 60)).toBeCloseTo(0.75);
+  expect(offhandChance("monk", 60)).toBeCloseTo(0.78);
+  expect(offhandChance("bard", 60)).toBeCloseTo(0.675);
+  expect(offhandChance("rogue", 60)).toBeCloseTo(0.7625);
+  for (const cls of ["paladin", "shadowknight", "cleric", "wizard"]) expect(offhandChance(cls, 60)).toBe(0);
+});
+
+test("the off hand takes a one-hander for a Warrior from level 13, a shield for a Paladin, and nothing beside a two-hander", () => {
+  const carried = [row("Holder", 7, "Carried", 25, 3), row("Holder", 6, "Carried", 26, 4)];
+  const main = (who: string) => row(who, 3, "Equipped", 13, 1);
+  const person = (cls: string, level: number) => ({ name: "Me", cls, level, race: "" });
+  const moves = (cls: string, level: number, survey: ReturnType<typeof row>[]) => planGear({ survey, items, people: [person(cls, level)] }).moves.map((m) => [m.item, m.slot, m.gain]);
+  // The Warrior at 13 swings the off hand 83/400 of the time: 0.2075 x 6/20.
+  expect(moves("warrior", 13, [main("Me"), carried[0]])).toEqual([["Twin Dagger", "secondary", 0.06]]);
+  expect(moves("warrior", 12, [main("Me"), carried[0]])).toEqual([]);
+  // A Paladin never has the skill, so only the shield is offered.
+  expect(moves("paladin", 30, [main("Me"), ...carried])).toEqual([["Buckler", "secondary", expect.any(Number)]]);
+  expect(moves("paladin", 30, [main("Me"), carried[0]])).toEqual([]);
+  // A Warrior with both takes the shield and then keeps it, because a weapon replaces no shield.
+  expect(moves("warrior", 30, [main("Me"), ...carried]).map((m) => m[0])).toEqual(["Buckler"]);
+  // A two-hander in the main hand takes neither.
+  const axe = row("Me", 5, "Equipped", 13, 1);
+  expect(moves("warrior", 30, [axe, ...carried])).toEqual([]);
+});
+
+test("a Monk's fists follow the client's table by race", () => {
+  expect(fists("monk", 1, "human")).toEqual({ damage: 4, delay: 36 });
+  expect(fists("monk", 30, "human")).toEqual({ damage: 10, delay: 34 });
+  expect(fists("monk", 30, "iksar")).toEqual({ damage: 10, delay: 35 });
+  expect(fists("monk", 52, "human")).toEqual({ damage: 14, delay: 30 });
+  expect(fists("monk", 60, "human")).toEqual({ damage: 14, delay: 26 });
+  expect(fists("monk", 60, "iksar")).toEqual({ damage: 14, delay: 27 });
+  expect(fists("warrior", 60, "human")).toEqual({ damage: 1, delay: 36 });
 });

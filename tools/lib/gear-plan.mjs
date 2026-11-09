@@ -10,18 +10,37 @@
 // tools/raidsim/kits.mjs does, for Monks too, whose fists a weapon replaces (docs/client-internals.md,
 // Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
 // offered only to a character with nothing in the off hand.
-import { BIT, CLASS_KEYS, HASTE_WEIGHT, OFFHAND_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, statScore, weaponRatio } from "./gear-data.mjs";
+//
+// The off hand (docs/client-internals.md, Off hand and dual wield) takes a shield for its stats, or
+// for a class with Dual Wield at its level a one-hander that swings with the chance `offhandChance`,
+// so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
+// replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
+// shield never replaces a weapon.
+import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, offhandChance, statScore, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 const PRIMARY = 13;
 const SECONDARY = 14;
 const REGEN_CAP = 15;
 const TWO_HANDED = new Set([1, 4, 35]);
+// Item types a character with Dual Wield may hold in the off hand.
+const OFFHAND_WEAPONS = new Set([0, 2, 3, 36]);
+const SHIELD = 8;
 const PIERCING = 2;
-// What an empty main hand swings (`YL` and `di` in the client, docs/client-internals.md): Monk fists
-// gain a point of damage every five levels, from 4 to 14 at 50, at 36 delay that falls to 26 by
-// 60, and other classes hit for 1 at 36.
-const fists = (cls, level) => (cls === "monk" ? { damage: Math.min(14, 4 + Math.floor(level / 5)), delay: level < 25 ? 36 : Math.max(26, 35 - Math.floor((level - 25) / 4)) } : { damage: 1, delay: 36 });
+// A Monk's fists by level (`di` in the client, docs/client-internals.md, Off hand and dual wield):
+// the levels at which the damage and the delay change, the damage, and the delay of every race but
+// Iksar and of Iksar, which gets each delay step one level step later.
+const FIST_LEVELS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 53, 56, 59, 60];
+const FIST_DAMAGE = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 14, 14, 14];
+const FIST_DELAY = [36, 36, 36, 36, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26];
+const FIST_DELAY_IKSAR = [36, 36, 36, 36, 36, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27];
+/** What an empty hand swings (`YL` and `di`): a Monk's fists by `race` (lower case name) and level, 1 damage at 36 delay for other classes. */
+export const fists = (cls, level, race) => {
+  if (cls !== "monk") return { damage: 1, delay: 36 };
+  let k = FIST_LEVELS.length - 1;
+  while (k > 0 && level < FIST_LEVELS[k]) k--;
+  return { damage: FIST_DAMAGE[k], delay: (race === "iksar" ? FIST_DELAY_IKSAR : FIST_DELAY)[k] };
+};
 // The weapon type each class's main hand must keep.
 const MAIN_HAND_TYPE = { rogue: PIERCING };
 /**
@@ -129,7 +148,8 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
 
   // A character's armor and jewelry by the set score, plus for a Bard everything it wears by the
   // instruments' value.
-  const value = (p, mine) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i), p.cls, p.level) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
+  // A shield or an instrument in the off hand counts with its stats, a weapon there does not.
+  const value = (p, mine) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p.cls, p.level) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
@@ -153,13 +173,31 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
         break;
       }
     }
+    const held = mine.get(PRIMARY) ?? null;
+    const offHeld = mine.get(SECONDARY) ?? null;
+    const chance = offhandChance(p.cls, p.level);
+    const fist = fists(p.cls, p.level, p.race);
+    // A Monk's empty off hand swings a fist beside any main hand but a two-hander, with the
+    // off-hand chance, and a weapon in the off hand or a two-hander ends it.
+    const offSwing = (main, off) => (off ? chance * weaponRatio(off, p.cls, p.level) : p.cls === "monk" && !TWO_HANDED.has(main?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level) : 0);
+    // Beside a two-hander the off hand stays empty.
+    if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY)) {
+      // A shield counts for its stats and replaces no weapon.
+      if (item.itemtype === SHIELD && !(offHeld?.damage > 0)) {
+        const gain = gainIn(SECONDARY);
+        if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain });
+      }
+      // A one-hander counts for its swings, with the chance that they happen, and replaces only
+      // a weapon or nothing.
+      if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
+        const gain = chance * weaponRatio(item, p.cls, p.level) - offSwing(held, offHeld);
+        if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
+      }
+    }
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
-    const held = mine.get(PRIMARY) ?? null;
     if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && statScore(item, p.cls, p.level) >= (held ? statScore(held, p.cls, p.level) : 0)) {
-      // A two-hander also ends a Monk's off-hand fist, which swings beside an empty off hand.
-      const offFist = p.cls === "monk" && TWO_HANDED.has(item.itemtype) ? OFFHAND_WEIGHT * weaponRatio(fists(p.cls, p.level), p.cls, p.level) : 0;
-      const gain = weaponRatio(item, p.cls, p.level) - weaponRatio(held ?? fists(p.cls, p.level), p.cls, p.level) - offFist;
+      const gain = weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld);
       if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;

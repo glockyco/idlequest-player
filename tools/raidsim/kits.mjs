@@ -12,7 +12,7 @@
 // Both leave out the charm, ranged and ammo slots.
 import { contentDir, byId, table } from "./content.mjs";
 import { RACE_BIT } from "./classes.mjs";
-import { CLASS_KEYS, HASTE_WEIGHT, OFFHAND_WEIGHT, REGEN_WEIGHT, farmHours, liveZoneNames, loadSources, scoreFor, statScore, weaponRatio } from "../lib/gear-data.mjs";
+import { CLASS_KEYS, HASTE_WEIGHT, REGEN_WEIGHT, farmHours, liveZoneNames, loadSources, offhandChanceOf, scoreFor, statScore, weaponRatio } from "../lib/gear-data.mjs";
 
 // The cap the client puts on the hit point and the mana regeneration of worn items.
 const CLIENT_REGEN_CAP = 15;
@@ -28,7 +28,9 @@ const PRIMARY = 13;
 const SECONDARY = 14;
 const ROGUE = 9;
 const TANKS = new Set([1, 3, 5]);
-const DUAL_WIELDERS = new Set([4, 8, 9]);
+// What a tank's shield is worth against its main hand's damage over delay: an estimate, not a rule of
+// the client, for the shield's armor class and Bash that a two-hander gives up.
+const SHIELD_SHARE = 0.35;
 
 let soldItems;
 async function merchantItems() {
@@ -66,7 +68,7 @@ export async function defaultGear(cls, race, level, skillCaps) {
   if (TANKS.has(cls)) {
     const shield = best(sold.filter((i) => i.itemtype === SHIELD && (i.slots & (1 << 14)) !== 0), (i) => (i.ac ?? 0) * 1000 + statTotal(i));
     if (shield) gear[14] = shield.id;
-  } else if (DUAL_WIELDERS.has(cls) && skillCaps.DualWield > 0) {
+  } else if (skillCaps.DualWield > 0) {
     const off = best(weapons.filter((i) => (i.slots & (1 << 14)) !== 0), ratio);
     if (off) gear[14] = off.id;
   }
@@ -214,13 +216,15 @@ export async function farmGear(cls, race, level, skillCaps, farm) {
 
   // Weapons rank by damage over delay with the damage capped (gear.mjs). A two-hander replaces the
   // main hand and what would be in the off hand when it beats the one-hander by more than the off
-  // hand's share (gear.mjs: 35% of the off hand's ratio for a class that dual wields, and for a tank
-  // 35% of the main hand's ratio in place of its shield).
+  // hand's share: for a class with Dual Wield the off hand's ratio times the chance that an off-hand
+  // swing happens (docs/client-internals.md, Off hand and dual wield), and for a tank SHIELD_SHARE of
+  // the main hand's ratio in place of its shield. A Warrior keeps its shield, for armor class and Bash.
   const oneHand = (e) => ONE_HAND[e.item.itemtype] && skillCaps[ONE_HAND[e.item.itemtype]] > 0 && isWeapon(e);
   const twoHand = (e) => TWO_HAND[e.item.itemtype] && skillCaps[TWO_HAND[e.item.itemtype]] > 0 && isWeapon(e);
   const mainHands = inSlot(PRIMARY).filter((e) => oneHand(e) && (cls !== ROGUE || e.item.itemtype === 2));
   const main = pick(mainHands, ratio, score);
-  const dualWields = DUAL_WIELDERS.has(cls) && skillCaps.DualWield > 0;
+  const dualWields = skillCaps.DualWield > 0;
+  const offhandChance = offhandChanceOf(skillCaps.DualWield ?? 0, level);
   let off = null;
   if (main) {
     take(PRIMARY, main); // the lore of the main hand now blocks a second copy in the off hand
@@ -230,7 +234,7 @@ export async function farmGear(cls, race, level, skillCaps, farm) {
   }
   const twoHanders = cls === ROGUE ? [] : usableHere.filter((e) => (e.item.slots & (1 << PRIMARY)) !== 0 && twoHand(e));
   const two = pick(twoHanders, ratio, score);
-  const offShare = main ? (off && isWeapon(off) ? OFFHAND_WEIGHT * ratio(off) : off && TANKS.has(cls) ? OFFHAND_WEIGHT * ratio(main) : 0) : 0;
+  const offShare = main ? (off && isWeapon(off) ? offhandChance * ratio(off) : off && TANKS.has(cls) ? SHIELD_SHARE * ratio(main) : 0) : 0;
   if (two && (!main || ratio(two) > ratio(main) + offShare + 0.03)) {
     for (const slot of [PRIMARY, SECONDARY]) {
       delete gear[slot];
