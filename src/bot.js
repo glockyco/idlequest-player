@@ -1462,13 +1462,14 @@
         const waiting = CAMP_WAITING.test(cb().spawnCampStatus ?? "") && !i.stores.skills.getState().inCombat;
         waitingSince = waiting ? (waitingSince ?? now()) : null;
         if (waitingSince && now() - waitingSince > 5000) {
-          // The camp also waits when its points hold enemies it will not take: another player's, or
-          // outside AutoLevel's level range. Those points are not cleared, so the hunt comes back later.
+          // The camp also waits while another player's enemy stands on a point. The spawn list is the
+          // zone-entry packet until refreshed, and would still show the placeholders the camp has killed.
+          await i.refreshSpawns?.().catch(() => {});
           const pts = (i.zoneSpawns?.spawns ?? []).filter((s) => task.points.includes(s.spawn2Id));
           const held = pts.filter((s) => s.state === "alive");
           if (held.length) {
             const owned = held.filter((s) => s.combatOwnershipState && s.combatOwnershipState !== "unowned").length;
-            return { kills, nextAt: now() + CAMP_HELD_RETRY_MS, result: `camp held: ${held.map((s) => s.name.replace(/_/g, " ")).join(", ")} on the points (${owned} owned by another player, the rest outside AutoLevel's range)` };
+            return { kills, nextAt: now() + CAMP_HELD_RETRY_MS, result: `camp held: ${held.map((s) => s.name.replace(/_/g, " ")).join(", ")} on the points (${owned} owned by another player)` };
           }
           const due = pts.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
           const nextAt = due.length ? Math.min(...due) : null;
