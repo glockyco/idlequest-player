@@ -50,6 +50,44 @@ export const statScore = (i, c, level) => {
 // The score of tools/gear.mjs for one item: the stat score plus haste and regeneration at their weights.
 export const scoreFor = (i, c, level) => statScore(i, c, level) + HASTE_WEIGHT * (i.haste ?? 0) + REGEN_WEIGHT * ((i.regen ?? 0) + (i.manaregen ?? 0));
 
+// Classes whose mana comes from WIS (`gD` in the client); the other mana classes use INT.
+const WIS_CLASSES = new Set(["cleric", "paladin", "ranger", "druid", "shaman"]);
+const NO_MANA = new Set(["warrior", "monk", "rogue"]);
+// The share of a class's output that is melee; the rest is spells, paid for with mana.
+const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
+/**
+ * What a set of worn armor and jewelry adds to a character's own output, in tenths of a percent, from
+ * the client's formulas (docs/client-internals.md, "What item stats and effects do"):
+ * - melee: offense (2/3 a point of STR, 1 a point of ATK) through the damage roll, and the highest
+ *   item haste (at most 50) as swing rate;
+ * - spells: the share of a typical pool (30 mana a level) that item mana and INT or WIS add (80 ×
+ *   level / 425 mana a point), because out-of-fight regeneration is 2.5% of the maximum per 600 ms,
+ *   so recovery shortens with the pool, and 2% faster regeneration a point of `manaregen` (at most 15);
+ * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
+ *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
+ * Resists and the stats the client does not use for this class count for nothing.
+ */
+export const outputValue = (items, c, level) => {
+  let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
+  for (const i of items) {
+    if (!i) continue;
+    str += i.astr ?? 0;
+    atk += i.attack ?? 0;
+    mana += i.mana ?? 0;
+    stat += (WIS_CLASSES.has(c) ? i.awis : i.aint) ?? 0;
+    haste = Math.max(haste, i.haste ?? 0);
+    manaregen += i.manaregen ?? 0;
+    ac += i.ac ?? 0;
+    hp += i.hp ?? 0;
+    sta += i.asta ?? 0;
+  }
+  const meleeShare = MELEE_SHARE[groupOf(c)];
+  const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
+  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (30 * level) + 2 * Math.min(manaregen, 15));
+  const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
+  return 10 * (melee + spells + survival);
+};
+
 // A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee
 // hit (docs/client-internals.md, "What item stats and effects do"): the base damage capped at the
 // level's limit, the flat damage bonus of a main-hand hit (`sd`) divided by the typical roll
@@ -66,19 +104,22 @@ export const damageBonus = (i, c, level) => {
   return TWO_HANDED.has(i.itemtype) ? TWO_HAND_BONUS[l - 28][Math.max(0, Math.min(150, i.delay))] : 1 + Math.floor((l - 28) / 3);
 };
 // The mean of the client's damage roll (`ap`, 0.1 to 2.0) for an offense of five points a level (at most
-// 250) against a same-level NPC's AC, about 4.5 a level (median of npc_types).
+// 250) plus `extra` against a same-level NPC's AC, about 4.5 a level (median of npc_types).
 const multCache = new Map();
-export const expectedMult = (level) => {
-  if (!multCache.has(level)) {
-    const o = Math.min(5 * level, 250);
+export const expectedMult = (level, extra = 0) => {
+  const key = `${level}:${extra}`;
+  if (!multCache.has(key)) {
+    const o = Math.min(5 * level, 250) + extra;
     const a = 4.5 * level;
     const half = (o + a + 10) / 2;
     let sum = 0;
     for (let x = 0.01; x < 1; x += 0.02) for (let y = 0.01; y < 1; y += 0.02) sum += (Math.max(0, Math.min(19, Math.floor(((x * (o + 5) - y * (a + 5) + half / 2) * 20) / half))) + 1) / 10;
-    multCache.set(level, sum / 2500);
+    multCache.set(key, sum / 2500);
   }
-  return multCache.get(level);
+  return multCache.get(key);
 };
+/** Percent more melee damage per point of offense at `level`, the slope of the damage roll over 30 points. */
+export const damagePctPerOffense = (level) => (100 * (expectedMult(level, 30) / expectedMult(level) - 1)) / 30;
 /** Proc damage a minute of a weapon at the wearer's `level` and `dex`, 0 without a damage proc or below the proc's level. */
 export const procDamagePerMinute = (i, level, dex = 75) => {
   if (!i.procSpell || level < (i.proclevel2 || i.proclevel || 0)) return 0;

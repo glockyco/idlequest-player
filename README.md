@@ -280,7 +280,7 @@ bun tools/fights.mjs
 ```
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
-and slot where it adds most: armor and jewelry as a set by `tools/gear.mjs`'s stat score, with the
+and slot where it adds most: armor and jewelry as a set by what they add to the wearer's output (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste for melee, mana and regeneration for spell casters, a little for AC and HP), with the
 client's haste and regeneration caps, the main hand by `weaponRatio` against what the hand
 swings now, and for a Bard each instrument type by the share of its songs it modifies. Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass

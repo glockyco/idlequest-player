@@ -6,13 +6,14 @@ import { fists, itemCard, planGear } from "../tools/lib/gear-plan.mjs";
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
 const item = (id: number, name: string, over: Record<string, unknown>) => [id, { id, Name: name, classes: ALL, races: ALL, reqlevel: 0, ...over }] as const;
+// Armor counts by what its stats add to output (`outputValue`): attack for melee, mana for spell casters.
 const items = new Map([
-  item(1, "Fine Cloak", { slots: 1 << 8, ac: 10, asta: 5 }),
-  item(2, "Plain Cloak", { slots: 1 << 8, ac: 2 }),
+  item(1, "Fine Cloak", { slots: 1 << 8, ac: 10, asta: 5, attack: 12 }),
+  item(2, "Plain Cloak", { slots: 1 << 8, ac: 2, attack: 8 }),
   item(3, "Long Sword", { slots: 1 << 13, damage: 9, delay: 25, itemtype: 0 }),
   item(4, "Rusty Sword", { slots: 1 << 13, damage: 4, delay: 30, itemtype: 0 }),
   item(5, "Great Axe", { slots: 1 << 13, damage: 20, delay: 40, itemtype: 1 }),
-  item(6, "Buckler", { slots: 1 << 14, ac: 6, itemtype: 8 }),
+  item(6, "Buckler", { slots: 1 << 14, ac: 6, mana: 30, attack: 4, itemtype: 8 }),
   item(7, "Twin Dagger", { slots: (1 << 13) | (1 << 14), damage: 6, delay: 20, itemtype: 2 }),
 ]);
 const row = (who: string, itemId: number, location: string, slot: number, inst: number) => ({ characterName: who, characterId: who.length, itemId, itemName: items.get(itemId)!.Name, itemInstanceId: inst, location, slot, blockReason: "" });

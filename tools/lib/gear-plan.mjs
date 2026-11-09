@@ -4,9 +4,9 @@
 // items that are an upgrade for someone, which nothing may sell. tools/iqd.mjs runs it in the
 // coordinator and queues the moves as a gear task (`iqBot.gear`), tools/handdown.mjs prints it.
 //
-// Armor and jewelry are scored as a set with tools/lib/gear-data.mjs's stat score, because the
-// client counts only the highest worn haste and caps worn regeneration at 15 HP and 15 mana per
-// tick. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
+// Armor and jewelry are scored as a set by what they add to the wearer's own output (`outputValue`
+// in tools/lib/gear-data.mjs, tenths of a percent), with the client's caps on haste and
+// regeneration. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
 // the client's flat main-hand bonus and proc damage), for Monks too, whose fists a weapon replaces (docs/client-internals.md,
 // Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
 // offered only to a character with nothing in the off hand.
@@ -16,12 +16,11 @@
 // so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
 // replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
 // shield never replaces a weapon.
-import { BIT, CLASS_KEYS, HASTE_WEIGHT, RACE, REGEN_WEIGHT, SLOT_BY_NUM, offhandChance, slotName, statScore, weaponRatio } from "./gear-data.mjs";
+import { BIT, CLASS_KEYS, RACE, SLOT_BY_NUM, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 const PRIMARY = 13;
 const SECONDARY = 14;
-const REGEN_CAP = 15;
 const TWO_HANDED = new Set([1, 4, 35]);
 // Item types a character with Dual Wield may hold in the off hand.
 const OFFHAND_WEAPONS = new Set([0, 2, 3, 36]);
@@ -76,28 +75,15 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a class at a level. */
-export function setValue(items, cls, level) {
-  let stats = 0;
-  let haste = 0;
-  let regen = 0;
-  let manaregen = 0;
-  for (const i of items) {
-    if (!i) continue;
-    stats += statScore(i, cls, level);
-    haste = Math.max(haste, i.haste ?? 0);
-    regen += i.regen ?? 0;
-    manaregen += i.manaregen ?? 0;
-  }
-  return stats + HASTE_WEIGHT * haste + REGEN_WEIGHT * (Math.min(regen, REGEN_CAP) + Math.min(manaregen, REGEN_CAP));
-}
+/** The value of a set of worn armor and jewelry for a class at a level: its output value (`outputValue` in gear-data.mjs). */
+export const setValue = (items, cls, level) => outputValue(items, cls, level);
 
 // A song's skill and the instrument type that modifies it (docs/client-internals.md, Bard
 // instruments). Type 51 modifies every song.
 const INSTRUMENT_OF_SKILL = { 54: 23, 49: 24, 12: 25, 70: 26, 41: 50 };
 /**
  * Score points for raising every song a Bard sings from no instrument (10) to twice its effect
- * (20). An estimate in the stat score's units until a crossover measures it.
+ * (20), in `outputValue`'s units (4% of the Bard's output). An estimate until a crossover measures it.
  */
 export const INSTRUMENT_WEIGHT = 40;
 /**
@@ -261,7 +247,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     }
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && statScore(item, p.cls, p.level) >= (held ? statScore(held, p.cls, p.level) : 0)) {
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && outputValue([item], p.cls, p.level) >= (held ? outputValue([held], p.cls, p.level) : 0)) {
       const gain = weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld);
       if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }

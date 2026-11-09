@@ -11,20 +11,14 @@
 // item's base price in platinum; what a merchant asks may differ. Items with neither source are
 // shown as "quest or unknown".
 //
-// The score is a rough stat value, not a simulation. Weights, per point:
-//   casters (wizard magician enchanter necromancer): mana 1, hp 0.4, ac 1, int and wis from the
-//     game's own mana formula (80 * level / 425 mana per point below 200), the unused one at 30%
-//   priests (cleric druid shaman): the same with wis as the main stat
-//   melee (warrior rogue monk): hp 0.5, ac 1.5, str/sta/dex/agi 1, attack 0.3
-//   hybrids (paladin ranger shadowknight bard): melee weights plus mana 0.5
-//   all: resists 0.3 each, haste 3 per percent, hp/mana regen 8 per point
-// Weapon slots are ranked by `weaponRatio` in tools/lib/gear-data.mjs: base damage capped at the
-// level's limit over delay, plus the client's flat main-hand bonus and the weapon's proc damage.
-// The score, the weapon value and the source tables are in tools/lib/gear-data.mjs, which the raid
-// simulator's `--gear farm` kit uses as well.
+// Armor and jewelry are ranked by what they add to the wearer's own output, `outputValue` in
+// tools/lib/gear-data.mjs (tenths of a percent: offense and haste for melee, mana and regeneration
+// for spell casters, a little for AC and HP), and weapon slots by `weaponRatio`: base damage capped
+// at the level's limit over delay, plus the client's flat main-hand bonus and the weapon's proc
+// damage. Both and the source tables are in tools/lib/gear-data.mjs.
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
-import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachProcs, capFor as capForLevel, groupOf, liveZoneNames, loadSources, rows as contentRows, scoreFor as scoreForLevel, slotName, weaponRatio } from "./lib/gear-data.mjs";
+import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachProcs, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, rows as contentRows, slotName, weaponRatio } from "./lib/gear-data.mjs";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => {
@@ -58,9 +52,9 @@ const slotFilter = opt("slot", null)?.toLowerCase();
 const listFile = opt("list", null);
 const listed = listFile ? new Set((JSON.parse(await readFile(listFile, "utf8")).rows ?? []).map((r) => r.item)) : null;
 
-// The score and the damage cap at the level asked for (the party plan may name classes of any level).
+// The value and the damage cap at the level asked for (the party plan may name classes of any level).
 const capFor = (c, lvl = level) => capForLevel(c, lvl);
-const scoreFor = (i, c) => scoreForLevel(i, c, level);
+const scoreFor = (i, c) => outputValue([i], c, level);
 const group = groupOf(cls);
 const damageCap = capFor(cls);
 const score = (i) => scoreFor(i, cls);
