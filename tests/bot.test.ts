@@ -1367,16 +1367,16 @@ test("a container on the cursor with every general slot taken sends the emptiest
   }
 });
 
-test("kept NO DROP items move into one bag marked No Sell and No Declutter, and other items move out of it", async () => {
+test("kept items without a price move into one bag marked No Sell and No Declutter, and other items move out of it", async () => {
   vi.useFakeTimers();
   try {
     const f = await install();
-    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number; nodrop?: number } };
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number; price?: number } };
     const bag = (slot: number, size: number): Row => ({ bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: size } });
-    const item = (b: number, slot: number, itemid: number, Name: string): Row => ({ bag: b, slot, itemid, itemInstanceId: 1000 + itemid, itemDetails: { Name, bagslots: 0, nodrop: 0 } });
-    // The 10-slot bag in general slot 23 holds a junk item, and a wanted NO DROP helm and a wanted
-    // cloak the server can sell lie in the bag in slot 22.
-    const cloak: Row = { ...item(23, 1, 9, "Fine Cloak"), itemDetails: { Name: "Fine Cloak", bagslots: 0, nodrop: 1 } };
+    const item = (b: number, slot: number, itemid: number, Name: string): Row => ({ bag: b, slot, itemid, itemInstanceId: 1000 + itemid, itemDetails: { Name, bagslots: 0, price: 0 } });
+    // The 10-slot bag in general slot 23 holds a junk item, and a wanted helm the server cannot
+    // sell and a wanted cloak it can sell lie in the bag in slot 22.
+    const cloak: Row = { ...item(23, 1, 9, "Fine Cloak"), itemDetails: { Name: "Fine Cloak", bagslots: 0, price: 500 } };
     const inv: Row[] = [bag(22, 6), bag(23, 10), item(23, 0, 7, "Opoline Helm"), cloak, item(24, 0, 8, "Spider Femur")];
     (f.me as unknown as { inventory: Row[] }).inventory = inv;
     const at = (b: number, s: number) => inv.find((r) => r.bag === b && r.slot === s);

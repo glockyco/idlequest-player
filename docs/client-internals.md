@@ -502,7 +502,7 @@ in `engine.pretty.js:412150-412340`.
 | `autoSellEnabled` | `toggleAutoSell()` | `false`, saved `true` on this account | Sells everything in a full general inventory that the options here do not protect. The client sends only the switch, and the server decides when the bags are full. The bot keeps it off, because it sold gear the roster gear plan was about to move |
 | `autoSellBowsEnabled` / `autoSellPoisonsEnabled` / `autoSellSpellsEnabled` | `toggleAutoSellBows()` / `toggleAutoSellPoisons()` / `toggleAutoSellSpells()` | `true` / `true` / `false` | Lets the Auto-Sell above take bows, poisons and spell scrolls |
 | `loreCleanupEnabled` | `toggleLoreCleanup()` | `true` | Lets LORE and quest items through the cleanup rules, so Auto-Sell and Declutter can take them |
-| `deleteNoDrop` | `toggleDeleteNoDrop()` | `true` | Deletes NO DROP items that are neither quest items nor sellable when inventory is full |
+| `deleteNoDrop` | `toggleDeleteNoDrop()` | `true` | Delete Clutter: when inventory is full, deletes items without a merchant price outside bags marked No Declutter ("Auto-deleted N clutter items to make room"). The tooltip says NO DROP items that are not quest items, but the server also deleted tradable Krode's Shawls and items the content flags as quest items, such as Giant Wood Spider Femurs |
 | `autoBankIngredientsEnabled` | `toggleAutoBankIngredients()` | `true` | Banks tradeskill ingredients when inventory is full |
 | `autoSpellBankEnabled` | `toggleAutoSpellBank()` | `true` | Sends overflow spell loot to the Spell Bank |
 | `autoLevelMerchantTravelEnabled` | `toggleAutoLevelMerchantTravel()` | `false` | Walks to a merchant to sell and restock, may cross zones. Off keeps sales and purchases remote |

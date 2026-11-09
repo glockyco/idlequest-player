@@ -603,12 +603,12 @@
     }
   };
 
-  // The server's Delete Clutter empties a full inventory of the NO DROP items it cannot sell, wanted
-  // gear included, but it skips bags marked No Declutter, and the server's Auto-Sell, which the bot
-  // keeps off, skips bags marked No Sell. So kept NO DROP items (`gearKeepIds`, `keepItemIds`,
-  // `keepNames`) lie in one bag marked both, the largest general bag unless one is marked already:
-  // a few moves each tick put them in and the rest out. Kept items the server can sell are safe
-  // anywhere, because the bot's own cleanup never sells them.
+  // The server's Delete Clutter empties a full inventory of the items it cannot sell (price 0),
+  // wanted gear included, NO DROP or not, but it skips bags marked No Declutter, and the server's
+  // Auto-Sell, which the bot keeps off, skips bags marked No Sell. So kept items without a price
+  // (`gearKeepIds`, `keepItemIds`, `keepNames`) lie in one bag marked both, the largest general bag
+  // unless one is marked already: a few moves each tick put them in and the rest out. Kept items the
+  // server can sell are safe anywhere, because the bot's own cleanup never sells them.
   const keepBag = async (i) => {
     if (!config.keepBag || i.bagSpace().cursor) return;
     const cb = i.stores.combat.getState();
@@ -624,7 +624,7 @@
     const inner = keep.slot + 1;
     const kept = (r) => {
       const d = r.itemDetails ?? {};
-      return d.nodrop === 0 && (config.gearKeepIds.includes(r.itemid) || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name));
+      return !(d.price > 0) && (config.gearKeepIds.includes(r.itemid) || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name));
     };
     const freeIn = (b) => Array.from({ length: b.itemDetails.bagslots }, (_, s) => ({ bag: b.slot + 1, slot: s })).filter((p) => !rowAt(i, p));
     for (let n = 0; n < 4; n++) {
