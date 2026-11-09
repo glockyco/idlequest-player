@@ -50,6 +50,7 @@
     // Charm cost XP: with it on, eight groups made 9% less per hour (-17% to -2%) in a crossover
     // (docs/plans/leveling-plan.md, lever 5), so the bot holds it off. Null would leave it alone.
     charm: false,
+    dotMaxTicks: 0, // DoTs longer than this many ticks are left out for every caster (`keepExclusions`); 0 leaves none out
     gearKeepCounts: {}, // item id to the copies the roster gear plan (tools/lib/gear-plan.mjs) still needs: up to that many are kept
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
     keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, kept in every copy
@@ -754,6 +755,7 @@
       }
     }
     keepCharm(i, cs);
+    keepExclusions(i, cs);
   };
   // The client charms for Enchanters and Necromancers (undead only) when a character's casting
   // preference `charm` is on, and it recovers a pet whose charm broke (docs/client-internals.md).
@@ -773,6 +775,35 @@
       if ((ps.castingPreferences?.[key]?.charm ?? false) === config.charm) continue;
       ps.setCastingPreferences(key, { charm: config.charm });
       log(`charm set to ${config.charm} for ${w.name}`);
+    }
+  };
+  // The casting preference `excludedSpellIds` has one owner, so each character's list is whole:
+  // - its weaker dispels, because the client picks dispels by mana per chance, which takes Taper
+  //   Enchantment (5 mana, mod 1) over Nullify Magic (50 mana, mod 4);
+  // - with `dotMaxTicks` above 0, the DoTs of its class that run longer than that many 6-second
+  //   ticks, except snares, which keep fleeing enemies in reach. A companion casts each DoT the target
+  //   lacks whenever its mana is above its class reserve, with no look at how long the fight lasts
+  //   (docs/client-internals.md), and our fights last 14 to 29 s.
+  const weakerDispels = (scribed = []) => {
+    const known = scribed.filter((s) => DISPELS[s]);
+    const mod = Math.max(0, ...known.map((s) => DISPELS[s][1]));
+    return known.filter((s) => DISPELS[s][1] < mod);
+  };
+  const keepExclusions = (i, cs) => {
+    const ps = i.stores.partySpells?.getState?.();
+    if (typeof ps?.setCastingPreferences !== "function" || !i.classSpells) return;
+    const long = (cls) => (config.dotMaxTicks > 0 ? (i.classSpells[cls]?.spells ?? []).filter((s) => s.category === 4 && s.durationTicks > config.dotMaxTicks && !s.tags.includes("snare")).map((s) => s.spellId) : []);
+    const me = i.stores.character.getState().characterProfile;
+    const who = [{ name: me?.name, id: me?.id, cls: classOf(me), scribed: [] }];
+    for (const c of cs.companions ?? []) if (c.companionType === 2) who.push({ name: c.name, id: c.characterId, cls: cs.botCombatDataMap?.[c.id]?.class, scribed: cs.botCombatDataMap?.[c.id]?.scribedSpellIds ?? [] });
+    for (const w of who) {
+      if (!w.id || w.cls == null) continue;
+      const key = `character:${w.id}`;
+      const want = [...new Set([...weakerDispels(w.scribed), ...long(w.cls)])];
+      const have = ps.castingPreferences?.[key]?.excludedSpellIds ?? [];
+      if (have.length === want.length && want.every((id) => have.includes(id))) continue;
+      ps.setCastingPreferences(key, { excludedSpellIds: want });
+      log(`excluded spells for ${w.name}: ${want.length ? want.join(", ") : "none"}`);
     }
   };
   // Remedies, errands, camps and the guard change AutoLevel's limits for a reason that passes, and
@@ -930,17 +961,10 @@
       if (!known.length) continue;
       const mod = Math.max(...known.map((s) => DISPELS[s][1]));
       // BQ.pretty.js sorts dispels by mana/chance, which picks Taper Enchantment (5 mana, mod 1)
-      // over Nullify Magic (50 mana, mod 4) unless weaker dispels are excluded.
-      const weaker = known.filter((s) => DISPELS[s][1] < mod);
+      // over Nullify Magic (50 mana, mod 4) unless weaker dispels are excluded (`keepExclusions`).
       const key = `character:${c.characterId}`;
-      if (weaker.length && typeof ps?.setCastingPreferences === "function") {
-        const cur = ps.castingPreferences?.[key];
-        const prev = cur?.excludedSpellIds ?? [];
-        const mez = d.class === 14 || d.class === 8;
-        if (weaker.some((s) => !prev.includes(s)) || (mez && cur?.mez === false)) {
-          ps.setCastingPreferences(key, { mez, excludedSpellIds: [...new Set([...prev, ...weaker])] });
-        }
-      }
+      const mez = d.class === 14 || d.class === 8;
+      if (mez && typeof ps?.setCastingPreferences === "function" && ps.castingPreferences?.[key]?.mez === false) ps.setCastingPreferences(key, { mez });
       out.push({ name: c.name, key, level: d.level ?? c.level, mod });
     }
     return out.sort((a, b) => b.level + b.mod - (a.level + a.mod));

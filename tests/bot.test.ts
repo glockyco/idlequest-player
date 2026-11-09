@@ -1722,3 +1722,20 @@ test("charm is held for Enchanters and Necromancers only, and a held preference 
   await f.bot.tick();
   expect(sets).toEqual([["character:20", { charm: true }]]);
 });
+
+test("long DoTs are left out per class except snares, and 0 clears the list", async () => {
+  const f = await install();
+  const ps = f.iq.stores.partySpells.getState() as unknown as { castingPreferences: Record<string, { excludedSpellIds?: number[] }>; setCastingPreferences: (k: string, p: object) => void };
+  Object.assign(ps, { castingPreferences: {}, setCastingPreferences: (k: string, p: object) => (ps.castingPreferences[k] = { ...ps.castingPreferences[k], ...p }) });
+  const cs = f.iq.stores.companions.getState() as unknown as { botCombatDataMap: Record<string, { class?: number }> };
+  cs.botCombatDataMap["character-20"].class = 11;
+  f.iq.classSpells = generated;
+  f.bot.config.dotMaxTicks = 9;
+  await f.bot.tick();
+  const necro = ps.castingPreferences["character:20"]?.excludedSpellIds ?? [];
+  // Disease Cloud (60 ticks) and Boil Blood (21) go, the snare Dooming Darkness (15) and Poison Bolt (7) stay.
+  expect([necro.includes(340), necro.includes(451), necro.includes(452), necro.includes(348)]).toEqual([true, true, false, false]);
+  f.bot.config.dotMaxTicks = 0;
+  await f.bot.tick();
+  expect(ps.castingPreferences["character:20"].excludedSpellIds).toEqual([]);
+});
