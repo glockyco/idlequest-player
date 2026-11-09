@@ -437,10 +437,12 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
 
 /**
  * The bot settings experiments ask for now (data/experiments.json, docs/plans/controller.md,
- * principle 7). An experiment is a two-period crossover as tools/crossover.mjs reads it:
- * `{ id, a: [group], b: [group], blockMin, setting, without, after }`. In the first block arm A plays
- * with `setting` and arm B with `without`, in the second block the other way round, and then every
- * group of it keeps `without` until the experiment leaves the file. `started` maps an experiment
+ * principle 7). An experiment is a crossover as tools/crossover.mjs reads it:
+ * `{ id, a: [group], b: [group], blockMin, blocks, setting, without, after }`. In even blocks arm A
+ * plays with `setting` and arm B with `without`, in odd blocks the other way round, for `blocks`
+ * blocks (2 by default), and then every group of it keeps `without` until the experiment leaves
+ * the file. More, shorter blocks cancel the slow drifts of a group's XP per hour (level-ups, zone
+ * changes) that two long ones carry into the comparison. `started` maps an experiment
  * id to the time it started, and `running` to its `{ a, b, without }` as it started, both kept by
  * the caller, so an experiment that leaves the file before its end still returns its groups to
  * `without`. `ended` maps an experiment id to the time its end or drop was reported. An experiment
@@ -462,14 +464,14 @@ export function experimentSettings({ now, experiments = [], started = {}, ended 
     const start = started[x.id] ?? now;
     if (started[x.id] == null) events.push({ id: x.id, kind: "start", start });
     const block = Math.floor((now - start) / (x.blockMin * 60000));
-    if (block >= 2) {
+    if (block >= (x.blocks ?? 2)) {
       set([...x.a, ...x.b], x.without);
       if (ended[x.id] == null) events.push({ id: x.id, kind: "end", start });
       continue;
     }
     for (const g of [...x.a, ...x.b]) held.add(g);
-    set(x.a, block === 0 ? x.setting : x.without);
-    set(x.b, block === 0 ? x.without : x.setting);
+    set(x.a, block % 2 === 0 ? x.setting : x.without);
+    set(x.b, block % 2 === 0 ? x.without : x.setting);
   }
   const listed = new Set(experiments.map((x) => x.id));
   for (const [id, x] of Object.entries(running)) {

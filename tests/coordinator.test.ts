@@ -288,6 +288,11 @@ test("an experiment gives arm A the setting and arm B the other in the first blo
   const after = experimentSettings({ now: NOW + 181 * 60000, experiments: [x], started: { con: NOW } });
   expect([after.settings, after.events, after.held.size]).toEqual([{ G4: x.without, G5: x.without }, [{ id: "con", kind: "end", start: NOW }], 0]);
   expect(experimentSettings({ now: NOW + 200 * 60000, experiments: [x], started: { con: NOW }, ended: { con: NOW } }).events).toEqual([]);
+  // With four blocks the arms swap every block and the experiment ends after the fourth.
+  const four = { ...x, blocks: 4, blockMin: 20 };
+  const at = (min: number) => experimentSettings({ now: NOW + min * 60000, experiments: [four], started: { con: NOW } });
+  expect([at(45).settings, at(65).settings]).toEqual([{ G4: x.setting, G5: x.without }, { G4: x.without, G5: x.setting }]);
+  expect(at(81).events).toEqual([{ id: "con", kind: "end", start: NOW }]);
   // A held group's errand stops, whatever it hunts for.
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "najena", keep: "magician" } })], held: new Set(["G4"]) }).actions).toMatchObject([{ kind: "stopErrand" }]);
   // A held group gets no new errand, also one that names it, such as a wanted target.

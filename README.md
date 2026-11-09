@@ -261,13 +261,14 @@ bun tools/groups.mjs --last 60
 bun tools/groups.mjs --since 1794140961654 --until 1794143661654   # one block of an experiment
 ```
 
-`tools/crossover.mjs` reads a two-period crossover across groups: arm A runs a setting in the
-first block and arm B in the second, so each group is compared with itself and the period effect
-cancels between the arms. It prints both blocks per group and the setting's effect on XP per hour
-(as a ratio), escapes and deaths per hour, each with an interval of two standard errors.
+`tools/crossover.mjs` reads a crossover across groups in alternating blocks: arm A runs a setting in
+odd blocks and arm B in even ones, so each group is compared with itself, more blocks cancel a
+group's slow drifts, and the period effect cancels between the arms. It prints each group's
+numbers with the setting on and off and the setting's effect on XP per hour (as a ratio), escapes
+and deaths per hour, each with an interval of two standard errors.
 
 ```sh
-bun tools/crossover.mjs --start 1794140961654 --block 45 --a G2,G4,G6 --b G3,G5,G7 --label fightingOnly
+bun tools/crossover.mjs --start 1794140961654 --block 20 --blocks 6 --a G2,G4,G6 --b G3,G5,G7 --label fightingOnly
 ```
 
 `tools/fights.mjs` splits every recorded run into fights and reports what the guard's escapes and
@@ -371,8 +372,8 @@ point rolls again, and a stronger one, or three fights without a kill, end the w
 crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
 catalog ingredients one set lacks, with one of each of its `inputs` (the components the catalog does
 not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). Each experiment in
-`data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
-`without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
+`data/experiments.json` is such a crossover: arm A plays with `setting` and arm B with `without`
+for `blockMin` minutes, then the other way round, for `blocks` blocks (two by default), and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands meanwhile, since both change the
 AutoLevel limits the arms compare, while their hunts, quests and gear moves run, because
 `tools/crossover.mjs` counts XP per hour over the minutes without a task. At the end iqd registers

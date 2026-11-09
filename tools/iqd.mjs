@@ -818,7 +818,7 @@ class Daemon {
       } else {
         ex.ended[e.id] = now;
         delete ex.running[e.id];
-        const cmd = `bun tools/crossover.mjs --start ${e.start} --block ${x.blockMin} --a ${x.a.join(",")} --b ${x.b.join(",")}`;
+        const cmd = `bun tools/crossover.mjs --start ${e.start} --block ${x.blockMin} --blocks ${x.blocks ?? 2} --a ${x.a.join(",")} --b ${x.b.join(",")}`;
         const job = this.db.query("INSERT INTO jobs (purpose, command, output, started) VALUES (?, ?, ?, ?) RETURNING id").get(`experiment ${e.id}: read the crossover and record it in the plans`, cmd, null, now).id;
         note(`experiment ${e.id} ended, job #${job}: ${cmd}`);
       }
