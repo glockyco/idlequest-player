@@ -169,10 +169,13 @@ const fits = (item, p, slot) =>
  * songs, `[{ minLevel, skill }]`. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
  * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
  * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
- * `[{ itemId, zone, npc, hours, levels: [min, max] }]` with `hours` the expected hunting per copy,
- * which become wants for characters whose group level is inside `levels`.
+ * `[{ itemId, zone, npc, hours, levels: [min, max], pick? }]` with `hours` the expected hunting per copy,
+ * which become wants for characters whose group level is inside `levels`; `pick` names the
+ * opportunity a camped drop comes from.
  * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], keep: { counts:
- * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }] }`,
+ * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }],
+ * picks: { [pick]: { to, level, cls, gain, hours } } }`, `picks` being each camped drop's best taker,
+ * whatever other drops want the same slot,
  * where a move with `buy: { merchant, zone, price }` buys its item first. `keep` is what the bots
  * must not sell: the copies this pass's moves take, the copies it buys, and for an item the account
  * holds no free copy of, as many copies as characters would still gain from one after the moves,
@@ -313,12 +316,15 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   // The drops worth hunting for, against what each character wears after this pass.
   const want = new Map();
   const wantSlot = new Map();
+  // A camped pick (`pick`, an opportunity id) is weighed on its own, against its best taker.
+  const picks = {};
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
     const r = virtual(d.itemId);
     for (const p of people) {
       for (const o of offer(r, p)) {
         if (o.gain < 2 * minGain || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
+        if (d.pick && !(picks[d.pick]?.gain >= o.gain)) picks[d.pick] = { to: p.name, level: p.level, cls: p.cls, gain: Math.round(o.gain * 100) / 100, hours: d.hours };
         const k = `${p.name}:${o.slot}`;
         const best = want.get(k);
         if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) {
@@ -328,5 +334,5 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       }
     }
   }
-  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
+  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], picks, characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }

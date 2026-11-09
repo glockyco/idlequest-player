@@ -349,7 +349,10 @@ camps the enemies' spawn points with the client's Spawn Camp, placeholders inclu
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
 `retryMin` minutes. A gear pick (by `levels`, without a group or quest) that fits no weapon slot is
 camped only by a group whose members are all at level 60, because armor and jewelry add almost
-nothing to XP per hour while leveling (leveling plan, lever 7). Each farm in `data/farms.json` (an errand for loot, such as lightstones from
+nothing to XP per hour while leveling (leveling plan, lever 7). A weapon pick is camped below 60 only
+when the gear pass names a taker whose output gain, times its share of the party's damage, the XP
+elasticity at its level and the hours until it outlevels the pick, beats the expected camp hours
+(`campPays` in `tools/lib/coordinator.mjs`). Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file

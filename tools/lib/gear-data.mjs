@@ -311,3 +311,27 @@ export async function zoneDrops(root, bandRows) {
   }
   return { drops, items };
 }
+
+/**
+ * The gear picks of data/opportunities.json (`[{ id, item, zone, keep, levels }]`) as drops for the
+ * roster gear plan: `[{ itemId, zone, npc, hours, levels, pick }]`, the source in the pick's zone
+ * whose enemy matches `keep`, its hours computed as `zoneDrops` does, and `pick` the opportunity id.
+ * A pick without such a source is left out. Resolves with `{ drops, items }`, items by id.
+ */
+export async function pickDrops(root, picks) {
+  const names = new Set(picks.map((o) => o.item));
+  const items = new Map();
+  for await (const i of rows(root, "items")) if (names.has(i.Name) && i.slots > 0) items.set(i.id, i);
+  const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
+  const drops = [];
+  for (const o of picks) {
+    const keep = new RegExp(o.keep.replace(/ /g, "[ _]"), "i");
+    for (const [itemId, i] of items) {
+      if (i.Name !== o.item) continue;
+      const s = (sources.get(itemId) ?? []).filter((x) => x.zoneShort === o.zone && keep.test(x.npc)).sort((a, b) => farmHours(a) / Math.max(1, a.points) - farmHours(b) / Math.max(1, b.points))[0];
+      const hours = s ? farmHours(s) / Math.max(1, s.points) : Infinity;
+      if (Number.isFinite(hours)) drops.push({ itemId, zone: o.zone, npc: s.npc, hours: Math.round(hours * 100) / 100, levels: o.levels, pick: o.id });
+    }
+  }
+  return { drops, items };
+}

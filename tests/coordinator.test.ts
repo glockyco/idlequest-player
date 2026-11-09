@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory } from "../tools/lib/coordinator.mjs";
+import { assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -88,16 +88,30 @@ test("a chain whose reward a later chain takes stays done, and a finished chain'
   expect(keep).toEqual(expect.arrayContaining(["Sealed Note", "Note", "Badge", "SoulFire"]));
 });
 
-test("an armor camp waits until a whole group is at the level cap, and a weapon camp does not", () => {
+test("an armor camp waits until a whole group is at the level cap, and a weapon camp runs when it pays", () => {
   const helm = { id: "gear-helm", levels: [40, 52], zone: "kael", keep: "Sergeant Breldimer", item: "Helm", count: 3, retryMin: 10, armor: true };
   const blade = { ...helm, id: "gear-blade", item: "Blade", armor: false };
   const leveling = [tab("A", "G1", 45)];
   expect(decide({ now: NOW, tabs: leveling, opportunities: [helm] })).toEqual([]);
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade] })).toMatchObject([{ id: "gear-blade" }]);
+  // A weapon camp needs a taker whose gain beats the camp's hours: 20% for a level 45 character over
+  // 7 levels at 1.5 hours is worth 0.2 x 1/6 x 0.85 x 10.5 = 0.30 hours of the group's XP.
+  const want = (hours: number) => ({ "gear-blade": { to: "A1", level: 45, gain: 200, hours } });
+  const hoursPerLevel = { A1: 1.5 };
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade], picks: want(0.2), hoursPerLevel })).toMatchObject([{ id: "gear-blade" }]);
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade], picks: want(1), hoursPerLevel })).toEqual([]);
+  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade] })).toEqual([]);
   // At 60 the camp costs only AA XP, outside the pick's level range too.
   expect(decide({ now: NOW, tabs: [tab("B", "G2", 60)], opportunities: [helm] })).toMatchObject([{ label: "B", id: "gear-helm" }]);
   // The same piece as an errand inside normal hunting runs while the group levels.
   expect(decide({ now: NOW, tabs: leveling, opportunities: [{ ...helm, kind: "errand" }] })).toMatchObject([{ kind: "errand" }]);
+});
+
+test("the XP elasticity follows the model's table between its levels", () => {
+  expect(elasticity(10)).toBe(0.5);
+  expect(elasticity(29)).toBe(0.74);
+  expect(elasticity(40)).toBeCloseTo(0.835);
+  expect(elasticity(60)).toBe(0.85);
+  expect(campPays({ levels: [20, 30] }, { to: "X", level: 30, gain: 500, hours: 0.1 }, { X: 2 })).toBe(false); // no levels of use left
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {

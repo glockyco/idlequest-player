@@ -127,6 +127,30 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
   return quests[o.quest] ? chainNeeders(o.quest, { quests, holders, members }).length : (o.count ?? 1);
 }
 
+// XP per hour against party damage, the calibrated model's elasticity by level (leveling plan, lever 7).
+const ELASTICITY = [[20, 0.5], [29, 0.74], [35, 0.82], [45, 0.85]];
+export const elasticity = (level) => {
+  if (level <= ELASTICITY[0][0]) return ELASTICITY[0][1];
+  for (let k = 1; k < ELASTICITY.length; k++) {
+    const [l1, e1] = ELASTICITY[k];
+    const [l0, e0] = ELASTICITY[k - 1];
+    if (level <= l1) return e0 + ((e1 - e0) * (level - l0)) / (l1 - l0);
+  }
+  return ELASTICITY.at(-1)[1];
+};
+/**
+ * Whether a camp for gear pick `o` pays: the XP the piece adds while its taker wears it beats the
+ * XP the camp costs. Both scale with the group's XP per hour, which cancels: the taker's output gain
+ * (`w.gain`, tenths of a percent) times its share of the party's damage (one of six members) times
+ * the elasticity at its level, over the hours until it outlevels the pick's range (`o.levels[1]`),
+ * against the expected camp hours for one copy (`w.hours`).
+ */
+export function campPays(o, w, hoursPerLevel = {}) {
+  if (!w || !(w.hours > 0)) return false;
+  const use = Math.max(0, o.levels[1] - w.level) * (hoursPerLevel[w.to] ?? 0);
+  return (w.gain / 1000) * (1 / 6) * elasticity(w.level) * use >= w.hours;
+}
+
 /**
  * The tasks to queue now. Inputs:
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
@@ -149,10 +173,12 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  *   errands by level range, because both change the limits the arms compare.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id, code }]`, where `code` is the
  *   bot and bridge code the task ran under, and `code` the code the tabs run now.
+ * - `picks`: the gear pass's best taker of each camped gear pick, `{ [id]: { to, level, gain, hours } }`
+ *   (tools/lib/gear-plan.mjs), and `hoursPerLevel`, `{ [name]: hours }` at the character's group's rate.
  * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's
  * errand and `stopTask` its running task.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, picks = {}, hoursPerLevel = {}, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -225,6 +251,8 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
       : tabs.find((t) => t.group === o.group);
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
     if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
+    // A weapon camp below the level cap runs only when its expected value beats the XP it costs.
+    if (o.armor === false && o.kind !== "errand" && !capped(tab) && !campPays(o, picks[o.id], hoursPerLevel)) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);

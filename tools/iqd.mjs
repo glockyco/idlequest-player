@@ -634,7 +634,18 @@ class Daemon {
     // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
-    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code });
+    // Hours a level takes each character at its group's measured rate, for weighing camps (`campPays`).
+    const rates = await this.loadRates();
+    const { estimate } = await import("./lib/rates.mjs");
+    const { xpStart } = await import("./lib/xp.mjs");
+    const hoursPerLevel = {};
+    for (const t of tabs) {
+      const level = t.members[0]?.level ?? 0;
+      const xph = estimate(rates, t.zone, level, now)?.xph;
+      if (xph > 0) for (const m of t.members) hoursPerLevel[m.name] = (xpStart((m.level ?? level) + 1) - xpStart(m.level ?? level)) / xph;
+    }
+    this.pickWants ??= metaGet(this.db, "gear")?.picks ?? {};
+    const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, picks: this.pickWants, hoursPerLevel });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -649,7 +660,6 @@ class Daemon {
       }
     }
     // Zone rotations by measured XP per hour. A tab given a task this pass keeps its rotation.
-    const rates = await this.loadRates();
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
     const tasked = new Set(actions.map((a) => a.label));
     for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates })) {
@@ -793,16 +803,18 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
-    const { attachProcs, bardSongs, merchantGoods, rows, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { attachProcs, bardSongs, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
     const { contentRoot } = await import("./lib/content.mjs");
-    // The merchant goods and their item rows, read once.
+    // The merchant goods, the drops of the band rotations and of the camped gear picks, and their item rows, read once.
     if (!this.shop) {
       const goods = await merchantGoods(contentRoot(), { maxPp: BUY_PP });
       this.shop = goods.shop;
       this.items = goods.items;
       const dropped = await zoneDrops(contentRoot(), JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8")));
-      this.drops = dropped.drops;
-      for (const [id, i] of dropped.items) this.items.set(id, i);
+      const opportunities = JSON.parse(await readFile(join(REPO, "data/opportunities.json"), "utf8").catch(() => "[]"));
+      const picked = await pickDrops(contentRoot(), opportunities.filter((o) => o.levels && !o.quest && !o.group));
+      this.drops = [...dropped.drops, ...picked.drops];
+      for (const [id, i] of [...dropped.items, ...picked.items]) this.items.set(id, i);
     }
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
@@ -815,8 +827,9 @@ class Daemon {
     // Each character's last recorded maximum mana, which an item's mana is a share of.
     const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
     const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
-    const { moves, keep, drops, characters } = planGear({ survey, items: this.items, people, songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    const { moves, keep, drops, picks, characters } = planGear({ survey, items: this.items, people, songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
+    this.pickWants = picks;
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
     // start of a pass never wipes it: the scores in `gearPlan`, and in `gearSheets` each character's slots
     // with the cards (name, icon, stats) of the items they name.
@@ -825,7 +838,7 @@ class Daemon {
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
     metaSet(this.db, "gearSheets", { t: now, sheets: Object.fromEntries(characters.map((c) => [c.name, c.slots])), items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops });
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops: this.dropWants, picks });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }
