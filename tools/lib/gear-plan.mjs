@@ -238,22 +238,22 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     offers = offers.filter((o) => !spent.has(key(o.r)) && o.p.name !== p.name);
     for (const f of sources()) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
   }
-  // The drops worth hunting for, against what each character wears after this pass.
+  // The drops worth hunting for, against what each character wears after this pass, and every
+  // drop that would be an upgrade for someone, which is kept like the account's own upgrades once
+  // looted, so the next pass can move it.
   const want = new Map();
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
     const r = { characterName: null, itemId: d.itemId, itemName: items.get(d.itemId).Name, itemInstanceId: `drop:${d.itemId}` };
     for (const p of people) {
-      if (d.levels && (p.level < d.levels[0] || p.level > d.levels[1])) continue;
       for (const o of offer(r, p)) {
-        if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain)) continue;
+        if (o.gain >= (o.weapon ? MIN_RATIO_GAIN : minGain)) wanted.add(d.itemId);
+        if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain) || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
         const k = `${p.name}:${o.slot}`;
         const best = want.get(k);
         if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) want.set(k, { item: r.itemName, itemId: d.itemId, to: p.name, slot: SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours });
       }
     }
   }
-  // A wanted drop is an upgrade once it is looted, so it is kept like the account's own upgrades.
-  for (const d of want.values()) wanted.add(d.itemId);
   return { moves, wanted: [...wanted], drops: [...want.values()] };
 }

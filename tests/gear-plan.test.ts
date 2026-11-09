@@ -108,6 +108,9 @@ test("drops become wants for characters in their levels that gain enough after t
   expect(plan.wanted).toContain(1);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
+  // A character outside the drop's levels gets no errand for it, but a looted copy is still kept for it.
+  const old = planGear({ survey, items, people: people.slice(1), drops });
+  expect([old.drops, old.wanted.includes(1)]).toEqual([[], true]);
 });
 
 test("the off-hand chance is (Dual Wield + level) / 400 for a class with the skill", () => {
