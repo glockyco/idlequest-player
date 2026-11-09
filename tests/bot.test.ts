@@ -1595,7 +1595,7 @@ test("a companion without the kept tactics gets them", async () => {
   expect(f.tactics).toEqual([["Tagujazolu", "cure", false]]);
 });
 
-test("charm is held for Enchanters and Necromancers and left alone without a setting", async () => {
+test("charm is held for Enchanters and Necromancers only, and a held preference is not set again", async () => {
   const f = await install();
   const ps = f.iq.stores.partySpells.getState() as unknown as { castingPreferences: Record<string, { charm?: boolean }>; setCastingPreferences: (k: string, p: object) => void };
   const sets: [string, object][] = [];

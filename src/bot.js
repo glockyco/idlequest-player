@@ -48,7 +48,9 @@
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
     companionTactics: { cure: false },
-    charm: null, // hold the charm preference of Enchanters and Necromancers (`keepCharm`), null leaves it
+    // Charm cost XP: with it on, eight groups made 9% less per hour (-17% to -2%) in a crossover
+    // (docs/plans/leveling-plan.md, lever 5), so the bot holds it off. Null would leave it alone.
+    charm: false,
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
     keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, never sold
     keepBag: true, // keep kept items in one bag marked No Sell and No Declutter (`keepBag`)

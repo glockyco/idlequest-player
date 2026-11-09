@@ -1,10 +1,1 @@
-[
-  {
-    "id": "charm",
-    "a": ["G2", "G4", "G5", "G8"],
-    "b": ["G3", "G7", "G10", "G12"],
-    "blockMin": 90,
-    "setting": { "charm": true },
-    "without": { "charm": false }
-  }
-]
+[]
