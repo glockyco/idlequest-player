@@ -7,55 +7,54 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <h1>IdleQuest account</h1>
-      <nav>
-        <a href="#goal">Goal</a>
-        <a href="#groups">Groups</a>
-        <a href="#attention">Attention</a>
-        <a href="#coordinator">Coordinator</a>
-        <a href="#engineering">Engineering</a>
-        <a href="#trends">Trends</a>
-        <a href="#jobs">Jobs</a>
-      </nav>
-      <div id="daemon" class="muted"></div>
-    </header>
+    <header id="status" class="status"></header>
     <main>
-      <section id="goal">
-        <h2>Goal</h2>
-        <div id="goal-tiles" class="tiles"></div>
-        <div id="criteria"></div>
-        <h3>Roster</h3>
-        <div id="roster"></div>
-        <h3>Hours of play to each level</h3>
-        <div id="eta"></div>
-      </section>
+      <div class="pair">
+        <section class="panel" id="needs">
+          <h2>Needs you</h2>
+          <div id="needs-list"></div>
+          <p id="needs-handled" class="muted small"></p>
+        </section>
+        <section class="panel" id="goal">
+          <h2>Goal progress</h2>
+          <div id="goal-bars"></div>
+        </section>
+      </div>
+
       <section id="groups">
-        <h2>Groups</h2>
-        <div id="group-cards" class="cards"></div>
-        <h3>Last hour</h3>
-        <div id="group-hour"></div>
-      </section>
-      <section id="attention">
-        <h2>Attention</h2>
-        <div id="attention-open"></div>
-        <div class="split">
-          <div><h3>Recently resolved</h3><div id="attention-resolved"></div></div>
-          <div><h3>Interventions</h3><div id="interventions"></div></div>
+        <div class="head">
+          <h2>Groups</h2>
+          <div id="act-legend" class="legend"></div>
         </div>
+        <div class="scroll"><table id="group-table" class="groups"></table></div>
+        <p class="muted small">Level bars show each group's share of the XP to level 60. Idle is the last hour. The activity bar covers the last 10 minutes, and the two-hour minute timeline will replace it. Click a row for the party, bags, rotation and task history.</p>
       </section>
-      <section id="coordinator">
-        <h2>Coordinator</h2>
-        <div id="coord"></div>
-      </section>
-      <section id="engineering">
-        <h2>Engineering</h2>
+
+      <div class="pair">
+        <section class="panel" id="coordinator">
+          <h2>Coordinator</h2>
+          <div id="coord"></div>
+        </section>
+        <section class="panel" id="time">
+          <h2>Where time goes</h2>
+          <div id="time-body"></div>
+        </section>
+      </div>
+
+      <details id="d-eng">
+        <summary>Engineering health</summary>
         <p class="muted">Manual interventions are the SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items. Both should fall per group-hour over time.</p>
         <div id="eng-charts" class="split"></div>
         <div id="eng-table"></div>
-      </section>
-      <section id="trends">
-        <h2>Trends</h2>
+        <h3>Manual steps</h3>
+        <div id="manual"></div>
+      </details>
+      <details id="d-roster">
+        <summary>Roster</summary>
+        <div id="roster"></div>
+      </details>
+      <details id="d-trends">
+        <summary>Level trends</summary>
         <div class="controls">
           Level of each group's leader over the last
           <select id="trend-hours">
@@ -66,11 +65,15 @@
           </select>
         </div>
         <div id="trend-chart"></div>
-      </section>
-      <section id="jobs">
-        <h2>Jobs</h2>
+      </details>
+      <details id="d-jobs">
+        <summary>Experiments and jobs</summary>
         <div id="jobs-list"></div>
-      </section>
+      </details>
+      <details id="d-alerts">
+        <summary>Alert history</summary>
+        <div id="alerts"></div>
+      </details>
     </main>
     <script src="/app.js"></script>
   </body>

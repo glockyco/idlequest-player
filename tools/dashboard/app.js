@@ -1,4 +1,5 @@
-// The dashboard page: polls /api/state and /api/trends and renders them. Read-only.
+// The dashboard page: polls /api/state and /api/trends and renders them. Read-only. The server
+// builds every view (tools/lib/dashboard.mjs), so this file only formats and lays them out.
 const REFRESH_MS = 15000;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -10,6 +11,10 @@ const hours = (h) => (h == null ? "-" : h < 48 ? `${Math.round(h)} h` : `${(h / 
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const dayName = (t) => new Date(t).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+/** "3m ago" with the clock time on hover. */
+const ago = (now, t) => `<span title="${esc(`${dayName(t)} ${clock(t)}`)}">${dur(now - t)} ago</span>`;
+/** "in 3m" or "due" for a span to a time ahead. */
+const inMs = (ms) => (ms <= 0 ? "due" : `in ${dur(ms)}`);
 const SHORT = { Warrior: "War", Cleric: "Clr", Paladin: "Pal", Ranger: "Rng", "Shadow Knight": "SK", Druid: "Dru", Monk: "Mnk", Bard: "Brd", Rogue: "Rog", Shaman: "Shm", Necromancer: "Nec", Wizard: "Wiz", Magician: "Mag", Enchanter: "Enc" };
 // The page's activity labels grouped as the goal measures time: fighting, moving, recovering, idle, dead, tasks.
 const ACT = [
@@ -20,6 +25,7 @@ const ACT = [
   ["dead", "var(--dead)", (k) => k === "dead"],
   ["task", "var(--task)", (k) => k === "task"],
 ];
+const actColor = (act) => ACT.find(([, , t]) => t(act))?.[1] ?? "var(--task)";
 const groupColor = (i, n) => `hsl(${Math.round((360 * i) / n)} 65% 50%)`;
 // Level 1 to 60 from cool to warm, so the roster grid reads as progress at a glance.
 const levelColor = (l) => `hsl(${Math.round(220 - (Math.min(60, l ?? 1) / 60) * 200)} 70% 50%)`;
@@ -27,108 +33,186 @@ const levelColor = (l) => `hsl(${Math.round(220 - (Math.min(60, l ?? 1) / 60) * 
 function table(head, rows, numeric = []) {
   const th = head.map((h, i) => `<th class="${numeric.includes(i) ? "n" : ""}">${esc(h)}</th>`).join("");
   const tr = rows.map((r) => `<tr>${r.map((c, i) => `<td class="${numeric.includes(i) ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("");
-  return `<table><thead><tr>${th}</tr></thead><tbody>${tr || `<tr><td colspan="${head.length}" class="muted">none</td></tr>`}</tbody></table>`;
+  return `<table class="plain"><thead><tr>${th}</tr></thead><tbody>${tr || `<tr><td colspan="${head.length}" class="muted">none</td></tr>`}</tbody></table>`;
 }
 
-function renderDaemon(s) {
-  const d = s.daemon;
-  const age = d?.last ? s.now - d.last : null;
-  const alive = d && age != null && age < (d.intervalSec * 3 + 10) * 1000;
-  $("daemon").innerHTML = `collector <span class="${alive ? "ok" : "bad"}">${alive ? `running, last cycle ${dur(age)} ago` : "not running"}</span>${d && !d.relay ? ' <span class="bad">relay down</span>' : ""} · updated ${clock(s.now)}`;
+/** `text` cut to `n` characters, with the whole text on hover. */
+const short = (text, n = 70) => (text == null ? "" : String(text).length > n ? `<span title="${esc(text)}">${esc(String(text).slice(0, n - 1))}~</span>` : esc(text));
+
+const meter = (share, cls = "") => `<div class="meter ${cls}"><i style="width:${(100 * Math.max(0, Math.min(1, share ?? 0))).toFixed(1)}%"></i></div>`;
+
+// ---- Status line -------------------------------------------------------------------------------
+
+function renderStatus(s) {
+  const text = {
+    xp: (v) => big(v.value),
+    xp24: (v) => (v.value == null ? "-" : big(v.value)),
+    idle: (v) => pct(v.value),
+    memory: (v) => (v.value == null ? "-" : `${v.value} MB${v.tab ? ` <small>${esc(v.tab)}</small>` : ""}`),
+  };
+  const chips = s.status.map((v) => `<div class="chip ${v.level}"${v.title || v.share != null ? ` title="${esc(v.title ?? `${pct(v.share)} of the page's heap limit`)}"` : ""}><span class="k">${esc(v.label)}</span><span class="v">${text[v.id] ? text[v.id](v) : esc(v.value)}</span></div>`).join("");
+  $("status").innerHTML = `<h1>IdleQuest account</h1><div class="chips">${chips}</div><div class="stamp muted" title="The page refreshes every ${REFRESH_MS / 1000} seconds">updated ${clock(s.now)}</div>`;
+}
+
+// ---- Needs you and goal progress -------------------------------------------------------------
+
+function renderNeeds(s) {
+  const n = s.needs;
+  $("needs-list").innerHTML = n.needs.length
+    ? n.needs
+        .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.group ? `<span class="grp">${esc(x.group)}</span>` : ""}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text)}</div></div>`)
+        .join("")
+    : `<p class="calm">Nothing needs you.</p>`;
+  $("needs-handled").textContent = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `${h.label} ${h.n} (${h.how})`).join(", ")}.` : "";
+}
+
+function barRow(title, share, bar, text) {
+  return `<div class="goalrow"><div class="gl"><span class="gt">${esc(title)}</span><span class="gv">${bar}</span></div>${share == null ? `<div class="meter unknown"></div>` : meter(share)}<div class="gx">${text}</div></div>`;
 }
 
 function renderGoal(s) {
-  const r = s.roster;
-  const tiles = [
-    [`${r.atTarget} / ${r.characters}`, `characters at level ${r.target}`],
-    [`${(100 * r.progress).toFixed(1)}%`, `of the XP to level ${r.target}`],
-    [r.minLevel ?? "-", "lowest level"],
-    [r.meanLevel == null ? "-" : r.meanLevel.toFixed(1), "mean level"],
-    [r.maxLevel ?? "-", "highest level"],
-    [s.attention.open.length, "open attention items"],
-  ];
-  $("goal-tiles").innerHTML = tiles.map(([v, l]) => `<div class="tile"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("");
-  const crit = [
-    ["Level 60 for every roster character", `${r.atTarget} of ${r.characters}, lowest ${r.minLevel ?? "-"}`],
-    ["AA ranks", r.maxLevel >= 46 ? "AA unlocked for the highest characters, ranks not collected yet" : `unlocks at level 46, highest is ${r.maxLevel ?? "-"}`],
-    ["Raid kills", r.maxLevel >= 46 ? "raid level reached, kills not collected yet" : "raids start at level 46, kills not collected yet"],
-    ["Epics", "not collected by the collector yet, see docs/plans/epics.md"],
-  ];
-  $("criteria").innerHTML = table(["Criterion", "State"], crit.map(([a, b]) => [esc(a), esc(b)]));
-  const cells = r.groups
-    .map((g) => {
-      const members = g.members
-        .map((m) => {
-          const frac = m.level == null ? 0 : Math.min(1, (m.level - 1 + (m.xpPct ?? 0) / 100) / (r.target - 1));
-          return `<div class="cell" title="${esc(`${m.name}, ${m.race ?? "?"} ${m.class ?? "?"}, level ${m.level ?? "?"}${m.xpPct != null ? ` and ${m.xpPct.toFixed(0)}%` : ""}${m.seen ? `, seen ${dur(s.now - m.seen)} ago` : ""}`)}">
-            <div class="fill" style="width:${(100 * frac).toFixed(1)}%;background:${levelColor(m.level)}"></div>
-            <div class="t"><span class="nm">${esc(m.name)}</span><span class="lv">${m.level ?? "?"}</span></div>
-            <div class="cl">${esc(SHORT[m.class] ?? m.class ?? "?")}</div></div>`;
-        })
-        .join("");
-      return `<div class="g">${esc(g.id)}</div>${members}`;
-    })
-    .join("");
-  $("roster").innerHTML = `<div class="roster">${cells}</div>`;
-  const plan = s.reports.plan;
-  if (!plan.value) $("eta").innerHTML = `<p class="muted">The planner (tools/plan.mjs) has not reported yet.</p>`;
-  else {
-    const p = plan.value;
-    const rows = p.groups.map((g) => [esc(g.leader), g.level, big(g.rateNow), esc(g.slowest), ...p.targets.map((t) => (g.eta[t] ? `${hours(g.eta[t].hours)} <span class="muted">(${hours(g.eta[t].low)} to ${hours(g.eta[t].high)})</span>` : "-"))]);
-    $("eta").innerHTML = table(["Leader", "Level", "XP/h", "Slowest member", ...p.targets.map((t) => `to ${t}`)], rows, [1, 2]) + `<p class="muted">tools/plan.mjs over the last ${p.windowMin} min of AutoLevel, as of ${clock(plan.at)}. Ranges are one standard deviation.${p.idle.length ? ` No estimate for ${esc(p.idle.join(", "))}.` : ""}</p>`;
-  }
+  const g = s.goal;
+  const L = g.levels;
+  const eta = L.slowest
+    ? `The slowest group (${esc(L.slowest.group ?? "?")}, ${esc(L.slowest.leader)}) needs about ${hours(L.slowest.hours)} to level ${L.target}, range ${hours(L.slowest.low)} to ${hours(L.slowest.high)}.`
+    : s.reports.plan
+      ? "No estimate for the slowest group."
+      : "The estimate for the slowest group is not ready yet.";
+  const none = (what) => `<span class="muted">not measured yet</span>`;
+  $("goal-bars").innerHTML = [
+    barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP`, `${L.atTarget} of ${L.characters} characters at ${L.target}. Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}, mean ${L.meanLevel?.toFixed(1) ?? "-"}. ${eta}`),
+    barRow("Gear", null, none(), `Slot scores per character are not collected. The last gear pass ${g.gear.passT ? ago(s.now, g.gear.passT) : ""} queued ${g.gear.moves ?? "?"} moves and listed ${g.gear.drops ?? "?"} wanted drops.`),
+    barRow("AA ranks", null, none(), `Ranks are not collected. ${g.aa.reached} of ${g.aa.characters} characters have reached level ${g.aa.level}, where AA opens.`),
+    barRow("Epics", null, none(), `Progress per class is not collected. The coordinator pass ${g.epics.passT ? ago(s.now, g.epics.passT) : ""} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`),
+    barRow("Raid kills", null, none(), `Kills are not collected. Raids open at level ${g.raids.level}, reached by ${g.raids.reached} of ${g.raids.characters} characters.`),
+  ].join("");
 }
 
-function activityBar(sec) {
+// ---- Groups ------------------------------------------------------------------------------------
+
+const openGroups = new Set();
+
+function stateCell(g) {
+  const st = g.state;
+  if (st.kind === "gone") return `<span class="pill bad">gone ${dur(st.forMs)}</span>`;
+  if (st.kind === "parked") return `<span class="pill task">parked</span>`;
+  if (st.kind === "raid") return `<span class="pill accent">raid</span>`;
+  if (st.kind === "none") return `<span class="pill bad">no tab</span>`;
+  if (st.kind === "off") return `<span class="pill warn">AutoLevel off</span>`;
+  if (st.kind === "running") return `<span class="dot" style="background:var(--fight)"></span>AutoLevel on`;
+  return `<span class="dot" style="background:${actColor(st.act)}"></span>${esc(st.act)}${st.why ? ` <span class="muted">${esc(st.why)}</span>` : ""} <span class="muted">${dur(st.forMs)}</span>`;
+}
+
+function taskCell(now, t) {
+  if (!t) return `<span class="muted">no task yet</span>`;
+  const retry = t.retryInMs == null ? "" : ` <span class="muted">· retry ${inMs(t.retryInMs)}</span>`;
+  if (t.status === "running") return `<span class="name">${esc(t.name)}</span> <span class="muted">${short(t.step, 40)} · ${dur(t.forMs)}</span>`;
+  if (t.status === "failed") return `<span class="bad">${esc(t.name)} failed${t.step ? ` at ${esc(t.step)}` : ""}</span><span class="muted">: ${short(t.error)}</span>${retry}`;
+  const what = t.status === "done" ? (t.result ?? "done") : t.status;
+  return `<span class="name">${esc(t.name)}</span><span class="muted">: ${short(what, 48)}${t.agoMs != null ? `, ${dur(t.agoMs)} ago` : ""}</span>${retry}`;
+}
+
+function actBar(sec) {
   const total = Object.values(sec ?? {}).reduce((a, b) => a + b, 0);
-  if (!total) return "";
+  if (!total) return `<div class="bar"></div>`;
   return `<div class="bar">${ACT.map(([name, color, test]) => {
     const v = Object.entries(sec).filter(([k]) => test(k)).reduce((a, [, x]) => a + x, 0);
     return v ? `<span title="${name} ${Math.round((100 * v) / total)}%" style="width:${(100 * v) / total}%;background:${color}"></span>` : "";
   }).join("")}</div>`;
 }
 
-function renderGroups(s) {
-  const legend = `<div class="legend">${ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("")}<span>bars: last 10 minutes</span></div>`;
-  $("group-cards").innerHTML =
-    s.groups
-      .map((g) => {
-        const act = g.activity;
-        const state = g.goneMs != null ? ["gone", "var(--bad)"] : g.parked ? ["parked", "var(--task)"] : g.raid ? ["raid", "var(--accent)"] : act ? [`${act.act}${act.why ? ` (${act.why})` : ""} ${dur(act.forMs)}`, ACT.find(([, , t]) => t(act.act))?.[1] ?? "var(--task)"] : ["no activity", "var(--task)"];
-        const stuck = g.goneMs != null || (act && (act.act === "idle" || act.act === "dead") && act.forMs > 120000) || g.lastKillMs > 300000;
-        const levels = g.party.map((m) => m.level).filter((l) => l != null);
-        const note = g.pause ? `paused ${dur(g.pause.untilMs)}: ${g.pause.reason ?? ""}` : g.errand ? `errand: ${g.errand.item ?? g.errand.keep ?? ""} in ${g.errand.zone}` : "";
-        return `<div class="card${stuck ? " alert" : ""}">
-          <div class="top"><span class="name">${esc(g.group ?? "--")} ${esc(g.leader)}</span><span class="badge" style="background:${state[1]}">${esc(state[0])}</span></div>
-          <div class="muted">${esc(g.zone ?? "?")} · levels ${levels.length ? `${Math.min(...levels)} to ${Math.max(...levels)}` : "?"}${g.xpPct != null ? ` · leader ${g.xpPct.toFixed(0)}%` : ""}</div>
-          <div class="kv"><span class="k">XP/h</span><span>${big(g.xpPerHour)}</span><span class="k">kills/h</span><span>${g.killsPerHour == null ? "-" : Math.round(g.killsPerHour)}</span>
-          <span class="k">idle</span><span>${pct(g.idleShare)}</span><span class="k">last kill</span><span>${dur(g.lastKillMs)}</span>
-          <span class="k">memory</span><span>${g.heap ? `${g.heap.used} MB` : "-"}</span><span class="k">bags free</span><span>${g.bags?.free ?? "-"}</span></div>
-          ${activityBar(g.activitySec)}
-          ${note ? `<div class="party">${esc(note)}</div>` : ""}
-          <div class="party">${g.party.map((m) => `${esc(m.name)} ${esc(SHORT[m.class] ?? "")} ${m.level ?? ""}`).join(" · ")}</div>
-        </div>`;
-      })
-      .join("") || `<p class="muted">No open sessions.</p>`;
-  if (!$("act-legend")) $("group-cards").insertAdjacentHTML("beforebegin", `<div id="act-legend">${legend}</div>`);
-  const rep = s.reports.groups;
-  if (!rep.value) $("group-hour").innerHTML = `<p class="muted">tools/groups.mjs has not reported yet.</p>`;
-  else
-    $("group-hour").innerHTML =
-      table(
-        ["Group", "Leader", "Level", "Mix", "Zone", "XP/h", "Kills/min", "Fight", "Move", "Recover", "Idle (cause)", "Escapes", "Deaths (leader)", "Waited for"],
-        rep.value.map((r) => [esc(r.group), esc(r.leader), r.level ?? "-", esc(r.mix), esc(r.zone ?? "-"), big(r.xpPerHour), r.killsPerMin ?? "-", pct(r.combat), pct(r.move), pct(r.recover), `${pct(r.idle)} ${r.idleCause ? `<span class="muted">${esc(r.idleCause)}</span>` : ""}`, r.escapes ?? "-", `${r.deaths ?? "-"} (${r.leaderDeaths ?? "-"})`, esc(r.waitedFor ?? "")]),
-        [2, 5, 6, 7, 8, 9, 11],
-      ) + `<p class="muted">tools/groups.mjs over the last 60 minutes, as of ${clock(rep.at)}.</p>`;
+function details(s, g) {
+  const d = g.details;
+  const party = d.party.length ? d.party.map((m) => `<li><span class="name">${esc(m.name)}</span> <span class="muted">${esc(SHORT[m.class] ?? m.class ?? "")}</span> <b>${m.level ?? "?"}</b></li>`).join("") : `<li class="muted">no party known</li>`;
+  const rotation = d.rotation.length ? d.rotation.map((z) => `${esc(z.zone)}${z.crowdedMs != null ? ` <span class="warn">crowded ${dur(z.crowdedMs)} ago</span>` : ""}`).join(", ") : `<span class="muted">none</span>`;
+  const facts = [
+    ["Bags", d.bags ? `${d.bags.free} free of ${d.bags.capacity}${d.bags.cursor ? `, cursor holds ${esc(d.bags.cursor)}` : ""}` : "-"],
+    ["Memory", d.heap ? `${d.heap.used} of ${d.heap.limit} MB` : "-"],
+    ["Rotation", rotation],
+    ...(d.crowded.length ? [["Crowded", d.crowded.map((z) => `${esc(z.zone)} ${dur(z.crowdedMs)} ago`).join(", ")]] : []),
+    ["Last kill", g.lastKillMs != null ? `${dur(g.lastKillMs)} ago` : "-"],
+    ...(g.waitedFor ? [["Waited for", esc(g.waitedFor)]] : []),
+    ...(d.pause ? [["Paused", `${dur(d.pause.untilMs)} more: ${esc(d.pause.reason ?? "")}`]] : []),
+    ...(d.errand ? [["Errand", `${esc(d.errand.item ?? d.errand.keep ?? "")} in ${esc(d.errand.zone)}`]] : []),
+  ];
+  const lines = d.lines.length ? d.lines.map((x) => `<li>${ago(s.now, x.t)} <span class="src">${esc(x.source)}</span> ${esc(x.text)}</li>`).join("") : `<li class="muted">nothing recorded</li>`;
+  const hist = d.history.length
+    ? d.history
+        .map((h) => {
+          const o = h.outcome ? ` <span class="${h.outcome.status === "failed" ? "bad" : "muted"}">${short(h.outcome.status === "failed" ? `failed: ${h.outcome.error ?? ""}` : (h.outcome.result ?? h.outcome.status), 60)}</span>` : "";
+          return `<li>${ago(s.now, h.t)} <span class="name">${esc(h.name)}</span>${h.ms ? ` <span class="muted">${dur(h.ms)}</span>` : ""}${o}</li>`;
+        })
+        .join("")
+    : `<li class="muted">no tasks recorded</li>`;
+  return `<div class="detail">
+    <div><h4>Party</h4><ul class="plainlist">${party}</ul></div>
+    <div><h4>Tab</h4><dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
+    <div><h4>Recent decisions and alerts</h4><ul class="plainlist lines">${lines}</ul></div>
+    <div><h4>Task history</h4><ul class="plainlist lines">${hist}</ul></div>
+  </div>`;
 }
 
-function renderAttention(s) {
-  const a = s.attention;
-  const info = Object.entries(a.info).map(([k, n]) => `${n} ${k}`).join(", ");
-  $("attention-open").innerHTML = table(["#", "Time", "Severity", "Kind", "Tab", "Text"], a.open.map((x) => [x.id, clock(x.t), `<span class="sev-${esc(x.severity)}">${esc(x.severity)}</span>`, esc(x.kind), esc(x.session ?? ""), esc(x.text)])) + (info ? `<p class="muted">Open info items: ${esc(info)}.</p>` : "");
-  $("attention-resolved").innerHTML = table(["#", "Raised", "Took", "Kind", "Text", "Note"], a.resolved.map((x) => [x.id, clock(x.t), dur(x.resolved - x.t), esc(x.kind), esc(x.text), esc(x.note ?? "")]));
-  $("interventions").innerHTML = table(["Time", "Actor", "Tab", "What"], a.interventions.map((x) => [clock(x.t), esc(x.actor), esc(x.session ?? ""), esc(x.text)]));
+function renderGroups(s) {
+  $("act-legend").innerHTML = ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("");
+  const head = ["Group", "Level", "Zone", "Doing now", "XP/h", "Idle", "Last 10 min", "Task"];
+  const rows = s.groups
+    .map((g) => {
+      const open = openGroups.has(g.id);
+      const idleCls = g.idleShare != null && g.idleShare >= 0.3 ? "bad" : g.idleShare != null && g.idleShare >= 0.15 ? "warn" : "";
+      return `<tr class="grow${g.stuck ? " stuck" : ""}${open ? " open" : ""}" data-g="${esc(g.id)}" tabindex="0" role="button" aria-expanded="${open}">
+        <td class="gid"><span class="caret"></span><b>${esc(g.id)}</b> <span class="muted">${esc(g.leader)}</span></td>
+        <td class="lvl" title="${g.partyMin != null ? `party levels ${g.partyMin} to ${g.partyMax}, ` : ""}${pct(g.share)} of the XP to level 60"><b>${g.level ?? "?"}</b>${g.xpPct != null ? `<span class="muted"> ${Math.round(g.xpPct)}%</span>` : ""}${meter(g.share)}</td>
+        <td class="zone">${esc(g.zone ?? "-")}</td>
+        <td class="state">${stateCell(g)}</td>
+        <td class="n">${big(g.xpPerHour)}</td>
+        <td class="idle ${idleCls}" title="share of the last ${g.idleWindow}">${pct(g.idleShare)}${g.idleCause ? ` <span class="muted">${esc(g.idleCause)}</span>` : ""}</td>
+        <td class="tl">${actBar(g.activitySec)}</td>
+        <td class="task">${taskCell(s.now, g.task)}</td></tr>
+        ${open ? `<tr class="drow"><td colspan="${head.length}">${details(s, g)}</td></tr>` : ""}`;
+    })
+    .join("");
+  $("group-table").innerHTML = `<thead><tr>${head.map((h, i) => `<th class="${i === 4 ? "n" : ""}">${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>`;
 }
+
+function toggleGroup(row) {
+  const id = row?.dataset.g;
+  if (!id) return;
+  if (openGroups.has(id)) openGroups.delete(id);
+  else openGroups.add(id);
+  if (lastState) renderGroups(lastState);
+}
+
+// ---- Coordinator and time ----------------------------------------------------------------------
+
+function renderCoordinator(s) {
+  const c = s.coordinator;
+  if (!s.coordinatorOn) return void ($("coord").innerHTML = `<p class="muted">Off. Start the collector with <code>--coordinate</code> to let it queue hand-ins and hunts.</p>`);
+  if (!c) return void ($("coord").innerHTML = `<p class="muted">No pass yet.</p>`);
+  const stock = Object.entries(c.stock).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
+  const list = (items, empty) => (items.length ? `<ul class="plainlist lines">${items.join("")}</ul>` : `<p class="muted small">${empty}</p>`);
+  const running = c.running.map((t) => `<li><span class="grp">${esc(t.group)}</span> <span class="name">${esc(t.name)}</span> <span class="muted">${esc(t.step ?? "")} · ${dur(t.forMs)}</span></li>`);
+  const retries = c.retries.slice(0, 8).map((r) => `<li><span class="when">${inMs(r.inMs)}</span> <span class="grp">${esc(r.group ?? "-")}</span> ${esc(r.name)}</li>`);
+  const outcomes = c.outcomes.slice(0, 6).map((o) => `<li><span class="when">${dur(o.agoMs)} ago</span> <span class="grp">${esc(o.group)}</span> ${esc(o.name)}: <span class="${o.status === "failed" ? "bad" : "muted"}">${short(o.status === "failed" ? `failed at ${o.step ?? "?"}, ${o.error ?? ""}` : (o.result ?? o.status), 60)}</span></li>`);
+  const decisions = c.decisions.slice(0, 6).map((d) => `<li><span class="when">${ago(s.now, d.t)}</span> ${d.group ? `<span class="grp">${esc(d.group)}</span> ` : ""}<span title="${esc(d.text)}">${esc(d.text)}</span></li>`);
+  const ex = c.experiment;
+  const experiment = ex.running.length ? ex.running.map((e) => `${esc(e.name)} since ${dur(e.sinceMs)} (A ${esc(e.a.join(", "))}, B ${esc(e.b.join(", "))})`).join("; ") : `none running${ex.lastEnded ? `, last: ${esc(ex.lastEnded.name)} ended ${dur(ex.lastEnded.agoMs)} ago` : ""}`;
+  $("coord").innerHTML = `<p class="small muted">Pass ${dur(c.passAgeMs)} ago. Lightstones on the account: ${esc(stock)}. Experiment: ${experiment}.</p>
+    <div class="trio">
+      <div><h4>Running</h4>${list(running, "No task runs.")}<h4>Next retries</h4>${list(retries, "Nothing is waiting.")}</div>
+      <div><h4>Recent outcomes</h4>${list(outcomes, "No task has ended yet.")}<h4>Recent decisions</h4>${list(decisions, "No decisions yet.")}</div>
+    </div>`;
+}
+
+function renderTime(s) {
+  const mix = s.mix;
+  const total = Object.values(mix).reduce((a, b) => a + b, 0);
+  const bar = total ? `<div class="bar big">${ACT.map(([n, c]) => (mix[n] ? `<span title="${n} ${Math.round((100 * mix[n]) / total)}%" style="width:${(100 * mix[n]) / total}%;background:${c}"></span>` : "")).join("")}</div>` : "";
+  const legend = ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n} ${pct(total ? mix[n] / total : 0)}</span>`).join("");
+  $("time-body").innerHTML = `<h4>All groups, last 10 minutes</h4>${bar}<div class="legend wide">${legend}</div>
+    <div class="slot"><b>24 hourly bars</b> of the groups' time by activity and idle cause will fill this panel once the collector stores minute totals.</div>`;
+}
+
+// ---- Folded sections ---------------------------------------------------------------------------
 
 /** A bar chart of `rows` by day, one value per row from `value`. */
 function dayBars(title, rows, value, fmt) {
@@ -157,6 +241,26 @@ function renderEngineering(s) {
     rows.filter((r) => r.groupHours > 0).reverse().map((r) => [dayName(r.day), r.groupHours.toFixed(1), r.interventions, r.interventionsPerGroupHour?.toFixed(2) ?? "-", r.stalls, r.stallsPerGroupHour?.toFixed(3) ?? "-", r.stallMinutes?.toFixed(1) ?? "-", r.deaths]),
     [1, 2, 3, 4, 5, 6, 7],
   );
+  $("manual").innerHTML = table(["Time", "Actor", "Tab", "What"], s.attention.manual.map((x) => [ago(s.now, x.t), esc(x.actor), esc(x.session ?? ""), esc(x.text)]));
+}
+
+function renderRoster(s) {
+  const r = s.roster;
+  const cells = r.groups
+    .map((g) => {
+      const members = g.members
+        .map((m) => {
+          const frac = m.level == null ? 0 : Math.min(1, (m.level - 1 + (m.xpPct ?? 0) / 100) / (r.target - 1));
+          return `<div class="cell" title="${esc(`${m.name}, ${m.race ?? "?"} ${m.class ?? "?"}, level ${m.level ?? "?"}${m.xpPct != null ? ` and ${m.xpPct.toFixed(0)}%` : ""}${m.seen ? `, seen ${dur(s.now - m.seen)} ago` : ""}`)}">
+            <div class="fill" style="width:${(100 * frac).toFixed(1)}%;background:${levelColor(m.level)}"></div>
+            <div class="t"><span class="nm">${esc(m.name)}</span><span class="lv">${m.level ?? "?"}</span></div>
+            <div class="cl">${esc(SHORT[m.class] ?? m.class ?? "?")}</div></div>`;
+        })
+        .join("");
+      return `<div class="g">${esc(g.id)}</div>${members}`;
+    })
+    .join("");
+  $("roster").innerHTML = `<div class="roster">${cells}</div>`;
 }
 
 function renderJobs(s) {
@@ -165,18 +269,14 @@ function renderJobs(s) {
     `<h3>Open</h3>` + table(["#", "Since", "Purpose", "Output"], j.open.map((x) => [x.id, dur(s.now - x.started), esc(x.purpose), esc(x.output ?? "")])) + `<h3>Done</h3>` + table(["#", "Done", "Purpose", "Result"], j.done.map((x) => [x.id, `${dayName(x.done)} ${hhmm(x.done)}`, esc(x.purpose), esc(x.result ?? "")]));
 }
 
-function renderCoordinator(s) {
-  const c = s.coordinator;
-  if (!s.daemon?.coordinate) return void ($("coord").innerHTML = `<p class="muted">Off. Start the collector with <code>--coordinate</code> to let it queue hand-ins and hunts.</p>`);
-  if (!c?.last) return void ($("coord").innerHTML = `<p class="muted">No pass yet.</p>`);
-  const stock = Object.entries(c.last.stock ?? {}).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
-  const open = Object.entries(c.last.missing ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "none";
-  $("coord").innerHTML =
-    `<p>Last pass ${dur(s.now - c.last.t)} ago. Lightstones on the account: ${esc(stock)}. Copies still missing: ${esc(open)}.</p>` +
-    table(["Time", "Tab", "Task", "Opportunity"], [...c.history].reverse().slice(0, 20).map((h) => [clock(h.t), esc(h.label), esc(h.kind), esc(h.id ?? "")]));
+function renderAlerts(s) {
+  const a = s.attention;
+  const info = Object.entries(a.info).map(([k, n]) => `${n} ${k}`).join(", ");
+  $("alerts").innerHTML = table(["#", "Raised", "Took", "Kind", "Tab", "Text", "Note"], a.resolved.map((x) => [x.id, ago(s.now, x.t), dur(x.resolved - x.t), esc(x.kind), esc(x.session ?? ""), esc(x.text), esc(x.note ?? "")])) + (info ? `<p class="muted">Open info items: ${esc(info)}.</p>` : "");
 }
 
 async function renderTrends() {
+  if (!$("d-trends").open) return;
   const hoursBack = Number($("trend-hours").value);
   const t = await (await fetch(`/api/trends?hours=${hoursBack}`)).json();
   const W = 1100, H = 360, L = 40, R = 110, T = 10, B = 26;
@@ -208,23 +308,39 @@ async function renderTrends() {
   $("trend-chart").innerHTML = `<svg viewBox="0 0 ${W} ${Math.max(H, (ends.at(-1)?.y ?? 0) + 8)}" width="100%">${grid}${lines}</svg>`;
 }
 
+// ---- Loop --------------------------------------------------------------------------------------
+
+let lastState = null;
+
 async function refresh() {
   try {
     const s = await (await fetch("/api/state")).json();
-    renderDaemon(s);
+    lastState = s;
+    renderStatus(s);
+    renderNeeds(s);
     renderGoal(s);
     renderGroups(s);
-    renderAttention(s);
-    renderEngineering(s);
-    renderJobs(s);
     renderCoordinator(s);
+    renderTime(s);
+    renderEngineering(s);
+    renderRoster(s);
+    renderJobs(s);
+    renderAlerts(s);
+    $("d-alerts").querySelector("summary").textContent = `Alert history (${s.attention.resolved.length})`;
   } catch (e) {
-    $("daemon").innerHTML = `<span class="bad">dashboard server not reachable: ${esc(e.message)}</span>`;
+    $("status").innerHTML = `<h1>IdleQuest account</h1><div class="chip bad"><span class="k">Dashboard</span><span class="v">not reachable: ${esc(e.message)}</span></div>`;
   }
 }
 
+$("group-table").addEventListener("click", (e) => toggleGroup(e.target.closest("tr.grow")));
+$("group-table").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    toggleGroup(e.target.closest("tr.grow"));
+  }
+});
 $("trend-hours").addEventListener("change", renderTrends);
+$("d-trends").addEventListener("toggle", renderTrends);
 refresh();
-renderTrends();
 setInterval(refresh, REFRESH_MS);
 setInterval(renderTrends, 60000);

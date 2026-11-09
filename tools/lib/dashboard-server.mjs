@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
-import { attentionView, engineeringView, groupsView, jobsView, levelTrends, rosterView } from "./dashboard.mjs";
+import { rows as contentRows } from "./content.mjs";
+import { attentionView, coordinatorView, engineeringView, goalView, groupRowsView, jobsView, levelTrends, makeCatalog, mixView, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = join(REPO, "tools/dashboard");
@@ -45,6 +46,27 @@ class Report {
   }
 }
 
+const readJson = (name, fallback) => {
+  try {
+    return JSON.parse(readFileSync(join(REPO, name), "utf8"));
+  } catch {
+    return fallback;
+  }
+};
+
+/** Zone short names to long names from the content snapshot, read once. Empty without the snapshot. */
+let zoneNames = null;
+async function zones() {
+  if (zoneNames) return zoneNames;
+  const out = {};
+  try {
+    for await (const z of contentRows("zone")) if (z.version === 0 && !(z.short_name in out)) out[z.short_name] = z.long_name;
+  } catch {
+    /* the page then shows short names */
+  }
+  return (zoneNames = out);
+}
+
 const json = (body) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 /** Serve the dashboard for `db` on 127.0.0.1:`port`. Returns the Bun server. */
@@ -57,33 +79,46 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
       const file = files[url.pathname];
       // Read on each request, so an edit of the page shows without a restart.
       if (file) return new Response(readFileSync(join(PAGE, file[0])), { headers: { "content-type": file[1], "cache-control": "no-store" } });
       const now = Date.now();
       if (url.pathname === "/api/state") {
-        const roster = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
+        const rosterFile = readJson("data/roster.json", { groups: [] });
         const meta = (k) => {
           const row = db.query("SELECT v FROM meta WHERE k = ?").get(k);
           return row ? JSON.parse(row.v) : null;
         };
+        const groupOf = rosterGroups();
+        const catalog = makeCatalog({ opportunities: readJson("data/opportunities.json", []), quests: readJson("data/quests.json", {}), farms: readJson("data/farms.json", []), drops: meta("gear")?.drops ?? [], zones: await zones() });
+        const roster = rosterView(db, rosterFile);
+        const report = reports.groups.get();
+        const plan = reports.plan.get();
+        const rows = groupRowsView(db, now, { roster, groupOf, catalog, report: report.value });
+        const attention = attentionView(db, now);
+        const needs = needsYouView(attention.open, now, groupOf);
+        const daemon = meta("daemon");
         return json({
           now,
-          daemon: meta("daemon"),
-          coordinator: meta("coordinator"),
-          roster: rosterView(db, roster),
-          groups: groupsView(db, now, rosterGroups()),
-          attention: attentionView(db, now),
+          status: statusView({ now, daemon, rows, needs, xp24: xpRate(db, roster, now) }),
+          needs,
+          goal: goalView(db, { roster, plan: plan.value, groupOf, catalog }),
+          groups: rows,
+          mix: mixView(rows),
+          coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
+          coordinatorOn: Boolean(daemon?.coordinate),
+          roster,
+          attention: { info: attention.info, resolved: attention.resolved, manual: attention.manual },
           engineering: engineeringView(db, now),
           jobs: jobsView(db),
-          reports: { groups: reports.groups.get(), plan: reports.plan.get() },
+          reports: { groups: report.at, plan: plan.at, planWindowMin: plan.value?.windowMin ?? null },
         });
       }
       if (url.pathname === "/api/trends") {
         const hours = Math.min(24 * 30, Math.max(1, Number(url.searchParams.get("hours") ?? 24)));
-        const roster = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
+        const roster = readJson("data/roster.json", { groups: [] });
         return json({ now, hours, levels: levelTrends(db, roster, now - hours * 3600000, Math.max(60000, (hours * 3600000) / 300)) });
       }
       return new Response("not found", { status: 404 });

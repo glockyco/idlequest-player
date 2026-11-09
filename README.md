@@ -314,10 +314,11 @@ The SDK records its own actions there as well: every top-level call that changes
 bot (`ACTIONS` in `src/client.mjs`, such as `setBot`, `travelTo`, `switchCharacter` or `pullItem`)
 adds an intervention with actor `sdk`, the leader and the call's arguments.
 
-The dashboard at <http://127.0.0.1:4790/> shows the goal's state (every roster character's level and
-the share of the XP to level 60), one card per group with what it does now and how it spent the last
-ten minutes, the planner's hours to each level, open and resolved attention items, the intervention
-log, interventions and stalls per group-hour by day, each group's level over time and the jobs. It
+The dashboard at <http://127.0.0.1:4790/> answers, in this order, whether anything needs a person,
+how far the account is toward the goal and what the system does (`docs/plans/dashboard.md`): a
+status line, the items no mechanism handles, one bar per success criterion, one row per group
+(click for its party, bags, rotation and task history), the coordinator's tasks and decisions, and
+folded sections for engineering health, the roster, level trends, jobs and the alert history. It
 reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for their reports, and it changes
 nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard.mjs`. `--port 0`
 starts `run` without it.

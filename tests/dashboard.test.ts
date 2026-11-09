@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { dayStart, engineeringView, rosterView } from "../tools/lib/dashboard.mjs";
+import { dayStart, engineeringView, groupRowsView, makeCatalog, nameIds, needsYouView, rosterView, statusView, taskName } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -40,4 +40,129 @@ test("roster progress counts XP with race and class factors, and members never s
   // Troll Warrior needs 1.2 x 0.9 of the XP, the unseen member counts at factor 1 with none of it.
   const need = xpStart(60) * 1.08 + xpStart(60);
   expect(view.progress).toBeCloseTo((xpStart(60) * 1.08) / need);
+});
+
+const item = (id: number, over: Record<string, unknown>) => ({ id, t: 0, severity: "act", kind: "alert-task", session: "Tank", text: `item ${id}`, ...over });
+
+test("needs-you keeps decisions, bags, sign-ins, unknown kinds and stalls older than ten minutes", () => {
+  const now = 100 * 60000;
+  const open = [
+    item(1, { severity: "decide", kind: "trigger", t: now - 1000 }),
+    item(2, { kind: "alert-bags", t: now - 1000 }),
+    item(3, { kind: "stall", t: now - 11 * 60000 }),
+    item(4, { kind: "stall", session: "Other", t: now - 5 * 60000 }),
+    item(5, { kind: "alert-task" }),
+    item(6, { kind: "alert-task" }),
+    item(7, { kind: "alert-cursor" }),
+    item(8, { kind: "alert-offline", t: now - 2000 }),
+    item(9, { kind: "invented-kind", t: now - 2000 }),
+    item(10, { severity: "info", kind: "levelup" }),
+  ];
+  const view = needsYouView(open, now, new Map([["Tank", "G1"]]));
+  // A decision comes first, then the others from the oldest.
+  expect(view.needs.map((n) => n.id)).toEqual([1, 3, 8, 9, 2]);
+  expect(view.needs[1]).toMatchObject({ group: "G1", label: "stalls", ageMs: 11 * 60000 });
+  expect(view.handledTotal).toBe(4);
+  expect(view.handled.map((h) => [h.kind, h.n])).toEqual([["alert-task", 2], ["stall", 1], ["alert-cursor", 1]]);
+});
+
+/** A session row of a group's leader with the snapshot fields the dashboard reads. */
+function addSession(db: ReturnType<typeof openDb>, leader: string, now: number, snap: Record<string, unknown>, state: Record<string, unknown> = {}) {
+  db.query("INSERT INTO sessions (target_id, page_session, leader, first_seen, last_seen, snap, state) VALUES (?, 1, ?, ?, ?, ?, ?)").run(`t-${leader}`, leader, now - 3600000, now - 5000, JSON.stringify(snap), JSON.stringify(state));
+}
+
+test("group rows give every roster group one row with its activity, idle share, task and details", () => {
+  const db = openDb(":memory:");
+  const now = Date.now();
+  for (const [id, name, cls] of [[1, "Tank", "Warrior"], [2, "Healer", "Cleric"], [3, "Solo", "Wizard"]] as const) {
+    db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (?, ?, ?, 'Human', ?, ?)").run(id, name, cls, now, now);
+    db.query("INSERT INTO char_snapshots (char_id, t, level, xp_pct) VALUES (?, ?, ?, 50)").run(id, now - 1000, 30);
+  }
+  const roster = { groups: [{ id: "G1", members: ["Tank", "Healer"] }, { id: "G2", members: ["Solo"] }] };
+  const leader = { name: "Tank", level: 30, class: "Warrior", xpPct: 50 };
+  addSession(db, "Tank", now, {
+    leader,
+    party: [{ type: 2, name: "Healer", level: 29, class: "Cleric" }],
+    zone: "The City of Guk",
+    activity: { act: "idle", why: "noTarget", since: now - 40000 },
+    activitySec: { fight: 400, "idle/noTarget": 150, "idle/off": 50 },
+    kills: { n30: 60, xp30: 3000000, winMs: 1800000, last: now - 20000 },
+    heap: { used: 500, limit: 4000 },
+    bags: { capacity: 64, free: 9, cursor: null },
+    t: now,
+    bot: { enabled: true, rotation: ["guktop", "paw"], crowdedAt: { paw: now - 120000, dalnir: now - 60000 }, task: { id: "hunt-1", kind: "hunt", status: "failed", step: "make room", error: "no free bag slot", startedAt: now - 300000, endedAt: now - 240000 } },
+  });
+  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history: [{ t: now - 300000, label: "Tank", kind: "hunt", id: "gear-shimmering-orb", task: "hunt-1", ms: 60000 }] }));
+  db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, 'Tank', 'coordinator', 'hunt: Shimmering Orb for G1')").run(now - 300000);
+  const catalog = makeCatalog({ opportunities: [{ id: "gear-shimmering-orb", item: "Shimmering Orb", retryMin: 30 }], zones: { guktop: "The Upper Guk", paw: "Splitpaw" } });
+  const rows = groupRowsView(db, now, { roster: rosterView(db, roster), groupOf: new Map([["Tank", "G1"], ["Healer", "G1"], ["Solo", "G2"]]), catalog, report: [{ group: "G1", idle: 0.2, idleCause: "crowded", waitedFor: "Healer:mana 100s" }] });
+
+  expect(rows.map((r) => r.id)).toEqual(["G1", "G2"]);
+  const [g1, g2] = rows;
+  expect(g1.state).toMatchObject({ kind: "activity", act: "idle", why: "noTarget", forMs: 40000 });
+  expect(g1).toMatchObject({ leader: "Tank", level: 30, partyMin: 29, partyMax: 30, zone: "The City of Guk", playing: true, stuck: false });
+  expect(g1.xpPerHour).toBeCloseTo(6000000);
+  // The last hour's report wins over the tab's own 10 minutes (25% idle, mostly noTarget).
+  expect(g1).toMatchObject({ idleShare: 0.2, idleCause: "crowded", idleWindow: "hour", waitedFor: "Healer:mana 100s" });
+  expect(g1.task).toMatchObject({ name: "Shimmering Orb", status: "failed", error: "no free bag slot" });
+  // The retry comes thirty minutes after the hunt, so it is a quarter of an hour away.
+  expect(g1.task.retryInMs).toBeCloseTo(-300000 + 30 * 60000, -3);
+  expect(g1.details.rotation).toEqual([{ zone: "The Upper Guk", crowdedMs: null }, { zone: "Splitpaw", crowdedMs: 120000 }]);
+  expect(g1.details.crowded).toEqual([{ zone: "dalnir", crowdedMs: 60000 }]);
+  expect(g1.details.history[0]).toMatchObject({ name: "Shimmering Orb", outcome: { status: "failed" } });
+  expect(g1.details.lines[0].text).toBe("hunt: Shimmering Orb for G1");
+  // A group without a tab still has its row.
+  expect(g2).toMatchObject({ id: "G2", leader: "Solo", hasTab: false, playing: false, state: { kind: "none" }, task: null });
+  expect(g2.share).toBeGreaterThan(0);
+});
+
+test("the group row's own idle seconds stand in without a report, and a long idle stretch marks it stuck", () => {
+  const db = openDb(":memory:");
+  const now = Date.now();
+  db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (1, 'Tank', 'Warrior', 'Human', ?, ?)").run(now, now);
+  addSession(db, "Tank", now, { leader: { name: "Tank", level: 10 }, activity: { act: "idle", why: "off", since: now - 200000 }, activitySec: { fight: 100, "idle/off": 80, "idle/noTarget": 20 }, t: now });
+  const view = rosterView(db, { groups: [{ id: "G1", members: ["Tank"] }] });
+  const [row] = groupRowsView(db, now, { roster: view, groupOf: new Map([["Tank", "G1"]]), catalog: makeCatalog() });
+  expect(row).toMatchObject({ idleCause: "off", idleWindow: "10 minutes", stuck: true });
+  expect(row.idleShare).toBeCloseTo(0.5);
+});
+
+test("coordinator ids become item, quest and drop names", () => {
+  const catalog = makeCatalog({
+    opportunities: [{ id: "gear-loam-encrusted-pantaloons", item: "Loam Encrusted Pantaloons" }],
+    quests: { "paladin-epic-note": { class: "Paladin", reward: "Sealed Note" } },
+    drops: [{ item: "Crown of the Forlorn", to: "Kiabriala", slot: "head" }],
+  });
+  expect(taskName(catalog, "gear-loam-encrusted-pantaloons")).toBe("Loam Encrusted Pantaloons");
+  expect(taskName(catalog, "paladin-epic-note")).toBe("Paladin quest for Sealed Note");
+  expect(taskName(catalog, "drop-Kiabriala-head")).toBe("Crown of the Forlorn (head for Kiabriala)");
+  expect(nameIds(catalog, "quest: paladin-epic-note for A, B")).toBe("quest: Paladin quest for Sealed Note for A, B");
+});
+
+test("the status line turns amber and red at its thresholds and stays calm otherwise", () => {
+  const now = 1000000;
+  const row = (over: Record<string, unknown>) => ({ playing: true, xpPerHour: 1000000, idleShare: 0.02, details: { heap: { used: 500, limit: 4000 } }, ...over });
+  const none = { needs: [], handled: [], handledTotal: 0 };
+  const level = (items: ReturnType<typeof statusView>, id: string) => items.find((i) => i.id === id)?.level;
+  const daemon = { last: now - 10000, intervalSec: 30, relay: true };
+
+  const calm = statusView({ now, daemon, rows: [row({}), row({})], needs: none, xp24: { perHour: 1500000, leaders: 2 } });
+  expect(calm.map((i) => i.level)).toEqual(Array(calm.length).fill("ok"));
+  expect(calm.find((i) => i.id === "xp")?.value).toBe(2000000);
+  expect(calm.find((i) => i.id === "playing")?.value).toBe("2 / 2");
+
+  const worse = statusView({
+    now,
+    daemon: { ...daemon, relay: false, last: now - 200000 },
+    rows: [row({ playing: false, idleShare: 0.35, details: { heap: { used: 3500, limit: 4000 } } }), row({ idleShare: 0.2 })],
+    needs: { ...none, needs: [{ severity: "decide" }] as never },
+    xp24: null,
+  });
+  expect(level(worse, "collector")).toBe("bad");
+  expect(level(worse, "relay")).toBe("bad");
+  expect(level(worse, "playing")).toBe("bad");
+  expect(level(worse, "idle")).toBe("warn"); // the mean of 35% and 20%
+  expect(level(worse, "needs")).toBe("bad");
+  expect(level(worse, "memory")).toBe("bad");
+  expect(worse.find((i) => i.id === "xp24")?.value).toBeNull();
 });
