@@ -363,8 +363,12 @@ async function renderTrends() {
 let lastState = null;
 
 async function refresh() {
+  let reached = false;
   try {
-    const s = await (await fetch("/api/state")).json();
+    const r = await fetch("/api/state");
+    reached = true;
+    const s = await r.json();
+    if (s.error) throw new Error(`the collector's state failed: ${s.error}`);
     lastState = s;
     renderStatus(s);
     renderNeeds(s);
@@ -380,7 +384,7 @@ async function refresh() {
     renderAlerts(s);
     $("d-alerts").querySelector("summary").textContent = `Alert history (${s.attention.resolved.length})`;
   } catch (e) {
-    $("status").innerHTML = `<h1>IdleQuest account</h1><div class="chip bad"><span class="k">Dashboard</span><span class="v">not reachable: ${esc(e.message)}</span></div>`;
+    $("status").innerHTML = `<h1>IdleQuest account</h1><div class="chip bad"><span class="k">Dashboard</span><span class="v">${reached ? "" : "not reachable: "}${esc(e.message)}</span></div>`;
   }
 }
 

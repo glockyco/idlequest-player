@@ -67,7 +67,7 @@ async function zones() {
   return (zoneNames = out);
 }
 
-const json = (body) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 /** Serve the dashboard for `db` on 127.0.0.1:`port`. Returns the Bun server. */
 export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
@@ -130,6 +130,11 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         return json({ now, hours, levels: levelTrends(db, roster, now - hours * 3600000, Math.max(60000, (hours * 3600000) / 300)) });
       }
       return new Response("not found", { status: 404 });
+    },
+    // A request that throws answers with its error as JSON, which the page shows, instead of Bun's HTML error page.
+    error(e) {
+      log(`dashboard: ${e.stack ?? e.message}`);
+      return json({ error: String(e.message ?? e) }, 500);
     },
   });
   log(`dashboard on http://127.0.0.1:${server.port}/`);
