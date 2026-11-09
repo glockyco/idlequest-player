@@ -562,7 +562,9 @@ class Daemon {
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
-        const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 10000 });
+        // An errand travels to its zone inside this call, after waiting for the fight at hand, which
+        // takes up to about 30 s, so a shorter limit reported errands as not queued that had started.
+        const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
         state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null });
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
