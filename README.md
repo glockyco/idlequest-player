@@ -12,7 +12,8 @@ have to reimplement the combat engine, so this project drives the real client in
 - `src/bridge.js` is evaluated inside the game page. It finds the client's state stores and its
   server socket and exposes them as `window.iq`.
 - `src/bot.js` runs inside the page next to the bridge as `window.iqBot`. It keeps AutoLevel
-  running, banks ingredients and sells cheap loot before the bags fill, rotates zones, runs
+  running, banks ingredients and sells unwanted loot before the bags fill, keeps the server's
+  Auto-Sell off and wanted NO DROP pieces in a bag its Delete Clutter skips, rotates zones, runs
   errands for named drops and raises alerts, with or without a script attached.
 - `src/client.mjs` injects both into a browser tab and calls them from a script.
 
@@ -278,7 +279,9 @@ buys for at most `BUY_PP` platinum in one city. `iqd run --coordinate` runs the 
 worn items and the leaders' bags come from each party's own inventories, the companions' carried
 items from Inventory Search, and the moves run as one gear task (`iqBot.gear`), which buys or pulls
 each item and gives it equipped to its receiver, in the party or not. The items the plan finds to
-be an upgrade for anyone go to every bot as `gearKeepIds`, which its cleanup never sells. iqd saves
+be an upgrade for anyone, also drops of the rotation zones, go to every bot as `gearKeepIds`, and the
+names of what the coordinator's hunts, errands and quest chains are for as `keepNames`: its cleanup
+never sells them and keeps the NO DROP ones in its bag marked No Declutter. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of each band row's zones drop (`zoneDrops` in
 `tools/lib/gear-data.mjs`) where it beats what a character wears, and each coordinator pass gives
