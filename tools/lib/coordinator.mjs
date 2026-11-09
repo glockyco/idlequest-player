@@ -143,8 +143,9 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  *   carry the reward of one of its earlier steps, `{ [id]: [name] }`, and `have`, the account's
  *   copies of each item a quest `needs`, `{ [item]: n }`.
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
- * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms, no gear
- *   targets and no errands by level range, because these change the limits the arms compare.
+ * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
+ *   errands, because both change the AutoLevel limits the arms compare. Their hunts, quests and
+ *   gear moves run, since tools/crossover.mjs leaves the minutes a task ran in out of XP per hour.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id, code }]`, where `code` is the
  *   bot and bridge code the task ran under, and `code` the code the tabs run now.
  * - `targets`: the gear pass's enemies worth hunting for gear (tools/lib/gear-plan.mjs), best first,
@@ -217,7 +218,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     // leader carries the piece does not hunt it until a member has taken it.
     const looter = (t) => !(carriedBy[o.id] ?? []).includes(t.members[0]?.name);
     const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && (o.kind !== "errand" || !held.has(t.group)) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
     if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
@@ -244,7 +245,9 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   const targetEval = {};
   const lastHunt = (id) => history.filter((h) => h.id === id).at(-1);
   const ctx = { tabs, hoursPerLevel, killsPerHour, zoneShare };
-  const hunter = (t) => free(t) && t.members.length && !held.has(t.group);
+  const hunter = (t) => free(t) && t.members.length;
+  // An errand changes the AutoLevel limits an experiment's arms compare, so a held group gets none.
+  const allowed = (t, w) => !(w.kind === "errand" && held.has(t.group));
   // What keeps a group from a target this pass, for the target's status.
   const holding = (t) => {
     const queued = out.find((o) => o.label === t.label);
@@ -272,7 +275,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
         const x = open(target);
         if (!x.items.length) continue;
         const w = bestWay(t, x, withTrips);
-        if (w && netRate(w) > 0 && due(lastHunt(id), targetRetryMin(w.kind)) && (!best || netRate(w) > netRate(best.w))) best = { t, x, w, id };
+        if (w && netRate(w) > 0 && allowed(t, w) && due(lastHunt(id), targetRetryMin(w.kind)) && (!best || netRate(w) > netRate(best.w))) best = { t, x, w, id };
       }
     }
     if (!best) break;
@@ -303,7 +306,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     else if (!best) status = `too strong for every group (level ${x.npcLevel})`;
     else if (!x.items.some((w) => hoursPerLevel[w.to] > 0)) status = `waits for a measured pace of ${taker(x)}'s group, without which a copy's worth is unknown`;
     else if (netRate(best.w) <= 0) status = `not worth it yet, best ${says}`;
-    else if (held.has(best.t.group)) status = `waits for an experiment to end, best ${says}`;
+    else if (!allowed(best.t, best.w)) status = `waits for an experiment to end, best ${says}`;
     else if (!hunter(best.t)) status = `waits for ${best.t.group}, which is on ${holding(best.t)}, best ${says}`;
     else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) status = `waits for its retry, best ${says}`;
     else status = `its groups took better targets, best ${says}`;
@@ -440,8 +443,8 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
  * with `after` starts only once the experiment of that id has ended, so the file can queue the next
  * one on the same groups. Returns
  * `{ settings: { [group]: partial }, events: [{ id, kind: "start" | "end" | "dropped", start }],
- * held: Set of the groups an experiment holds }`, where `held` groups get no farms, because a farm
- * changes what the arms compare.
+ * held: Set of the groups an experiment holds }`, where `held` groups get no farms and no errands,
+ * because these change what the arms compare.
  */
 export function experimentSettings({ now, experiments = [], started = {}, ended = {}, running = {} }) {
   const settings = {};

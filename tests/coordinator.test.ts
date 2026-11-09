@@ -115,6 +115,13 @@ test("two targets for one taker's slot send one group, and a second camp in a zo
   expect(two.targets["target-unrest-a-ghoul"].cost).toBeCloseTo(0.5);
 });
 
+test("a group an experiment holds still camps outside its rotation, but runs no errand", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw")];
+  const held = new Set(["G1"]);
+  expect(decide({ now: NOW, tabs, targets: [target("a fiend", "unrest", 75)], hoursPerLevel, zoneShare: () => 0.9, held }).actions).toMatchObject([{ label: "A", kind: "hunt" }]);
+  expect(decide({ now: NOW, tabs, targets: [target("a goo", "paw", 38)], hoursPerLevel, held }).actions).toEqual([]);
+});
+
 test("a target whose best group is busy goes to a free group that still gains, and otherwise waits", () => {
   const busy = { ...place(tab("B", "G2", 30), "unrest"), task: { kind: "quest", status: "running" } };
   const tabs = [place(tab("A", "G1", 30), "paw"), busy];

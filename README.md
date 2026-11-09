@@ -372,8 +372,10 @@ catalog ingredients one set lacks, with one of each of its `inputs` (the compone
 not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). Each experiment in
 `data/experiments.json` is a two-period crossover: arm A plays with `setting` and arm B with
 `without` for `blockMin` minutes, then the other way round, and afterwards both keep `without` until
-the entry leaves the file. Its groups get no farms and no errands by level range meanwhile, and at
-the end iqd registers a job with the `tools/crossover.mjs` command that reads the result. An entry
+the entry leaves the file. Its groups get no farms and no errands meanwhile, since both change the
+AutoLevel limits the arms compare, while their hunts, quests and gear moves run, because
+`tools/crossover.mjs` counts XP per hour over the minutes without a task. At the end iqd registers
+a job with the `tools/crossover.mjs` command that reads the result. An entry
 removed before its end puts its groups back on `without` and registers no job. A tab gets at most one coordinator task in
 20 minutes, and none while a task or errand runs or a pause holds.
 

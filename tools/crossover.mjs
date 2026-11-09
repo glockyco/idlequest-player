@@ -2,14 +2,17 @@
 // Two-period crossover across groups: arm A runs a setting in the first block and without it in the
 // second, arm B the other way round. Each group is compared with itself, so differences between
 // groups (class mix, zone, level) cancel, and the period effect (groups level up, zones fill)
-// cancels between the arms. Per group it reports XP per hour, escapes and deaths in both blocks
-// from tools/groups.mjs, then the setting's effect:
+// cancels between the arms. Per group it reports XP per hour, escapes and deaths in both blocks,
+// then the setting's effect:
 //   XP per hour: exp(mean over A of ln(P1/P2) - mean over B of ln(P1/P2)) / 2 as a ratio, because
-//   XP per hour grows with level and a ratio keeps fast and slow groups on one scale.
-//   Escapes and deaths per hour: (mean over A of P1-P2 - mean over B of P1-P2) / 2.
+//   XP per hour grows with level and a ratio keeps fast and slow groups on one scale. It counts the
+//   minute totals without the minutes a task ran in, so hunts, quests and gear moves can run during
+//   an experiment without moving its numbers.
+//   Escapes and deaths per hour: (mean over A of P1-P2 - mean over B of P1-P2) / 2, from tools/groups.mjs.
 // The interval is the effect plus or minus two standard errors of the two arms' means.
 //
 //   bun tools/crossover.mjs --start <ms> --block 45 --a G2,G4,G6 --b G3,G5,G7 [--label fightingOnly]
+import { Database } from "bun:sqlite";
 import { parseArgs } from "node:util";
 
 const { values: opt } = parseArgs({ options: { start: { type: "string" }, block: { type: "string", default: "45" }, a: { type: "string" }, b: { type: "string" }, label: { type: "string", default: "setting" } } });
@@ -19,11 +22,25 @@ const start = Number(opt.start);
 const block = Number(opt.block) * 60000;
 const arms = { A: opt.a.split(","), B: opt.b.split(",") };
 
+const db = new Database(`${REPO}runs/iq.db`, { readonly: true });
+// A group's XP per hour over the minutes of [since, until) without a task in them.
+function huntingRate(group, since, until) {
+  let xp = 0;
+  let sec = 0;
+  for (const m of db.query("SELECT sec, xp FROM minutes WHERE grp = ? AND minute >= ? AND minute < ?").all(group, Math.floor(since / 60000), Math.floor(until / 60000))) {
+    const s = JSON.parse(m.sec);
+    if (s.task > 0) continue;
+    xp += m.xp;
+    sec += Object.values(s).reduce((a, b) => a + b, 0);
+  }
+  return sec > 0 ? (3600 * xp) / sec : null;
+}
+
 async function period(since, until) {
   const proc = Bun.spawn(["bun", `${REPO}tools/groups.mjs`, "--since", String(since), "--until", String(until), "--json"], { stdout: "pipe", stderr: "pipe" });
   const out = await new Response(proc.stdout).text();
   await proc.exited;
-  return new Map(JSON.parse(out).map((r) => [r.group, r]));
+  return new Map(JSON.parse(out).map((r) => [r.group, { ...r, xpPerHour: huntingRate(r.group, since, until) }]));
 }
 if (Date.now() < start + 2 * block) console.log(`Second block ends ${new Date(start + 2 * block).toTimeString().slice(0, 8)}; the numbers below are partial.`);
 const [p1, p2] = await Promise.all([period(start, start + block), period(start + block, Math.min(Date.now(), start + 2 * block))]);
