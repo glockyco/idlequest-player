@@ -1246,8 +1246,8 @@
   // hands over from whoever on the account holds them, then talks to its NPC with
   // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
   // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), or crafts
-  // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id } }`, the inputs the catalog
-  // does not sell pulled first; the server crafts without a held container), and checks that the
+  // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id } }`, rolling until one
+  // success with one of each of `inputs` pulled per attempt; the server crafts without a held container), and checks that the
   // member then carries `expect`. A hand-in is a quest of one `each` step per
   // member. Entering the world puts a character where it last stood, and the zone store can lag
   // the switch, so the first step after a switch always travels, and later steps only to another
@@ -1292,9 +1292,6 @@
       }
       const need = { ...(s.each ?? {}) };
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
-      // A craft's `inputs` are the components its catalog does not sell, one per attempt, and a
-      // failed attempt uses them up too, so the step carries one for each of its attempts.
-      for (const item of s.craft?.inputs ?? []) need[item] = (need[item] ?? 0) + (s.craft.quantity ?? 1);
       for (const [item, n] of Object.entries(need)) {
         if (s.buy?.items?.includes(item) && i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
         // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
@@ -1302,9 +1299,24 @@
       }
       if (s.craft) {
         const c = s.craft;
-        // The step's item is one success, so the attempts stop there.
-        const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: c.quantity ?? 1, until: 1, skillId: c.skillId, output: c.output.id }), 120000);
-        log(`craft: ${c.output.item} ${r.successes} of ${r.attempted}${r.newSkillValue != null ? `, skill ${r.newSkillValue}` : ""}`);
+        // A skill roll can fail at any skill below the recipe's trivial, and a failed attempt uses up
+        // its components too. So the step rolls until one success, at most `quantity` attempts, and
+        // before each attempt pulls one more of every `inputs` item the catalog does not sell.
+        const tally = { attempted: 0, failures: 0, skill: null };
+        while (tally.attempted < (c.quantity ?? 1)) {
+          for (const item of c.inputs ?? []) {
+            if (i.carried(item) >= 1) continue;
+            await step(`pull ${item} for ${m.name}`, () => pullOne(i, item, null, m.avoid ?? []), 45000).catch((e) => {
+              throw new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`);
+            });
+          }
+          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: c.output.id }), 120000);
+          tally.attempted += r.attempted;
+          tally.failures += r.failures;
+          tally.skill = r.newSkillValue ?? tally.skill;
+          if (r.successes > 0) break;
+        }
+        log(`craft: ${c.output.item} after ${tally.attempted} attempts, ${tally.failures} failed${tally.skill != null ? `, skill ${tally.skill}` : ""}`);
       }
       // A hand-in that summons the next step's enemy waits for the party at full HP and mana, because
       // the client attacks only a party it finds ready and does not fight back while it waits.

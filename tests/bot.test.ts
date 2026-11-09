@@ -1667,32 +1667,49 @@ test("a gear move with a merchant travels there, buys the item and gives it, and
   }
 });
 
-test("a craft step carries one of each input per attempt and stops at its first success", async () => {
+test("a craft step rolls until its first success, pulling one input per attempt, and reports running out", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     const bags: Record<string, Record<string, number>> = {};
     const mine = () => (bags[f.sheet.characterProfile.name] ??= {});
-    const crafts: object[] = [];
+    let stock = 5; // eyes elsewhere on the account
+    let rolls: boolean[] = [];
+    const crafts: number[] = [];
     Object.assign(f.iq, {
       carried: (item: string) => mine()[item] ?? 0,
       pullItem: async (item: string) => {
+        if (stock < 1) return { got: false, reply: "No copies found." };
+        stock--;
         mine()[item] = (mine()[item] ?? 0) + 1;
         return { got: true, from: "Embrogg", reply: "Transferred." };
       },
-      // A failed attempt uses its eye up too: the first fails, the second succeeds.
-      craftItem: async (recipeId: number, opts: object) => {
-        crafts.push({ recipeId, eyes: mine()["Fire Beetle Eye"], ...opts });
-        mine()["Fire Beetle Eye"] -= 2;
-        mine()["Edible Goo"] = 1;
-        return { attempted: 2, successes: 1, failures: 1, withdrawn: 1 };
+      // An attempt uses its eye up whether its roll succeeds or not.
+      craftItem: async (_recipeId: number, opts: { quantity: number }) => {
+        crafts.push(mine()["Fire Beetle Eye"]);
+        mine()["Fire Beetle Eye"] -= 1;
+        const ok = rolls.shift() ?? false;
+        if (ok) mine()["Edible Goo"] = 1;
+        return { attempted: opts.quantity, successes: ok ? 1 : 0, failures: ok ? 0 : 1, withdrawn: ok ? 1 : 0 };
       },
     });
-    f.bot.quest({ members: ["Tagujazolu"], name: "goo", steps: [{ zone: "freportw", craft: { recipeId: 1858, skillId: 60, quantity: 3, inputs: ["Fire Beetle Eye"], output: { item: "Edible Goo", id: 13498 } }, expect: "Edible Goo" }] });
+    const goo = { zone: "freportw", craft: { recipeId: 1858, skillId: 60, quantity: 10, inputs: ["Fire Beetle Eye"], output: { item: "Edible Goo", id: 13498 } }, expect: "Edible Goo" };
+    rolls = [false, true];
+    f.bot.quest({ members: ["Tagujazolu"], name: "goo", steps: [goo] });
     await runToEnd(f);
-    expect(crafts).toEqual([{ recipeId: 1858, eyes: 3, quantity: 3, until: 1, skillId: 60, output: 13498 }]);
+    // Two attempts, each with one eye on hand, and the second eye pulled only after the first roll failed.
+    expect(crafts).toEqual([1, 1]);
+    expect(stock).toBe(3);
     expect(f.bot.state.task.status).toBe("done");
+
+    // With every roll failing, the step ends when the account runs out of eyes, and says so.
+    for (const b of Object.values(bags)) delete b["Edible Goo"];
+    rolls = [];
+    f.bot.quest({ members: ["Tagujazolu"], name: "goo-again", steps: [goo] });
+    await runToEnd(f);
+    expect(f.bot.state.task.status).toBe("failed");
+    expect(f.bot.state.task.error).toMatch(/out of Fire Beetle Eye after 3 failed Edible Goo rolls/);
   } finally {
     vi.useRealTimers();
   }
