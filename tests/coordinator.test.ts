@@ -234,6 +234,19 @@ test("an experiment that leaves the file before its end returns its groups to th
   expect(experimentSettings({ now: NOW + 101 * 60000, experiments: [], started: { con: NOW }, ended: { con: NOW + 100 * 60000 }, running }).events).toEqual([]);
 });
 
+test("an experiment queued after another starts once that one has ended", () => {
+  const first = { id: "floor", a: ["G4"], b: ["G5"], blockMin: 90, setting: { limits: { minCon: 10 } }, without: { limits: { minCon: 4 } } };
+  const next = { id: "dots", after: "floor", a: ["G4"], b: ["G5"], blockMin: 90, setting: { dotMaxTicks: 9 }, without: { dotMaxTicks: 0 } };
+  // While the first runs, the queued one neither starts nor sets anything.
+  const during = experimentSettings({ now: NOW + 60 * 60000, experiments: [first, next], started: { floor: NOW } });
+  expect(during.events).toEqual([]);
+  expect(during.settings).toEqual({ G4: first.setting, G5: first.without });
+  // Once the end is reported, it starts and its arms add their setting to the first one's `without`.
+  const later = experimentSettings({ now: NOW + 185 * 60000, experiments: [first, next], started: { floor: NOW }, ended: { floor: NOW + 181 * 60000 } });
+  expect(later.events).toEqual([{ id: "dots", kind: "start", start: NOW + 185 * 60000 }]);
+  expect(later.settings).toEqual({ G4: { ...first.without, ...next.setting }, G5: { ...first.without, ...next.without } });
+});
+
 test("stones reach the lowest group also while it farms", () => {
   const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
   const tabs = [tab("A", "G6", 12, { errand: { zone: "nektulos", keep: "wisp" } }), tab("B", "G9", 15)];

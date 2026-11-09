@@ -6,5 +6,14 @@
     "blockMin": 90,
     "setting": { "limits": { "minCon": 4, "maxCon": 13, "maxLevelDiff": 5, "levelsBelow": 4 } },
     "without": { "limits": { "minCon": 4, "maxCon": 13, "maxLevelDiff": 5 } }
+  },
+  {
+    "id": "dots-9",
+    "after": "floor-4",
+    "a": ["G2", "G4", "G6", "G8", "G10", "G12"],
+    "b": ["G3", "G5", "G7", "G9", "G11"],
+    "blockMin": 90,
+    "setting": { "dotMaxTicks": 9 },
+    "without": { "dotMaxTicks": 0 }
   }
 ]

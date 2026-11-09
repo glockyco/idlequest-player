@@ -359,12 +359,14 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
 /**
  * The bot settings experiments ask for now (data/experiments.json, docs/plans/controller.md,
  * principle 7). An experiment is a two-period crossover as tools/crossover.mjs reads it:
- * `{ id, a: [group], b: [group], blockMin, setting, without }`. In the first block arm A plays
+ * `{ id, a: [group], b: [group], blockMin, setting, without, after }`. In the first block arm A plays
  * with `setting` and arm B with `without`, in the second block the other way round, and then every
  * group of it keeps `without` until the experiment leaves the file. `started` maps an experiment
  * id to the time it started, and `running` to its `{ a, b, without }` as it started, both kept by
  * the caller, so an experiment that leaves the file before its end still returns its groups to
- * `without`. `ended` maps an experiment id to the time its end or drop was reported. Returns
+ * `without`. `ended` maps an experiment id to the time its end or drop was reported. An experiment
+ * with `after` starts only once the experiment of that id has ended, so the file can queue the next
+ * one on the same groups. Returns
  * `{ settings: { [group]: partial }, events: [{ id, kind: "start" | "end" | "dropped", start }],
  * held: Set of the groups an experiment holds }`, where `held` groups get no farms, because a farm
  * changes what the arms compare.
@@ -377,6 +379,7 @@ export function experimentSettings({ now, experiments = [], started = {}, ended 
     for (const g of groups) settings[g] = { ...settings[g], ...s };
   };
   for (const x of experiments) {
+    if (started[x.id] == null && x.after && ended[x.after] == null) continue;
     const start = started[x.id] ?? now;
     if (started[x.id] == null) events.push({ id: x.id, kind: "start", start });
     const block = Math.floor((now - start) / (x.blockMin * 60000));
