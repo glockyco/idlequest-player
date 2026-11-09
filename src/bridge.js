@@ -73,7 +73,19 @@
       // What a click on an NPC sends, (npcId, name). Bun reformats the sources it loads, so the pattern allows spaces.
       hail: /^function [\w$]+\(\s*e,\s*t,\s*n\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*e,\s*t,\s*n\s*\);?\s*\}$/,
     };
+    // Client service objects, found by one method and pieces of its source like FUNCTIONS. The
+    // bundle also exports a stand-in whose every method returns false, so a name is not enough.
+    const SERVICES = {
+      combat: { method: "abandonRaid", needle: ["Raid abandonment was not confirmed"] }, // raid fights, the raid leader's death and End Raid
+    };
     const matches = (needle, src) => (needle instanceof RegExp ? needle.test(src) : needle.every((s) => src.includes(s)));
+    const isService = (v, { method, needle }) => {
+      try {
+        return typeof v[method] === "function" && matches(needle, Function.prototype.toString.call(v[method]));
+      } catch {
+        return false;
+      }
+    };
 
     const isStore = (v) => typeof v === "function" && typeof v.getState === "function" && typeof v.subscribe === "function";
     const stateOf = (store) => {
@@ -84,15 +96,17 @@
       }
     };
 
-    /** Finds the stores, the socket, the dispatcher, the dialogue module, the game clock and the client functions among the loaded modules `{ file: exports }`. */
+    /** Finds the stores, the socket, the dispatcher, the dialogue module, the game clock, the client functions and the client services among the loaded modules `{ file: exports }`. */
     function discover(mods) {
       const stores = {};
       let socket = null;
       let clock = null; // the game's time of day, which night-only spawns and spells follow
       const fns = [];
+      const objects = [];
       for (const m of Object.values(mods)) {
         for (const v of Object.values(m)) {
           if (typeof v === "function") fns.push(v);
+          else if (v && typeof v === "object") objects.push(v);
           if (!clock && v && typeof v === "object" && typeof v.getTimeOfDay === "function" && typeof v.isSynchronized === "boolean") clock = v;
           if (!socket && v && typeof v === "object" && SOCKET.find.every((k) => k in v) && typeof v.sendJsonRequest === "function") {
             socket = v;
@@ -110,11 +124,12 @@
       const dialogue = Object.values(mods).find(isDialogue) ?? null;
       const sources = fns.map((f) => [f, Function.prototype.toString.call(f)]);
       const functions = Object.fromEntries(Object.entries(FUNCTIONS).map(([name, needle]) => [name, sources.find(([, src]) => matches(needle, src))?.[0] ?? null]));
-      return { stores, socket, command, dialogue, clock, functions };
+      const services = Object.fromEntries(Object.entries(SERVICES).map(([name, spec]) => [name, objects.find((v) => isService(v, spec)) ?? null]));
+      return { stores, socket, command, dialogue, clock, functions, services };
     }
 
     /** One row `{ kind, name, ok }` for every part of the surface, in a fixed order. */
-    function audit({ stores, socket, command, dialogue, clock, functions }) {
+    function audit({ stores, socket, command, dialogue, clock, functions, services }) {
       const rows = [];
       const row = (kind, name, ok) => rows.push({ kind, name, ok: Boolean(ok) });
       row("socket", "socket", socket);
@@ -133,6 +148,7 @@
       row("module", "dialogue", dialogue);
       row("module", "clock", clock);
       for (const name of Object.keys(FUNCTIONS)) row("function", `fn.${name}`, functions?.[name]);
+      for (const name of Object.keys(SERVICES)) row("service", `service.${name}`, services?.[name]);
       return rows;
     }
 
@@ -157,6 +173,7 @@
       SOCKET,
       DISPATCHER,
       FUNCTIONS,
+      SERVICES,
       ASSET_RE,
       discover,
       audit,
@@ -198,8 +215,8 @@
     }
   }
 
-  const { stores, socket, command, dialogue, clock, functions } = CLIENT_SURFACE.discover(mods);
-  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue, clock, functions });
+  const { stores, socket, command, dialogue, clock, functions, services } = CLIENT_SURFACE.discover(mods);
+  const surfaceReport = CLIENT_SURFACE.audit({ stores, socket, command, dialogue, clock, functions, services });
   /** The client function `name` of `CLIENT_SURFACE`'s FUNCTIONS, or an error naming it. */
   const clientFn = (name) => {
     const f = functions[name];
@@ -1315,7 +1332,7 @@
           pending: Boolean(r.lifecyclePending),
           error: r.lifecycleError ?? null,
           leaderDamage: r.leaderDamageDone ?? 0,
-          roster: (r.roster ?? []).map((m) => ({ id: m.id, characterId: m.source?.characterId ?? null, name: m.name ?? m.source?.name ?? null, level: m.level, hp: m.hp, maxHp: m.maxHp, alive: m.alive !== false, damage: m.damageDone ?? 0 })),
+          roster: (r.roster ?? []).map((m) => ({ id: m.id, characterId: m.source?.characterId ?? null, name: m.displayName ?? null, className: m.className ?? null, role: m.role ?? null, level: m.level, hp: m.hp, maxHp: m.maxHp, mana: m.mana ?? null, maxMana: m.maxMana ?? null, alive: m.alive !== false, command: m.command ?? null, rangeState: m.rangeState ?? null, damage: m.damageDone ?? 0, hate: m.hate ?? 0 })),
           enemies: (r.engagedEnemies ?? []).map((e) => ({ id: e.spawnInstanceId, name: e.name ?? e.npcName ?? null, level: e.level ?? null, hp: e.hp ?? e.curHp ?? null, maxHp: e.maxHp ?? null })),
           log: (r.eventLog ?? []).slice(-30).map((e) => (typeof e === "string" ? e : (e.text ?? e.message ?? JSON.stringify(e)))),
         };
@@ -1374,13 +1391,17 @@
         if (!r?.success) throw new Error(r?.error || "the daily boss list did not load");
         return { resetsRemaining: r.resetsRemaining, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
       },
-      /** End Raid: abandon a running fight first (`StopCombat`), as the button does, then leave raid mode. */
+      /**
+       * End Raid. Out of a fight the raid store ends raid mode in the page, which needs no server
+       * request. A running fight, a dead leader or an unfinished end go through the combat
+       * service's `abandonRaid()` as the End Raid button does: it stops the fight on the server
+       * (`StopCombat`) or releases the dead leader, then ends raid mode.
+       */
       async end() {
         const r = stores.raid.getState();
         if (r.raidModeActive && (r.combatActive || r.leaderDead || r.lifecyclePending)) {
-          const service = Object.values(mods).flatMap((m) => Object.values(m)).find((v) => typeof v?.abandonRaid === "function");
-          if (!service) throw new Error("client raid service not found");
-          if (!(await service.abandonRaid())) throw new Error(`the raid was not abandoned: ${stores.raid.getState().lifecycleError ?? "no reason given"}`);
+          if (!services.combat) throw new Error("client combat service not found");
+          if (!(await services.combat.abandonRaid())) throw new Error(`the raid was not abandoned: ${stores.raid.getState().lifecycleError ?? "no reason given"}`);
         } else if (r.raidModeActive) r.endRaid();
         stores.raid.getState().closeRaid();
         if (stores.raid.getState().raidModeActive) throw new Error("raid mode is still on");

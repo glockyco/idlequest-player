@@ -20,9 +20,10 @@ game server, so the client only sends a request.
   imports, so any client change changes it, and the set of loaded files cannot serve instead
   because it grows as screens open. `CLIENT_SURFACE` in `src/bridge.js` is the one list of what
   the SDK needs from a build (stores, the actions and state keys it uses, the socket methods, the
-  command dispatcher, the dialogue functions and the client functions found by pieces of their
-  source, such as the sale and the hail), and `tools/check-client.mjs` runs its discovery on a
-  saved release.
+  command dispatcher, the dialogue functions, and the client functions and service objects found
+  by pieces of their source, such as the sale, the hail and the combat service), and
+  `tools/check-client.mjs` runs its discovery on a saved release. A method name alone does not
+  identify a service: the bundle also exports a stand-in whose every method returns false.
 
 ## Transport
 
@@ -593,14 +594,21 @@ Buying time, recruiting, attacking and ending a fight have not.
   ..."), and a kill sends `CombatClientEnd` (1113) with `victory` and `raidMemberCount`, answered
   by `CombatEnded` (1029) and the loot in the RAID LOOT tab. A dead leader goes through
   `RaidLeaderLifecycle` (1226) and can still command the raid. A wipe releases the leader.
-- End: End Raid calls the combat service's `abandonRaid()` (`0ea` 42793, the module's
-  `combatService` export), which sends `StopCombat` (1026) and then the store's `endRaid()`.
-  Nothing brings the party back or restarts AutoLevel afterwards. The bot's party and AutoLevel
-  keepers do that once the raid task ends.
+- End: the End Raid button calls the combat service's `abandonRaid()` (`0ea` 42776), which
+  stops a running fight with `StopCombat` (1026) or releases a dead leader, then calls the
+  store's `endRaid()`. The store's `endRaid()` alone ends raid mode in the page and refuses while a
+  fight runs, the leader is dead or an end is pending (`main.pretty.js:71210-71214`). Outside a
+  fight the server left `StopCombat` unanswered for 10 seconds, and the pending end then blocked
+  `endRaid()` until the page reloaded, so the bridge's `iq.raid.end()` uses `endRaid()` out of a
+  fight. Nothing brings the party back or restarts AutoLevel afterwards. The bot's party and
+  AutoLevel keepers do that once the raid task ends.
 - State for scripts (`stores.raid`): `raidModeActive`, `isRaidOpen`, `view` (`setup` or `combat`),
-  `combatActive`, `leaderDead`, `roster[]` (`source.characterId`, `level`, `hp`, `maxHp`, `alive`,
-  `damageDone`, `hate`), `engagedEnemies[]`, `focusTarget`, `openingTarget` and `eventLog`. DOM test
-  ids: `raid-setup-panel`, `raid-recruit-<characterId>`, `raid-member-<id>` and `raid-loot-window`.
+  `combatActive`, `leaderDead`, `lifecyclePending`, `lifecycleError`, `roster[]`, `engagedEnemies[]`,
+  `focusTarget`, `openingTarget` and `eventLog`. A roster member carries `displayName`,
+  `source.characterId`, `className`, `role`, `level`, `hp`, `maxHp`, `mana`, `maxMana`, `alive`,
+  `command`, `rangeState`, `damageDone` and `hate` (`yQ`, `main.pretty.js:64332-64390`). A recruit
+  joins at full HP and mana. DOM test ids: `raid-setup-panel`, `raid-recruit-<characterId>`,
+  `raid-member-<id>` and `raid-loot-window`.
 - Open until a level 46 leader tries it: what `start` returns, whether the server refuses recruits
   below 46 or caps the roster, the daily boss keys, the kill line's wording in raid mode, and
   whether a raid stays active after a wipe.
