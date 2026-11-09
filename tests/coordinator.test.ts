@@ -41,6 +41,16 @@ test("a quest piece is needed once for each member of the chain's class and leve
   expect(piecesNeeded({ id: "x", item: "Ring", count: 3 }, { quests, members })).toBe(3);
 });
 
+test("a chain that needs a piece runs for as many members as there are free copies, and its pulls avoid the other needers", () => {
+  const quests = { "warrior-epic-fiery": { class: "Warrior", minLevel: 10, needs: ["Heart of Frost"], steps: [{ zone: "eastkarana", npc: "Tenal Redblade", give: ["Heart of Frost"] }] } };
+  const war = (label: string, name: string) => tab(label, label, 22, { members: [{ name, class: "Warrior", level: 22 }] });
+  const tabs = [war("A", "Tank"), war("B", "Brute")];
+  const out = decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 1 } });
+  expect(out).toMatchObject([{ label: "A", kind: "quest", spec: { members: ["Tank"], avoid: ["Brute"] } }]);
+  // A needer that carries its own copy runs like one part way through.
+  expect(decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 0 }, started: { "warrior-epic-fiery": ["Brute"] } })).toMatchObject([{ label: "B", spec: { members: ["Brute"], avoid: ["Tank"] } }]);
+});
+
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);

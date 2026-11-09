@@ -967,10 +967,11 @@
   };
   /**
    * Pull one carried or banked `item` of another account character (`from`, or the first one the
-   * window lists) to the active character with Inventory Search's Transfer button. Needs a free
-   * bag slot. Resolves with the window's reply, the giver and whether the item arrived.
+   * window lists that is not in `avoid`) to the active character with Inventory Search's Transfer
+   * button. Needs a free bag slot. Resolves with the window's reply, the giver and whether the
+   * item arrived.
    */
-  const pullItem = async (item, { from = null, timeoutMs = 20000 } = {}) => {
+  const pullItem = async (item, { from = null, avoid = [], timeoutMs = 20000 } = {}) => {
     const cb = () => stores.combat.getState();
     cb().openInventorySearch();
     try {
@@ -984,7 +985,7 @@
       const prefix = `Transfer ${item} from `;
       const usable = (b) => {
         const l = b.getAttribute("aria-label") ?? "";
-        return !b.disabled && l.startsWith(prefix) && (from ? l === prefix + from : l !== prefix + me);
+        return !b.disabled && l.startsWith(prefix) && (from ? l === prefix + from : l !== prefix + me && !avoid.some((n) => l === prefix + n));
       };
       const end = Date.now() + timeoutMs;
       let btn = null;

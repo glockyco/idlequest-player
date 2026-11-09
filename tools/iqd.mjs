@@ -496,7 +496,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -534,6 +534,7 @@ class Daemon {
     const holders = {};
     const started = {};
     const have = {};
+    const members = tabs.flatMap((t) => t.members);
     const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
       // A character is done with a chain while it carries the reward or an item of a later chain
@@ -541,7 +542,13 @@ class Daemon {
       holders[id] = [...new Set((await Promise.all([q.reward, ...(q.doneIf ?? [])].map(carriers))).flat())];
       const steps = [...new Set(q.steps.map((s) => s.expect).filter((e) => e && e !== q.reward))];
       started[id] = [...new Set((await Promise.all(steps.map(carriers))).flat())];
-      for (const n of q.needs ?? []) have[n] ??= (await search(n)).filter((m) => m.item === n).reduce((a, m) => a + m.n, 0);
+      if (!q.needs?.length) continue;
+      // A copy a needer of the chain carries is its own: it is not free for others (`have`), and a
+      // needer that carries every piece runs like one part way through.
+      const needers = chainNeeders(id, { quests, holders, members });
+      const rows = await Promise.all(q.needs.map(async (n) => (await search(n)).filter((m) => m.item === n)));
+      q.needs.forEach((n, k) => (have[n] = Math.min(have[n] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0))));
+      started[id].push(...needers.filter((who) => rows.every((r) => r.some((m) => m.who === who))));
     }
     const owned = {};
     // An opportunity is done once the account holds the copies its characters need (`piecesNeeded`),
@@ -549,7 +556,6 @@ class Daemon {
     // pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
     const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
     const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
-    const members = tabs.flatMap((t) => t.members);
     // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
     const queue = opportunities.filter(reachable);
     await Promise.all(Array.from({ length: 4 }, async () => {

@@ -33,15 +33,19 @@ export const AA_POLICY = { allocation: 100, level: 60 };
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
 export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
+/** The `members` of quest chain `id`'s class and level who do not hold the chain (`holders`). */
+export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
+  const q = quests[id];
+  return members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+}
+
 /**
  * Copies of opportunity `o`'s item the account needs: its `count`, or for a piece of quest chain
- * `o.quest` one for each of `members` of the chain's class and level who does not hold the chain
- * (`holders`), so a piece its hand-ins use up is hunted again only while someone still needs it.
+ * `o.quest` one for each member who needs the chain, so a piece its hand-ins use up is hunted
+ * again only while someone still needs it.
  */
 export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
-  const q = quests[o.quest];
-  if (!q) return o.count ?? 1;
-  return members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[o.quest] ?? []).includes(m.name)).length;
+  return quests[o.quest] ? chainNeeders(o.quest, { quests, holders, members }).length : (o.count ?? 1);
 }
 
 /**
@@ -92,12 +96,14 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
   for (const [id, q] of Object.entries(quests)) {
-    // A quest that hands over a dropped item runs for as many members as the account holds copies,
-    // and for every member part way through, whose first step already took its copy.
+    // A quest that hands over a dropped item runs for as many members as the account holds copies
+    // outside the chain's needers (`have`), and for every member part way through, whose first step
+    // already took its copy. A pull never takes another needer's copy (`avoid`).
     let copies = Math.min(Infinity, ...(q.needs ?? []).map((n) => have[n] ?? 0));
+    const needers = chainNeeders(id, { quests, holders, members: tabs.flatMap((t) => t.members) });
     for (const t of tabs) {
       if (!free(t)) continue;
-      const want = t.members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+      const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
       const begun = want.filter((n) => (started[id] ?? []).includes(n));
       const fresh = want.filter((n) => !begun.includes(n)).slice(0, copies);
       const who = [...begun, ...fresh];
@@ -105,7 +111,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
       copies -= fresh.length;
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id }, why: `${id} for ${who.join(", ")}` });
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }
   }
 

@@ -1162,9 +1162,9 @@
     }
     if (activeName(i) !== name) throw new Error(`${name} did not become active`);
   };
-  const pullOne = async (i, item, from = null) => {
+  const pullOne = async (i, item, from = null, avoid = []) => {
     if (i.bagSpace().free < 2) await sellSurplus(i, true);
-    const r = await i.pullItem(item, { from });
+    const r = await i.pullItem(item, { from, avoid });
     if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
   };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
@@ -1239,7 +1239,8 @@
       for (const item of [...(s.give ?? []), ...(s.craft?.inputs ?? [])]) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
         if (s.buy?.items?.includes(item) && i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
-        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item), 45000);
+        // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
+        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item, null, m.avoid ?? []), 45000);
       }
       if (s.craft) {
         const c = s.craft;
@@ -2071,11 +2072,12 @@
      * Run quest `steps` for each of `members` (names), each while it is the active character, as a
      * task in the page (`questTask`). A step is `{ zone, npc, say, give, each, expect }`, such as
      * `{ zone: "freporte", npc: "Kargek Redblade", say: ["scabbard", "favor"], expect: "Wax Sealed
-     * Note" }`. Returns a copy of the task, which `state.task` keeps up to date.
+     * Note" }`. A missing item is pulled from another account character, never from one in `avoid`,
+     * the other characters that need it. Returns a copy of the task, which `state.task` keeps up to date.
      */
-    quest({ members, steps, name = "quest" }) {
+    quest({ members, steps, name = "quest", avoid = [] }) {
       if (!steps?.length) throw new Error("a quest needs steps");
-      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps })), name);
+      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid })), name);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;
     },
