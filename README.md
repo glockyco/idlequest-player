@@ -283,7 +283,7 @@ the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prin
 The plan also lists the gear that enemies of each band row's zones drop (`zoneDrops` in
 `tools/lib/gear-data.mjs`) where it beats what a character wears, and each coordinator pass gives
 every group an errand for its drop with the most gain per hour of hunting among the zones of its
-rotation. The wants stay in the db meta key `gear`, so a restart keeps them.
+rotation that no other group plays in. The wants stay in the db meta key `gear`, so a restart keeps them.
 
 ## Monitoring
 

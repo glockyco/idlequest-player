@@ -527,11 +527,12 @@ class Daemon {
     const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
     // Wanted drops from the gear pass: for each group, the drop with the most gain per hour of
-    // hunting among the zones of its rotation, as an errand inside normal hunting.
+    // hunting among the zones of its rotation that no other group plays in, because a shared zone
+    // left group 4 idle 40% of its errand, as an errand inside normal hunting.
     for (const t of tabs) {
       // The last gear pass's wants, kept in the db so a restart does not lose them for an hour.
       this.dropWants ??= metaGet(this.db, "gear")?.drops ?? [];
-      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
+      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone) && !tabs.some((o) => o !== t && o.zone === d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
       if (best) opportunities.push({ id: `drop-${best.to}-${best.slot}`, group: t.group, kind: "errand", zone: best.zone, keep: best.npc, item: best.item, count: 1, retryMin: 120, minutes: 30 });
     }
     const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
