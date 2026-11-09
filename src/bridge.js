@@ -1405,7 +1405,7 @@
           pending: Boolean(r.lifecyclePending),
           error: r.lifecycleError ?? null,
           leaderDamage: r.leaderDamageDone ?? 0,
-          leader: { hp: p.curHp ?? null, maxHp: p.maxHp ?? null, mana: p.mana ?? null, maxMana: p.maxMana ?? null, order: r.playerOrder?.command ?? null, revision: r.playerOrder?.revision ?? null, autoAttack: Boolean(c.isAutoAttackEnabled), casting: Boolean(c.isCasting), navigating },
+          leader: { hp: p.curHp ?? null, maxHp: p.maxHp ?? null, mana: p.mana ?? null, maxMana: p.maxMana ?? null, order: r.playerOrder?.command ?? null, revision: r.playerOrder?.revision ?? null, autoAttack: Boolean(c.isAutoAttackEnabled), casting: Boolean(c.isCasting), navigating, pos: lastPos ? [Math.round(lastPos.x), Math.round(lastPos.y)] : null },
           heal: r.autoHealMode ?? null,
           nuke: r.autoNukeOrder ? { mode: r.autoNukeOrder.mode, preparing: Boolean(r.autoNukeOrder.preparing) } : null,
           roster: (r.roster ?? []).map((m) => ({ id: m.id, characterId: m.source?.characterId ?? null, name: m.displayName ?? null, className: m.className ?? null, role: m.role ?? null, level: m.level, hp: m.hp, maxHp: m.maxHp, mana: m.mana ?? null, maxMana: m.maxMana ?? null, alive: m.alive !== false, command: m.command ?? null, rangeState: m.rangeState ?? null, damage: m.damageDone ?? 0, hate: m.hate ?? 0 })),

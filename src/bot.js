@@ -1598,7 +1598,7 @@
             traced = now();
             const e = s.enemies.find((x) => x.id === boss.spawnInstanceId);
             const l = s.leader ?? {};
-            task.fight.trace.push({ s: Math.round((now() - t0) / 1000), hp: l.hp, order: `${l.order}#${l.revision}`, aa: l.autoAttack, cast: l.casting, nav: l.navigating, d: distance() == null ? null : Math.round(distance()), boss: e?.hp ?? null, up: s.roster.filter((m) => m.alive).length });
+            task.fight.trace.push({ s: Math.round((now() - t0) / 1000), hp: l.hp, order: `${l.order}#${l.revision}`, aa: l.autoAttack, cast: l.casting, nav: l.navigating, pos: l.pos ?? null, d: distance() == null ? null : Math.round(distance()), boss: e?.hp ?? null, up: s.roster.filter((m) => m.alive).length });
             if (task.fight.trace.length > 240) task.fight.trace.shift();
           }
           if (s.leaderDead) {

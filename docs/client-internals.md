@@ -600,9 +600,12 @@ orders the raid holds, and nothing else moves or casts.
   Target first and one All Attack that the script waits on, the leader stood at the target with
   auto attack on from the first second. In the first raid, with two All Attack calls and no Run
   To Target, he stood 12 minutes in a visible tab at 60 frames per second, and which condition
-  held him is open. When the target moved away from him during a fight, toward a fleeing spot or
-  onto another member, he stayed "navigating" at a constant distance (79 to 85 units) for up to a
-  minute without closing in, and why is open.
+  held him is open. A root holds him where he stands: the unkempt fanatic roots the leader with
+  Engulfing Roots (spell 77, caster level 52), and when it fled or turned on another member he
+  stayed "navigating" with an unchanged position until the root ended. The root outlasts the
+  fight by up to two minutes, which the bot's root dispel then breaks between pulls. The fanatic
+  also casts Nullify Magic on itself every 15 to 20 seconds, which strips slows and debuffs, so a
+  kept slow is recast again and again.
 - End of a fight: `finishCombat` runs when no engaged enemy remains (`OST` 72130) and clears the
   nuke order, maintained effects and queued casts, but not the heal mode. A fleeing enemy stays
   engaged, and melee skips it: an unkempt fanatic fled 85 units at 22% HP, out of melee and spell
@@ -648,10 +651,13 @@ run once.
 - Recruits: `addGuildMember(characterId, leaderLevel)` (`OST` 71607) loads the character's snapshot
   with `GuildRaidCharacterProjectionRequest` (1194) and appends it. It refuses during combat and for
   characters outside the account and guild. Only the recruit list hides characters below 46: the
-  store adds them, and the server accepted recruits at levels 44 and 45. `addGuildMembers(ids,
-  leaderLevel)` is Add All, four at a time. `removeMember(memberId)` takes the member id, not the
-  character id, and works only in the setup view. Before the first fight the roster must be
-  validated, which the attack path does by itself.
+  store adds them, and the server accepted recruits at levels 26, 44 and 45. A recruit is a
+  snapshot (`requestCharacterProjection`) and nothing in the call releases or controls the
+  character: the server gave a snapshot of a character another group's tab was playing, and that
+  group kept him at full HP. Raid buffs raise a recruit's HP (a level 26 Paladin with 1,070 HP in
+  his group fought at 1,757). `addGuildMembers(ids, leaderLevel)` is Add All, four at a time.
+  `removeMember(memberId)` takes the member id, not the character id, and works only in the setup
+  view. Before the first fight the roster must be validated, which the attack path does by itself.
 - Attack: `setAllCommand("attacking", target)` (`OST` 71957-71990) prepares the roster and calls
   `beginCombatForTarget(target)` (`OST` 72063). That needs raid time, a non-empty validated roster,
   and an NPC of level 51 or more or an engaged enemy, then sets `openingTarget`. A watcher sends
