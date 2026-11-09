@@ -124,7 +124,7 @@
     "retryMin": 10
   },
   { "id": "mag-page2", "kind": "errand", "levels": [26, 36], "zone": "unrest", "keep": "tentacle terror|dark terror", "item": "Torn Page of Magi`kot pg. 2", "quest": "magician-epic-magikot", "minutes": 60, "retryMin": 120 },
-  { "id": "mag-page1", "kind": "errand", "levels": [36, 50], "zone": "baylesforest", "keep": "enraged dread wolf", "item": "Torn Page of Magi`kot pg. 1", "quest": "magician-epic-magikot", "minutes": 60, "retryMin": 120 },
+  { "id": "mag-page1", "kind": "errand", "levels": [36, 50], "zone": "kithicor", "when": "night", "keep": "enraged dread wolf", "item": "Torn Page of Magi`kot pg. 1", "quest": "magician-epic-magikot", "minutes": 60, "retryMin": 120 },
   { "id": "mag-broom", "kind": "errand", "levels": [17, 30], "zone": "najena", "keep": "magician", "item": "Broom", "quest": "magician-epic-broom", "minutes": 60, "retryMin": 120 },
   { "id": "mag-toes", "kind": "errand", "levels": [24, 36], "zone": "qey2hh1", "keep": "cyclops|Froon", "item": "Cyclops Toes", "quest": "magician-epic-broom", "minutes": 60, "retryMin": 120 },
   { "id": "mag-feathers", "kind": "errand", "levels": [20, 36], "zone": "northkarana", "keep": "griffenne|griffon|GrimFeather", "item": "Griffon Feathers", "quest": "magician-epic-broom", "minutes": 60, "retryMin": 120 },

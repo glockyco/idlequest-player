@@ -409,6 +409,14 @@ test("no two quest chains give the same reward to the same class, and every hunt
   expect(ops.filter((o: { quest?: string }) => o.quest && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
 });
 
+test("every hunt and farm names a zone the live game has", async () => {
+  // A zone of the content snapshot that the live game lacks fails the bot's travel, as Bayle's
+  // Forest did for the first Magi`kot page, whose wolves the live game has in Kithicor Forest.
+  const read = async (f: string) => JSON.parse(await Bun.file(new URL(`../data/${f}.json`, import.meta.url)).text());
+  const live = new Set(await read("live-zones"));
+  for (const f of ["opportunities", "farms"]) expect([f, (await read(f)).filter((o: { zone: string }) => !live.has(o.zone)).map((o: { zone: string }) => o.zone)]).toEqual([f, []]);
+});
+
 test("a chain member is past its needed pieces only from the step that uses them up", () => {
   // The Paladin's Sealed Note chain: its craft takes the Fire Beetle Eye at the third step.
   const q = {
