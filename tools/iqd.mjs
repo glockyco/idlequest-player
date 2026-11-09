@@ -499,7 +499,11 @@ class Daemon {
     // Only pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
     const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
     const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
-    for (const o of opportunities.filter(reachable)) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
+    // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
+    const queue = opportunities.filter(reachable);
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      for (let o; (o = queue.shift()); ) owned[o.id] = (await search(o.item)).filter((m) => m.item === o.item).reduce((a, m) => a + m.n, 0) >= (o.count ?? 1);
+    }));
     const holders = {};
     const started = {};
     const have = {};
@@ -562,9 +566,17 @@ class Daemon {
       this.log(`coordinator: ${z.label} zone: ${z.rotation.join(", ")}, ${z.why}`);
     }
     metaSet(this.db, "rates", rates);
+    // AA settings for each party, outside tasks, which may have another character active.
+    for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
+      const done = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 20000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), []));
+      if (!done?.length) continue;
+      this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${done.join("; ")}`);
+      this.log(`coordinator: ${t.label} aa: ${done.join("; ")}`);
+    }
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
     state.last = { t: now, stock, owned, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
-    metaSet(this.db, "coordinator", state);
+    // How long the pass took, so a slow pass shows before it delays the groups.
+    metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
   }
 
   /**
