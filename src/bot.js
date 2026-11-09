@@ -47,6 +47,7 @@
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
     companionTactics: { cure: false },
+    charm: null, // hold the charm preference of Enchanters and Necromancers (`keepCharm`), null leaves it
     gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
     keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, never sold
     keepBag: true, // keep kept items in one bag marked No Sell and No Declutter (`keepBag`)
@@ -749,13 +750,35 @@
   const keepTactics = (i) => {
     if (state.dispel) return;
     const overrides = i.stores.partySpells?.getState?.().overridesByCompanion ?? {};
-    for (const c of i.stores.companions.getState().companions ?? []) {
+    const cs = i.stores.companions.getState();
+    for (const c of cs.companions ?? []) {
       if (c.companionType !== 2) continue;
       for (const [k, want] of Object.entries(config.companionTactics ?? {})) {
         if (overrides[`character:${c.characterId}`]?.[k] === want) continue;
         i.setTactic(c.name, k, want);
         log(`tactic ${k} set to ${want} for ${c.name}`);
       }
+    }
+    keepCharm(i, cs);
+  };
+  // The client charms for Enchanters and Necromancers (undead only) when a character's casting
+  // preference `charm` is on, and it recovers a pet whose charm broke (docs/client-internals.md).
+  // `charm` true or false holds that preference for the leader and every account companion of those
+  // classes, and null leaves it alone. Bards also need a charm song among their songs, so they are not
+  // included.
+  const CHARM_CLASSES = [11, 14];
+  const keepCharm = (i, cs) => {
+    if (typeof config.charm !== "boolean") return;
+    const ps = i.stores.partySpells?.getState?.();
+    if (typeof ps?.setCastingPreferences !== "function") return;
+    const me = i.stores.character.getState().characterProfile;
+    const who = [...(CHARM_CLASSES.includes(me?.class?.id) ? [{ name: me.name, id: me.id }] : [])];
+    for (const c of cs.companions ?? []) if (c.companionType === 2 && CHARM_CLASSES.includes(cs.botCombatDataMap?.[c.id]?.class)) who.push({ name: c.name, id: c.characterId });
+    for (const w of who) {
+      const key = `character:${w.id}`;
+      if ((ps.castingPreferences?.[key]?.charm ?? false) === config.charm) continue;
+      ps.setCastingPreferences(key, { charm: config.charm });
+      log(`charm set to ${config.charm} for ${w.name}`);
     }
   };
   // Remedies, errands, camps and the guard change AutoLevel's limits for a reason that passes, and

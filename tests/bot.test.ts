@@ -1564,3 +1564,19 @@ test("a companion without the kept tactics gets them", async () => {
   // Tagujazolu has no overrides and so would cure with the client's defaults. Edroun's cure is off.
   expect(f.tactics).toEqual([["Tagujazolu", "cure", false]]);
 });
+
+test("charm is held for Enchanters and Necromancers and left alone without a setting", async () => {
+  const f = await install();
+  const ps = f.iq.stores.partySpells.getState() as unknown as { castingPreferences: Record<string, { charm?: boolean }>; setCastingPreferences: (k: string, p: object) => void };
+  const sets: [string, object][] = [];
+  Object.assign(ps, { castingPreferences: {}, setCastingPreferences: (k: string, p: object) => (sets.push([k, p]), (ps.castingPreferences[k] = { ...ps.castingPreferences[k], ...p })) });
+  const cs = f.iq.stores.companions.getState() as unknown as { botCombatDataMap: Record<string, { class?: number }> };
+  cs.botCombatDataMap["character-20"].class = 14;
+  await f.bot.tick();
+  expect(sets).toEqual([]);
+  // Edroun is an Enchanter, Tagujazolu and the leader are neither, and a held preference is not set twice.
+  f.bot.config.charm = true;
+  await f.bot.tick();
+  await f.bot.tick();
+  expect(sets).toEqual([["character:20", { charm: true }]]);
+});
