@@ -793,7 +793,7 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
-    const { bardSongs, merchantGoods, rows, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { attachProcs, bardSongs, merchantGoods, rows, zoneDrops } = await import("./lib/gear-data.mjs");
     const { contentRoot } = await import("./lib/content.mjs");
     // The merchant goods and their item rows, read once.
     if (!this.shop) {
@@ -806,6 +806,11 @@ class Daemon {
     }
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
+    // A weapon's proc counts in its worth, so its spell comes along (read once per new weapon).
+    if ([...this.items.values()].some((i) => i.proceffect > 0 && !("procSpell" in i))) {
+      await attachProcs(this.items, contentRoot());
+      for (const i of this.items.values()) if (i.proceffect > 0 && !("procSpell" in i)) i.procSpell = null;
+    }
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
     const { moves, keep, drops, characters } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;

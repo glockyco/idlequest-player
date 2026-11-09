@@ -6,8 +6,8 @@
 //
 // Armor and jewelry are scored as a set with tools/lib/gear-data.mjs's stat score, because the
 // client counts only the highest worn haste and caps worn regeneration at 15 HP and 15 mana per
-// tick. The main hand is ranked by base damage, capped at the level's limit, over delay, as
-// tools/raidsim/kits.mjs does, for Monks too, whose fists a weapon replaces (docs/client-internals.md,
+// tick. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
+// the client's flat main-hand bonus and proc damage), for Monks too, whose fists a weapon replaces (docs/client-internals.md,
 // Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
 // offered only to a character with nothing in the off hand.
 //
@@ -243,7 +243,8 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     const fist = fists(p.cls, p.level, p.race);
     // A Monk's empty off hand swings a fist beside any main hand but a two-hander, with the
     // off-hand chance, and a weapon in the off hand or a two-hander ends it.
-    const offSwing = (main, off) => (off ? chance * weaponRatio(off, p.cls, p.level) : p.cls === "monk" && !TWO_HANDED.has(main?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level) : 0);
+    const off = { primary: false };
+    const offSwing = (main, offItem) => (offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(main?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0);
     // Beside a two-hander the off hand stays empty.
     if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY)) {
       // A shield counts for its stats and replaces no weapon.
@@ -254,7 +255,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       // A one-hander counts for its swings, with the chance that they happen, and replaces only
       // a weapon or nothing.
       if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
-        const gain = chance * weaponRatio(item, p.cls, p.level) - offSwing(held, offHeld);
+        const gain = chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld);
         if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
       }
     }

@@ -130,8 +130,8 @@ bun tools/zones.mjs runs/zones-content --level 15
 
 Gear: `tools/gear.mjs` lists the best usable item per slot for a class, race and level, with the
 mobs that drop it and the merchants that sell it. Armor is ranked by a rough stat score with the
-weights documented in the file. Weapons are ranked by base damage capped at the level's limit,
-divided by delay, the comparison the IdleQuest wiki gives. `--party` reads a saved `iq.roster()`
+weights documented in the file. Weapons are ranked by base damage capped at the level's limit over
+delay, plus the client's flat main-hand bonus and the weapon's proc damage (`weaponRatio` in `tools/lib/gear-data.mjs`). `--party` reads a saved `iq.roster()`
 result (`me` and `party`, each with class, race and `items`). Save the roster from an eval cell
 first: `await Bun.write("runs/roster.json", JSON.stringify(await iq.roster()))`. The rotation zones
 it prints are the bot's band rows (`data/band-rotations.json`) for the level and the next band.
@@ -281,7 +281,7 @@ bun tools/fights.mjs
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
 and slot where it adds most: armor and jewelry as a set by `tools/gear.mjs`'s stat score, with the
-client's haste and regeneration caps, the main hand by damage over delay against what the hand
+client's haste and regeneration caps, the main hand by `weaponRatio` against what the hand
 swings now, and for a Bard each instrument type by the share of its songs it modifies. Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
 buys for at most `BUY_PP` platinum in one city. `iqd run --coordinate` runs the plan every hour:

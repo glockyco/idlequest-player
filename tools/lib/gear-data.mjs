@@ -3,6 +3,7 @@
 // a merchant) in the zones the live game has, with the time it takes to farm a copy.
 import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
+import { effectValue } from "./spell-value.mjs";
 
 export const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
 export const RACE = { human: 1, barbarian: 2, erudite: 4, woodelf: 8, highelf: 16, darkelf: 32, halfelf: 64, dwarf: 128, troll: 256, ogre: 512, halfling: 1024, gnome: 2048, iksar: 4096, vahshir: 8192 };
@@ -49,8 +50,63 @@ export const statScore = (i, c, level) => {
 // The score of tools/gear.mjs for one item: the stat score plus haste and regeneration at their weights.
 export const scoreFor = (i, c, level) => statScore(i, c, level) + HASTE_WEIGHT * (i.haste ?? 0) + REGEN_WEIGHT * ((i.regen ?? 0) + (i.manaregen ?? 0));
 
-// A weapon's base damage, capped at the level's limit, over its delay.
-export const weaponRatio = (i, c, level) => (i.damage && i.delay ? Math.min(i.damage, capFor(c, level)) / i.delay : 0);
+// A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee
+// hit (docs/client-internals.md, "What item stats and effects do"): the base damage capped at the
+// level's limit, the flat damage bonus of a main-hand hit (`sd`) divided by the typical roll
+// multiplier, and its procs, `(0.5 + DEX/170) (1 + procrate/100)` a minute at the wearer's level,
+// converted to the same unit. Hit chance, double attack and haste scale every weapon alike and are
+// left out. Procs count their damage only, and an item's proc spell comes from `attachProcs`.
+const MELEE_BONUS = new Set(["warrior", "paladin", "ranger", "shadowknight", "monk", "bard", "rogue"]);
+const TWO_HANDED = new Set([1, 4, 35]);
+const TWO_HAND_BONUS = JSON.parse(readFileSync(new URL("../../data/two-hand-bonus.json", import.meta.url), "utf8")).rows;
+/** The flat bonus of a main-hand hit (`sd` in the client): from level 28 for melee classes, by delay for two-handers. */
+export const damageBonus = (i, c, level) => {
+  if (level < 28 || !MELEE_BONUS.has(c)) return 0;
+  const l = Math.min(60, Math.trunc(level));
+  return TWO_HANDED.has(i.itemtype) ? TWO_HAND_BONUS[l - 28][Math.max(0, Math.min(150, i.delay))] : 1 + Math.floor((l - 28) / 3);
+};
+// The mean of the client's damage roll (`ap`, 0.1 to 2.0) for an offense of five points a level (at most
+// 250) against a same-level NPC's AC, about 4.5 a level (median of npc_types).
+const multCache = new Map();
+export const expectedMult = (level) => {
+  if (!multCache.has(level)) {
+    const o = Math.min(5 * level, 250);
+    const a = 4.5 * level;
+    const half = (o + a + 10) / 2;
+    let sum = 0;
+    for (let x = 0.01; x < 1; x += 0.02) for (let y = 0.01; y < 1; y += 0.02) sum += (Math.max(0, Math.min(19, Math.floor(((x * (o + 5) - y * (a + 5) + half / 2) * 20) / half))) + 1) / 10;
+    multCache.set(level, sum / 2500);
+  }
+  return multCache.get(level);
+};
+/** Proc damage a minute of a weapon at the wearer's `level` and `dex`, 0 without a damage proc or below the proc's level. */
+export const procDamagePerMinute = (i, level, dex = 75) => {
+  if (!i.procSpell || level < (i.proclevel2 || i.proclevel || 0)) return 0;
+  const hit = i.procSpell.effects.reduce((a, e) => a + Math.max(0, -effectValue(e.formula, e.base, e.max, level)), 0);
+  return (0.5 + Math.min(255, dex) / 170) * Math.max(0, 1 + (i.procrate ?? 0) / 100) * hit * Math.max(1, i.procSpell.ticks);
+};
+export const weaponRatio = (i, c, level, { primary = true, dex = 75 } = {}) => {
+  if (!(i.damage && i.delay)) return 0;
+  const m = expectedMult(level);
+  const bonus = primary ? damageBonus(i, c, level) : 0;
+  return (Math.min(i.damage, capFor(c, level)) + bonus / m) / i.delay + procDamagePerMinute(i, level, dex) / 60 / (10 * m);
+};
+
+/** Adds `procSpell` (the proc spell's hit point effects and its duration in ticks) to the weapons of `items`, a Map of item rows. */
+export async function attachProcs(items, root) {
+  const want = new Set([...items.values()].filter((i) => i.proceffect > 0 && i.proceffect !== 255 && (i.proctype ?? 0) <= 1).map((i) => i.proceffect));
+  if (!want.size) return items;
+  const spells = new Map();
+  for await (const s of rows(root, "spells_new")) if (want.has(s.id)) spells.set(s.id, s);
+  for (const i of items.values()) {
+    const s = spells.get(i.proceffect);
+    if (!s || !want.has(i.proceffect)) continue;
+    const effects = [];
+    for (let k = 1; k <= 12; k++) if (s[`effectid${k}`] === 0 && s[`effect_base_value${k}`] < 0) effects.push({ formula: s[`formula${k}`], base: s[`effect_base_value${k}`], max: s[`max${k}`] });
+    i.procSpell = { name: s.name, effects, ticks: s.buffduration > 0 ? s.buffduration : 0 };
+  }
+  return items;
+}
 
 // Dual Wield (docs/client-internals.md, Off hand and dual wield). The server's cap of the skill is
 // in data/skill-caps.json for levels 46 to 60 only. Below 46 the cap is interpolated linearly from

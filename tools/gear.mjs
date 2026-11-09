@@ -18,13 +18,13 @@
 //   melee (warrior rogue monk): hp 0.5, ac 1.5, str/sta/dex/agi 1, attack 0.3
 //   hybrids (paladin ranger shadowknight bard): melee weights plus mana 0.5
 //   all: resists 0.3 each, haste 3 per percent, hp/mana regen 8 per point
-// Weapon slots are ranked by base damage capped at the level's limit, divided by delay, the
-// comparison the IdleQuest wiki gives (idlequest.net/wiki/choosing-weapons). Haste and procs are
-// not valued beyond the haste weight. The score, the weapon cap and the source tables are in
-// tools/lib/gear-data.mjs, which the raid simulator's `--gear farm` kit uses as well.
+// Weapon slots are ranked by `weaponRatio` in tools/lib/gear-data.mjs: base damage capped at the
+// level's limit over delay, plus the client's flat main-hand bonus and the weapon's proc damage.
+// The score, the weapon value and the source tables are in tools/lib/gear-data.mjs, which the raid
+// simulator's `--gear farm` kit uses as well.
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
-import { BIT, RACE, SLOTS, SLOT_BY_NUM, capFor as capForLevel, groupOf, liveZoneNames, loadSources, rows as contentRows, scoreFor as scoreForLevel, slotName } from "./lib/gear-data.mjs";
+import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachProcs, capFor as capForLevel, groupOf, liveZoneNames, loadSources, rows as contentRows, scoreFor as scoreForLevel, slotName, weaponRatio } from "./lib/gear-data.mjs";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => {
@@ -82,9 +82,11 @@ for await (const i of rows("items")) {
   if (!(i.classes & BIT[cls]) || (race && !(i.races & RACE[race])) || (i.reqlevel ?? 0) > level) continue;
   const sc = score(i);
   if (sc <= 0 && !((slots.includes("primary") || slots.includes("secondary")) && i.damage)) continue;
-  const ratio = i.damage && i.delay ? Math.min(i.damage, damageCap) / i.delay : 0;
-  cands.set(i.id, { ...allItems.get(i.id), score: sc, ratio });
+  cands.set(i.id, { ...allItems.get(i.id), score: sc });
 }
+// A weapon's worth counts its proc, so the proc spells come along before the ratios.
+await attachProcs(new Map([...allItems].map(([id, w]) => [id, w.raw])), root);
+for (const c of cands.values()) c.ratio = weaponRatio(c.raw, cls, level);
 
 // ---- Sources: item -> lootdrop -> loottable -> NPC -> spawns -> zone (tools/lib/gear-data.mjs) ---
 const { sources, sellers } = await loadSources(root, { itemIds: new Set(cands.keys()), maxNpcLevel: mobMax, zoneName });
@@ -121,7 +123,7 @@ if (partyMode) {
       const sName = SLOT_BY_NUM[eq.slot];
       const found = byName.get(eq.name);
       if (!sName || !found) continue;
-      const val = sName === "primary" || sName === "secondary" ? (found.dmg && found.delay ? Math.min(found.dmg, cap) / found.delay : 0) : scoreFor(found.raw, m.class);
+      const val = sName === "primary" || sName === "secondary" ? weaponRatio(found.raw, m.class, level, { primary: sName === "primary" }) : scoreFor(found.raw, m.class);
       const prev = eqBySlot.get(sName);
       if (!prev || val < prev.val) eqBySlot.set(sName, { name: eq.name, val, twoHand: found.twoHand });
     }
@@ -140,7 +142,7 @@ if (partyMode) {
       const cur = eqBySlot.get(slot) ?? { name: "empty", val: 0 };
       const elig = [...cands.values()]
         .filter((i) => i.slots.includes(slot) && (i.classes & cBit) && (i.races & rBit) && !(slot === "secondary" && i.twoHand) && obtainable(i))
-        .map((i) => ({ ...i, val: hand ? (i.dmg && i.delay ? Math.min(i.dmg, cap) / i.delay : 0) : scoreFor(i.raw, m.class) }))
+        .map((i) => ({ ...i, val: hand ? weaponRatio(i.raw, m.class, level, { primary: slot === "primary" }) : scoreFor(i.raw, m.class) }))
         .filter((i) => (slot === "primary" && i.twoHand && canDW ? i.val > dwTotal + 0.03 : i.val > cur.val + (hand ? 0.02 : 4)))
         .sort((a, b) => b.val - a.val);
       const bestMerch = elig.find((i) => sellers.has(i.id));

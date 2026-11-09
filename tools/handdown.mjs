@@ -12,7 +12,7 @@ import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { bardSongs, merchantGoods, rows } from "./lib/gear-data.mjs";
+import { attachProcs, bardSongs, merchantGoods, rows } from "./lib/gear-data.mjs";
 import { BUY_PP, planGear, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
@@ -32,6 +32,7 @@ const raceOf = new Map(db.query("SELECT name, race FROM characters").all().map((
 const ids = new Set(survey.map((r) => r.itemId));
 const { shop, items } = await merchantGoods(opt.content, { maxPp: BUY_PP });
 for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
+await attachProcs(items, opt.content);
 
 const { moves } = planGear({ survey, items, people: rosterPeople(survey, groupOf, raceOf), minGain: Number(opt["min-gain"]), songs: await bardSongs(), shop, buyPp: BUY_PP });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));

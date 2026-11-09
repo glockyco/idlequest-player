@@ -1,7 +1,7 @@
 // The score and farm-time rules shared by tools/gear.mjs and the raid simulator's farmed kits.
 import { expect, test } from "bun:test";
 // @ts-expect-error plain .mjs module without types
-import { CLASS_KEYS, BIT, capFor, farmHours, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
+import { CLASS_KEYS, BIT, capFor, damageBonus, expectedMult, farmHours, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
 
 test("class keys line up with the class bit masks", () => {
   CLASS_KEYS.slice(1).forEach((key: string, i: number) => expect(BIT[key]).toBe(1 << i));
@@ -16,8 +16,30 @@ test("the score is the stat score plus haste and regeneration", () => {
 test("a weapon's damage is capped at the level's limit before it is divided by the delay", () => {
   expect(capFor("warrior", 60)).toBe(100);
   expect(capFor("cleric", 60)).toBe(40);
-  expect(weaponRatio({ damage: 200, delay: 40 }, "warrior", 60)).toBe(100 / 40);
-  expect(weaponRatio({ damage: 12, delay: 30 }, "warrior", 60)).toBe(12 / 30);
+  // Below 28 no flat bonus applies, so the ratio is the capped damage over the delay.
+  expect(weaponRatio({ damage: 200, delay: 40 }, "warrior", 20)).toBe(30 / 40);
+  expect(weaponRatio({ damage: 12, delay: 30 }, "warrior", 20)).toBe(12 / 30);
+});
+
+test("a main-hand hit of a melee class carries the client's flat bonus, two-handers by delay", () => {
+  expect(damageBonus({ itemtype: 0, delay: 30 }, "warrior", 60)).toBe(11);
+  expect(damageBonus({ itemtype: 1, delay: 40 }, "warrior", 60)).toBe(34);
+  expect(damageBonus({ itemtype: 0, delay: 30 }, "wizard", 60)).toBe(0);
+  expect(damageBonus({ itemtype: 0, delay: 30 }, "warrior", 27)).toBe(0);
+  // The bonus adds the same damage to every swing, so it favours the fast weapon at equal damage over delay.
+  const fast = { damage: 10, delay: 20, itemtype: 0 };
+  const slow = { damage: 20, delay: 40, itemtype: 0 };
+  expect(weaponRatio(fast, "warrior", 40)).toBeGreaterThan(weaponRatio(slow, "warrior", 40));
+  // The off hand gets no bonus.
+  expect(weaponRatio(slow, "warrior", 40, { primary: false })).toBe(20 / 40);
+});
+
+test("a proc adds its damage at the wearer's level, (0.5 + DEX/170) times a minute, and none below its level", () => {
+  const blade = { damage: 10, delay: 30, procrate: 0, proclevel: 20, procSpell: { effects: [{ formula: 100, base: -50, max: 0 }], ticks: 0 } };
+  expect(procDamagePerMinute(blade, 30, 85)).toBeCloseTo(1 * 50);
+  expect(procDamagePerMinute({ ...blade, procrate: 50 }, 30, 85)).toBeCloseTo(1.5 * 50);
+  expect(procDamagePerMinute(blade, 19, 85)).toBe(0);
+  expect(weaponRatio(blade, "wizard", 30, { dex: 85 })).toBeCloseTo(10 / 30 + 50 / 60 / (10 * expectedMult(30)));
 });
 
 test("farm hours are respawn over spawn chance and drop chance", () => {

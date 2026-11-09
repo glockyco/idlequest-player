@@ -40,8 +40,9 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
   // A weapon replaces the Monk's fists (10 at 34 delay at level 30) whatever its type, and a
-  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time.
-  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.06]]);
+  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. At 30 a
+  // two-hander's hit also carries the client's flat bonus, which the gain counts.
+  expect(planGear({ survey, items, people }).moves.map((m) => [m.item, m.to, m.gain])).toEqual([["Long Sword", "War", 0.23], ["Great Axe", "Mnk", 0.1]]);
   // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
