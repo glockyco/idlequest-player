@@ -54,7 +54,7 @@
     gearKeepCounts: {}, // item id to the copies the roster gear plan (tools/lib/gear-plan.mjs) still needs: up to that many are kept
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
     keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, kept in every copy
-    keepItemTypes: [14, 15], // food and drink: one stack of each item is kept
+    keepSupply: { 14: 20, 15: 20 }, // food (item type 14) and drink (15): units kept, from the largest stacks, which the server feeds the character from
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
@@ -194,8 +194,8 @@
   /**
    * The fate of every carried item outside containers (docs/plans/inventory.md): kept up to its
    * demand, the rest surplus. Demand keeps up to `gearKeepCounts` copies of an item, and every copy of `keepItemIds`, `keepNames`, the gear plan's
-   * `gearKeepInstances` and the reagents of the leader's class spells, and one
-   * stack of each food and drink (`keepItemTypes`). Surplus the client can sell (a price, not NO
+   * `gearKeepInstances` and the reagents of the leader's class spells, and food and drink up to
+   * `keepSupply` units of each type, from the largest stacks. Surplus the client can sell (a price, not NO
    * DROP, not NO RENT) is `sell`, cheapest first, the rest `discard`. Returns `{ keep, sell,
    * discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
    */
@@ -203,16 +203,16 @@
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
     const out = { keep: [], sell: [], discard: [] };
-    const stacked = new Set();
+    const supplyLeft = { ...config.keepSupply };
     const gearLeft = { ...config.gearKeepCounts };
     const rows = inv.filter((r) => ((r.bag === 0 && r.slot >= 22 && r.slot <= 29) || (r.bag >= 23 && r.bag <= 30) || (withCursor && r.bag === 0 && r.slot === 30)) && r.itemDetails && !((r.itemDetails.bagslots || 0) > 0));
-    // The largest stack of a food or drink is the one kept.
+    // Food and drink come from the largest stacks, so the supply takes the fewest slots.
     rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
     for (const r of rows) {
       const d = r.itemDetails;
       const name = d.Name ?? d.name;
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
-      const supply = config.keepItemTypes.includes(d.itemtype) && !stacked.has(r.itemid) && stacked.add(r.itemid);
+      const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
       const gear = config.gearKeepInstances.includes(r.itemInstanceId) || (gearLeft[r.itemid] > 0 && gearLeft[r.itemid]--);
       if (supply || gear || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);

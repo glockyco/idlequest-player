@@ -34,7 +34,7 @@ Twelve fixes since Nov 9 03:19 each adjusted one rule: Auto-Sell off, a protecte
 
 Bot (`src/bot.js`):
 - `fate(row)` returns keep, sell or discard. Copies of an item up to its demand are kept. Copies beyond it are sold when the client can sell them (a price, not NO DROP, not NO RENT) and discarded otherwise. Containers and equipped items are outside it.
-- Demand: `gearKeep` (item id to copies, from the coordinator), `keepNames` (every copy, from the coordinator), `keepItemIds` (every copy), the reagents of the leader's class spells (every copy), and one stack each of food and drink.
+- Demand: `gearKeep` (item id to copies, from the coordinator), `keepNames` (every copy, from the coordinator), `keepItemIds` (every copy), the reagents of the leader's class spells (every copy), and `keepSupply` units of food and of drink, taken from the largest stacks, because the server feeds the character from any carried meal and drink.
 - `keepReserve()` runs each tick out of combat and before a task that needs room. Below `minFreeSlots` it runs Auto Bank (at most every ten minutes), then sells surplus cheapest first, then discards surplus, until `targetFreeSlots` are free. If wanted items alone leave less, it raises the alert of principle 5.
 - Client options held: Auto-Sell off and Delete Clutter off.
 - Removed: `keepBag` and its No Sell and No Declutter marks, the single and last-resort sale tiers, `keepCopies`, `keepNamePattern`, the effect, food and quest-item exceptions, and the rule that a No Sell bag's contents count as kept.

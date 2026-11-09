@@ -944,6 +944,16 @@ test("the reserve keeps the reagents of the leader's class spells", async () => 
   expect(bot.fates().sell).toEqual([]);
 });
 
+test("the reserve keeps a supply of food and of drink from the largest stacks, not a stack of every kind", async () => {
+  const { bot, me } = await install();
+  const meal = (slot: number, Name: string, itemtype: number, quantity: number) => ({ bag: 23, slot, itemid: 900 + slot, itemInstanceId: 200 + slot, quantity, itemDetails: { Name, price: 5, nodrop: 1, norent: 1, itemtype } });
+  me.inventory = [meal(0, "Beer Braised Rat", 14, 17), meal(1, "Bread Cakes", 14, 12), meal(2, "Rat Sandwich", 14, 4), meal(3, "Malted Milk", 15, 20), meal(4, "Skin of Milk", 15, 3)];
+  const f = bot.fates();
+  // Food: 17 then 12 reach the 20 units, so the third stack is surplus. Drink: one full stack is enough.
+  expect(f.keep.map((k) => k.name).sort()).toEqual(["Beer Braised Rat", "Bread Cakes", "Malted Milk"]);
+  expect(f.sell.map((s) => s.name).sort()).toEqual(["Rat Sandwich", "Skin of Milk"]);
+});
+
 // Lets the bot's in-page switch job run its fake commands to the end.
 const flush = async () => {
   for (let k = 0; k < 20; k++) await Promise.resolve();
