@@ -361,6 +361,8 @@ async function renderTrends() {
 // ---- Loop --------------------------------------------------------------------------------------
 
 let lastState = null;
+// The page files' version this page was loaded with (`page` in the state).
+let pageVersion = null;
 
 async function refresh() {
   let reached = false;
@@ -369,6 +371,9 @@ async function refresh() {
     reached = true;
     const s = await r.json();
     if (s.error) throw new Error(`the collector's state failed: ${s.error}`);
+    // Code that changed since this page loaded may read the state differently, so the page loads it anew.
+    pageVersion ??= s.page;
+    if (s.page !== pageVersion) return location.reload();
     lastState = s;
     renderStatus(s);
     renderNeeds(s);

@@ -1,6 +1,6 @@
 // The dashboard's HTTP server: the page in tools/dashboard/ and its JSON on this machine only. It
 // reads the collector database and runs the report tools, and changes nothing.
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
@@ -103,6 +103,8 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         const daemon = meta("daemon");
         return json({
           now,
+          // The page files' last change, so an open page reloads its code when the data it reads changes shape.
+          page: Math.max(...Object.values(files).map(([f]) => statSync(join(PAGE, f)).mtimeMs)),
           status: statusView({ now, daemon, rows, needs, xp24: xpRate(minutes, now) }),
           needs,
           goal: goalView(db, { roster, plan: plan.value, groupOf, catalog }),
