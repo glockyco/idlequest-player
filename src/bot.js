@@ -41,8 +41,9 @@
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
     // The server's Auto-Sell empties full bags of every item it does not protect, which includes the
     // gear plan's items between its survey and its pulls, so the bot's own cleanup (`surplus`) sells
-    // instead and keeps them.
-    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false },
+    // instead and keeps them. LORE and quest items stay out of the server's cleanup rules
+    // (`loreCleanupEnabled`), because Delete Clutter deleted quest items such as Giant Wood Spider Femurs.
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, loreCleanupEnabled: false },
     // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
