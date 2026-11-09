@@ -1,7 +1,7 @@
 // Checks the roster gear plan (tools/lib/gear-plan.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { fists, itemCard, planGear, walkValue } from "../tools/lib/gear-plan.mjs";
+import { fists, itemCard, mergeSurvey, planGear, walkValue } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -100,6 +100,20 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
   ]);
   expect(keep).toEqual({ counts: { 20: 2 }, instances: [4] });
   expect(planGear({ survey, items: bardItems, people, shop }).moves).toHaveLength(1);
+});
+
+test("a leader's carried item that Inventory Search does not list stays out of the moves", () => {
+  const people = [{ name: "War", cls: "warrior", level: 30, race: "" }];
+  const loose = { ...row("Lead", 6, "Carried", 0, 9), characterName: "Lead", characterId: 9, bag: 22 };
+  const worn = { ...row("War", 1, "Equipped", 14, 1), characterName: "War", characterId: 1, itemId: 21, itemName: "Torch" };
+  // Not found by the search: blocked, so no move pulls it.
+  const survey = mergeSurvey([loose, worn], []);
+  expect(survey.find((r) => r.itemInstanceId === 9)?.blockReason).toBe("Not in Inventory Search.");
+  expect(planGear({ survey, items: bardItems, people }).moves).toEqual([]);
+  // Found by the search: free to move, and the Warrior takes the shield.
+  const reached = mergeSurvey([loose, worn], [{ ...loose }]);
+  expect(reached.find((r) => r.itemInstanceId === 9)?.blockReason).toBe("");
+  expect(planGear({ survey: reached, items: bardItems, people }).moves).toMatchObject([{ item: "Buckler", to: "War" }]);
 });
 
 test("drops become wants for characters in their levels that gain enough after the moves, and are kept once looted", () => {

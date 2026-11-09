@@ -64,11 +64,15 @@ export function surveyWords(names) {
 /**
  * One survey from the parties' own inventories (`inventoryInPage` in tools/iqd.mjs: every worn item
  * of every character in a party, and the leaders' bags) and Inventory Search rows (the companions'
- * carried items). Worn rows come from the parties only, because they are complete there.
+ * carried items). Worn rows come from the parties only, because they are complete there. Inventory
+ * Search lists carried items inside bags only, so a leader's item loose in a general slot is missing
+ * from it and cannot be pulled: such a row gets a `blockReason`, which keeps it out of the moves.
  */
 export function mergeSurvey(party, searched) {
+  const reach = new Set(searched.map((r) => `${r.characterId}:${r.itemInstanceId}`));
   const seen = new Map();
-  for (const r of [...party, ...searched.filter((r) => r.location === "Carried")]) seen.set(`${r.characterId}:${r.itemInstanceId}`, r);
+  for (const r of party) seen.set(`${r.characterId}:${r.itemInstanceId}`, r.location === "Carried" && !reach.has(`${r.characterId}:${r.itemInstanceId}`) ? { ...r, blockReason: "Not in Inventory Search." } : r);
+  for (const r of searched.filter((r) => r.location === "Carried")) seen.set(`${r.characterId}:${r.itemInstanceId}`, r);
   return [...seen.values()];
 }
 
