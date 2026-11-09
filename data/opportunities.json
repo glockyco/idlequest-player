@@ -120,7 +120,7 @@
     "zone": "freporte",
     "keep": "Sir Edwin Motte",
     "item": "Head of Sir Edwin Motte",
-    "count": 7,
+    "quest": "necromancer-epic-apprentice",
     "camp": false,
     "retryMin": 10
   },
