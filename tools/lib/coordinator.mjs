@@ -110,7 +110,8 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
       const who = [...begun, ...fresh];
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
-      if (last && now < last.t + (q.retryMin ?? 120) * 60000) continue;
+      // A task that said when to come back, such as a wait for a spawn point another NPC holds, sets the retry.
+      if (last && now < (last.nextAt ?? last.t + (q.retryMin ?? 120) * 60000)) continue;
       copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }

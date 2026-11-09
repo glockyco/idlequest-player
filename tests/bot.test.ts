@@ -1294,6 +1294,8 @@ test("an NPC wait ends at once while another NPC holds the spawn point, and wait
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "failed" });
     expect(f.bot.state.task.error).toContain("Tykar Renlin cannot spawn while Lozani holds its spawn point");
+    // The occupant may stand for days, so the task asks to come back in six hours.
+    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(5.9 * 3600000);
 
     // An empty point respawns, so the wait goes on until the NPC stands there.
     zone.spawns = [];

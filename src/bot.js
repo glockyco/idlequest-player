@@ -1283,7 +1283,8 @@
             // party does not fight while it waits, so the wait cannot succeed (`points` from the
             // content snapshot, which tools/iqd.mjs adds).
             const at = (s.points ?? []).map((p) => spawns.find((x) => x.spawn2Id === p));
-            if (at.length && at.every((x) => x && x.currentHp > 0)) throw new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`);
+            // The occupant may stand for days, so the coordinator comes back after six hours (`retryAfterMs`).
+            if (at.length && at.every((x) => x && x.currentHp > 0)) throw Object.assign(new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`), { retryAfterMs: 6 * 3600000 });
             if (now() > end) throw new Error(`${s.npc} did not spawn within ${s.waitMin} minutes`);
           }
         }, s.waitMin * 60000 + 30000);
@@ -1546,7 +1547,8 @@
         try {
           return await withTimeout(fn(), timeoutMs, label);
         } catch (e) {
-          if (e instanceof TaskStopped || attempt >= 2) throw e;
+          // An error that says when to come back would only repeat now.
+          if (e instanceof TaskStopped || attempt >= 2 || e?.retryAfterMs) throw e;
           log(`task ${task.kind}: ${label} failed, trying once more: ${e?.message ?? e}`);
           await sleep(3000);
         }
@@ -1559,7 +1561,7 @@
         await TASKS[task.kind](iq(), task, step);
         if (mine()) task.status = "done";
       } catch (e) {
-        if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e) });
+        if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e), ...(e?.retryAfterMs ? { nextAt: now() + e.retryAfterMs } : {}) });
       } finally {
         if (mine()) {
           task.endedAt = now();

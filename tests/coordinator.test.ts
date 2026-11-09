@@ -51,6 +51,14 @@ test("a chain that needs a piece runs for as many members as there are free copi
   expect(decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 0 }, started: { "warrior-epic-fiery": ["Brute"] } })).toMatchObject([{ label: "B", spec: { members: ["Brute"], avoid: ["Tank"] } }]);
 });
 
+test("a quest that said when to come back waits until then instead of its retry interval", () => {
+  const quests = { "paladin-epic-note": { class: "Paladin", minLevel: 15, steps: [{ zone: "freporte", npc: "Tykar Renlin", give: ["Drom's Champagne"], waitMin: 45 }] } };
+  const tabs = [tab("A", "G2", 20, { members: [{ name: "Pal", class: "Paladin", level: 20 }] })];
+  const history = (nextAt: number) => [{ t: NOW - 180 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", nextAt }];
+  expect(decide({ now: NOW, tabs, quests, history: history(NOW + 3 * 3600000) })).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, history: history(NOW - 60000) })).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
+});
+
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);
