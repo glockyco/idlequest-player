@@ -331,38 +331,42 @@ export async function merchantGoods(root, { maxPp }) {
 // chance. One spawn point is assumed, however many the zone has. Infinity without a spawn timer.
 export const farmHours = (s) => (s.respawn > 0 && Number.isFinite(s.respawn) && s.spawn * s.drop > 0 ? s.respawn / (s.spawn * s.drop) / 3600 : Infinity);
 
+// A drop row for the roster gear plan: the enemy, its level, spawn chance, points and respawn, the
+// item's drop chance, and `hours`, the expected hunting for one copy while every spawn point of the
+// enemy is cleared as it respawns. Null when the enemy has no spawn timer.
+const dropRow = (itemId, s) => {
+  const hours = farmHours(s) / Math.max(1, s.points);
+  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn } : null;
+};
+
 /**
- * The gear enemies drop in each band row's zones (data/band-rotations.json), for the roster gear
- * plan's `drops`: `[{ itemId, zone, npc, hours, levels: [min, max] }]`, where `levels` are the
- * row's leader levels and `hours` the expected hunting for one copy while every spawn point of the
- * enemy is cleared as it respawns. Only enemies up to five levels above the row and items that fit
- * a slot and carry stats, armor or damage count. Resolves with `{ drops, items }`.
+ * The gear enemies drop in the band rows' zones (data/band-rotations.json), for the roster gear
+ * plan's `drops` (`dropRow`). Only enemies up to five levels above a row that hunts their zone and
+ * items that fit a slot and carry stats, armor or damage count. Resolves with `{ drops, items }`.
  */
 export async function zoneDrops(root, bandRows) {
   const sorted = [...bandRows].sort((a, b) => a[0] - b[0]);
-  const bands = sorted.map(([min, zones], k) => ({ min, max: (sorted[k + 1]?.[0] ?? 61) - 1, zones }));
+  const bands = sorted.map(([, zones], k) => ({ max: (sorted[k + 1]?.[0] ?? 61) - 1, zones }));
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
   const items = new Map();
   for await (const i of rows(root, "items")) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
   const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
   const drops = [];
   for (const [itemId, list] of sources) {
-    for (const b of bands) {
-      for (const s of list) {
-        if (!b.zones.includes(s.zoneShort) || s.level > b.max + 5) continue;
-        const hours = farmHours(s) / Math.max(1, s.points);
-        if (Number.isFinite(hours)) drops.push({ itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: [b.min, b.max], spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn });
-      }
+    for (const s of list) {
+      if (!bands.some((b) => b.zones.includes(s.zoneShort) && s.level <= b.max + 5)) continue;
+      const row = dropRow(itemId, s);
+      if (row) drops.push(row);
     }
   }
   return { drops, items };
 }
 
 /**
- * The gear picks of data/opportunities.json (`[{ id, item, zone, keep, levels }]`) as drops for the
- * roster gear plan: `[{ itemId, zone, npc, hours, levels, pick }]`, the source in the pick's zone
- * whose enemy matches `keep`, its hours computed as `zoneDrops` does, and `pick` the opportunity id.
- * A pick without such a source is left out. Resolves with `{ drops, items }`, items by id.
+ * The gear picks of data/gear-picks.json (`[{ item, zone, keep }]`), sources outside the band
+ * rotations, as drops for the roster gear plan (`dropRow`): for each pick the source in its zone
+ * whose enemy matches `keep` with the fewest hours per copy. A pick without such a source is left
+ * out. Resolves with `{ drops, items }`, items by id.
  */
 export async function pickDrops(root, picks) {
   const names = new Set(picks.map((o) => o.item));
@@ -374,9 +378,8 @@ export async function pickDrops(root, picks) {
     const keep = new RegExp(o.keep.replace(/ /g, "[ _]"), "i");
     for (const [itemId, i] of items) {
       if (i.Name !== o.item) continue;
-      const s = (sources.get(itemId) ?? []).filter((x) => x.zoneShort === o.zone && keep.test(x.npc)).sort((a, b) => farmHours(a) / Math.max(1, a.points) - farmHours(b) / Math.max(1, b.points))[0];
-      const hours = s ? farmHours(s) / Math.max(1, s.points) : Infinity;
-      if (Number.isFinite(hours)) drops.push({ itemId, zone: o.zone, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: o.levels, pick: o.id, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn });
+      const row = (sources.get(itemId) ?? []).filter((x) => x.zoneShort === o.zone && keep.test(x.npc)).map((s) => dropRow(itemId, s)).filter(Boolean).sort((a, b) => a.hours - b.hours)[0];
+      if (row) drops.push(row);
     }
   }
   return { drops, items };

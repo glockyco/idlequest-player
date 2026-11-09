@@ -4,7 +4,7 @@
 // tools/plan.mjs) come from those tools, not from here.
 import { THRESHOLDS, sessionSummary } from "../iqd.mjs";
 import { MINUTE_MS } from "./minutes.mjs";
-import { targetId } from "./gear-plan.mjs";
+import { targetId, targetRetryMin } from "./acquire.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 
 const DAY = 86400000;
@@ -199,22 +199,20 @@ export function retryAt(catalog, h) {
   if (h.nextAt) return h.nextAt;
   if (h.kind === "quest") return h.t + (catalog.quests[h.id]?.retryMin ?? 120) * 60000;
   if (!h.id || catalog.farms.has(h.id) || (h.kind !== "hunt" && h.kind !== "errand")) return null;
-  return h.t + (catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? 120 : 30)) * 60000;
+  return h.t + (catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? targetRetryMin(h.kind) : 30)) * 60000;
 }
 
 /**
- * The gear pass's most wanted enemies for the dashboard, best first: zone names in full, the gain
- * an hour of hunting each is worth in percent of a wearer's output, the hours until the first wanted
- * drop, why the coordinator hunts it or not (`status`, from `assignTargets`, by `targetId`), and
- * each item with its taker and the taker's group. `limit` caps the rows.
+ * The gear pass's most wanted enemies for the dashboard, best first: zone names in full, the
+ * coordinator's evaluation by `targetId` (`evaluations`, from `decide`), whose `status` says which
+ * group would hunt it for whom, what a copy takes, adds and costs, and why it is or is not hunted,
+ * and each item with its taker and the taker's group. `limit` caps the rows.
  */
-export function mostWantedView(targets, { catalog, groupOf = new Map(), status = {}, limit = 15 }) {
+export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluations = {}, limit = 15 }) {
   return targets.slice(0, limit).map((t) => ({
     npc: t.npc,
     zone: zoneName(catalog, t.zone),
-    perHour: t.perHour / 10,
-    firstHours: t.firstHours,
-    status: status[targetId(t)] ?? null,
+    status: evaluations[targetId(t)]?.status ?? null,
     items: t.items.map((w) => ({ item: w.item, itemId: w.itemId, to: w.to, group: groupOf.get(w.to) ?? null, slot: w.slot, gain: w.gain / 10, hours: w.hours, takers: w.takers ?? 1 })),
   }));
 }

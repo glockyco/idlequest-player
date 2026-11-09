@@ -42,7 +42,7 @@ of a constant per symptom.
 | --- | --- | --- |
 | Adapter | `src/bridge.js` | The world snapshot (party, zone, enemies and their targets, inventory, cursor, open windows, AutoLevel, coin) and the actions: start and stop hunting, travel, target enemies, trade with an NPC, switch the active character, move coin, sell, recover from death, close windows |
 | Controller | `src/bot.js` | The loop: desired state and leases, the reconciler (leader, party, zone, AutoLevel and its limits, client options), the task runner, the safety decision, the bag and spell chores and the time labels |
-| Value model | shared by the page and the tools | Rates per level, zone and group, the death risk model and the costs of escapes, deaths, character switches and trips |
+| Value model | shared by the page and the tools | Rates per level, zone and group, the death risk model, the costs of escapes, deaths, character switches and trips, and what gear is worth getting ([gear acquisition](gear-acquisition.md)) |
 | Coordinator | `tools/iqd.mjs` | Zone assignment from measured rates and spawn capacity, lightstone and coin allocation, task scheduling, experiments with frozen desired states during their blocks, versioned deploys, alerts and the decision log |
 
 ## Tasks

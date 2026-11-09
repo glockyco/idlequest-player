@@ -1,6 +1,6 @@
 # Pre-raid gear
 
-What the roster's 72 characters can farm for gear from enemies of level 50 or less, ranked for each class, and the hunts in `data/opportunities.json` that go after the items whose droppers are named or rare spawns. Raid drops are out of scope. The roster and its groups are in [raid-roster.md](raid-roster.md), the coordinator that runs the hunts in the README section on iqd.
+What the roster's 72 characters can farm for gear from enemies of level 50 or less, ranked for each class, and the picks in `data/gear-picks.json` for the items whose droppers are named or rare spawns. Raid drops are out of scope. The roster and its groups are in [raid-roster.md](raid-roster.md), and how the coordinator hunts gear in [gear-acquisition.md](gear-acquisition.md).
 
 ## How the list is made
 
@@ -364,7 +364,7 @@ Score is the stat score at level 60, and weapons show damage per delay. `hN` is 
 
 ## Items and where they drop
 
-The 195 items that reach a top three. "Entry" names the `data/opportunities.json` entry that hunts the item. An empty entry means a common enemy (the gear pass covers it where it lies in a rotation zone) or a scarce dropper whose copies need more than 250 hours.
+The 195 items that reach a top three. A filled "Entry" marks an item that `data/gear-picks.json` lists. An empty entry means a common enemy (the gear pass covers it where it lies in a rotation zone) or a scarce dropper whose copies need more than 250 hours.
 
 | Item | Dropper (level) | Zone | Drop % | Spawn % | Points | Respawn s | Hours per copy | Scarce because | Wanted by | Entry |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
@@ -564,16 +564,13 @@ The 195 items that reach a top three. "Entry" names the `data/opportunities.json
 | Wurmfire Totem | an elder wyvern (48) | The Skyfire Mountains | 1.0 | 100 | 6 | 640 | 3.0 | common enemy | 72 |  |
 | Yeti Fur-Lined Sleeves | a tundra yeti (32) | The Dreadlands | 0.5 | 100 | 13 | 640 | 2.5 | common enemy | 17 |  |
 
-## Hunts added to data/opportunities.json
+## Picks in data/gear-picks.json
 
-77 entries, ordered by the total score gain over the characters that want the item divided by the hours its copies take. The coordinator takes entries in file order, so the order is the hunting priority. They use `levels` instead of `group`, so any free group whose mean level lies in the range runs them, preferring one already in the zone, and each comes back after `retryMin`.
+The items above with named or rare droppers are listed with their zone and dropper in `data/gear-picks.json`. The gear pass adds them to the drops of the band rotations, and the gear acquisition model ([gear-acquisition.md](gear-acquisition.md)) decides which group hunts which dropper, and how, from what each copy adds to its taker against the hunting it takes.
 
-- `levels` runs from the dropper's level minus 6 to plus 6, within 1 and 60. `tools/gear.mjs` takes enemies up to 6 levels above the party by default, which sets the lower end. The upper end is an assumption that keeps a group from camping an enemy far below it.
-- `count` is the characters that want the item plus those that already wear it, because the coordinator stops once Inventory Search finds that many copies on the account (`tools/iqd.mjs`, `coordinatePass`). A character that wants both slots of a pair is counted once.
-- `retryMin` is the shortest respawn of the dropper's spawn points in minutes, at least 5. The existing Lord Gimblox entry follows the same rule (930 s, 16 minutes).
 - `keep` is the NPC's name without `#` and without a leading article, matched as a case-insensitive pattern (`enemyPattern` in `src/bot.js`). Checked against the snapshot's spawn tables, it matches only that NPC's variants in its zone, except the cyclops, whose pattern is anchored because The Fabled Ancient Cyclops shares the name.
-- `when` is set only for the one item whose spawn points run in the day (`tools/drops.mjs`, the `when` column). Every other dropper spawns at all hours. No entry sets `camp`, so each camps its spawn points.
-- Items whose copies need more than 250 hours at one spawn point are not queued:
+- One dropper, the gnoll embalmer of the Golden Ear Stud, spawns only by day (`tools/drops.mjs`, the `when` column). Gear targets do not read spawn conditions yet, so its hunts can come at night.
+- Items whose copies need more than 250 hours at one spawn point are left out:
 
 | Item | Dropper (level) | Zone | Count | Hours per copy | Hours for all copies |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -588,89 +585,6 @@ The 195 items that reach a top three. "Entry" names the `data/opportunities.json
 | Sentry Helmet | Sentry Kale (39) | Skyshrine | 43 | 15.8 | 680 |
 | Scute Shield | Dunedigger (15) | Northern Desert of Ro | 47 | 17.8 | 836 |
 
-| Entry | Item | Dropper (level) | Zone | Group levels | Count | Retry min | Hours for all copies |
-| --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| gear-loam-encrusted-pantaloons | Loam Encrusted Pantaloons | Stonegrinder Minion (49) | The Hole | 43 to 55 | 20 | 11 | 1 |
-| gear-giant-scalemail-sleeves | Giant Scalemail Sleeves | #Sergeant Breldimer (45) | Kael Drakkel | 39 to 51 | 31 | 9 | 3 |
-| gear-loam-encrusted-sleeves | Loam Encrusted Sleeves | bejeweled elemental (49) | The Hole | 43 to 55 | 20 | 20 | 5 |
-| gear-shrewd-cloak-of-the-kin | Shrewd Cloak of the Kin | Count Taloob (48) | Skyshrine | 42 to 54 | 72 | 11 | 23 |
-| gear-shroud-of-nature | Shroud of Nature | a goblin warder (32) | Mines of Nurga | 26 to 38 | 10 | 18 | 4 |
-| gear-footpads-of-the-tiger | Footpads of the Tiger | #Snowbeast (40) | The Stonebrunt Mountains | 34 to 46 | 4 | 11 | 1 |
-| gear-marr-s-promise | Marr's Promise | Tabien the Goodly (32) | The Rathe Mountains | 26 to 38 | 26 | 10 | 4 |
-| gear-book-of-obulus | Book of Obulus | spectral turnkey (47) | Karnor's Castle | 41 to 53 | 41 | 24 | 45 |
-| gear-tattered-mantle | Tattered Mantle | Gullerback (47) | The Burning Wood | 41 to 53 | 49 | 5 | 9 |
-| gear-icy-skull | Icy Skull | #Icecrafter Leyreon (46) | Kael Drakkel | 40 to 52 | 59 | 9 | 17 |
-| gear-mantle-of-the-elder-serpent | Mantle of the Elder Serpent | #Slyder the Ancient (40) | The Stonebrunt Mountains | 34 to 46 | 25 | 11 | 9 |
-| gear-golden-efreeti-boots | Golden Efreeti Boots | Efreeti Lord Djarn (50) | Nagafen's Lair | 44 to 56 | 67 | 11 | 64 |
-| gear-cracked-leather-belt | Cracked Leather Belt | Lost Spirit (38) | The Hole | 32 to 44 | 31 | 20 | 41 |
-| gear-decisive-boots-of-the-kin | Decisive Boots of the Kin | Count Darchen (48) | Skyshrine | 42 to 54 | 20 | 11 | 28 |
-| gear-diamond-wedding-band | Diamond Wedding Band | Nosja (32) | The Tower of Frozen Shadow | 26 to 38 | 71 | 7 | 66 |
-| gear-medicine-totem | Medicine Totem | Blugtigin (32) | Frontier Mountains | 26 to 38 | 71 | 11 | 37 |
-| gear-kylong-war-helm | Kylong War Helm | #The Skeleton Sepulcher (50) | The Howling Stones | 44 to 56 | 42 | 21 | 26 |
-| gear-crude-stein | Crude Stein | Bouncer Mrang (36) | Oggok | 30 to 42 | 27 | 11 | 5 |
-| gear-crystal-chitin-shield | Crystal Chitin Shield | Crystal Fang (47) | Velketor's Labyrinth | 41 to 53 | 44 | 15 | 88 |
-| gear-reliant-cap-of-the-kin | Reliant Cap of the Kin | Count Morin (48) | Skyshrine | 42 to 54 | 21 | 11 | 44 |
-| gear-ornate-velium-pendant | Ornate Velium Pendant | Councilor Icelok (45) | Icewell Keep | 39 to 51 | 58 | 11 | 41 |
-| gear-ry-gorr-oracle-shield | Ry`Gorr Oracle Shield | Oracle of Ry`Gorr (44) | Eastern Wastes | 38 to 50 | 48 | 11 | 75 |
-| gear-crystal-chitin-gauntlets | Crystal Chitin Gauntlets | a crystalline hunter (48) | Velketor's Labyrinth | 42 to 54 | 48 | 15 | 50 |
-| gear-frozen-shadow-chain-chestguard | Frozen Shadow Chain Chestguard | #an angry chef (34) | The Tower of Frozen Shadow | 28 to 40 | 17 | 7 | 24 |
-| gear-silver-chitin-hand-wraps | Silver Chitin Hand Wraps | a Frenzied Velium Broodling (47) | Velketor's Labyrinth | 41 to 53 | 72 | 15 | 138 |
-| gear-ring-of-the-ancients | Ring of the Ancients | an ancient cyclops (32) | Southern Desert of Ro | 26 to 38 | 71 | 11 | 52 |
-| gear-silver-steel-gauntlets | Silver Steel Gauntlets | Vkjor (50) | Kael Drakkel | 44 to 56 | 5 | 9 | 9 |
-| gear-crystal-spider-eyes | Crystal Spider Eyes | Crystal Eyes (47) | Velketor's Labyrinth | 41 to 53 | 72 | 15 | 138 |
-| gear-mud-covered-leather-leggings | Mud Covered Leather Leggings | Lost Spirit (38) | The Hole | 32 to 44 | 9 | 20 | 12 |
-| gear-braided-ivy-cords | Braided Ivy Cords | Bracken Underbrush (18) | The Lesser Faydark | 12 to 24 | 15 | 11 | 11 |
-| gear-crystal-chitin-circlet | Crystal Chitin Circlet | a crystalline hunter (48) | Velketor's Labyrinth | 42 to 54 | 71 | 15 | 74 |
-| gear-hangman-s-noose | Hangman's Noose | Hangman (48) | Trakanon's Teeth | 42 to 54 | 72 | 10 | 100 |
-| gear-ceremonial-iksar-chestplate | Ceremonial Iksar Chestplate | Crusader Zoglic (45) | Trakanon's Teeth | 39 to 51 | 41 | 10 | 57 |
-| gear-mucilaginous-girdle | Mucilaginous Girdle | #Sentient Bile (50) | The Howling Stones | 44 to 56 | 70 | 21 | 82 |
-| gear-bracer-of-midnight | Bracer of Midnight | Wenglawks Kkeak (43) | Kael Drakkel | 37 to 49 | 4 | 9 | 3 |
-| gear-ring-of-the-frost-spiders | Ring of the Frost Spiders | a Frenzied Velium Stalker (47) | Velketor's Labyrinth | 41 to 53 | 20 | 15 | 45 |
-| gear-silver-dragon-tattoo | Silver Dragon Tattoo | Nojas Blackfist (49) | Kael Drakkel | 43 to 55 | 70 | 9 | 55 |
-| gear-rune-etched-wedding-band | Rune Etched Wedding Band | Daman (32) | The Tower of Frozen Shadow | 26 to 38 | 72 | 7 | 46 |
-| gear-petrified-erudite-heart-amulet | Petrified Erudite Heart Amulet | kobold noble (38) | Nagafen's Lair | 32 to 44 | 25 | 11 | 52 |
-| gear-meditative-blanket | Meditative Blanket | Titail Sinok (45) | Trakanon's Teeth | 39 to 51 | 72 | 10 | 100 |
-| gear-crystal-chitin-armplates | Crystal Chitin Armplates | a crystalline hunter (48) | Velketor's Labyrinth | 42 to 54 | 48 | 15 | 50 |
-| gear-flayed-coldain-skin-leggings | Flayed Coldain-Skin Leggings | Bjoskhua Blackfist (48) | Kael Drakkel | 42 to 54 | 41 | 9 | 47 |
-| gear-obsidian-bead-hoop | Obsidian Bead Hoop | Singe (28) | Solusek's Eye | 22 to 34 | 72 | 11 | 50 |
-| gear-crystal-chitin-boots | Crystal Chitin Boots | a crystalline hunter (48) | Velketor's Labyrinth | 42 to 54 | 48 | 15 | 50 |
-| gear-rune-etched-icewurm-fang | Rune Etched Icewurm Fang | #Oracle Zardukel (46) | Kael Drakkel | 40 to 52 | 8 | 9 | 8 |
-| gear-adamantite-epaulets | Adamantite Epaulets | a ghoul cavalier (36) | The Ruins of Old Guk | 30 to 42 | 25 | 29 | 54 |
-| gear-skullchip-bracelet | Skullchip Bracelet | Miner Bordakn (38) | Frontier Mountains | 32 to 44 | 38 | 11 | 108 |
-| gear-boots-of-dark-passage | Boots of Dark Passage | #Guard Falldrryn (46) | Kael Drakkel | 40 to 52 | 4 | 9 | 12 |
-| gear-fayguard-parrying-dagger | Fayguard Parrying Dagger | #The Crypt Keeper (50) | The Howling Stones | 44 to 56 | 5 | 21 | 7 |
-| gear-runed-cowl | Runed Cowl | a ghoul sage (37) | The Ruins of Old Guk | 31 to 43 | 25 | 29 | 142 |
-| gear-hand-of-the-reaper | Hand of the Reaper | Bile Sentinel (48) | The Howling Stones | 42 to 54 | 7 | 21 | 78 |
-| gear-adamantite-club | Adamantite Club | #The Spectre Sepulcher (50) | The Howling Stones | 44 to 56 | 4 | 21 | 6 |
-| gear-skull-shaped-barbute | Skull-shaped Barbute | the ghoul lord (47) | The Ruins of Old Guk | 41 to 53 | 25 | 29 | 49 |
-| gear-nightshade-wreath | Nightshade Wreath | Maid Issis (34) | The Castle of Mistmoore | 28 to 40 | 46 | 29 | 176 |
-| gear-crystal-lined-slippers | Crystal Lined Slippers | #a crystal purifier (35) | The Crystal Caverns | 29 to 41 | 67 | 20 | 149 |
-| gear-impskin-gloves | Impskin Gloves | Kindle (26) | Solusek's Eye | 20 to 32 | 58 | 11 | 137 |
-| gear-silver-chitin-wristband | Silver Chitin Wristband | a Frenzied Velium Broodling (47) | Velketor's Labyrinth | 41 to 53 | 31 | 15 | 111 |
-| gear-dark-mail-gauntlets | Dark Mail Gauntlets | a ghoul sentinel (42) | The Ruins of Old Guk | 36 to 48 | 26 | 29 | 56 |
-| gear-grim-pauldrons | Grim Pauldrons | Dreadlord Fanrik (50) | Trakanon's Teeth | 44 to 56 | 21 | 10 | 29 |
-| gear-tree-weave | Tree Weave | a mountain giant patriarch (44) | The Dreadlands | 38 to 50 | 34 | 11 | 69 |
-| gear-djarn-s-amethyst-ring | Djarn's Amethyst Ring | Efreeti Lord Djarn (50) | Nagafen's Lair | 44 to 56 | 72 | 11 | 205 |
-| gear-guardians-mace | Guardians Mace | #The Skeleton Sepulcher (50) | The Howling Stones | 44 to 56 | 9 | 21 | 17 |
-| gear-earring-of-essence | Earring of Essence | Soothsayer Dregzak (35) | Frontier Mountains | 29 to 41 | 72 | 11 | 108 |
-| gear-golden-ear-stud | Golden Ear Stud | a gnoll embalmer (16) | Lake Rathetear | 10 to 22, day only | 59 | 7 | 113 |
-| gear-boots-of-the-huntsman | Boots of the Huntsman | Grand Huntsman Darral (49) | Icewell Keep | 43 to 55 | 38 | 350 | 222 |
-| gear-spiroc-feather-spaulders | Spiroc Feather Spaulders | #a spiroc roostmaster (41) | Timorous Deep | 35 to 47 | 13 | 120 | 35 |
-| gear-iksar-scaled-gloves | Iksar Scaled Gloves | Grachnist the Destroyer (32) | The Warsliks Woods | 26 to 38 | 46 | 11 | 109 |
-| gear-crown-of-the-froglok-kings | Crown of the Froglok Kings | the froglok king (47) | The Ruins of Old Guk | 41 to 53 | 68 | 29 | 219 |
-| gear-white-bear-pelt-cloak | White Bear Pelt Cloak | #Trooper Derheim (50) | Kael Drakkel | 44 to 56 | 4 | 9 | 54 |
-| gear-sentry-gauntlets | Sentry Gauntlets | Sentry Nombole (35) | Skyshrine | 29 to 41 | 43 | 11 | 214 |
-| gear-trakasaur-s-tooth | Trakasaur's Tooth | Trakanasaur Rex (50) | Trakanon's Teeth | 44 to 56 | 4 | 10 | 8 |
-| gear-gem-of-rage | Gem of Rage | Reivaj the Battlerager (50) | Kael Drakkel | 44 to 56 | 30 | 9 | 42 |
-| gear-crown-of-the-forlorn | Crown of the Forlorn | King Gragnar (24) | The Warrens | 18 to 30 | 45 | 11 | 133 |
-| gear-sleeves-of-the-ancients | Sleeves of the Ancients | Varithyx (28) | Frontier Mountains | 22 to 34 | 35 | 11 | 124 |
-| gear-prowling-leopard-leggings | Prowling Leopard Leggings | #Prowler of the Jungle (37) | The Stonebrunt Mountains | 31 to 43 | 54 | 20 | 120 |
-| gear-tranquil-staff | Tranquil Staff | skeletal warlord (41) | Karnor's Castle | 35 to 47 | 4 | 24 | 72 |
-| gear-imbued-fighters-staff | Imbued Fighters Staff | frenzied pox scarab (50) | The Ruins of Sebilis | 44 to 56 | 4 | 11 | 74 |
-
 ## Limits
 
-- An item that every class wants has a count of up to 72, so its entry keeps running as long as copies are missing. The coordinator's hunt share (`huntShare`, 15 percent of a group's hour) bounds the time a group spends on hunts.
-- Each entry costs one Inventory Search per coordinator pass and one read of the spawn tables on the first pass, so 77 more entries make a pass slower. Watch the pass time after the first run and drop the lowest entries if it grows.
-- Droppers of level 47 and up have a lower group level of 41 or more. Group 1 (levels 41 to 44) is the only group in range today, and the others are at levels 14 to 22.
 - Re-run the numbers when the snapshot or the survey changes.

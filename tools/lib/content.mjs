@@ -14,16 +14,6 @@ export async function* rows(table, root) {
   }
 }
 
-/** The worn-slot bits (`slots`) of each item named in `names`: `Map(name -> bits)`, null for a name no item has. */
-export async function itemSlots(names, root) {
-  const out = new Map(names.map((n) => [n, null]));
-  for await (const it of rows("items", root)) if (out.get(it.Name) === null) out.set(it.Name, it.slots ?? 0);
-  return out;
-}
-
-/** Primary, secondary and range: the slots whose items are weapons, shields and instruments. */
-export const WEAPON_SLOTS = 8192 | 16384 | 2048;
-
 /**
  * The spawn points (spawn2 ids) in `zone` whose spawn groups can put up an NPC whose name matches
  * `pattern` (spaces match underscores). A directed hunt watches these points: the one that

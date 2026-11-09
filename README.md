@@ -293,14 +293,16 @@ needs (`gearKeepCounts`, copies of each item the account is still short of, `gea
 moves take) and the names of what the coordinator's hunts, errands and quest chains are for
 (`keepNames`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
-The plan also lists the gear that enemies of each band row's zones drop (`zoneDrops` in
-`tools/lib/gear-data.mjs`) where it beats what a character wears, and ranks the enemies by the gear
-gain an hour of hunting them brings (`targets`): each item at its best taker over its hours per
-copy, added up over the enemy's drops. Each coordinator pass gives every free group the target it
-can kill whose worth in XP beats its cost most (`assignTargets` in `tools/lib/coordinator.mjs`): an
-errand inside normal hunting when the zone is in its rotation, a hunt trip when it is not. The
-dashboard lists the top targets as Most wanted, each with why it is or is not hunted. The wants stay
-in the db meta key `gear`, so a restart keeps them.
+The plan also lists the gear that enemies of each band row's zones (`zoneDrops` in
+`tools/lib/gear-data.mjs`) and the named droppers of `data/gear-picks.json` drop, where it beats what
+a character wears, and ranks the enemies by the value an hour of hunting them brings to the account
+(`targets`). Each coordinator pass gives the free groups the targets whose best way of hunting earns
+most, best pair of group and target first: an errand inside normal hunting when the zone is in the
+group's rotation, a camp or a short visit when it is not. Any group may hunt for any character,
+because a gear task moves the copy. `docs/plans/gear-acquisition.md` describes the model and its
+assumptions. The dashboard lists the top targets as Most wanted, each with which group would hunt it
+for whom, what a copy takes, adds and costs, and why it is or is not hunted. The wants stay in the
+db meta key `gear`, so a restart keeps them.
 
 ## Monitoring
 
@@ -342,8 +344,9 @@ nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard
 starts `run` without it.
 
 `run --coordinate` also makes iqd the coordinator of `docs/plans/controller.md`. Every five minutes
-it reads the account's lightstones and the items of `data/opportunities.json` with Inventory
-Search and queues tasks through each bot's own task API (`tools/lib/coordinator.mjs` decides). A
+it reads the account's lightstones and the items of `data/opportunities.json` (epic and quest
+pieces) with Inventory Search and queues tasks through each bot's own task API
+(`tools/lib/coordinator.mjs` decides). A
 batch of at least two stones per member goes to the group with the lowest levels as a hand-in,
 also when it farms: the hand-in ends its farm errand, which the next pass gives back. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
 copies the roster needs or the `quest` chain the piece is for, `when` of `night` or `day`, and `kind`)
@@ -352,12 +355,8 @@ of the chain's class and level who has not done it: an
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt
 camps the enemies' spawn points with the client's Spawn Camp, placeholders included. A hunt comes
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
-`retryMin` minutes. A gear pick (by `levels`, without a group or quest) that fits no weapon slot is
-camped only by a group whose members are all at level 60, because armor and jewelry add almost
-nothing to XP per hour while leveling (leveling plan, lever 7). A weapon pick is camped below 60 only
-when the gear pass names a taker whose output gain, times its share of the party's damage, the XP
-elasticity at its level and the hours until it outlevels the pick, beats the expected camp hours
-(`campPays` in `tools/lib/coordinator.mjs`). Each farm in `data/farms.json` (an errand for loot, such as lightstones from
+`retryMin` minutes. A piece hunt starts only while the group's hunts took less than `huntShare` of
+its last hour, because the gear model does not price pieces. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file

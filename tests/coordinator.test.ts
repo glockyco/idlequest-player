@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignTargets, assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory, targetWorth, visitWorth } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -9,21 +9,21 @@ const page = { id: "p3", group: "G1", zone: "gukbottom", keep: "ghoul", item: "P
 
 test("stones go to the lowest free group only once there are two a member", () => {
   const tabs = [tab("A", "G1", 40), tab("B", "G10", 8), tab("C", "G7", 9)];
-  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 6, Lightstone: 5 } })).toEqual([]);
-  const [a] = decide({ now: NOW, tabs, stock: { "Greater Lightstone": 6, Lightstone: 6 } });
+  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 6, Lightstone: 5 } }).actions).toEqual([]);
+  const [a] = decide({ now: NOW, tabs, stock: { "Greater Lightstone": 6, Lightstone: 6 } }).actions;
   expect(a.label).toBe("B");
   expect(a.kind).toBe("handIn");
   expect(a.spec.members.map((m: { counts: Record<string, number> }) => m.counts)).toEqual(Array(6).fill({ "Greater Lightstone": 1, Lightstone: 1 }));
   // A running task or a recent coordinator task passes the stones to the next lowest group.
   const busy = [tab("A", "G1", 40), tab("B", "G10", 8, { task: { kind: "hunt", status: "running" } }), tab("C", "G7", 9)];
-  expect(decide({ now: NOW, tabs: busy, stock: { "Greater Lightstone": 12 } })[0].label).toBe("C");
-  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "handIn" }] })[0].label).toBe("C");
+  expect(decide({ now: NOW, tabs: busy, stock: { "Greater Lightstone": 12 } }).actions[0].label).toBe("C");
+  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "handIn" }] }).actions[0].label).toBe("C");
 });
 
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
   const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
-  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] })).toEqual([{ label: "A", kind: "stopTask", id: null, spec: null, why: 'quest task running for 91 min at "wait for Tykar Renlin"' }]);
-  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] })).toEqual([]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] }).actions).toEqual([{ label: "A", kind: "stopTask", id: null, spec: null, why: 'quest task running for 91 min at "wait for Tykar Renlin"' }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] }).actions).toEqual([]);
 });
 
 test("a quest piece is needed once for each member of the chain's class and level who has not done it", () => {
@@ -45,29 +45,29 @@ test("a chain that needs a piece runs for as many members as there are free copi
   const quests = { "warrior-epic-fiery": { class: "Warrior", minLevel: 10, needs: ["Heart of Frost"], steps: [{ zone: "eastkarana", npc: "Tenal Redblade", give: ["Heart of Frost"] }] } };
   const war = (label: string, name: string) => tab(label, label, 22, { members: [{ name, class: "Warrior", level: 22 }] });
   const tabs = [war("A", "Tank"), war("B", "Brute")];
-  const out = decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 1 } });
+  const out = decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 1 } }).actions;
   expect(out).toMatchObject([{ label: "A", kind: "quest", spec: { members: ["Tank"], avoid: ["Brute"] } }]);
   // A needer that carries its own copy runs like one part way through.
-  expect(decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 0 }, started: { "warrior-epic-fiery": ["Brute"] } })).toMatchObject([{ label: "B", spec: { members: ["Brute"], avoid: ["Tank"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { "Heart of Frost": 0 }, started: { "warrior-epic-fiery": ["Brute"] } }).actions).toMatchObject([{ label: "B", spec: { members: ["Brute"], avoid: ["Tank"] } }]);
 });
 
 test("a quest that said when to come back waits until then instead of its retry interval", () => {
   const quests = { "paladin-epic-note": { class: "Paladin", minLevel: 15, steps: [{ zone: "freporte", npc: "Tykar Renlin", give: ["Drom's Champagne"], waitMin: 45 }] } };
   const tabs = [tab("A", "G2", 20, { members: [{ name: "Pal", class: "Paladin", level: 20 }] })];
   const history = (nextAt: number) => [{ t: NOW - 180 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", nextAt }];
-  expect(decide({ now: NOW, tabs, quests, history: history(NOW + 3 * 3600000) })).toEqual([]);
-  expect(decide({ now: NOW, tabs, quests, history: history(NOW - 60000) })).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
+  expect(decide({ now: NOW, tabs, quests, history: history(NOW + 3 * 3600000) }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, history: history(NOW - 60000) }).actions).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
 });
 
 test("a failure under older code is retried at once after a deploy, and only once", () => {
   const quests = { "paladin-epic-note": { class: "Paladin", minLevel: 15, retryMin: 120, steps: [{ zone: "freportw", npc: "a prisoner" }] } };
   const tabs = [tab("A", "G2", 20, { members: [{ name: "Pal", class: "Paladin", level: 20 }] })];
   const failed = (code: string) => [{ t: NOW - 40 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", status: "failed", code }];
-  expect(decide({ now: NOW, tabs, quests, history: failed("old"), code: "new" })).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
+  expect(decide({ now: NOW, tabs, quests, history: failed("old"), code: "new" }).actions).toMatchObject([{ kind: "quest", id: "paladin-epic-note" }]);
   // Failed under the code that runs now, it waits its retry interval.
-  expect(decide({ now: NOW, tabs, quests, history: failed("new"), code: "new" })).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, history: failed("new"), code: "new" }).actions).toEqual([]);
   // A run that ended well comes back after its interval, whatever the code.
-  expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" })).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" }).actions).toEqual([]);
 });
 
 test("a chain whose reward a later chain takes stays done, and a finished chain's inputs are let go", () => {
@@ -88,77 +88,69 @@ test("a chain whose reward a later chain takes stays done, and a finished chain'
   expect(keep).toEqual(expect.arrayContaining(["Sealed Note", "Note", "Badge", "SoulFire"]));
 });
 
-test("an armor camp waits until a whole group is at the level cap, and a weapon camp runs when it pays", () => {
-  const helm = { id: "gear-helm", levels: [40, 52], zone: "kael", keep: "Sergeant Breldimer", item: "Helm", count: 3, retryMin: 10, armor: true };
-  const blade = { ...helm, id: "gear-blade", item: "Blade", armor: false };
-  const leveling = [tab("A", "G1", 45)];
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [helm] })).toEqual([]);
-  // A weapon camp needs a taker whose gain beats the camp's hours: 20% for a level 45 character over
-  // 7 levels at 1.5 hours is worth 0.2 x 1/6 x 0.85 x 10.5 = 0.30 hours of the group's XP.
-  const want = (hours: number) => ({ "gear-blade": { to: "A1", level: 45, gain: 200, hours } });
-  const hoursPerLevel = { A1: 1.5 };
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade], picks: want(0.2), hoursPerLevel })).toMatchObject([{ id: "gear-blade" }]);
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade], picks: want(1), hoursPerLevel })).toEqual([]);
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [blade] })).toEqual([]);
-  // At 60 the camp costs only AA XP, outside the pick's level range too.
-  expect(decide({ now: NOW, tabs: [tab("B", "G2", 60)], opportunities: [helm] })).toMatchObject([{ label: "B", id: "gear-helm" }]);
-  // The same piece as an errand inside normal hunting runs while the group levels.
-  expect(decide({ now: NOW, tabs: leveling, opportunities: [{ ...helm, kind: "errand" }] })).toMatchObject([{ kind: "errand" }]);
+// One item for X1, a level 30 character an hour from its next level, one copy an hour of hunting:
+// a gain of g tenths of a percent adds g/1000 x 1/6 x 0.753 x 10 hours of X1's group's progress.
+const target = (npc: string, zone: string, gain: number, npcLevel = 30) => ({ npc, zone, npcLevel, spawn: 1, points: 1, items: [{ item: `${npc} drop`, to: "X1", level: 30, gain, hours: 1, drop: 0.1 }] });
+const hoursPerLevel = { X1: 1 };
+const place = (t: object, zone: string) => ({ ...t, zone, rotation: [zone] });
+
+test("gear targets go to the pairs of group and target that earn most first, not tab by tab", () => {
+  // G1 could camp the fiend (0.75 - 0.1 an hour) or hunt the goo in its rotation (0.38). G2 hunts
+  // the fiend in its own rotation for free (0.75), so G2 takes the fiend and G1 the goo.
+  const tabs = [place(tab("A", "G1", 30), "paw"), place(tab("B", "G2", 30), "unrest")];
+  const targets = [target("a fiend", "unrest", 600), target("a goo", "paw", 300)];
+  const { actions } = decide({ now: NOW, tabs, targets, hoursPerLevel, zoneShare: () => 0.9 });
+  expect(actions.map((a) => [a.label, a.kind, a.id])).toEqual([["B", "errand", "target-unrest-a-fiend"], ["A", "errand", "target-paw-a-goo"]]);
 });
 
-test("the XP elasticity follows the model's table between its levels", () => {
-  expect(elasticity(10)).toBe(0.5);
-  expect(elasticity(29)).toBe(0.74);
-  expect(elasticity(40)).toBeCloseTo(0.835);
-  expect(elasticity(60)).toBe(0.85);
-  expect(campPays({ levels: [20, 30] }, { to: "X", level: 30, gain: 500, hours: 0.1 }, { X: 2 })).toBe(false); // no levels of use left
+test("a target whose best group is busy goes to a free group that still gains, and otherwise waits", () => {
+  const busy = { ...place(tab("B", "G2", 30), "unrest"), task: { kind: "quest", status: "running" } };
+  const tabs = [place(tab("A", "G1", 30), "paw"), busy];
+  const targets = [target("a fiend", "unrest", 600)];
+  // A trip zone that pays 90% of G1's XP makes the camp pay.
+  const paid = decide({ now: NOW, tabs, targets, hoursPerLevel, zoneShare: () => 0.9 });
+  expect(paid.actions).toMatchObject([{ label: "A", kind: "hunt", spec: { zone: "unrest", minutes: 30, waitMin: 0 } }]);
+  expect(paid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G1", kind: "camp" });
+  // A trip that earns no XP costs G1 more than the copy adds, so the fiend waits for G2.
+  const unpaid = decide({ now: NOW, tabs, targets, hoursPerLevel });
+  expect(unpaid.actions).toEqual([]);
+  expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G2", kind: "errand", status: expect.stringMatching(/^waits for a busy group/) });
 });
 
-test("a free group takes the target whose worth beats its cost most, and each target says why it is not hunted", () => {
-  // One item for a level 30 character, useful for 10 levels at an hour each, one copy an hour (a 10%
-  // drop of an enemy that is always up): a gain of g tenths of a percent is worth g/1000 x 1/6 x 0.753
-  // x 10 hours of the group's XP a copy, so an hour of camping and an hour of visits pay the same.
-  const target = (npc: string, zone: string, gain: number, npcLevel = 30) => ({ npc, zone, npcLevel, spawn: 1, points: 1, perHour: gain, items: [{ item: "X", to: "X1", level: 30, until: 40, gain, hours: 1, drop: 0.1 }] });
-  const targets = [target("a fiend", "unrest", 600), target("a warder", "nurga", 1000), target("a goo", "dalnir", 60), target("a broodling", "velketor", 1000, 50), target("a king", "soldunga", 600)];
-  const tabs = [
-    { ...tab("A", "G1", 30), zone: "unrest", rotation: ["unrest"] },
-    { ...tab("B", "G2", 30), zone: "unrest", rotation: ["unrest"], errand: { zone: "unrest", keep: "a ghoul" } },
-    { ...tab("C", "G3", 30), zone: "paw", rotation: ["dalnir", "paw"] },
-  ];
-  const hoursPerLevel = { X1: 1 };
-  expect(targetWorth(targets[1], hoursPerLevel)).toBeCloseTo(1 * (1 / 6) * elasticity(30) * 10);
-  const { errands, status } = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), hoursPerLevel });
-  // G1 hunts the fiend in its shared zone (0.75 - 0.4), G3 travels for the warder (1.26 - 1), and
-  // the goo in G3's rotation (0.08) loses to the trip.
-  expect(errands.map((e) => [e.target.npc, e.group, e.kind])).toEqual([["a fiend", "G1", "errand"], ["a warder", "G3", "camp"]]);
-  expect(status).toEqual(["errand queued for G1", "camp queued for G3", "its groups took better targets", "too strong for every group (level 50)", "zone crowded by other players"]);
-  // A rare spawn (2% on each of 6 points, a copy every 1.39 h of camping) is up on arrival 11% of the
-  // time, so a 6-minute visit pays where a camp does not: 0.114 x 1.255 / 0.1 = 1.43 against 1.
-  const rare = { ...target("Hangman", "trakanon", 1000), spawn: 0.02, points: 6, items: [{ item: "Noose", to: "X1", level: 30, until: 40, gain: 1000, hours: 1.39, drop: 1 }] };
-  expect(visitWorth(rare, hoursPerLevel)).toBeCloseTo((1 - 0.98 ** 6) * targetWorth(targets[1], hoursPerLevel));
-  expect(assignTargets({ targets: [rare], tabs: [tabs[2]], hoursPerLevel }).errands.map((e) => e.kind)).toEqual(["visit"]);
-  // A trip that is worth less than the XP it costs does not run, and says so.
-  const poor = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel });
-  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet for G3: an hour of hunting brings gear worth 50% of an hour of its XP and costs 100%"]);
-  // A trip zone that pays 70% of the group's XP costs only the other 30%.
-  const paid = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel, zoneShare: () => 0.7 });
-  expect(paid.errands.map((e) => [e.target.npc, e.kind])).toEqual([["a warder", "camp"]]);
-  // A group on the target's errand hunts it, and a group an experiment holds takes none.
-  expect(assignTargets({ targets, tabs: [{ ...tabs[1], errand: { zone: "unrest", keep: "a fiend" } }], hoursPerLevel }).status[0]).toBe("hunting: G2");
-  const held = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), held: new Set(["G1", "G3"]), hoursPerLevel });
-  // The status names the group the target pays for, which waits here for its experiment.
-  expect([held.errands, held.status[1]]).toEqual([[], "worth a camp for G1 (an hour of hunting brings gear worth 126% of an hour of its XP and costs 100%), which is held by an experiment"]);
+test("each gear target says why it is not hunted", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw")];
+  const status = (targets: object[], extra = {}) => Object.values(decide({ now: NOW, tabs, targets, hoursPerLevel, ...extra }).targets).map((e: { status: string }) => e.status);
+  expect(status([target("a broodling", "velketor", 1000, 34)])).toEqual([expect.stringMatching(/^too strong for every group/)]);
+  expect(status([target("a king", "soldunga", 600)], { crowded: new Set(["soldunga"]) })).toEqual(["zone crowded by other players"]);
+  // A camp worth 0.5 hours a copy against a whole hour of G1's XP does not pay.
+  expect(status([target("a warder", "nurga", 400)])).toEqual([expect.stringMatching(/^not worth it yet/)]);
+  expect(status([target("a goo", "paw", 300)], { held: new Set(["G1"]) })).toEqual([expect.stringMatching(/^waits for an experiment to end/)]);
+  const last = [{ t: NOW - 30 * 60000, label: "A", kind: "errand", id: "target-paw-a-goo", nextAt: NOW + 60000 }];
+  expect(status([target("a goo", "paw", 300)], { history: last })).toEqual([expect.stringMatching(/^waits for its retry/)]);
+  // A group on the target's errand hunts it.
+  const on = [{ ...tabs[0], errand: { zone: "paw", keep: "a goo" } }];
+  expect(Object.values(decide({ now: NOW, tabs: on, targets: [target("a goo", "paw", 300)], hoursPerLevel }).targets)).toMatchObject([{ status: "hunting: G1" }]);
+});
+
+test("a rare spawn gets a short visit, and a camp clears the target's spawn points", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw")];
+  // 2% on each of 6 points: up on arrival 11% of the time, so a 6-minute visit adds 0.114 x 1.26
+  // hours against 0.1, where a camp of 1.39 hours a copy adds 1.26 against 1.39.
+  const rare = { ...target("Hangman", "trakanon", 1000), spawn: 0.02, points: 6, items: [{ item: "Noose", to: "X1", level: 30, gain: 1000, hours: 1.39, drop: 1 }] };
+  expect(decide({ now: NOW, tabs, targets: [rare], hoursPerLevel }).actions).toEqual([expect.objectContaining({ kind: "hunt", spec: { zone: "trakanon", keep: "Hangman", item: "Noose", waitMin: 0, minutes: 6 } })]);
+  const camp = decide({ now: NOW, tabs, targets: [target("a fiend", "unrest", 600)], hoursPerLevel, zoneShare: () => 0.9, points: { "target-unrest-a-fiend": [11, 12] } });
+  expect(camp.actions[0].spec.points).toEqual([11, 12]);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
-  expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);
-  expect(decide({ now: NOW, tabs, opportunities: [page], missing: { p3: 0 } })).toEqual([]);
-  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, when: "night" }] })).toEqual([]);
-  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, { gameHour: 21 })], opportunities: [{ ...page, when: "night" }] })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [page] }).actions).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], missing: { p3: 0 } }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, when: "night" }] }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, { gameHour: 21 })], opportunities: [{ ...page, when: "night" }] }).actions).toHaveLength(1);
   const history = [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", ms: 120000 }];
-  expect(decide({ now: NOW, tabs, opportunities: [page], history })).toEqual([]);
-  expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [page], history }).actions).toEqual([]);
+  expect(decide({ now: NOW + 6 * 60000, tabs, opportunities: [page], history }).actions).toHaveLength(1);
 });
 
 test("quest pieces go first, the one most characters still miss first, and gear hunts keep the file order", () => {
@@ -166,41 +158,41 @@ test("quest pieces go first, the one most characters still miss first, and gear 
   const gear = { id: "gear-belt", group: "G1", zone: "kurn", keep: "a skeleton", item: "Belt" };
   const head = { id: "nec-motte", group: "G1", zone: "freporte", keep: "Sir Edwin Motte", item: "Head", quest: "nec" };
   const ring = { id: "clr-gimblox", group: "G1", zone: "soldunga", keep: "Lord Gimblox", item: "Ring", quest: "clr" };
-  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 7, "clr-gimblox": 1 } })[0].id).toBe("nec-motte");
-  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 1 } })[0].id).toBe("clr-gimblox");
-  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 0 } })[0].id).toBe("gear-belt");
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 7, "clr-gimblox": 1 } }).actions[0].id).toBe("nec-motte");
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 1 } }).actions[0].id).toBe("clr-gimblox");
+  expect(decide({ now: NOW, tabs, opportunities: [gear, ring, head], missing: { "nec-motte": 0, "clr-gimblox": 0 } }).actions[0].id).toBe("gear-belt");
 });
 
 test("a group whose leader carries the piece does not hunt it", () => {
   const tabs = [tab("A", "G1", 40)];
-  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A0"] } })).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A0"] } }).actions).toEqual([]);
   // A copy another character carries leaves the hunt to the group.
-  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A3"] } })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [page], carriedBy: { p3: ["A3"] } }).actions).toHaveLength(1);
 });
 
 test("a hunt that reported its next respawn comes back then, earlier or later than the retry interval", () => {
   const tabs = [tab("A", "G1", 40)];
   const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt, ms: 120000 }];
-  expect(decide({ now: NOW, tabs, opportunities: [page], history: hunted(NOW + 60000) })).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: hunted(NOW + 60000) }).actions).toEqual([]);
   // Five minutes after a hunt that set its return time, the 20 minute gap does not hold the tab.
   const soon = [{ t: NOW - 5 * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW - 1000, ms: 120000 }];
-  expect(decide({ now: NOW, tabs, opportunities: [page], history: soon })).toHaveLength(1);
-  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) })).toMatchObject([{ spec: { points: [7] } }]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: soon }).actions).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) }).actions).toMatchObject([{ spec: { points: [7] } }]);
 });
 
 test("hunts stop for a tab once they took its share of the last hour", () => {
   const tabs = [tab("A", "G1", 40)];
   const ring = { ...page, id: "ring" };
   const busy = [6, 4].map((m) => ({ t: NOW - m * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW + 3600000, ms: 4.5 * 60000 }));
-  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy })).toEqual([]);
-  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy.slice(0, 1) })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy.slice(0, 1) }).actions).toHaveLength(1);
 });
 
 test("an errand opportunity queues an errand, and a tab on an errand gets no other task", () => {
   const pages = { id: "m1", group: "G2", kind: "errand", zone: "najena", keep: "magician", item: "Page" };
-  expect(decide({ now: NOW, tabs: [tab("B", "G2", 17)], opportunities: [pages] })).toMatchObject([{ kind: "errand", spec: { zone: "najena", keep: "magician", minutes: 60 } }]);
+  expect(decide({ now: NOW, tabs: [tab("B", "G2", 17)], opportunities: [pages] }).actions).toMatchObject([{ kind: "errand", spec: { zone: "najena", keep: "magician", minutes: 60 } }]);
   const busy = [tab("B", "G2", 17, { errand: { zone: "nektulos" } }), tab("C", "G7", 20)];
-  expect(decide({ now: NOW, tabs: busy, opportunities: [pages], stock: { "Greater Lightstone": 12 } })).toMatchObject([{ label: "C", kind: "handIn" }]);
+  expect(decide({ now: NOW, tabs: busy, opportunities: [pages], stock: { "Greater Lightstone": 12 } }).actions).toMatchObject([{ label: "C", kind: "handIn" }]);
 });
 
 test("a farm keeps at most maxGroups groups, the lowest in its levels, and fills free places", () => {
@@ -208,49 +200,49 @@ test("a farm keeps at most maxGroups groups, the lowest in its levels, and fills
   const farming = { zone: "nektulos", keep: "wisp" };
   const tabs = [tab("A", "G3", 13, { errand: farming }), tab("B", "G6", 11, { errand: farming }), tab("C", "G8", 12, { errand: farming }), tab("D", "G1", 41)];
   // Three on the farm: the highest stops, and nobody joins.
-  expect(decide({ now: NOW, tabs, farms: [wisps] }).map((a) => [a.label, a.kind])).toEqual([["A", "stopErrand"]]);
+  expect(decide({ now: NOW, tabs, farms: [wisps] }).actions.map((a) => [a.label, a.kind])).toEqual([["A", "stopErrand"]]);
   // One on the farm, one free group in its levels: that group joins, the level 41 group does not.
   const one = [tab("A", "G3", 13), tab("B", "G6", 11, { errand: farming }), tab("D", "G1", 41), tab("E", "G9", 16)];
-  expect(decide({ now: NOW, tabs: one, farms: [wisps] })).toMatchObject([{ label: "A", kind: "errand", spec: { zone: "nektulos", keep: "wisp", minutes: 120 } }]);
+  expect(decide({ now: NOW, tabs: one, farms: [wisps] }).actions).toMatchObject([{ label: "A", kind: "errand", spec: { zone: "nektulos", keep: "wisp", minutes: 120 } }]);
   // A farming group that outgrew the levels stops.
-  expect(decide({ now: NOW, tabs: [tab("E", "G9", 16, { errand: farming })], farms: [wisps] })).toMatchObject([{ label: "E", kind: "stopErrand" }]);
+  expect(decide({ now: NOW, tabs: [tab("E", "G9", 16, { errand: farming })], farms: [wisps] }).actions).toMatchObject([{ label: "E", kind: "stopErrand" }]);
 });
 
 test("an opportunity with levels goes to a free group inside them, one already in the zone first", () => {
   const pages = { id: "m1", levels: [11, 21], kind: "errand", zone: "najena", keep: "magician", item: "Page" };
   const tabs = [tab("A", "G1", 41), tab("B", "G5", 12), tab("C", "G2", 18, { zone: "najena" }), tab("D", "G9", 13)];
-  expect(decide({ now: NOW, tabs, opportunities: [pages] })).toMatchObject([{ label: "C", kind: "errand", why: "Page for G2" }]);
+  expect(decide({ now: NOW, tabs, opportunities: [pages] }).actions).toMatchObject([{ label: "C", kind: "errand", why: "Page for G2" }]);
   const elsewhere = tabs.map((t) => ({ ...t, zone: "warrens" }));
-  expect(decide({ now: NOW, tabs: elsewhere, opportunities: [pages] })).toMatchObject([{ label: "B" }]);
+  expect(decide({ now: NOW, tabs: elsewhere, opportunities: [pages] }).actions).toMatchObject([{ label: "B" }]);
 });
 
 test("errands for pieces from the same enemies go to one group", () => {
   const page = (id: string) => ({ id, levels: [11, 21], kind: "errand", zone: "najena", keep: "magician", item: id });
   const tabs = [tab("B", "G5", 12), tab("D", "G9", 13)];
-  expect(decide({ now: NOW, tabs, opportunities: [page("p1"), page("p2")] })).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [page("p1"), page("p2")] }).actions).toHaveLength(1);
   const busy = [tab("B", "G5", 12, { errand: { zone: "najena", keep: "magician" } }), tab("D", "G9", 13)];
-  expect(decide({ now: NOW, tabs: busy, opportunities: [page("p1")] })).toEqual([]);
+  expect(decide({ now: NOW, tabs: busy, opportunities: [page("p1")] }).actions).toEqual([]);
 });
 
 test("a quest chain runs for the members of its class who lack the reward", () => {
   const quests = { w1: { class: "Warrior", minLevel: 10, reward: "Totem", steps: [{ zone: "freporte", npc: "Kargek" }] } };
   const war = (label: string, group: string, level: number, name: string) => ({ ...tab(label, group, level), members: [{ name, level, class: "Warrior" }, { name: `${label}c`, level, class: "Cleric" }] });
   const tabs = [war("A", "G1", 41, "Tagu"), war("B", "G4", 12, "Thal"), war("C", "G6", 8, "Low")];
-  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] } })).toMatchObject([{ label: "B", kind: "quest", spec: { members: ["Thal"] } }]);
-  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] }, history: [{ t: NOW - 60 * 60000, label: "B", kind: "quest", id: "w1" }] })).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] } }).actions).toMatchObject([{ label: "B", kind: "quest", spec: { members: ["Thal"] } }]);
+  expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] }, history: [{ t: NOW - 60 * 60000, label: "B", kind: "quest", id: "w1" }] }).actions).toEqual([]);
 });
 
 test("gear moves go to the free tab with the lowest levels", () => {
   const tabs = [tab("A", "G1", 41), tab("B", "G5", 12, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
   const moves = [{ item: "Cloak", from: "X", to: "Y", slot: "back" }];
-  expect(decide({ now: NOW, tabs, gear: { moves } })).toMatchObject([{ label: "C", kind: "gear", spec: { moves } }]);
-  expect(decide({ now: NOW, tabs, gear: { moves: [] } })).toEqual([]);
+  expect(decide({ now: NOW, tabs, gear: { moves } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves } }]);
+  expect(decide({ now: NOW, tabs, gear: { moves: [] } }).actions).toEqual([]);
 });
 
 test("a quest chain takes a tab before a camp would", () => {
   const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
-  expect(decide({ now: NOW, tabs, quests, opportunities: [page] })).toMatchObject([{ label: "A", kind: "quest" }]);
+  expect(decide({ now: NOW, tabs, quests, opportunities: [page] }).actions).toMatchObject([{ label: "A", kind: "quest" }]);
 });
 
 test("an experiment gives arm A the setting and arm B the other in the first block, swaps, then ends on the other", () => {
@@ -265,14 +257,14 @@ test("an experiment gives arm A the setting and arm B the other in the first blo
   expect([after.settings, after.events, after.held.size]).toEqual([{ G4: x.without, G5: x.without }, [{ id: "con", kind: "end", start: NOW }], 0]);
   expect(experimentSettings({ now: NOW + 200 * 60000, experiments: [x], started: { con: NOW }, ended: { con: NOW } }).events).toEqual([]);
   // A held group's errand stops, whatever it hunts for.
-  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "najena", keep: "magician" } })], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "najena", keep: "magician" } })], held: new Set(["G4"]) }).actions).toMatchObject([{ kind: "stopErrand" }]);
   // A held group gets no new errand, also one that names it, such as a wanted target.
   const drop = { id: "target-kurn-a-skeleton", group: "G4", kind: "errand", zone: "kurn", keep: "a skeleton", item: "Fine Cloak", count: 1 };
-  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop], held: new Set(["G4"]) })).toEqual([]);
-  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop] })).toMatchObject([{ kind: "errand" }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop], held: new Set(["G4"]) }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop] }).actions).toMatchObject([{ kind: "errand" }]);
   // A farm skips a held group and stops it when it farms.
   const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
-  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "nektulos", keep: "wisp" } })], farms: [farm], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "nektulos", keep: "wisp" } })], farms: [farm], held: new Set(["G4"]) }).actions).toMatchObject([{ kind: "stopErrand" }]);
 });
 
 test("an experiment that leaves the file before its end returns its groups to the other setting once", () => {
@@ -300,23 +292,23 @@ test("an experiment queued after another starts once that one has ended", () => 
 test("stones reach the lowest group also while it farms", () => {
   const farm = { id: "w", zone: "nektulos", keep: "wisp", levels: [10, 15], maxGroups: 2, minutes: 120 };
   const tabs = [tab("A", "G6", 12, { errand: { zone: "nektulos", keep: "wisp" } }), tab("B", "G9", 15)];
-  expect(decide({ now: NOW, tabs, farms: [farm], stock: { "Greater Lightstone": 12 } }).find((a) => a.kind === "handIn")?.label).toBe("A");
+  expect(decide({ now: NOW, tabs, farms: [farm], stock: { "Greater Lightstone": 12 } }).actions.find((a) => a.kind === "handIn")?.label).toBe("A");
 });
 
 test("a quest that needs a dropped item runs for as many members as the account holds copies", () => {
   const quests = { n1: { class: "Necromancer", reward: "Symbol", needs: ["Head"], steps: [{ zone: "lakerathe", npc: "Kazen" }] } };
   const necro = (label: string, group: string, names: string[]) => ({ ...tab(label, group, 14), members: names.map((name) => ({ name, level: 14, class: "Necromancer" })) });
   const tabs = [necro("A", "G4", ["N1", "N2"]), necro("B", "G5", ["N3"])];
-  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 } })).toEqual([]);
-  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 } })).toMatchObject([{ label: "A", spec: { members: ["N1"] } }]);
-  expect(decide({ now: NOW, tabs, quests, have: { Head: 3 } }).map((a) => a.spec.members)).toEqual([["N1", "N2"], ["N3"]]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 } }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 } }).actions).toMatchObject([{ label: "A", spec: { members: ["N1"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 3 } }).actions.map((a) => a.spec.members)).toEqual([["N1", "N2"], ["N3"]]);
 });
 
 test("a member part way through a quest runs it without a copy of what it needs", () => {
   const quests = { n1: { class: "Necromancer", reward: "Symbol", needs: ["Head"], steps: [{ zone: "lakerathe", npc: "Kazen" }] } };
   const tabs = [{ ...tab("A", "G4", 14), members: ["N1", "N2"].map((name) => ({ name, level: 14, class: "Necromancer" })) }];
-  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2"] } }]);
-  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 }, started: { n1: ["N2"] } })).toMatchObject([{ spec: { members: ["N2", "N1"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 0 }, started: { n1: ["N2"] } }).actions).toMatchObject([{ spec: { members: ["N2"] } }]);
+  expect(decide({ now: NOW, tabs, quests, have: { Head: 1 }, started: { n1: ["N2"] } }).actions).toMatchObject([{ spec: { members: ["N2", "N1"] } }]);
 });
 
 const ROWS = [[14, ["warrens", "kurn", "runnyeye", "najena", "guktop"]]];
@@ -394,9 +386,9 @@ test("a rotation set within the settle time stays while the group travels", () =
 test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share", () => {
   const tabs = [tab("A", "G1", 40)];
   // A camp started 9 minutes ago is still running, so 0.15 h minus 9 minutes leaves none.
-  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] })).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] }).actions).toEqual([]);
   // One finished 2-minute hunt leaves 7 minutes for the next.
-  const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] });
+  const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] }).actions;
   expect(a.spec.minutes).toBe(7);
 });
 
@@ -409,12 +401,12 @@ test("no two quest chains give the same reward to the same class, and every hunt
   expect(ops.filter((o: { quest?: string }) => o.quest && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
 });
 
-test("every hunt and farm names a zone the live game has", async () => {
+test("every hunt, pick and farm names a zone the live game has", async () => {
   // A zone of the content snapshot that the live game lacks fails the bot's travel, as Bayle's
   // Forest did for the first Magi`kot page, whose wolves the live game has in Kithicor Forest.
   const read = async (f: string) => JSON.parse(await Bun.file(new URL(`../data/${f}.json`, import.meta.url)).text());
   const live = new Set(await read("live-zones"));
-  for (const f of ["opportunities", "farms"]) expect([f, (await read(f)).filter((o: { zone: string }) => !live.has(o.zone)).map((o: { zone: string }) => o.zone)]).toEqual([f, []]);
+  for (const f of ["opportunities", "gear-picks", "farms"]) expect([f, (await read(f)).filter((o: { zone: string }) => !live.has(o.zone)).map((o: { zone: string }) => o.zone)]).toEqual([f, []]);
 });
 
 test("a chain member is past its needed pieces only from the step that uses them up", () => {

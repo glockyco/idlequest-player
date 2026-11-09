@@ -116,11 +116,11 @@ test("a target counts each item once at its best taker and each character slot o
   // own hours per copy: the Hand Drum's gain over 2 h plus the Big Drum's over 4 h.
   const drummer = targets.find((t) => t.npc === "a drummer")!;
   expect(drummer.items.map((w) => [w.to, w.item, w.takers])).toEqual([["B1", "Hand Drum", 2], ["B2", "Big Drum", 2]]);
-  expect(drummer.perHour).toBeCloseTo(walkValue(18, walk) / 2 + walkValue(20, walk) / 4, 1);
+  expect(drummer.rate).toBeCloseTo(walkValue(18, walk) / 2 + walkValue(20, walk) / 4, 1);
   expect(drummer.firstHours).toBeCloseTo(1 / (1 / 2 + 1 / 4), 2);
   // The skeleton drops the Hand Drum twice as often, which is worth more than both drops of the drummer.
   expect(targets[0].npc).toBe("a skeleton");
-  expect(targets[0].perHour).toBeCloseTo(walkValue(18, walk), 1);
+  expect(targets[0].rate).toBeCloseTo(walkValue(18, walk), 1);
 });
 
 test("a leader's carried item that Inventory Search does not list stays out of the moves", () => {
@@ -137,22 +137,20 @@ test("a leader's carried item that Inventory Search does not list stays out of t
   expect(planGear({ survey: reached, items: bardItems, people }).moves).toMatchObject([{ item: "Buckler", to: "War" }]);
 });
 
-test("drops become wants for characters in their levels that gain enough after the moves, and are kept once looted", () => {
+test("drops become wants for every character that gains enough after the moves, and are kept once looted", () => {
   const people = [
     { name: "Tank", cls: "warrior", level: 20, race: "" },
     { name: "Old", cls: "warrior", level: 40, race: "" },
   ];
   const survey = [row("Tank", 2, "Equipped", 8, 1), row("Old", 2, "Equipped", 8, 2)];
-  const drops = [{ itemId: 1, zone: "kurn", npc: "a skeleton", hours: 2, levels: [15, 25] }];
-  // The Fine Cloak beats the Plain Cloak by far more than twice the armor threshold.
+  const drops = [{ itemId: 1, zone: "kurn", npc: "a skeleton", hours: 2 }];
+  // The Fine Cloak beats the Plain Cloak by far more than twice the armor threshold, for both, since
+  // any group may hunt it and a gear task moves the copy.
   const plan = planGear({ survey, items, people, drops });
-  expect(plan.drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }]);
+  expect(plan.drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }, { to: "Old" }]);
   expect(plan.keep.counts[1]).toBe(2);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
-  // A character outside the drop's levels gets no errand for it, but a looted copy is still kept for it.
-  const old = planGear({ survey, items, people: people.slice(1), drops });
-  expect([old.drops, old.keep.counts[1]]).toEqual([[], 1]);
 });
 
 test("the off-hand chance is (Dual Wield + level) / 400 for a class with the skill", () => {

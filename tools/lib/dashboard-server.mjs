@@ -111,7 +111,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,
-          gear: { ...gearView(db, { roster }), wanted: mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, status: meta("targetStatus")?.status ?? {} }) },
+          gear: { ...gearView(db, { roster }), wanted: mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, evaluations: meta("targetStatus")?.targets ?? {} }) },
           epics: epicsView(meta("coordinator")),
           attention: { info: attention.info, resolved: attention.resolved, manual: attention.manual },
           engineering: engineeringView(db, now),

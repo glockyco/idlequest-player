@@ -3,6 +3,7 @@
 // returns the tasks to queue, and tools/iqd.mjs gathers the inputs and queues the tasks in the
 // pages through the bot's own task API. It never plays a step itself.
 import { stoneShares } from "../../src/group.mjs";
+import { ACQUIRE, bestWay, describeWay, netRate, targetId, targetRetryMin } from "./acquire.mjs";
 import { estimate } from "./rates.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
@@ -15,14 +16,12 @@ export const DEFAULTS = {
   minStonesPerMember: 2,
   // A tab gets at most one coordinator task in this window, so a failing task cannot loop.
   taskGapMin: 20,
-  // Hunts and camps take a tab away from its own hunting, so they get at most this share of a tab's
-  // last hour until the value model weighs a piece against the XP it costs.
+  // A hunt for an epic or quest piece, whose value the gear model does not price, starts only while
+  // the tab's hunts took less than this share of its last hour.
   huntShare: 0.15,
   // A task running this long, half again the hour that raises the long-task alert, waits for
   // something that is not coming (an NPC that never spawns), so it stops and the tab hunts again.
   taskStopMin: 90,
-  // The highest level a character reaches. From here its XP goes to AA.
-  levelCap: 60,
 };
 
 /**
@@ -127,39 +126,14 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
   return quests[o.quest] ? chainNeeders(o.quest, { quests, holders, members }).length : (o.count ?? 1);
 }
 
-// XP per hour against party damage, the calibrated model's elasticity by level (leveling plan, lever 7).
-const ELASTICITY = [[20, 0.5], [29, 0.74], [35, 0.82], [45, 0.85]];
-export const elasticity = (level) => {
-  if (level <= ELASTICITY[0][0]) return ELASTICITY[0][1];
-  for (let k = 1; k < ELASTICITY.length; k++) {
-    const [l1, e1] = ELASTICITY[k];
-    const [l0, e0] = ELASTICITY[k - 1];
-    if (level <= l1) return e0 + ((e1 - e0) * (level - l0)) / (l1 - l0);
-  }
-  return ELASTICITY.at(-1)[1];
-};
-/**
- * Whether a camp for gear pick `o` pays: the XP the piece adds while its taker wears it beats the
- * XP the camp costs. Both scale with the group's XP per hour, which cancels: the taker's output gain
- * (`w.gain`, tenths of a percent) times its share of the party's damage (one of six members) times
- * the elasticity at its level, over the hours until it outlevels the pick's range (`o.levels[1]`),
- * against the expected camp hours for one copy (`w.hours`).
- */
-export function campPays(o, w, hoursPerLevel = {}) {
-  if (!w || !(w.hours > 0)) return false;
-  const use = Math.max(0, o.levels[1] - w.level) * (hoursPerLevel[w.to] ?? 0);
-  return (w.gain / 1000) * (1 / 6) * elasticity(w.level) * use >= w.hours;
-}
-
 /**
  * The tasks to queue now. Inputs:
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
- * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points, armor }]`,
- *   where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
+ * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
+ *   epic and quest pieces, where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false, when it fights them through Enemy Targets wherever they stand.
- *   `armor` marks a gear pick (by `levels`, no quest or group) that fits no weapon slot (tools/iqd.mjs).
  * - `missing`: copies of each opportunity's item the account still needs, `{ [id]: n }` (tools/iqd.mjs counts them),
  *   and `carriedBy`, who carries each opportunity's item, `{ [id]: [name] }`.
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
@@ -169,16 +143,18 @@ export function campPays(o, w, hoursPerLevel = {}) {
  *   carry the reward of one of its earlier steps, `{ [id]: [name] }`, and `have`, the account's
  *   copies of each item a quest `needs`, `{ [item]: n }`.
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
- * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
- *   errands by level range, because both change the limits the arms compare.
+ * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms, no gear
+ *   targets and no errands by level range, because these change the limits the arms compare.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id, code }]`, where `code` is the
  *   bot and bridge code the task ran under, and `code` the code the tabs run now.
- * - `picks`: the gear pass's best taker of each camped gear pick, `{ [id]: { to, level, gain, hours } }`
- *   (tools/lib/gear-plan.mjs), and `hoursPerLevel`, `{ [name]: hours }` at the character's group's rate.
- * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's
- * errand and `stopTask` its running task.
+ * - `targets`: the gear pass's enemies worth hunting for gear (tools/lib/gear-plan.mjs), best first,
+ *   `crowded`, zones other players crowd (`crowdedZones`), `points`, the spawn points of each target
+ *   by `targetId`, and the terms of `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel` and `zoneShare`.
+ * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id? }]`, at most one per tab,
+ * where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and `targets`, by
+ * `targetId`, the group each target pays most for, its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, picks = {}, hoursPerLevel = {}, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
@@ -227,12 +203,11 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     }
   }
 
-  // Epic and quest pieces next. An opportunity names its group, or `levels` for any free group
-  // whose mean level lies inside, preferring one already in the zone, because NO DROP pieces move
-  // between account characters. It waits for its time of day.
-  // Pieces of a quest chain come first, those most characters still miss first, because a kill
-  // that serves several characters' chains is worth more than one for a single piece of gear.
-  // The rest keep the file's order.
+  // Epic and quest pieces next, whose value the gear model does not price. An opportunity names
+  // its group, or `levels` for any free group whose mean level lies inside, preferring one already
+  // in the zone, because NO DROP pieces move between account characters. It waits for its time of
+  // day. Pieces of a quest chain come first, those most characters still miss first, because a
+  // kill that serves several characters' chains is worth more than one for a single piece.
   const rank = (o) => (o.quest ? (missing[o.id] ?? 0) : -1);
   for (const o of [...opportunities].sort((a, b) => rank(b) - rank(a))) {
     if (missing[o.id] === 0) continue;
@@ -241,18 +216,11 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     // The leader loots, and a lore piece it already carries stays on the corpse, so a group whose
     // leader carries the piece does not hunt it until a member has taken it.
     const looter = (t) => !(carriedBy[o.id] ?? []).includes(t.members[0]?.name);
-    // Armor and jewelry add almost nothing to XP per hour while a group levels (leveling plan,
-    // lever 7), so a camp for them would cost the group's XP for nothing. It waits until every member
-    // is at the level cap, when it costs only AA XP, and then any such group may take it.
-    const capped = (t) => t.members.every((m) => (m.level ?? 0) >= cfg.levelCap);
-    const fits = (t) => (o.armor && o.kind !== "errand" ? capped(t) : mean(t) >= o.levels[0] && mean(t) <= o.levels[1]);
     const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && fits(t)).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
+      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && !held.has(t.group) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
       : tabs.find((t) => t.group === o.group);
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
     if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
-    // A weapon camp below the level cap runs only when its expected value beats the XP it costs.
-    if (o.armor === false && o.kind !== "errand" && !capped(tab) && !campPays(o, picks[o.id], hoursPerLevel)) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
@@ -264,6 +232,55 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     const left = Math.floor((cfg.huntShare * 3600000 - huntMs(tab.label)) / 60000);
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.max(1, Math.min(o.minutes ?? 20, left)) };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
+  }
+
+  // Gear targets (docs/plans/gear-acquisition.md): any group may hunt for any character, because a
+  // gear task moves the copy afterwards. Among the free tabs (no experiment holds their group) and
+  // the targets in zones no tab found crowded lately, whose last hunt is due, the pair whose best way
+  // (`bestWay`) earns most per hour of the hunting group's time goes first, then the best pair of
+  // what is left, so a tab never takes a target another free tab gets more cheaply.
+  const targetEval = {};
+  const lastHunt = (id) => history.filter((h) => h.id === id).at(-1);
+  const ctx = { tabs, hoursPerLevel, zoneShare };
+  const hunter = (t) => free(t) && t.members.length && !held.has(t.group);
+  const pairs = [];
+  for (const t of tabs.filter(hunter)) {
+    for (const x of targets) {
+      if (crowded.has(x.zone)) continue;
+      const w = bestWay(t, x, ctx);
+      if (w && netRate(w) > 0 && due(lastHunt(targetId(x)), targetRetryMin(w.kind))) pairs.push({ t, x, w });
+    }
+  }
+  const taker = (x) => x.items[0].to;
+  for (const { t, x, w } of pairs.sort((a, b) => netRate(b.w) - netRate(a.w))) {
+    const id = targetId(x);
+    if (targetEval[id] || out.some((o) => o.label === t.label)) continue;
+    const keep = x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const item = x.items[0].item;
+    const spec = w.kind === "errand" ? { zone: x.zone, keep, item, minutes: 60 } : { zone: x.zone, keep, item, ...(w.kind === "camp" && points[id]?.length ? { points: points[id] } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.round(ACQUIRE.visitHours * 60) : ACQUIRE.campMin };
+    const why = `${t.group} hunts it for ${taker(x)} (${w.kind}): ${describeWay(w, taker(x))}`;
+    out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id, spec, why });
+    targetEval[id] = { group: t.group, kind: w.kind, hours: w.hours, value: w.value, cost: w.cost, status: `${w.kind} queued: ${why}` };
+  }
+  // Why every other target waits: its hunt runs, its zone is crowded, no group can kill it, no way
+  // pays, or the group it pays most for is busy or held and no free group takes it at a profit.
+  for (const x of targets) {
+    const id = targetId(x);
+    if (targetEval[id]) continue;
+    const on = tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && t.task.kind === "hunt" && t.zone === x.zone));
+    const best = tabs.filter((t) => t.members.length).map((t) => ({ t, w: bestWay(t, x, ctx) })).filter((p) => p.w).reduce((a, b) => (!a || netRate(b.w) > netRate(a.w) ? b : a), null);
+    const terms = best ? { group: best.t.group, kind: best.w.kind, hours: best.w.hours, value: best.w.value, cost: best.w.cost } : {};
+    const says = best && `${best.t.group} for ${taker(x)} (${best.w.kind}): ${describeWay(best.w, taker(x))}`;
+    let status;
+    if (on) status = `hunting: ${on.group}`;
+    else if (crowded.has(x.zone)) status = "zone crowded by other players";
+    else if (!best) status = `too strong for every group (level ${x.npcLevel})`;
+    else if (netRate(best.w) <= 0) status = `not worth it yet, best ${says}`;
+    else if (held.has(best.t.group)) status = `waits for an experiment to end, best ${says}`;
+    else if (!hunter(best.t)) status = `waits for a busy group, best ${says}`;
+    else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) status = `waits for its retry, best ${says}`;
+    else status = `its groups took better targets, best ${says}`;
+    targetEval[id] = { ...terms, status };
   }
 
   // A farm goes to the groups with the lowest mean level inside its `levels`, whose own hunting
@@ -299,7 +316,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     const xp = STONES.reduce((a, s) => a + (stock[s] ?? 0) * STONE_XP[s], 0);
     out.push({ label: target.label, kind: "handIn", spec: { members }, why: `${total} stones (${Math.round(xp / 1000)}k XP) to the lowest group, mean level ${mean(target).toFixed(1)}` });
   }
-  return out;
+  return { actions: out, targets: targetEval };
 }
 
 const mean = (t) => t.members.reduce((a, m) => a + (m.level ?? 0), 0) / Math.max(1, t.members.length);
@@ -318,6 +335,11 @@ export const ZONE_DEFAULTS = {
   settleMin: 10,
 };
 
+/** Zones any tab found crowded by other players in the last 45 minutes (`crowdedAt`), which hold for every group. */
+export function crowdedZones(tabs, now) {
+  return new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
+}
+
 /**
  * Each group's zone rotation (docs/plans/controller.md, principle 4): the `keep` zones of the band
  * row at its leader's level (`rows`, data/band-rotations.json) with the most measured XP per hour
@@ -334,96 +356,6 @@ export const ZONE_DEFAULTS = {
  * crowding the arms unevenly confounds an experiment more than a change of zone does. Returns
  * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
-/** Zones any tab found crowded by other players in the last 45 minutes (`crowdedAt`), which hold for every group. */
-export function crowdedZones(tabs, now) {
-  return new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
-}
-
-// The share of its time a group idled on an errand in a zone another group played (group 4, once).
-const SHARED_COST = 0.4;
-// A trip out of the rotation gives up the group's XP for its length, less the XP the trip's zone
-// pays (`zoneShare`).
-const TRIP_COST = 1;
-// A visit: travel to the zone, look at its spawn list, kill the target if it is up, and leave,
-// about 6 minutes without XP, an assumption until visits are measured.
-const VISIT_HOURS = 0.1;
-// The most levels a target may stand above the group's leader.
-const KILL_MARGIN = 3;
-// What one copy of an item is worth in hours of the group's XP: the taker's output gain times its
-// share of the party's damage (one of six), the XP elasticity at its level and the hours until it
-// outlevels the item (`until`, at the taker's group's pace in `hoursPerLevel`), the terms of `campPays`.
-const copyWorth = (w, hoursPerLevel) => (w.gain / 1000) * (1 / 6) * elasticity(w.level ?? 0) * Math.max(0, (w.until ?? 0) - (w.level ?? 0)) * (hoursPerLevel[w.to] ?? 0);
-/** What an hour of camping gear target `x` is worth in hours of the group's XP: each item's copy worth over its hours per copy. */
-export const targetWorth = (x, hoursPerLevel = {}) => x.items.reduce((s, w) => s + copyWorth(w, hoursPerLevel) / w.hours, 0);
-/**
- * What one visit to gear target `x` is worth in hours of the group's XP: the chance it stands on one
- * of its `points` when the group arrives, 1 - (1 - spawn)^points, times each item's drop chance and
- * copy worth.
- */
-export const visitWorth = (x, hoursPerLevel = {}) => (1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1)) * x.items.reduce((s, w) => s + (w.drop ?? 1) * copyWorth(w, hoursPerLevel), 0);
-/**
- * The gear targets (`targets` of tools/lib/gear-plan.mjs, best first) to hunt now, and why each one
- * is or is not hunted. Each free tab (no errand, no running task, its group not `held` by an
- * experiment, whose arms a hunt would change) takes the target with the most worth over its cost,
- * per hour, among those it can kill (at most `KILL_MARGIN` levels above its leader) in zones no tab
- * found crowded by other players lately (`plan`):
- * - in its rotation, an errand inside normal hunting, worth `targetWorth`, which costs nothing, or
- *   `SHARED_COST` in a zone another tab plays;
- * - outside it, the better of a camp, worth `targetWorth` against `TRIP_COST` less the share of the
- *   group's XP the trip's zone pays (`zoneShare(t, zone)`), and a visit, worth `visitWorth` per
- *   `VISIT_HOURS` against the group's whole XP.
- * A group whose members are all at `cfg.levelCap` pays only AA XP, so any worth pays. `tabs` are
- * `decide`'s, `crowded` and `held` Sets of zones and groups. Returns `{ errands: [{ target, group,
- * kind }], status: [text] }` with one status per target, `kind` "errand", "camp" or "visit".
- */
-export function assignTargets({ targets, tabs, crowded = new Set(), held = new Set(), hoursPerLevel = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
-  const free = (t) => !t.errand && t.task?.status !== "running" && !held.has(t.group);
-  const lead = (t) => t.members[0]?.level ?? 0;
-  const capped = (t) => t.members.length && t.members.every((m) => (m.level ?? 0) >= cfg.levelCap);
-  const killable = (t, x) => x.npcLevel == null || x.npcLevel <= lead(t) + KILL_MARGIN;
-  // The best way for tab `t` to hunt `x`: `{ kind, worth, cost }`, both per hour of hunting.
-  const plan = (t, x) => {
-    const inRotation = (t.rotation ?? []).includes(x.zone);
-    if (capped(t)) return { kind: inRotation ? "errand" : "camp", worth: x.perHour, cost: 0 };
-    if (inRotation) return { kind: "errand", worth: targetWorth(x, hoursPerLevel), cost: tabs.some((o) => o !== t && o.zone === x.zone) ? SHARED_COST : 0 };
-    const camp = { kind: "camp", worth: targetWorth(x, hoursPerLevel), cost: Math.max(0, TRIP_COST - Math.min(1, zoneShare(t, x.zone) ?? 0)) };
-    const visit = { kind: "visit", worth: visitWorth(x, hoursPerLevel) / VISIT_HOURS, cost: TRIP_COST };
-    return visit.worth - visit.cost > camp.worth - camp.cost ? visit : camp;
-  };
-  const net = (p) => p.worth - p.cost;
-  const errands = [];
-  const taken = new Map();
-  for (const t of tabs.filter(free)) {
-    let best = null;
-    targets.forEach((x, k) => {
-      if (taken.has(k) || crowded.has(x.zone) || !killable(t, x)) return;
-      const p = plan(t, x);
-      if (net(p) > 0 && (!best || net(p) > net(best.p))) best = { k, p };
-    });
-    if (!best) continue;
-    taken.set(best.k, `${best.p.kind} queued for ${t.group}`);
-    errands.push({ target: targets[best.k], group: t.group, kind: best.p.kind });
-  }
-  // In percent of an hour of the group's XP, per hour of hunting: what the gear brings and what it costs.
-  const pct = (v) => `${Math.round(100 * v)}%`;
-  const status = targets.map((x, k) => {
-    const hunting = tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && t.task?.kind === "hunt" && t.zone === x.zone));
-    if (hunting) return `hunting: ${hunting.group}`;
-    if (taken.has(k)) return taken.get(k);
-    if (crowded.has(x.zone)) return "zone crowded by other players";
-    const able = tabs.filter((t) => killable(t, x));
-    if (!able.length) return `too strong for every group (level ${x.npcLevel})`;
-    // The group it would pay most for, busy or not, since a busy or held group takes it later.
-    const best = able.map((t) => ({ t, p: plan(t, x) })).reduce((a, b) => (net(b.p) > net(a.p) ? b : a));
-    const { t, p } = best;
-    const terms = `an hour of ${p.kind === "visit" ? "visits" : "hunting"} brings gear worth ${pct(p.worth)} of an hour of its XP and costs ${pct(p.cost)}`;
-    if (net(p) <= 0) return `not worth it yet for ${t.group}: ${terms}`;
-    if (!free(t)) return `worth ${p.kind === "errand" ? "an" : "a"} ${p.kind} for ${t.group} (${terms}), which is ${held.has(t.group) ? "held by an experiment" : "busy"}`;
-    return "its groups took better targets";
-  });
-  return { errands, status };
-}
-
 export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();
