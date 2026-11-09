@@ -486,6 +486,10 @@ in `engine.pretty.js:412150-412340`.
 | `autoUpgradeEnabled` | `toggleAutoUpgrade()` | `true` | Equips newly looted upgrades on the active character |
 | `keepEpicQuestItemsEnabled` | `toggleKeepEpicQuestItems()` | `true` | Protects epic items and Velious armor from automatic and bulk cleanup |
 | `keepValuableGearEnabled` | `toggleKeepValuableGear()` | `true` | Keeps gear with a keep score of 50 or more from bulk selling and decluttering |
+| `autoSellEnabled` | `toggleAutoSell()` | `false`, saved `true` on this account | Sells everything in a full general inventory that the options here do not protect. The client sends only the switch, and the server decides when the bags are full. The bot keeps it off, because it sold gear the roster gear plan was about to move |
+| `autoSellBowsEnabled` / `autoSellPoisonsEnabled` / `autoSellSpellsEnabled` | `toggleAutoSellBows()` / `toggleAutoSellPoisons()` / `toggleAutoSellSpells()` | `true` / `true` / `false` | Lets the Auto-Sell above take bows, poisons and spell scrolls |
+| `loreCleanupEnabled` | `toggleLoreCleanup()` | `true` | Lets LORE and quest items through the cleanup rules, so Auto-Sell and Declutter can take them |
+| `deleteNoDrop` | `toggleDeleteNoDrop()` | `true` | Deletes NO DROP items that are neither quest items nor sellable when inventory is full |
 | `autoBankIngredientsEnabled` | `toggleAutoBankIngredients()` | `true` | Banks tradeskill ingredients when inventory is full |
 | `autoSpellBankEnabled` | `toggleAutoSpellBank()` | `true` | Sends overflow spell loot to the Spell Bank |
 | `autoLevelMerchantTravelEnabled` | `toggleAutoLevelMerchantTravel()` | `false` | Walks to a merchant to sell and restock, may cross zones. Off keeps sales and purchases remote |
