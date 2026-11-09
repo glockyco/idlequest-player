@@ -60,15 +60,16 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * the client's formulas (docs/client-internals.md, "What item stats and effects do"):
  * - melee: offense (2/3 a point of STR, 1 a point of ATK) through the damage roll, and the highest
  *   item haste (at most 50) as swing rate;
- * - spells: the share of the wearer's maximum mana (`pool`, else a typical 30 mana a level) that item mana and INT or WIS add (80 ×
- *   level / 425 mana a point), because out-of-fight regeneration is 2.5% of the maximum per 600 ms,
- *   so recovery shortens with the pool;
- * - mana regeneration: item `manaregen` (at most 15) raises the out-of-fight refill by
- *   1 + min(regen / 50, 1) with the party's supply, and AutoLevel pulls only once every bar is full,
- *   so it is worth the group time the wearer's slower refill holds the party: with `recovery`
- *   (`{ share, regen }`, the group's recovery share times the wearer's part of the waits, and the
- *   supply's regeneration), that share times the refill it saves, counted for the six members,
- *   and without it 2% of the spell share a point;
+ * - recovery: AutoLevel pulls only once every bar is full, and the out-of-fight refill is 2.5% of the
+ *   maximum per 600 ms times 1 + min(regen / 50, 1), so a rest lasts the share of the bar a fight
+ *   spent over that rate. Item mana and INT or WIS (80 × level / 425 mana a point) shrink the share
+ *   of the pool (`pool`, else a typical 30 mana a level) a fight spends, a mana cost focus (SPA 132)
+ *   shrinks the mana it spends, and item `manaregen` (at most 15) adds to the party supply's
+ *   regeneration. With `recovery` (`{ share, regen }`, the group's recovery share times the wearer's
+ *   part of the waits, and the supply's regeneration) the gain is the group time the shorter rest
+ *   saves, counted for the six members. Without it, the pool and the focus count as their percent
+ *   and each regeneration point as 2% of the spell share;
+ * - spells: spell damage and spell haste focus percent of the spell share;
  * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
  *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
  * A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste, regeneration, HP and
@@ -111,12 +112,16 @@ export const outputValue = (items, c, level, { pool, recovery } = {}) => {
   }
   const meleeShare = MELEE_SHARE[groupOf(c)];
   const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
-  // Spell output: the pool that shortens recovery, a lower mana cost (recovery is the mana spent),
-  // more spell damage and faster casts, each a percent of the spell share.
+  // Spell output: a lower mana cost (recovery is the mana spent), more spell damage and faster casts,
+  // each a percent of the spell share.
   const regen = Math.min(manaregen, 15);
+  const added = mana + ((80 * level) / 425) * stat;
+  const base = pool > 0 ? pool : 30 * level;
   const refill = (r) => 1 / (1 + Math.min(r, 50) / 50);
-  const rest = NO_MANA.has(c) ? 0 : recovery ? 6 * 100 * recovery.share * (1 - refill((recovery.regen ?? 0) + regen) / refill(recovery.regen ?? 0)) : (1 - meleeShare) * 2 * regen;
-  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + focus[132] + focus[124] + focus[127]);
+  const r0 = recovery?.regen ?? 0;
+  const cheaper = 1 - focus[132] / 100;
+  const rest = NO_MANA.has(c) ? 0 : recovery ? 6 * 100 * recovery.share * (1 - ((cheaper * base) / (base + added)) * (refill(r0 + regen) / refill(r0))) : (1 - meleeShare) * ((100 * added) / base + 2 * regen + focus[132]);
+  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * (focus[124] + focus[127]);
   const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
   return 10 * (melee + spells + rest + survival);
 };

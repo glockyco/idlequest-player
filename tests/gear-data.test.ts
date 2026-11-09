@@ -65,6 +65,8 @@ test("mana regeneration is worth the group time its wearer's refill holds the pa
   // Supply at the cap of 50 leaves nothing to gain, and item regeneration counts at most 15.
   expect(outputValue(ring, "necromancer", 30, { recovery: { share: 0.2, regen: 50 } })).toBe(0);
   expect(outputValue([{ manaregen: 30 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(outputValue([{ manaregen: 15 }], "necromancer", 30, { recovery: { share: 0.2, regen: 0 } }));
+  // Item mana shrinks the share of the pool a fight spends: 100 on a 1,000 pool rests 1/11 shorter.
+  expect(outputValue([{ mana: 100 }], "necromancer", 30, { pool: 1000, recovery: { share: 0.2, regen: 0 } })).toBeCloseTo(10 * 6 * 100 * 0.2 * (1 - 1000 / 1100));
 });
 
 test("farm hours are respawn over spawn chance and drop chance", () => {
