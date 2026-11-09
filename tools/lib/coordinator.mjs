@@ -218,12 +218,20 @@ export const ZONE_DEFAULTS = {
  * crowding the arms unevenly confounds an experiment more than a change of zone does. Returns
  * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
+/** Zones any tab found crowded by other players in the last 45 minutes (`crowdedAt`), which hold for every group. */
+export function crowdedZones(tabs, now) {
+  return new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
+}
+
 export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();
   const occupy = (zone) => zone && crowd.set(zone, (crowd.get(zone) ?? 0) + 1);
   const fixed = (t) => t.task?.status === "running" || t.errand;
   for (const t of tabs) if (fixed(t)) occupy(t.zone);
+  // A zone any tab found crowded lately is worth a quarter, after group 1 idled 46% of two hours
+  // moving between three crowded zones of its rotation.
+  const busyZones = crowdedZones(tabs, now);
   for (const t of [...tabs].filter((x) => !fixed(x)).sort((a, b) => mean(a) - mean(b))) {
     const level = t.members[0]?.level ?? 0;
     const row = [...rows].sort((a, b) => b[0] - a[0]).find(([min]) => level >= min)?.[1] ?? [];
@@ -233,7 +241,7 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
     const known = (solid.length ? solid : zones.filter((m) => m.e)).map((m) => m.e.xph).sort((a, b) => a - b);
     const median = known.length ? known[Math.floor(known.length / 2)] : 1;
     const xph = (e) => (e ? (e.hours * e.xph + cfg.priorHours * median) / (e.hours + cfg.priorHours) : median);
-    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: xph(m.e) / (1 + cfg.crowdWeight * (crowd.get(m.z) ?? 0)) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: xph(m.e) / (1 + cfg.crowdWeight * (crowd.get(m.z) ?? 0)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);

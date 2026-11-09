@@ -499,7 +499,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, crowdedZones, piecesNeeded, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -598,7 +598,7 @@ class Daemon {
     // left group 4 idle 40% of its errand, as an errand inside normal hunting. A zone any tab found
     // crowded by other players in the last 45 minutes is skipped too, after group 1 idled a whole
     // errand in a Temple of Solusek Ro it had just left as crowded.
-    const crowded = new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
+    const crowded = crowdedZones(tabs, now);
     for (const t of tabs) {
       // The last gear pass's wants, kept in the db so a restart does not lose them for an hour.
       this.dropWants ??= metaGet(this.db, "gear")?.drops ?? [];

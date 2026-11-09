@@ -230,6 +230,16 @@ test("the lowest group takes the best zone first, and the next counts it as crow
   expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
 });
 
+test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
+  // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
+  const other = tab("Z", "G9", 40, { zone: "kurn", crowdedAt: { kurn: NOW - 10 * 60000 } });
+  const [a] = assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "warrens" }), other], rows: ROWS, rates: RATES });
+  expect(a.rotation[0]).toBe("runnyeye");
+  // After 45 minutes the report no longer counts.
+  const [b] = assignZones({ now: NOW + 40 * 60000, tabs: [tab("A", "G3", 15, { zone: "warrens" }), other], rows: ROWS, rates: RATES });
+  expect(b.rotation[0]).toBe("kurn");
+});
+
 test("busy groups keep their rotation and count for the zone they are in", () => {
   const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye", task: { status: "running" } }), tab("B", "G4", 15, { zone: "najena" })];
   const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });
