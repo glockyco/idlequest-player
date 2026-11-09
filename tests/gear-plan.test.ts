@@ -23,10 +23,14 @@ test("each carried item goes to the character it adds most to, once", () => {
     { name: "Pal", cls: "paladin", level: 20, race: "" },
   ];
   const survey = [row("Tank", 2, "Equipped", 8, 1), row("Holder", 1, "Carried", 25, 2)];
-  const { moves, wanted } = planGear({ survey, items, people });
+  const { moves, keep } = planGear({ survey, items, people });
   // The Paladin wears no cloak, so the fine cloak adds more there than over the Tank's plain one.
   expect(moves.map((m) => [m.item, m.to, m.slot])).toEqual([["Fine Cloak", "Pal", "back"]]);
-  expect(wanted).toEqual([1]);
+  // The moved copy is kept, and the Tank would still gain from a second one.
+  expect(keep).toEqual({ counts: { 1: 1 }, instances: [2] });
+  // A second copy nobody needs is not kept once the Tank wears one.
+  const both = planGear({ survey: [...survey, row("Holder", 1, "Carried", 26, 3), row("Holder", 1, "Carried", 27, 4)], items, people });
+  expect(both.keep).toEqual({ counts: {}, instances: [2, 3] });
 });
 
 test("a main hand moves by damage over delay, to a Monk too, and a two-hander only beside an empty off hand", () => {
@@ -83,7 +87,7 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
     { itemId: 20, merchant: "Lianna Ferasa", zone: "rathemtn", price: 0.1 },
     { itemId: 23, merchant: "A Tailor", zone: "rathemtn", price: 5 },
   ];
-  const { moves, wanted } = planGear({ survey, items: bardItems, people, songs: BARD_SONGS, shop, buyPp: 1 });
+  const { moves, keep } = planGear({ survey, items: bardItems, people, songs: BARD_SONGS, shop, buyPp: 1 });
   // The held drum goes first, then two bought in the first merchant's zone. The robe costs more
   // than the platinum left.
   expect(moves.map((m) => [m.to, m.from, m.buy?.zone ?? null])).toEqual([
@@ -91,7 +95,7 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
     ["B2", null, "freportw"],
     ["B3", null, "freportw"],
   ]);
-  expect(wanted).toEqual([20]);
+  expect(keep).toEqual({ counts: { 20: 2 }, instances: [4] });
   expect(planGear({ survey, items: bardItems, people, songs: BARD_SONGS, shop }).moves).toHaveLength(1);
 });
 
@@ -105,12 +109,12 @@ test("drops become wants for characters in their levels that gain enough after t
   // The Fine Cloak beats the Plain Cloak by far more than twice the armor threshold.
   const plan = planGear({ survey, items, people, drops });
   expect(plan.drops).toMatchObject([{ item: "Fine Cloak", to: "Tank", slot: "back", zone: "kurn", npc: "a skeleton" }]);
-  expect(plan.wanted).toContain(1);
+  expect(plan.keep.counts[1]).toBe(2);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
   // A character outside the drop's levels gets no errand for it, but a looted copy is still kept for it.
   const old = planGear({ survey, items, people: people.slice(1), drops });
-  expect([old.drops, old.wanted.includes(1)]).toEqual([[], true]);
+  expect([old.drops, old.keep.counts[1]]).toEqual([[], 1]);
 });
 
 test("the off-hand chance is (Dual Wield + level) / 400 for a class with the skill", () => {

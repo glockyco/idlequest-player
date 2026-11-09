@@ -28,22 +28,21 @@
     fastTickSec: 2, // Auto Attack and root checks, which lose play time for every second they wait
     restartAfterSec: 60, // AutoLevel off this long while not paused: start it again (manual movement input cancels it)
     defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
-    minFreeSlots: 8, // start selling surplus copies below this many free bag slots
-    targetFreeSlots: 16, // and stop once this many are free
-    keepCopies: 1, // copies (or stacks) of each item that are never sold as surplus
-    autoBank: true, // when bags run low, first send ingredients and spell scrolls to the tradeskill bank
-    junkMaxCopper: 8000, // a cursor item the full bags cannot take is sold if its merchant price is at most this (1000 = 1 platinum)
-    // Never sold, besides the reagents of the leader's own spells. Lightstones (10300) and Greater
-    // Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
+    // The bag reserve (docs/plans/inventory.md): below `minFreeSlots` free slots between fights the
+    // bot makes room until `targetFreeSlots` are free, so a drop always fits.
+    minFreeSlots: 8,
+    targetFreeSlots: 16,
+    autoBank: true, // making room starts with the game's Auto Bank, which sends ingredients and spell scrolls to the account banks
+    discard: true, // surplus the client cannot sell (no price, NO DROP or NO RENT) is destroyed; false leaves it in the bags
+    // Kept in every copy, besides the reagents of the leader's own spells. Lightstones (10300) and
+    // Greater Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
-    // The server's Auto-Sell empties full bags of every item it does not protect, which includes the
-    // gear plan's items between its survey and its pulls, so the bot's own cleanup (`surplus`) sells
-    // instead and keeps them. LORE and quest items stay out of the server's cleanup rules
-    // (`loreCleanupEnabled`), because Delete Clutter deleted quest items such as Giant Wood Spider Femurs.
-    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, loreCleanupEnabled: false },
+    // The server's Auto-Sell and Delete Clutter act only on full bags and by rules that do not know
+    // what the account needs, so the bot's reserve (`keepReserve`) does their work.
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, deleteNoDrop: false },
     // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
@@ -51,13 +50,10 @@
     // Charm cost XP: with it on, eight groups made 9% less per hour (-17% to -2%) in a crossover
     // (docs/plans/leveling-plan.md, lever 5), so the bot holds it off. Null would leave it alone.
     charm: false,
-    gearKeepIds: [], // items the coordinator's roster gear plan wants for some character (tools/lib/gear-plan.mjs), never sold
-    keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, never sold
-    keepBag: true, // keep kept items in one bag marked No Sell and No Declutter (`keepBag`)
-    // Never sold as single items: spell research pieces, which Auto Bank usually banks first, also
-    // the pages named like "Salil's Writ Pg. 64".
-    keepNamePattern: "^(Words of|Rune of|Part of|Torn Page|Page of)\\b|\\bPg\\. ?\\d",
-    keepItemTypes: [14, 15], // never sold as single items: food and drink
+    gearKeepCounts: {}, // item id to the copies the roster gear plan (tools/lib/gear-plan.mjs) still needs: up to that many are kept
+    gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
+    keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, kept in every copy
+    keepItemTypes: [14, 15], // food and drink: one stack of each item is kept
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
     cursorPlaceSec: 180, // and after this long the bot puts it away once (0 = never)
@@ -205,61 +201,66 @@
   };
 
   /**
-   * Carried items that can be sold, cheapest loss first. Skips containers, NO DROP and NO RENT
-   * items, items without a merchant price, `keepItemIds`, the gear plan's `gearKeepIds`, reagents of the leader's class spells,
-   * equipped items, the cursor and bags marked No Sell, whose copies count as kept.
-   * First come the copies or stacks of an item beyond `keepCopies` (largest stacks kept), then,
-   * with `singles`, the last copies, lowest total value first, except items with an effect, food,
-   * drink, research pieces and quest turn-in items (`window.iq.questItems`, from
-   * tools/quest-items.mjs), because these sales bypass the client's Keep Epic Quest Items. With
-   * `last`, for bags with almost no room left, the items with an effect, the quest turn-in items,
-   * the research pieces and the gear plan's `gearKeepIds` are sold too, because full bags stop all
-   * looting: the gear plan keeps every drop that is an upgrade for anyone, research pieces pile up
-   * without a research pipeline to use them, and quest turn-ins include common loot. What the
-   * coordinator names in `keepNames` stays.
+   * The fate of every carried item outside containers (docs/plans/inventory.md): kept up to its
+   * demand, the rest surplus. Demand keeps up to `gearKeepCounts` copies of an item, and every copy of `keepItemIds`, `keepNames`, the gear plan's
+   * `gearKeepInstances` and the reagents of the leader's class spells, and one
+   * stack of each food and drink (`keepItemTypes`). Surplus the client can sell (a price, not NO
+   * DROP, not NO RENT) is `sell`, cheapest first, the rest `discard`. Returns `{ keep, sell,
+   * discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
    */
-  const surplus = (i, singles = false, last = false) => {
+  const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
-    const noSell = new Set(i.stores.combat.getState().noAutoSellBagInstanceIds ?? []);
-    const general = new Map(inv.filter((r) => r.bag === 0 && r.slot >= 22 && r.slot <= 29).map((r) => [r.slot, r]));
-    const kept = new Map();
-    const groups = new Map();
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
-    const questItems = new Set(i.questItems ?? []);
-    for (const r of inv) {
-      const loose = r.bag === 0 && r.slot >= 22 && r.slot <= 29;
-      if (!loose && !(r.bag >= 23 && r.bag <= 30)) continue;
+    const out = { keep: [], sell: [], discard: [] };
+    const stacked = new Set();
+    const gearLeft = { ...config.gearKeepCounts };
+    const rows = inv.filter((r) => ((r.bag === 0 && r.slot >= 22 && r.slot <= 29) || (r.bag >= 23 && r.bag <= 30) || (withCursor && r.bag === 0 && r.slot === 30)) && r.itemDetails && !((r.itemDetails.bagslots || 0) > 0));
+    // The largest stack of a food or drink is the one kept.
+    rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
+    for (const r of rows) {
       const d = r.itemDetails;
-      if (!d || (d.bagslots || 0) > 0) continue;
-      if (!loose && noSell.has(general.get(r.bag - 1)?.itemInstanceId)) {
-        kept.set(r.itemid, (kept.get(r.itemid) ?? 0) + 1);
-        continue;
-      }
-      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || (!last && config.gearKeepIds.includes(r.itemid)) || config.keepNames.includes(d.Name ?? d.name) || reagents.has(r.itemid)) continue;
-      if (!groups.has(r.itemid)) groups.set(r.itemid, []);
-      groups.get(r.itemid).push(r);
+      const name = d.Name ?? d.name;
+      const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
+      const supply = config.keepItemTypes.includes(d.itemtype) && !stacked.has(r.itemid) && stacked.add(r.itemid);
+      const gear = config.gearKeepInstances.includes(r.itemInstanceId) || (gearLeft[r.itemid] > 0 && gearLeft[r.itemid]--);
+      if (supply || gear || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
+      else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
+      else out.discard.push(row);
     }
-    const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
-    const keepName = new RegExp(config.keepNamePattern, "i");
-    const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
-    const singleOk = (r) => !config.keepItemTypes.includes(r.itemDetails.itemtype) && (last || (!keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !hasEffect(r.itemDetails) && !questItems.has(r.itemid)));
-    const extra = [];
-    const single = [];
-    for (const [id, rows] of groups) {
-      rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
-      const keep = Math.max(0, config.keepCopies - (kept.get(id) ?? 0));
-      for (const r of rows.slice(keep)) extra.push(row(r, rows.length));
-      if (singles) for (const r of rows.slice(0, keep)) if (singleOk(r)) single.push(row(r, rows.length));
-    }
-    extra.sort((a, b) => b.copies - a.copies || a.price - b.price);
-    single.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
-    return [...extra, ...single];
+    out.sell.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
+    return out;
   };
-
-  const sellSurplus = async (i, force = false) => {
+  // Destroy the item at (bag, slot) through the cursor, as the client's Destroy button does. The
+  // client refuses the destroy while the moved item's instance is still updating (OSTsR53r.js
+  // 23385-23390), so it is repeated until the cursor is empty. `state.discarding` names the item the
+  // bot put on the cursor, so a destroy cut short is finished later and a person's item is left alone.
+  const destroyCursor = async (i) => {
+    for (let k = 0; k < 10 && i.bagSpace().cursor; k++) {
+      i.stores.character.getState().deleteItemOnCursor();
+      await sleep(500);
+    }
+    if (i.bagSpace().cursor) return false;
+    state.discarding = null;
+    return true;
+  };
+  const discardAt = async (i, s) => {
+    state.discarding = s.instanceId;
+    if (!(await moveSlot(i, { bag: s.bag, slot: s.slot }, { bag: 0, slot: 30 }))) return false;
+    return destroyCursor(i);
+  };
+  /**
+   * The bag reserve: below `minFreeSlots` free slots, Auto Bank (at most every ten minutes, it is a
+   * slow courier), then surplus sold cheapest first, then surplus discarded, until `targetFreeSlots`.
+   * When kept items alone leave too little room, one alert an hour lists them, because only a
+   * decision about what the account keeps can help.
+   */
+  const keepReserve = async (i, force = false, withCursor = false) => {
     let space = i.bagSpace();
-    if ((!force && now() < state.pauseUntil) || space.cursor || space.free >= config.minFreeSlots) return;
-    // Banking loses nothing, so it goes first, at most every ten minutes because the courier is slow.
+    if (space.cursor && state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) {
+      log(`finishing the discard of ${space.cursor}: ${(await destroyCursor(i)) ? "done" : "refused again"}`);
+      space = i.bagSpace();
+    }
+    if ((!force && now() < state.pauseUntil) || (space.cursor && !withCursor) || space.free >= config.minFreeSlots) return;
     if (config.autoBank && now() - (state.bankAt ?? 0) > 600000) {
       state.bankAt = now();
       const r = await autoBank().catch((e) => ({ success: false, message: String(e?.message ?? e) }));
@@ -268,29 +269,42 @@
       space = i.bagSpace();
       if (space.free >= config.minFreeSlots) return;
     }
+    const f = fates(i);
     let free = space.free;
-    let sold = 0;
+    let acted = 0;
     let copper = 0;
-    const names = [];
-    // Bags with almost no room left and nothing else to sell give up the quest and effect items too.
-    const list = surplus(i, true);
-    for (const s of list.length || space.free >= 2 ? list : surplus(i, true, true)) {
-      if (free >= config.targetFreeSlots || sold >= config.sellPerTick) break;
-      // The client sells whatever sits at (bag, slot) when the call runs, so check it is still ours.
-      const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => r.bag === s.bag && r.slot === s.slot);
-      if (row?.itemInstanceId !== s.instanceId) break;
-      const r = await sellAt(s.bag, s.slot);
-      if (!r?.success) {
-        log(`sale of ${s.name} at ${s.bag}/${s.slot} stopped: ${r?.message ?? "no reply"}`);
-        break;
+    const sold = [];
+    const gone = [];
+    for (const s of [...f.sell.map((x) => ({ ...x, sell: true })), ...(config.discard ? f.discard : [])]) {
+      if (free >= config.targetFreeSlots || acted >= config.sellPerTick) break;
+      // The client acts on whatever sits at (bag, slot) when the call runs, so check it is still ours.
+      if (rowAt(i, s)?.itemInstanceId !== s.instanceId) break;
+      const label = s.quantity > 1 ? `${s.quantity} ${s.name}` : s.name;
+      if (s.sell) {
+        const r = await sellAt(s.bag, s.slot);
+        if (!r?.success) {
+          log(`sale of ${s.name} at ${s.bag}/${s.slot} stopped: ${r?.message ?? "no reply"}`);
+          break;
+        }
+        copper += r.data?.copperTotal ?? 0;
+        sold.push(label);
+      } else {
+        if (!(await discardAt(i, s))) {
+          log(`discarding ${s.name} at ${s.bag}/${s.slot} failed`);
+          break;
+        }
+        gone.push(label);
       }
-      sold++;
+      acted++;
       free++;
-      copper += r.data?.copperTotal ?? 0;
-      names.push(s.quantity > 1 ? `${s.quantity} ${s.name}` : s.name);
       await sleep(400);
     }
-    if (sold) log(`sold ${sold} surplus item(s) for ${copper} copper (${names.join(", ")}); ${i.bagSpace().free} slots free`);
+    if (sold.length) log(`sold ${sold.length} surplus item(s) for ${copper} copper (${sold.join(", ")}); ${i.bagSpace().free} slots free`);
+    if (gone.length) log(`discarded ${gone.length} surplus item(s) without a sale price (${gone.join(", ")}); ${i.bagSpace().free} slots free`);
+    if (!acted && i.bagSpace().free < config.minFreeSlots && now() - (state.keptFullAlertAt ?? 0) > 3600000) {
+      state.keptFullAlertAt = now();
+      alert("bags", `${i.bagSpace().free} bag slots free and only kept items left: ${f.keep.map((k) => k.name).join(", ")}`, true);
+    }
   };
 
   // Raid mode turns AutoLevel off and the leader commands each fight (main.pretty.js:72297-72300),
@@ -615,49 +629,12 @@
     }
   };
 
-  // The server's Delete Clutter empties a full inventory of the items it cannot sell (price 0),
-  // wanted gear included, NO DROP or not, but it skips bags marked No Declutter, and the server's
-  // Auto-Sell, which the bot keeps off, skips bags marked No Sell. So kept items without a price
-  // (`gearKeepIds`, `keepItemIds`, `keepNames`) lie in one bag marked both, the largest general bag
-  // unless one is marked already: a few moves each tick put them in and the rest out. Kept items the
-  // server can sell are safe anywhere, because the bot's own cleanup never sells them.
-  const keepBag = async (i) => {
-    if (!config.keepBag || i.bagSpace().cursor) return;
-    const cb = i.stores.combat.getState();
-    const inv = () => i.stores.character.getState().characterProfile?.inventory ?? [];
-    const bags = GENERAL_SLOTS.map((s) => slotRow(i, s)).filter((r) => (r?.itemDetails?.bagslots ?? 0) > 0);
-    if (!bags.length) return;
-    const noSell = new Set(cb.noAutoSellBagInstanceIds ?? []);
-    const noClutter = new Set(cb.noDeclutterBagInstanceIds ?? []);
-    const keep = bags.find((r) => noSell.has(r.itemInstanceId) && noClutter.has(r.itemInstanceId)) ?? bags.find((r) => noSell.has(r.itemInstanceId) || noClutter.has(r.itemInstanceId)) ?? [...bags].sort((a, b) => b.itemDetails.bagslots - a.itemDetails.bagslots)[0];
-    if (!noSell.has(keep.itemInstanceId)) cb.toggleNoAutoSellBag(keep.itemInstanceId);
-    if (!noClutter.has(keep.itemInstanceId)) cb.toggleNoDeclutterBag(keep.itemInstanceId);
-    if (!noSell.has(keep.itemInstanceId) || !noClutter.has(keep.itemInstanceId)) log(`marked the bag in general slot ${keep.slot} No Sell and No Declutter for kept items`);
-    const inner = keep.slot + 1;
-    const kept = (r) => {
-      const d = r.itemDetails ?? {};
-      return !(d.price > 0) && (config.gearKeepIds.includes(r.itemid) || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name));
-    };
-    const freeIn = (b) => Array.from({ length: b.itemDetails.bagslots }, (_, s) => ({ bag: b.slot + 1, slot: s })).filter((p) => !rowAt(i, p));
-    for (let n = 0; n < 4; n++) {
-      const items = inv().filter((r) => r.bag >= 23 && r.bag <= 30 && !(r.itemDetails?.bagslots > 0));
-      const out = items.find((r) => r.bag === inner && !kept(r));
-      const into = items.find((r) => r.bag !== inner && kept(r));
-      const room = freeIn(keep)[0];
-      const elsewhere = bags.filter((b) => b !== keep).flatMap(freeIn)[0];
-      const move = into && room ? [into, room] : out && elsewhere ? [out, elsewhere] : null;
-      if (!move || !(await moveSlot(i, { bag: move[0].bag, slot: move[0].slot }, move[1]))) return;
-    }
-  };
-
   const watchCursor = async (i) => {
     const held = i.bagSpace().cursor;
-    if (!held) {
-      state.cursorSince = null;
-      state.cursorAlerted = false;
-      state.cursorPlaced = false;
-      return;
-    }
+    const inst = held ? rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId ?? held : null;
+    // Each item held is its own case, so a second item taken while another is put away gets its own wait.
+    if (state.cursorInst !== inst) Object.assign(state, { cursorInst: inst, cursorSince: null, cursorAlerted: false, cursorPlaced: false });
+    if (!held) return;
     state.cursorSince ??= now();
     const heldSec = (now() - state.cursorSince) / 1000;
     if (!state.cursorAlerted && heldSec > config.cursorAlertSec) {
@@ -671,14 +648,16 @@
       await sleep(1500);
       const still = i.bagSpace().cursor;
       log(`auto-placed cursor item ${held}: ${r?.message ?? "no reply"}${still ? `; cursor still holds ${still}` : ""}`);
-      // With every bag slot taken the item can only leave by sale, and while it sits there the
-      // cleanup cannot free space either, so a cheap unprotected item is sold, such as the book a
-      // quest NPC hands back.
-      const row = (i.stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
-      const d = row?.itemDetails;
-      if (still && i.bagSpace().free === 0 && d && d.price > 0 && d.price <= config.junkMaxCopper && d.nodrop !== 0 && !config.keepItemIds.includes(row.itemid) && !config.gearKeepIds.includes(row.itemid) && !(i.questItems ?? []).includes(row.itemid)) {
-        const s = await sellAt(0, 30);
-        log(`sold cursor item ${held} because the bags are full: ${s?.message ?? "no reply"}`);
+      if (!still || i.bagSpace().free > 0) return;
+      // With every bag slot taken the item has nowhere to go: surplus leaves by its fate, and a kept
+      // item waits while the reserve sells what it can, then goes into the room made.
+      const f = fates(i, true);
+      const mine = (list) => list.some((x) => x.bag === 0 && x.slot === 30);
+      if (mine(f.sell)) log(`sold cursor item ${held} because the bags are full: ${(await sellAt(0, 30))?.message ?? "no reply"}`);
+      else if (mine(f.discard) && config.discard) log(`discarded cursor item ${held} because the bags are full: ${(await destroyCursor(i)) ? "done" : "refused"}`);
+      else {
+        await keepReserve(i, true, true);
+        if (i.bagSpace().free > 0) log(`placed cursor item ${held} after making room: ${(await placeCursor(i))?.message ?? "no reply"}`);
       }
     }
   };
@@ -1191,7 +1170,7 @@
     if (activeName(i) !== name) throw new Error(`${name} did not become active`);
   };
   const pullOne = async (i, item, from = null, avoid = []) => {
-    if (i.bagSpace().free < 2) await sellSurplus(i, true);
+    if (i.bagSpace().free < 2) await keepReserve(i, true);
     const r = await i.pullItem(item, { from, avoid });
     if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
   };
@@ -1209,7 +1188,7 @@
         if (!to) throw new Error(`no account character ${mv.to}`);
         if (mv.buy && i.carried(mv.item) < 1) {
           if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
-          if (i.bagSpace().free < 1) await sellSurplus(i, true);
+          if (i.bagSpace().free < 1) await keepReserve(i, true);
           const r = await step(`buy ${mv.item} from ${mv.buy.merchant}`, () => i.buyItem(mv.item, mv.buy.merchant, 1), 240000);
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
@@ -1474,7 +1453,7 @@
       await step("stop", () => calm(i), 75000);
       // The leader loots, and a full bag leaves a drop on the corpse.
       await step("make room", async () => {
-        await sellSurplus(i, true);
+        await keepReserve(i, true);
         if (i.bagSpace().free < 1) throw new Error(`${activeName(i)} has no free bag slot`);
       }, 120000);
       const zones = [].concat(task.zone);
@@ -2120,9 +2099,8 @@
       avoidTargets(i);
       keepAutoLevel(i, cb);
       await upkeepIfDue(i);
-      await sellSurplus(i);
+      await keepReserve(i);
       await restoreBags(i);
-      await keepBag(i);
       state.lastError = null;
     } catch (e) {
       const msg = String(e?.message ?? e);
@@ -2162,15 +2140,15 @@
     fastTick,
     /** Roots on party members and pets with their end times, and who could dispel them. */
     roots: () => ({ roots: partyRoots(iq()), dispellers: dispellers(iq()) }),
-    /** What the next cleanup would sell, in order: extra copies, then single items, with `last` also quest and effect items. */
-    surplus: (last = false) => surplus(iq(), true, last),
+    /** Each carried item's fate by the inventory policy: `{ keep, sell, discard }`. */
+    fates: () => fates(iq()),
     /** The gems the upkeep would set for the leader's class, in gem order: [{gem, role, id, name, level}]. */
     spellPlan: () => spellPlan(iq()),
     /** The resurrection the bot would buy from `offers` ({ percent, price } in pp) with `coinPp` carried, or null to respawn. */
     recoveryChoice: (offers, coinPp) => recoveryChoice(offers, coinPp),
     /** Run the bag cleanup now, also during a pause, as below `minFreeSlots`. Resolves with the free slots after. */
     cleanup: async () => {
-      await sellSurplus(iq(), true);
+      await keepReserve(iq(), true);
       return iq().bagSpace().free;
     },
     /** Memorize the planned gems and replace older pets now, out of combat. Returns what changed. */

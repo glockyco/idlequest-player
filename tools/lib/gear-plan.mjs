@@ -129,11 +129,14 @@ const fits = (item, p, slot) =>
  * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
  * `[{ itemId, zone, npc, hours, levels: [min, max] }]` with `hours` the expected hunting per copy,
  * which become wants for characters whose group level is inside `levels`.
- * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], wanted: [itemId],
- * drops: [{ item, itemId, to, slot, gain, zone, npc, hours }] }`, where a move with
- * `buy: { merchant, zone, price }` buys its item first, and `drops` lists for each character the
- * best drop per slot that beats what it wears after the moves by `2 * minGain` (armor) or
- * `2 * MIN_RATIO_GAIN` (main hand), the dropped items worth hunting for.
+ * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], keep: { counts:
+ * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }] }`,
+ * where a move with `buy: { merchant, zone, price }` buys its item first. `keep` is what the bots
+ * must not sell: the copies this pass's moves take, the copies it buys, and for an item the account
+ * holds no free copy of, as many copies as characters would still gain from one after the moves,
+ * which covers the drops. A copy beyond that demand is surplus.
+ * `drops` lists for each character the best drop per slot that beats what it wears after the moves
+ * by `2 * minGain` (armor) or `2 * MIN_RATIO_GAIN` (main hand), the dropped items worth hunting for.
  */
 export function planGear({ survey, items, people, minGain = 5, songs = [], shop = [], buyPp = 0, drops = [] }) {
   const byName = new Map(people.map((p) => [p.name, p]));
@@ -207,9 +210,11 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   const sources = () => [...free, ...goods];
 
   let offers = sources().flatMap((r) => people.flatMap((p) => offer(r, p)));
-  // Everything on the account that is an upgrade for someone is kept, also copies this pass
-  // gives nobody.
-  const wanted = new Set(offers.filter((o) => !o.r.buy).map((o) => o.r.itemId));
+  // The items the account holds that are an upgrade for someone, whose demand is checked again
+  // after the moves.
+  const candidates = new Set(offers.filter((o) => !o.r.buy).map((o) => o.r.itemId));
+  const bought = new Map();
+  const keepInstances = new Set();
 
   // Greedy by gain: the best offer is taken, its copy and the receiver's slot are spent, and the
   // receiver's other offers are scored again against the set it now wears. Armor and weapons use
@@ -231,23 +236,33 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;
-      wanted.add(r.itemId);
-    } else spent.add(key(r));
+      bought.set(r.itemId, (bought.get(r.itemId) ?? 0) + 1);
+    } else {
+      spent.add(key(r));
+      keepInstances.add(r.itemInstanceId);
+    }
     worn.get(p.name).set(slot, items.get(r.itemId));
     owned.get(p.name).add(r.itemId);
     offers = offers.filter((o) => !spent.has(key(o.r)) && o.p.name !== p.name);
     for (const f of sources()) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
   }
-  // The drops worth hunting for, against what each character wears after this pass, and every
-  // drop that would be an upgrade for someone, which is kept like the account's own upgrades once
-  // looted, so the next pass can move it.
+  // Characters who would still take a virtual copy after the moves mean the account is short of the
+  // item, because a free copy would have been moved: that many looted copies are kept until the next pass.
+  const virtual = (itemId) => ({ characterName: null, itemId, itemName: items.get(itemId).Name, itemInstanceId: `drop:${itemId}` });
+  const takers = (itemId) => people.filter((p) => offer(virtual(itemId), p).length > 0).length;
+  const counts = {};
+  for (const [id, n] of bought) counts[id] = n;
+  for (const id of new Set([...candidates, ...drops.filter((d) => items.has(d.itemId)).map((d) => d.itemId)])) {
+    const n = takers(id);
+    if (n > 0) counts[id] = Math.max(counts[id] ?? 0, n);
+  }
+  // The drops worth hunting for, against what each character wears after this pass.
   const want = new Map();
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
-    const r = { characterName: null, itemId: d.itemId, itemName: items.get(d.itemId).Name, itemInstanceId: `drop:${d.itemId}` };
+    const r = virtual(d.itemId);
     for (const p of people) {
       for (const o of offer(r, p)) {
-        if (o.gain >= (o.weapon ? MIN_RATIO_GAIN : minGain)) wanted.add(d.itemId);
         if (o.gain < (o.weapon ? 2 * MIN_RATIO_GAIN : 2 * minGain) || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
         const k = `${p.name}:${o.slot}`;
         const best = want.get(k);
@@ -255,5 +270,5 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       }
     }
   }
-  return { moves, wanted: [...wanted], drops: [...want.values()] };
+  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()] };
 }

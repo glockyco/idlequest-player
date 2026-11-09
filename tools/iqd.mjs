@@ -428,10 +428,10 @@ export async function aaInPage(a) {
   return done;
 }
 
-/** Give the bot the items the roster gear plan wants kept, which its cleanup never sells. */
+/** Give the bot what the roster gear plan needs kept: copies per item the account is short of, and the copies its moves take. */
 export function setGearKeepInPage(a) {
-  window.iqBot.set({ gearKeepIds: a.ids });
-  return a.ids.length;
+  window.iqBot.set({ gearKeepCounts: a.counts, gearKeepInstances: a.instances });
+  return Object.keys(a.counts).length + a.instances.length;
 }
 
 // ---- Recorder files -----------------------------------------------------------------------------
@@ -791,11 +791,11 @@ class Daemon {
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
-    const { moves, wanted, drops } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    const { moves, keep, drops } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, { ids: wanted }), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: wanted.length, capped: job.result.capped, drops });
-    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${wanted.length} kept${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops });
+    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }
 

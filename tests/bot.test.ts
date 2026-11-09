@@ -419,42 +419,6 @@ test("a leader at 0 HP with no recovery pending camps and enters the world again
   }
 });
 
-test("cleanup sells extra copies first, then singles by value, and keeps food, research pieces and items with an effect", async () => {
-  const { bot, me } = await install();
-  const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0, ...extra } });
-  Object.assign(me, {
-    inventory: [
-      item(0, 1, "Rusty Mace", 100),
-      item(1, 2, "Legionnaire's Bracer", 320),
-      item(2, 2, "Legionnaire's Bracer", 320),
-      item(3, 3, "Ration", 25, { itemtype: 14 }),
-      item(4, 4, "Words of Tyranny", 200),
-      item(5, 5, "Solist's Icy Wand", 10000),
-      item(8, 7, "Charm of Vigor", 50, { worneffect: 12 }),
-      item(9, 8, "Salil's Writ Pg. 64", 50000),
-      item(6, 10015, "Malachite", 50),
-      item(7, 6, "Bone Chips", 15, { nodrop: 0 }),
-    ],
-  });
-  const names = bot.surplus().map((s) => s.name);
-  expect(names).toEqual(["Legionnaire's Bracer", "Rusty Mace", "Legionnaire's Bracer", "Solist's Icy Wand"]);
-  // A name the coordinator's hunts or quests are for is never sold.
-  bot.config.keepNames = ["Rusty Mace"];
-  expect(bot.surplus().map((s) => s.name)).toEqual(["Legionnaire's Bracer", "Legionnaire's Bracer", "Solist's Icy Wand"]);
-});
-
-test("cleanup keeps quest turn-ins and gear-plan items, and nearly full bags give them up", async () => {
-  const { bot, me, iq } = await install();
-  const item = (slot: number, itemid: number, Name: string, price: number) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0 } });
-  Object.assign(me, { inventory: [item(0, 16539, "Hill Giant Toes", 200), item(1, 16539, "Hill Giant Toes", 200), item(2, 1, "Rusty Mace", 100), item(3, 2, "Bronze Katana", 50), item(4, 3, "Power of Fire", 10)] });
-  Object.assign(iq, { questItems: [16539] });
-  Object.assign(bot.config, { gearKeepIds: [2], keepNames: ["Power of Fire"] });
-  expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
-  // Bags with almost no room left give up the last quest item and the gear plan's items, cheapest
-  // first, but never what the coordinator named.
-  expect(bot.surplus(true).map((s) => s.name)).toEqual(["Hill Giant Toes", "Bronze Katana", "Rusty Mace", "Hill Giant Toes"]);
-});
-
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
   const empty = { act: "idle", why: "noEnemies", since: Date.now() };
   const tightened = await install();
@@ -943,14 +907,14 @@ test("a Cleric never replaces a pet, whatever it learns", async () => {
   }
 });
 
-test("cleanup keeps the reagents of the leader's class spells", async () => {
+test("the reserve keeps the reagents of the leader's class spells", async () => {
   const { iq, bot, me } = await install();
   const chips = (slot: number) => ({ bag: 23, slot, itemid: 13073, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name: "Bone Chips", price: 15, nodrop: 1, norent: 1, itemtype: 0 } });
   Object.assign(me, { class: 11, inventory: [chips(0), chips(1)] });
-  // With no table the copy beyond the first and the cheap single both count as surplus.
-  expect(bot.surplus().map((s) => s.name)).toEqual(["Bone Chips", "Bone Chips"]);
+  // With no class table both copies are surplus.
+  expect(bot.fates().sell.map((s) => s.name)).toEqual(["Bone Chips", "Bone Chips"]);
   iq.classSpells = generated;
-  expect(bot.surplus()).toEqual([]);
+  expect(bot.fates().sell).toEqual([]);
 });
 
 // Lets the bot's in-page switch job run its fake commands to the end.
@@ -1470,6 +1434,7 @@ test("a container on the cursor with every general slot taken sends the emptiest
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     handInPage(f, {}, { ok: true });
+    f.bot.config.keepNames = ["Rock"];
     type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number } };
     const bagWith = (slot: number, n: number): Row[] => [
       { bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: 8 } },
@@ -1525,49 +1490,64 @@ test("a container on the cursor with every general slot taken sends the emptiest
   }
 });
 
-test("kept items without a price move into one bag marked No Sell and No Declutter, and other items move out of it", async () => {
+test("the reserve sells surplus cheapest first, then discards surplus without a price, and never touches kept items", async () => {
   vi.useFakeTimers();
   try {
     const f = await install();
-    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number; price?: number } };
-    const bag = (slot: number, size: number): Row => ({ bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: size } });
-    const item = (b: number, slot: number, itemid: number, Name: string): Row => ({ bag: b, slot, itemid, itemInstanceId: 1000 + itemid, itemDetails: { Name, bagslots: 0, price: 0 } });
-    // The 10-slot bag in general slot 23 holds a junk item, and a wanted helm the server cannot
-    // sell and a wanted cloak it can sell lie in the bag in slot 22.
-    const cloak: Row = { ...item(23, 1, 9, "Fine Cloak"), itemDetails: { Name: "Fine Cloak", bagslots: 0, price: 500 } };
-    const inv: Row[] = [bag(22, 6), bag(23, 10), item(23, 0, 7, "Opoline Helm"), cloak, item(24, 0, 8, "Spider Femur")];
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; quantity: number; itemDetails: Record<string, unknown> };
+    const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}): Row => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, bagslots: 0, itemtype: 0, ...extra } });
+    const inv: Row[] = [
+      item(0, 1, "Rusty Mace", 100),
+      item(1, 2, "Fine Cloak", 500),
+      item(2, 3, "Battle Plans", 0, { nodrop: 0 }),
+      item(3, 4, "Power of Fire", 0, { nodrop: 0 }),
+      item(4, 5, "Small Bronze Helm", 2700),
+      item(5, 5, "Small Bronze Helm", 2700),
+      item(6, 6, "Shaded Torch", 0, { norent: 0 }),
+    ];
     (f.me as unknown as { inventory: Row[] }).inventory = inv;
     const at = (b: number, s: number) => inv.find((r) => r.bag === b && r.slot === s);
+    const drop = (r?: Row) => r && inv.splice(inv.indexOf(r), 1);
+    const acts: string[] = [];
     Object.assign(f.sheet, {
       moveItemToSlot: async (from: { bag: number; slot: number }, to: { bag: number; slot: number }) => {
         const r = at(from.bag, from.slot);
         if (r && !at(to.bag, to.slot)) Object.assign(r, to);
       },
-    });
-    Object.assign(f.combat, {
-      noAutoSellBagInstanceIds: [] as number[],
-      noDeclutterBagInstanceIds: [] as number[],
-      toggleNoAutoSellBag(id: number) {
-        f.combat.noAutoSellBagInstanceIds.push(id);
-      },
-      toggleNoDeclutterBag(id: number) {
-        f.combat.noDeclutterBagInstanceIds.push(id);
+      deleteItemOnCursor: () => {
+        acts.push(`discard ${at(0, 30)?.itemDetails.Name}`);
+        drop(at(0, 30));
       },
     });
-    f.bot.config.gearKeepIds = [7, 9];
-    const tick = f.bot.tick();
-    for (let k = 0; k < 12; k++) {
+    // Ten slots, so the reserve of 8 needs every item out but two.
+    Object.assign(f.iq, {
+      bagSpace: () => ({ free: 10 - inv.filter((r) => !(r.bag === 0 && r.slot === 30)).length, capacity: 10, cursor: (at(0, 30)?.itemDetails.Name as string) ?? null }),
+      clientFn: (name: string) => (bag: number, slot: number) => {
+        if (name !== "sell") return;
+        acts.push(`sell ${at(bag, slot)?.itemDetails.Name}`);
+        drop(at(bag, slot));
+        return { success: true, data: { copperTotal: 1 } };
+      },
+    });
+    // The coordinator names a quest piece, and the gear plan needs one helm copy for a move.
+    Object.assign(f.bot.config, { autoBank: false, minFreeSlots: 8, targetFreeSlots: 8, keepNames: ["Power of Fire"], gearKeepInstances: [104] });
+    expect(f.bot.fates()).toMatchObject({ keep: [{ name: "Power of Fire" }, { name: "Small Bronze Helm", instanceId: 104 }], discard: [{ name: "Battle Plans" }, { name: "Shaded Torch" }] });
+    // A count from the gear plan keeps that many copies of an item the account is short of, not more.
+    Object.assign(f.bot.config, { gearKeepInstances: [], gearKeepCounts: { 5: 1 } });
+    expect(f.bot.fates().keep.filter((k) => k.name === "Small Bronze Helm")).toHaveLength(1);
+    Object.assign(f.bot.config, { gearKeepInstances: [104], gearKeepCounts: {} });
+    const run = f.bot.cleanup();
+    for (let k = 0; k < 30; k++) {
       vi.advanceTimersByTime(500);
       await flush();
     }
-    await tick;
-    expect([f.combat.noAutoSellBagInstanceIds, f.combat.noDeclutterBagInstanceIds]).toEqual([[523], [523]]);
-    expect(inv.find((r) => r.itemDetails.Name === "Opoline Helm")?.bag).toBe(24);
-    expect(inv.find((r) => r.itemDetails.Name === "Spider Femur")?.bag).toBe(23);
-    expect(cloak.bag).toBe(23);
-    // With everything in its place the next tick moves nothing and marks nothing again.
-    await f.bot.tick();
-    expect([f.combat.noAutoSellBagInstanceIds.length, inv.find((r) => r.itemid === 7)?.bag]).toEqual([1, 24]);
+    await run;
+    expect(acts).toEqual(["sell Rusty Mace", "sell Fine Cloak", "sell Small Bronze Helm", "discard Battle Plans", "discard Shaded Torch"]);
+    expect(inv.map((r) => r.itemInstanceId)).toEqual([103, 104]);
+    // With only kept items left and the reserve still short, one alert lists them.
+    f.bot.config.minFreeSlots = 9;
+    await f.bot.cleanup();
+    expect(f.bot.state.alerts.filter((a) => a.kind === "bags").map((a) => a.wake)).toEqual([true]);
   } finally {
     vi.useRealTimers();
   }
