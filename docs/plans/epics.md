@@ -124,7 +124,6 @@ Everything else is raid or late.
 
 | Chain | Class | Scripts | Left for hand |
 | --- | --- | --- | --- |
-| `rogue-epic-parchment` | Rogue | `kaladimb/Founy_Jestands`, `neriakc/Tani_N-Mar`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor` | Anson's classic spawn row has `min_expansion` 12, so the step waits 45 minutes and the chain retries after 12 hours. Eldreth takes 100 platinum, which a hand-in step cannot carry. Stanos' Pouch (`qcat/Malka_Rale`) is skipped because "see stanos" spawns Stanos without it |
 | `shaman-epic-spear` | Shaman | `emeraldjungle/Spirit_Sentinel_` | The Iksar Scale needs Lord Rak`Ashiir, a chance spawn after black reaver deaths. Both Sentinels in the zone carry the name, so the walk may pick the one without the Spear script. The gem chain (`butcher/a_lesser_spirit` to the Opaque Gem) only raises faction and is not added. Ooglyn's step needs a wait at an underwater point |
 | `bard-epic-maligar` | Bard | `southkarana/Baenar_Swiftsong`, `soldunga/Marfen_Binkdirple`, `unrest/Serra`, `qey2hh1/Maligar`, `qey2hh1/Konia_Swiftfoot` | One chain, because the Note to Maligar is spent mid way. Level 38 for the doppleganger fight |
 | `bard-epic-forpar` | Bard | `steamfont/Forpar_Fizfla` | Chromodrac, Red Wurm and Onyx Drake guts (Kelkim), the lute parts and the final hand-in need raid level drops |
@@ -135,6 +134,8 @@ Everything else is raid or late.
 | `magician-epic-magikot`, `-mastery`, `-elements`, `-orb`, `-broom`, `-shovel` | Magician | `commons/Jahsohn_Aksot`, `najena/Akksstaff`, `butcher/Walnan`, `lakerathe/Rykas`, `soltemple/Vira` | The four Elements and the final spell (`skyfire/Jennus_Lyklobar`, `firiona/Tiblner_Milnik`, `cauldron/Jinalis_Andir`, `airplane/Kihun_Solstin`) need raid drops. The optional Rykas token is skipped. Star Ruby and Ruby come from merchants outside Soltemple |
 
 No Monk, Druid or Ranger chain exists. Their first steps need L44 or higher drops (Immortals, the Corruptor's tome) or a timed ceremony with script-spawned fights (the Telin to Teloa relay). The Freeport guild armor quests (`freportw/Klom_Jysun`, `Shana_Liskia`) need dozens of dropped pelts and shells that nothing farms.
+
+The Rogue parchment chain (`kaladimb/Founy_Jestands`, `neriakc/Tani_N-Mar`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor`) is not in `data/quests.json`: Anson McBale's spawn row has `min_expansion` 12, so he does not appear in IdleQuest, and four groups that waited for him lost their hunting time. Add it back once a game update makes him spawn.
 
 ## Ranking by value and effort
 

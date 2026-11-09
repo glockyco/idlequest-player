@@ -309,55 +309,6 @@
       }
     ]
   },
-  "rogue-epic-parchment": {
-    "class": "Rogue",
-    "minLevel": 12,
-    "reward": "Combined Parchment",
-    "doneIf": [
-      "Scribbled Parchment",
-      "Tattered Parchment",
-      "Translated Parchment",
-      "Sealed Box",
-      "General's Pouch",
-      "Ragebringer"
-    ],
-    "steps": [
-      {
-        "zone": "kaladimb",
-        "npc": "Founy Jestands",
-        "say": [
-          "pickpocket"
-        ],
-        "expect": "Stained Parchment Top"
-      },
-      {
-        "zone": "neriakc",
-        "npc": "Tani N`Mar",
-        "say": [
-          "pickpocket"
-        ],
-        "expect": "Stained Parchment Bottom"
-      },
-      {
-        "zone": "highpass",
-        "npc": "Anson McBale",
-        "say": [
-          "see stanos"
-        ],
-        "waitMin": 45
-      },
-      {
-        "zone": "highpass",
-        "npc": "Stanos Herkanor",
-        "give": [
-          "Stained Parchment Top",
-          "Stained Parchment Bottom"
-        ],
-        "expect": "Combined Parchment"
-      }
-    ],
-    "retryMin": 720
-  },
   "shaman-epic-spear": {
     "class": "Shaman",
     "minLevel": 46,
