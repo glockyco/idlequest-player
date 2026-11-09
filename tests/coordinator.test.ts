@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignTargets, assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory, targetWorth } from "../tools/lib/coordinator.mjs";
+import { assignTargets, assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory, targetWorth, visitWorth } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -115,9 +115,10 @@ test("the XP elasticity follows the model's table between its levels", () => {
 });
 
 test("a free group takes the target whose worth beats its cost most, and each target says why it is not hunted", () => {
-  // One item for a level 30 character, useful for 10 levels at an hour each, one copy an hour: a gain
-  // of g tenths of a percent is worth g/1000 x 1/6 x 0.753 x 10 hours of the group's XP an hour.
-  const target = (npc: string, zone: string, gain: number, npcLevel = 30) => ({ npc, zone, npcLevel, perHour: gain, items: [{ item: "X", to: "X1", level: 30, until: 40, gain, hours: 1 }] });
+  // One item for a level 30 character, useful for 10 levels at an hour each, one copy an hour (a 10%
+  // drop of an enemy that is always up): a gain of g tenths of a percent is worth g/1000 x 1/6 x 0.753
+  // x 10 hours of the group's XP a copy, so an hour of camping and an hour of visits pay the same.
+  const target = (npc: string, zone: string, gain: number, npcLevel = 30) => ({ npc, zone, npcLevel, spawn: 1, points: 1, perHour: gain, items: [{ item: "X", to: "X1", level: 30, until: 40, gain, hours: 1, drop: 0.1 }] });
   const targets = [target("a fiend", "unrest", 600), target("a warder", "nurga", 1000), target("a goo", "dalnir", 60), target("a broodling", "velketor", 1000, 50), target("a king", "soldunga", 600)];
   const tabs = [
     { ...tab("A", "G1", 30), zone: "unrest", rotation: ["unrest"] },
@@ -129,19 +130,24 @@ test("a free group takes the target whose worth beats its cost most, and each ta
   const { errands, status } = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), hoursPerLevel });
   // G1 hunts the fiend in its shared zone (0.75 - 0.4), G3 travels for the warder (1.26 - 1), and
   // the goo in G3's rotation (0.08) loses to the trip.
-  expect(errands.map((e) => [e.target.npc, e.group, e.kind])).toEqual([["a fiend", "G1", "errand"], ["a warder", "G3", "hunt"]]);
-  expect(status).toEqual(["errand queued for G1", "hunt queued for G3", "its groups took better targets", "too strong for every group (level 50)", "zone crowded by other players"]);
+  expect(errands.map((e) => [e.target.npc, e.group, e.kind])).toEqual([["a fiend", "G1", "errand"], ["a warder", "G3", "camp"]]);
+  expect(status).toEqual(["errand queued for G1", "camp queued for G3", "its groups took better targets", "too strong for every group (level 50)", "zone crowded by other players"]);
+  // A rare spawn (2% on each of 6 points, a copy every 1.39 h of camping) is up on arrival 11% of the
+  // time, so a 6-minute visit pays where a camp does not: 0.114 x 1.255 / 0.1 = 1.43 against 1.
+  const rare = { ...target("Hangman", "trakanon", 1000), spawn: 0.02, points: 6, items: [{ item: "Noose", to: "X1", level: 30, until: 40, gain: 1000, hours: 1.39, drop: 1 }] };
+  expect(visitWorth(rare, hoursPerLevel)).toBeCloseTo((1 - 0.98 ** 6) * targetWorth(targets[1], hoursPerLevel));
+  expect(assignTargets({ targets: [rare], tabs: [tabs[2]], hoursPerLevel }).errands.map((e) => e.kind)).toEqual(["visit"]);
   // A trip that is worth less than the XP it costs does not run, and says so.
   const poor = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel });
-  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet for G3: an hour of hunting it brings gear worth 50% of an hour of its XP and costs 100%"]);
+  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet for G3: an hour of hunting brings gear worth 50% of an hour of its XP and costs 100%"]);
   // A trip zone that pays 70% of the group's XP costs only the other 30%.
   const paid = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel, zoneShare: () => 0.7 });
-  expect(paid.errands.map((e) => [e.target.npc, e.kind])).toEqual([["a warder", "hunt"]]);
+  expect(paid.errands.map((e) => [e.target.npc, e.kind])).toEqual([["a warder", "camp"]]);
   // A group on the target's errand hunts it, and a group an experiment holds takes none.
   expect(assignTargets({ targets, tabs: [{ ...tabs[1], errand: { zone: "unrest", keep: "a fiend" } }], hoursPerLevel }).status[0]).toBe("hunting: G2");
   const held = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), held: new Set(["G1", "G3"]), hoursPerLevel });
   // The status names the group the target pays for, which waits here for its experiment.
-  expect([held.errands, held.status[1]]).toEqual([[], "worth it for G1 (gear worth 126% of an hour of its XP against 100%), which is held by an experiment"]);
+  expect([held.errands, held.status[1]]).toEqual([[], "worth a camp for G1 (an hour of hunting brings gear worth 126% of an hour of its XP and costs 100%), which is held by an experiment"]);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {

@@ -386,7 +386,9 @@ export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp 
         // it, which the plan does not model yet, so it counts for 10 levels from the taker's level,
         // like the 12-level windows of the picks, and not past 60.
         const until = Math.min(60, p.level + 10);
-        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, offers: [] }).get(tk)).offers.push({ ...entry, level: p.level, until: until ?? null, key: k });
+        // The enemy's spawn chance per point, points and respawn, and the item's drop chance, for
+        // weighing a short visit against a camp (`visitWorth`).
+        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, offers: [] }).get(tk)).offers.push({ ...entry, level: p.level, until: until ?? null, drop: d.drop ?? null, key: k });
       }
     }
   }
@@ -416,7 +418,7 @@ function rankTargets(byTarget) {
         items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
       }
       const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
-      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, perHour: Math.round(items.reduce((s, w) => s + rate(w), 0) * 100) / 100, firstHours: Math.round(100 / copies) / 100, items };
+      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, spawn: t.spawn, points: t.points, respawn: t.respawn, perHour: Math.round(items.reduce((s, w) => s + rate(w), 0) * 100) / 100, firstHours: Math.round(100 / copies) / 100, items };
     })
     .sort((a, b) => b.perHour - a.perHour);
 }

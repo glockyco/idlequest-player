@@ -351,7 +351,7 @@ export async function zoneDrops(root, bandRows) {
       for (const s of list) {
         if (!b.zones.includes(s.zoneShort) || s.level > b.max + 5) continue;
         const hours = farmHours(s) / Math.max(1, s.points);
-        if (Number.isFinite(hours)) drops.push({ itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: [b.min, b.max] });
+        if (Number.isFinite(hours)) drops.push({ itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: [b.min, b.max], spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn });
       }
     }
   }
@@ -376,7 +376,7 @@ export async function pickDrops(root, picks) {
       if (i.Name !== o.item) continue;
       const s = (sources.get(itemId) ?? []).filter((x) => x.zoneShort === o.zone && keep.test(x.npc)).sort((a, b) => farmHours(a) / Math.max(1, a.points) - farmHours(b) / Math.max(1, b.points))[0];
       const hours = s ? farmHours(s) / Math.max(1, s.points) : Infinity;
-      if (Number.isFinite(hours)) drops.push({ itemId, zone: o.zone, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: o.levels, pick: o.id });
+      if (Number.isFinite(hours)) drops.push({ itemId, zone: o.zone, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, levels: o.levels, pick: o.id, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn });
     }
   }
   return { drops, items };

@@ -643,15 +643,26 @@ class Daemon {
     const crowded = crowdedZones(tabs, now);
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
-    // The share of a tab's XP per hour a trip zone pays at its leader's level, where both are measured.
+    // The share of a tab's XP per hour a trip zone pays at its leader's level: the measured rates
+    // where both zones have them, else the leveling model's prediction for both (tools/predict.mjs).
+    const predicted = await this.predictedRates(new Set([...tabs.map((t) => t.zone), ...this.targetWants.map((x) => x.zone)].filter(Boolean)));
     const zoneShare = (t, zone) => {
       const level = t.members[0]?.level ?? 0;
       const there = estimate(rates, zone, level, now)?.xph;
       const here = estimate(rates, t.zone, level, now)?.xph;
-      return there > 0 && here > 0 ? there / here : 0;
+      if (there > 0 && here > 0) return there / here;
+      const a = predicted(zone, level);
+      const b = predicted(t.zone, level);
+      return a > 0 && b > 0 ? a / b : 0;
     };
     const { errands, status } = assignTargets({ targets: this.targetWants, tabs, crowded, held, hoursPerLevel, zoneShare });
-    for (const { target: best, group, kind } of errands) opportunities.push({ id: targetId(best), group, ...(kind === "errand" ? { kind } : {}), zone: best.zone, keep: best.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), item: best.items[0].item, count: 1, retryMin: kind === "errand" ? 120 : 60, minutes: 30 });
+    for (const { target: best, group, kind } of errands) {
+      const id = targetId(best);
+      const keep = best.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // A camp clears the target's spawn points, a visit looks once and fights it if it is up.
+      if (kind === "camp" && !this.points.has(id)) this.points.set(id, await spawnPoints(best.zone, `^${keep}$`).catch(() => []));
+      opportunities.push({ id, group, ...(kind === "errand" ? { kind } : {}), ...(kind === "visit" ? { camp: false } : {}), zone: best.zone, keep, item: best.items[0].item, count: 1, retryMin: kind === "errand" ? 120 : 60, minutes: kind === "visit" ? 6 : 30 });
+    }
     if (errands.length) this.log(`coordinator: ${errands.length} wanted targets (${errands.map((e) => `${e.target.npc} in ${e.target.zone} for ${e.group}, ${e.kind}`).join(", ")})`);
     // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
@@ -708,6 +719,29 @@ class Daemon {
     state.last = { t: now, stock, missing, chains: chainSummary({ quests, holders, started, members }), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
     metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
+  }
+
+  /**
+   * The leveling model's XP per hour (tools/predict.mjs) for `zones`, as `(zone, level) => xph`,
+   * loading each zone once and evaluating each level once.
+   */
+  async predictedRates(zones) {
+    const predict = await import("./predict.mjs");
+    this.modelZones ??= new Map();
+    this.modelRates ??= new Map();
+    const missing = [...zones].filter((z) => !this.modelZones.has(z));
+    if (missing.length) {
+      const loaded = await predict.loadZones(`^(${missing.join("|")})$`).catch(() => new Map());
+      for (const z of missing) this.modelZones.set(z, loaded.get(z) ?? null);
+    }
+    return (zone, level) => {
+      const k = `${zone}|${level}`;
+      if (!this.modelRates.has(k)) {
+        const z = this.modelZones.get(zone);
+        this.modelRates.set(k, z ? (predict.evalZone(z, predict.cfgFromFlags(level)).xph ?? 0) : 0);
+      }
+      return this.modelRates.get(k);
+    };
   }
 
   /**
