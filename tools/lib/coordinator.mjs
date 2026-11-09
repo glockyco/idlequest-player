@@ -243,6 +243,14 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   const lastHunt = (id) => history.filter((h) => h.id === id).at(-1);
   const ctx = { tabs, hoursPerLevel, zoneShare };
   const hunter = (t) => free(t) && t.members.length && !held.has(t.group);
+  // What keeps a group from a target this pass, for the target's status.
+  const holding = (t) => {
+    const queued = out.find((o) => o.label === t.label);
+    if (queued) return `${queued.kind} ${queued.why}`;
+    if (t.errand) return `an errand for ${t.errand.item ?? t.errand.keep} in ${t.errand.zone}`;
+    if (t.task?.status === "running") return `a ${t.task.kind} task${t.task.step ? ` at "${t.task.step}"` : ""}`;
+    return `the ${cfg.taskGapMin} minutes after its last task`;
+  };
   const pairs = [];
   for (const t of tabs.filter(hunter)) {
     for (const x of targets) {
@@ -277,7 +285,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     else if (!best) status = `too strong for every group (level ${x.npcLevel})`;
     else if (netRate(best.w) <= 0) status = `not worth it yet, best ${says}`;
     else if (held.has(best.t.group)) status = `waits for an experiment to end, best ${says}`;
-    else if (!hunter(best.t)) status = `waits for a busy group, best ${says}`;
+    else if (!hunter(best.t)) status = `waits for ${best.t.group}, which is on ${holding(best.t)}, best ${says}`;
     else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) status = `waits for its retry, best ${says}`;
     else status = `its groups took better targets, best ${says}`;
     targetEval[id] = { ...terms, status };

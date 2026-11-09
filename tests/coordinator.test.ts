@@ -114,7 +114,7 @@ test("a target whose best group is busy goes to a free group that still gains, a
   // A trip that earns no XP costs G1 more than the copy adds, so the fiend waits for G2.
   const unpaid = decide({ now: NOW, tabs, targets, hoursPerLevel });
   expect(unpaid.actions).toEqual([]);
-  expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G2", kind: "errand", status: expect.stringMatching(/^waits for a busy group/) });
+  expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G2", kind: "errand", status: expect.stringMatching(/^waits for G2, which is on a quest task/) });
 });
 
 test("each gear target says why it is not hunted", () => {

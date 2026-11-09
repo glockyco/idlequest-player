@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
+import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -309,4 +309,15 @@ test("the AA bar counts trained ranks against the catalog for recorded character
   };
   expect(aaView(aa, { reached: 1, characters: 72 })).toMatchObject({ share: 0.03, recorded: 1, trained: 3, possible: 100, points: 4, passT: 1000 });
   expect(aaView({}, { reached: 0, characters: 72 }).share).toBeNull();
+});
+
+test("a running errand shows instead of an ended task, and a running task instead of an errand", () => {
+  const now = 1_800_000_000_000;
+  const catalog = makeCatalog({ zones: { gukbottom: "The Ruins of Old Guk" } });
+  const errand = { zone: "gukbottom", keep: "ghoul arch magus", item: "Shining Metallic Robes", since: now - 10 * 60000, until: now + 50 * 60000 };
+  const ended = { id: "t1", kind: "hunt", status: "done", endedAt: now - 2 * H };
+  expect(taskView(catalog, ended, [], now, errand)).toMatchObject({ kind: "errand", name: "Shining Metallic Robes", status: "running", step: "errand for ghoul arch magus in The Ruins of Old Guk, ends in 50 min", forMs: 10 * 60000 });
+  expect(taskView(catalog, { ...ended, status: "running", step: "camp" }, [], now, errand)).toMatchObject({ kind: "hunt", status: "running" });
+  // A gear target no longer on the wanted list still reads as its enemy in its zone.
+  expect(taskName(catalog, "target-gukbottom-a-ghoul-scribe")).toBe("a ghoul scribe in The Ruins of Old Guk");
 });

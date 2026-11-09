@@ -157,8 +157,15 @@ export function jobsView(db, recent = 10) {
 /** Characters at this level or above have AA and can join raids (docs/plans/leveling-plan.md, levers 9 and 8). */
 export const AA_LEVEL = 46;
 
-/** A coordinator task's slug id as words: the item's name loses punctuation in the slug, so this is a last resort. */
-const unslug = (id) => String(id).replace(/^gear-/, "").replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+/**
+ * A coordinator task's slug id as words, a last resort: the item's name loses punctuation in the
+ * slug, and a gear target's id (`target-<zone>-<npc>`) reads as the enemy in its zone.
+ */
+const unslug = (id, catalog) => {
+  const target = /^target-([a-z0-9]+)-(.+)$/.exec(String(id));
+  if (target) return `${target[2].replace(/-/g, " ")} in ${zoneName(catalog, target[1])}`;
+  return String(id).replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+};
 
 /**
  * What the dashboard needs to give coordinator ids and zone ids names: the opportunities, quest
@@ -183,7 +190,7 @@ export function taskName(catalog, id) {
   if (f) return `${f.keep} farm in ${zoneName(catalog, f.zone)}`;
   const target = catalog.targets.get(id);
   if (target) return `${target.npc} in ${zoneName(catalog, target.zone)} (${target.items.map((w) => w.item).join(", ")})`;
-  return unslug(id);
+  return unslug(id, catalog);
 }
 
 /** `text` with every coordinator id in it replaced by its name. */
@@ -426,9 +433,14 @@ function stateOf(v) {
 /**
  * A bot task as the row and the coordinator panel show it: its name from the coordinator's history
  * (the bot knows only the task's kind and step), how long it runs or ended, its outcome and when
- * the coordinator looks at it again.
+ * the coordinator looks at it again. A running `errand` shows instead of a task that has ended.
  */
-export function taskView(catalog, task, history, now) {
+export function taskView(catalog, task, history, now, errand = null) {
+  // An errand runs inside normal hunting, between and after tasks, so while one runs and no task
+  // does, the errand is what the group is doing.
+  if (errand && task?.status !== "running") {
+    return { id: null, kind: "errand", name: errand.item ?? errand.keep, status: "running", step: `errand for ${errand.keep} in ${zoneName(catalog, errand.zone)}${errand.until ? `, ends in ${Math.max(0, Math.round((errand.until - now) / 60000))} min` : ""}`, forMs: errand.since ? now - errand.since : null, agoMs: null, result: null, error: null, retryInMs: null };
+  }
   if (!task) return null;
   const h = history.find((x) => x.task === task.id);
   const retry = h ? retryAt(catalog, h) : (task.nextAt ?? null);
@@ -465,7 +477,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     const r = reportOf.get(g.id);
     const hour = lastHour(minutes.get(g.id) ?? [], now);
     const idleShare = hour?.share ?? r?.idle ?? v?.idleShare ?? null;
-    const task = taskView(catalog, v?.bot.task, history, now);
+    const task = taskView(catalog, v?.bot.task, history, now, v?.errand);
     const levels = (v?.party ?? []).map((m) => m.level).filter((l) => l != null);
     const stuck = state.kind === "gone" || (state.kind === "activity" && (state.act === "idle" || state.act === "dead") && state.forMs > 120000) || (v != null && !v.parked && !v.raid && v.lastKillMs != null && v.lastKillMs > 300000);
     const mine = history.filter((h) => h.label === leader);
