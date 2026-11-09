@@ -409,7 +409,8 @@ event lines. Spells that need research, quests or drops are not bought
   characters cast from their scribed spellbook (`BQ.pretty.js:24176-24183`, `36018-36029`,
   `engine.pretty.js:423148`).
 - Tactic flags remove spells from the list (`BQ.pretty.js:10062-10091`): `cast` off removes all,
-  `cure` off removes cures, `rez` allows resurrections, `manaRecovery` allows mana-recovery spells,
+  `cure` off removes cures, `rez` allows resurrections, `manaRecovery` allows the Shaman's
+  Cannibalize-type spells (self-targeted, instant, HP into mana: `M7`, `OST` 58884-58891),
   and `heal`, `nuke`, `dot`, `debuff`, `cc`, `root` and `fear` remove their categories.
 - Defaults for a recruit come from what its class can do (`BQ.pretty.js:9983-10050`).
   Resurrection is off for everyone until the `rez` tactic is set (`BQ.pretty.js:10037`,
@@ -418,10 +419,23 @@ event lines. Spells that need research, quests or drops are not bought
 - Casting preferences are a second per-member record (`rez`, `slow`, `mez`, `stun`, `snare`,
   `charm`, `excludedSpellIds`, `epicRezOnly`, `bardSongIds`) and default from the tactic flags
   (`BQ.pretty.js:13586-13599`, `13678-13689`).
-- Between fights only the support pass above casts. It casts no buffs and no songs. In a fight,
-  members choose spells from the filtered list on their own. Unverified: the order in which the
-  fight AI ranks spells, and whether companions cast buffs at the start of a fight
+- No member casts a buff. Every member's list drops category 3 (`Vx`, `0ea` 10070-10099), and
+  between fights only the support pass above casts. In a fight, members choose spells from the
+  filtered list on their own. Unverified: the order in which the fight AI ranks spells
   (`BQ.pretty.js:36031-36120`).
+
+### Supplied party buffs
+
+Buffs in a party are passive. Each member supplies the support-catalog spells of its class that
+it has scribed and whose level it has reached, to every member, while it is in the party (`Dt`,
+`OST` 20111-20149). Duplicates and weaker spells of one family do not stack. The party window's
+class tooltip lists them ("Shaman Buffs, Active while supplied, Supplied by ...", `CVE`
+421972-422033). The totals are in `characterProfile.partySupport.bonuses` (`HP`, `AC`, `Haste`,
+`ManaRegen` and the rest), and `characterProfile.movementSpeedMod` holds the run speed. The party
+walks at the leader's speed, `baseSpeed * (1 + movementSpeedMod / 100)` (`CVE` 470134-470139), so
+a group without a Spirit of Wolf provider (Shaman 9, Druid 14, Ranger 30) or a Bard's travel song
+walks at base speed. Which buffs a group gets therefore follows from its classes, their levels
+and their scribed spells.
 
 ## Macro bar, account sharing and options
 
