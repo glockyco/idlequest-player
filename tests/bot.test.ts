@@ -1362,6 +1362,33 @@ test("an NPC wait ends at once while another NPC holds the spawn point, and wait
   }
 });
 
+test("a trade the NPC refuses is tried again after talking to the NPC", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    let words = 0;
+    const calls: string[] = [];
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Words of Mastery" ? words : 1),
+      talkToNpc: async () => void calls.push("talk"),
+      // The first trade meets a stale view of the bags, which the server refuses and refreshes.
+      giveToNpc: async () => {
+        calls.push("give");
+        if (calls.filter((c) => c === "give").length === 1) throw new Error("the NPC did not want these items");
+        words = 1;
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "najena", npc: "Akksstaff", give: ["Torn Page of Mastery Fire"], expect: "Words of Mastery" }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(calls).toEqual(["talk", "give", "talk", "give"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a container on the cursor with every general slot taken sends the emptiest bag to the bank, and the bag comes back once a slot is free", async () => {
   vi.useFakeTimers();
   try {

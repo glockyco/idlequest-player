@@ -891,6 +891,9 @@
     await pause(600);
     const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
     if (closeNote && stores.combat.getState().isNoteOpen) stores.combat.getState().toggleNote();
+    // The server refuses a trade whose items do not match its view of the bags, as after a pull a
+    // moment before, and refreshes the inventory, so the caller can trade again.
+    if (events.some((e) => e.seq > since && /^The NPC does not want these items/.test(e.text))) throw new Error("the NPC did not want these items");
     return { dialogues: dialogues.slice(-2), lines: events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest|level/i.test(e.text)).map((e) => e.text) };
   };
   /** Sell what the cursor holds with the client's own sale. Resolves with its reply, or null for an empty cursor. */
