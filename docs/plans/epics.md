@@ -40,19 +40,19 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 | Class | Epic (item id) | In IdleQuest | Hand-in class gate | Pieces in rotation zones, 22 to 46 | Late steps | Effort | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Warrior (5) | Jagged Blade of War (10908) | Yes. Combine in Red Scabbard, recipe 9834. Do not use Gartrog (summons absent item 66175) | Kargek and Wenden answer only a Warrior in dialogue. Hand-ins open | Heart of Frost (permafrost, 22 to 27). From 41 velketor, sebilis and chardok drop the gems (errands) | Red and Green Dragon Scales, Hand of the Maestro, Spiroc Wingblade, Ball of Everliving Golem, Ancient Blade (six raid kills) | Very high | `Q` `S` `T` |
-| Cleric (8) | Water Sprinkler of Nem Ankh (5532) | Yes, a script for every step, no class or level check | None | Lord Gimblox's Signet Ring (soldunga, 28 to 37) | Ixiblat Fer L62, Overking Bathezid L65, Zordak L60 and Zordakalicus L54, plasmatic priest L55. All script-spawned except Bathezid | Very high | `Q` `S` `T` `W` |
-| Bard (5) | Singing Short Sword (20542) | Yes, 13 scripts | None | Mechanical Doll hand-in (soldunga, 28 to 37), Serra hand-in (unrest, 26 to 30) | Phinigel, Amygdalan, Drolvarg Warlord, two dragon scales, Undead Bard then Trakanon L65 | Very high | `Q` `S` |
+| Cleric (8) | Water Sprinkler of Nem Ankh (5532) | Yes, a script for every step, no class or level check | None | Lord Gimblox's Signet Ring (soldunga, 26 to 37) | Ixiblat Fer L62, Overking Bathezid L65, Zordak L60 and Zordakalicus L54, plasmatic priest L55. All script-spawned except Bathezid | Very high | `Q` `S` `T` `W` |
+| Bard (5) | Singing Short Sword (20542) | Yes, 13 scripts | None | Mechanical Doll hand-in (soldunga, 26 to 37), Serra hand-in (unrest, 26 to 30) | Phinigel, Amygdalan, Drolvarg Warlord, two dragon scales, Undead Bard then Trakanon L65 | Very high | `Q` `S` |
 | Shaman (8) | Spear of Fate (10651) | Yes. The last script needs only an Iksar Scale | None | None | Lord Rak L54 (or Child's Tear from Fear golems) | High | `Q` `S` |
-| Enchanter (5) | Staff of the Serpent (10650) | Yes, no class or level check | None | Lost Scroll (dalnir, 31 to 33) | Prince Selrach L61, Vessel Drozlin, Verina Tomb, Wraith of a Shissar, Tangrin, Thrackin L55 | Very high | `Q` `S` `T` |
+| Enchanter (5) | Staff of the Serpent (10650) | Yes, no class or level check | None | Lost Scroll (dalnir, 28 to 30) | Prince Selrach L61, Vessel Drozlin, Verina Tomb, Wraith of a Shissar, Tangrin, Thrackin L55 | Very high | `Q` `S` `T` |
 | Rogue (4) | Ragebringer (11057) | Yes, with spawn blockers (Anson, Kithicor aides) | Anson needs a Rogue | None | Renux L51, General V`ghera L65, Book of Souls in Hate | High | `Q` `S` `T` |
 | Monk (4) | Celestial Fists (10652) | Yes. 36224 is not given by any script | Class check in nine scripts | None | Eejag, Gwan, Trunt, Vorash, Xenevorash L65, Robe of the Whistling Fists sub-quest | Very high | `Q` `S` `T` |
 | Druid (5) | Nature Walkers Scimitar (20490) | Scripts yes. Five ingredients have no source in the snapshot | None | None (Antonica spirit set is errands) | Venril Sathir, Faydedar, Ulump Pujluk, many L46 to 55 corrupted fights | Very high | `Q` `S` `T` |
 | Necromancer (7) | Scythe of the Shadowed Soul (20544) | Yes, Plane of Sky parts simplified | None (dialogue only) | None | Silver Disc, Spiroc Feathers, Cape (Sky), Eye (Hate), Slime Blood (Fear) | Very high | `Q` `S` `T` |
-| Paladin (4) | Fiery Defender (10099) | Yes, every step scripted | Only the peasant woman | Ghoulbane (guktop, 22 to 25), Brother Hayle hand-in (paw, 26 to 37) | Keeper of the Tombs, Kirak Vil, dragon-dropped book halves, Miragul L53, Plane of Hate banshee | Very high | `Q` `S` `T` |
-| Shadow Knight (4) | Innoruuk's Curse (14383) | Yes. Reward drops from the hostile #Lhranc | Teydar greeting only | Ghoulbane (guktop, 22 to 25) | Fear golems, Blade of Abrogation, Hole chain L55, Lhranc L60 | Very high | `Q` `S` `T` |
+| Paladin (4) | Fiery Defender (10099) | Yes, every step scripted | Only the peasant woman | Ghoulbane (guktop, 22 to 30), Brother Hayle hand-in (paw, 26 to 37) | Keeper of the Tombs, Kirak Vil, dragon-dropped book halves, Miragul L53, Plane of Hate banshee | Very high | `Q` `S` `T` |
+| Shadow Knight (4) | Innoruuk's Curse (14383) | Yes. Reward drops from the hostile #Lhranc | Teydar greeting only | Ghoulbane (guktop, 22 to 30) | Fear golems, Blade of Abrogation, Hole chain L55, Lhranc L60 | Very high | `Q` `S` `T` |
 | Wizard (4) | Staff of the Four (14341) | Yes | None | None | Enraged golem L65 175,000 hp, Phinigel, Venril. About 1,850 pp cash at base price | Very high | `Q` `S` `T` |
 | Ranger (5) | Earthcaller (20488), Swiftwind (20487) | Yes. Earthcaller needs no foraged item. Swiftwind needs the Druid's Hardened Mixture | None in the epic scripts | None | Essence carrier L54 and tamer L56 (Sky), Jaeil the Insane L55, Shattered Emerald from Plane of Hate bosses L55 to 58 | High | `Q` `S` `T` |
-| Magician (4) | Orb of Mastery from Summon Orb | Yes, see the Magician plan | None | Page 2 (unrest, 26 to 30), Power of Fire (soldunga, 28 to 37) | Planar and named kills in the plan | Very high | `Q` `S` |
+| Magician (4) | Orb of Mastery from Summon Orb | Yes, see the Magician plan | None | Page 2 (unrest, 26 to 30), Power of Fire (soldunga, 26 to 37) | Planar and named kills in the plan | Very high | `Q` `S` |
 
 ## Raid targets that serve several epics
 
@@ -79,13 +79,13 @@ Pieces by the party level at which they become practical. "Rotation" rows need n
 | Party level | Zone | Piece (class and step) | How | Minutes |
 | --- | --- | --- | --- | --- |
 | 22 to 27 | permafrost, rotation | Heart of Frost (Warrior W5) | goblin wizard L22 to 25, drop 20%, spawn 100% on 2 points, 50% on 3, 25% on 2, respawn 640 s | About 5 kills, 10 to 15 inf |
-| 22 to 25 | guktop, rotation | Ghoulbane (Paladin G, Shadow Knight 11) | the_froglok_shin_lord L30 named, drop 25%, spawn 25%, 1 point, 960 s | About 4 h of camp per copy inf |
-| 28 to 37 | soldunga, rotation | Mechanical Doll (Bard 6 to 9) | Marfen Binkdirple L31 (spawn 100%, 640 s) takes Baenar's Solusek Mining Co. Invoice, which Baenar gives in southkarana for the word "doll". The Baenar visit comes before the 28 row | 5 plus the Baenar visit |
-| 31 to 33 | dalnir, rotation | Lost Scroll (Enchanter E8) | ground pickup, 300 s respawn. At other levels it is a short visit | About 5 inf |
+| 22 to 30 | guktop, rotation | Ghoulbane (Paladin G, Shadow Knight 11) | the_froglok_shin_lord L30 named, drop 25%, spawn 25%, 1 point, 960 s | About 4 h of camp per copy inf |
+| 26 to 37 | soldunga, rotation | Mechanical Doll (Bard 6 to 9) | Marfen Binkdirple L31 (spawn 100%, 640 s) takes Baenar's Solusek Mining Co. Invoice, which Baenar gives in southkarana for the word "doll". The Baenar visit comes before the 26 row | 5 plus the Baenar visit |
+| 28 to 30 | dalnir, rotation | Lost Scroll (Enchanter E8) | ground pickup, 300 s respawn. At other levels it is a short visit | About 5 inf |
 | 25 and up | swampofnohope, errand | Black Sapphire (Warrior W9) | Soblohg L25, drop 55%, spawn 50% on 2 points, 640 s | 20 to 30 inf |
-| 26 to 30 | unrest, rotation | Serra's note (Bard 6 to 9) | Serra takes the doll, so Marfen's doll comes first. Soldunga and unrest share the 28 row. The same zone gives Magician page 2 | In the rotation |
+| 26 to 30 | unrest, rotation | Serra's note (Bard 6 to 9) | Serra takes the doll, so Marfen's doll comes first. Soldunga and unrest share the 26 and 28 rows. The same zone gives Magician page 2 | In the rotation |
 | 26 to 30 | lakerathe lake floor, errand | Unjeweled Dragon Head Hilt (Warrior W9) | ground pickup at (919, 2530, -189) underwater, 300 s | 10 to 15 inf |
-| 28 to 37 | soldunga, rotation | Lord Gimblox's Signet Ring (Cleric 7) | L30 named, drop 100%, spawn 10%, 1 point, 930 s | About 155 camp expected, 90% within 6 h inf |
+| 26 to 37 | soldunga, rotation | Lord Gimblox's Signet Ring (Cleric 7) | L30 named, drop 100%, spawn 10%, 1 point, 930 s | About 155 camp expected, 90% within 6 h inf |
 | 28 to 35 | rathemtn, errand | Onyx Drake Gut (Bard 14) | Blackwing L35, drop 100%, spawn 24%, 1 point, 600 s | 45 to 50 inf |
 | 31 to 35 | kaesora, errand | Dull Diamond charm for the spectral librarian (Enchanter E9) | spawn 20% of its point, 640 s. Hostile after the hand-in, L35 | About 50 if camped alone inf |
 | 33 and up | gukbottom, errand | Ink of the Dark (Enchanter E3) | ghoul scribe L35, spawn 34%, 1740 s. Needs the vial from Reania Jukle (qcat, no kill) first | 60 to 90 plus 10 travel inf |
@@ -166,8 +166,8 @@ Every roster character completes its class epic. The rank above sets the order i
 | Party level | Rotation row | Pieces the rotation supplies | Errands in the band |
 | --- | --- | --- | --- |
 | 22 to 25 | permafrost, runnyeye, guktop | Heart of Frost (Warrior W5), Ghoulbane (Paladin G, Shadow Knight 11) | Soblohg (Black Sapphire), lakerathe hilt |
-| 26 to 27 | permafrost, paw, unrest | Heart of Frost, Brother Hayle hand-in (Paladin F, paw), Magician page 2 (tentacle terrors, 90%) | Baenar's invoice (southkarana) |
-| 28 to 30 | unrest, soldunga, paw | Page 2, Marfen's doll and Serra's note (Bard 6 to 9), Gimblox's ring (Cleric 7), Power of Fire from blazing elementals (2%) | Power of Wind (mistmoore), Power of Earth (lfaydark), Cyclops Toes (qey2hh1), Quillmane, Blackwing |
+| 26 to 27 | permafrost, paw, unrest, runnyeye, soldunga, guktop | Heart of Frost, Brother Hayle hand-in (Paladin F, paw), Magician page 2 (tentacle terrors, 90%), Ghoulbane, Marfen's doll, Gimblox's ring, Power of Fire from blazing elementals (2%) | Baenar's invoice (southkarana) |
+| 28 to 30 | unrest, soldunga, paw, runnyeye, guktop, dalnir | Page 2, Marfen's doll and Serra's note (Bard 6 to 9), Gimblox's ring (Cleric 7), Power of Fire from blazing elementals (2%), Ghoulbane, Lost Scroll (Enchanter E8) | Power of Wind (mistmoore), Power of Earth (lfaydark), Cyclops Toes (qey2hh1), Quillmane, Blackwing |
 | 31 to 33 | soldunga, unrest, paw | Gimblox's ring, Power of Fire (lava elemental L35, 28%), Hayle | Kaesora (Power of Water, spectral librarian), Lost Scroll (Enchanter E8, dalnir), Hill Giant Toes (dreadlands) |
 | 34 to 37 | soldunga, kaesora, unrest | Gimblox's ring, Power of Fire, Power of Water and the spectral librarian (kaesora) | Hayle (paw), Xicotl, Bergurgle, page 3 (gukbottom), ghoul scribe |
 | 38 to 43 | soldunga, kaesora, paw | Gimblox's ring, Power of Fire, the spectral librarian, Hayle | Star Ruby (citymist mist golem L42 to 46, 27.5%, also sold by merchants) for the Magician's Broom of Trilon, page 1 (kithicor), Elemental Binder (hole), Burning Embers (burningwood), Maligar, arch magus, Felia |
