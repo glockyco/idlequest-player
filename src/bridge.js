@@ -878,10 +878,21 @@
     if (!win) throw new Error("the Give Items window did not open");
     const slots = [...win.querySelectorAll('[data-testid^="quest-give-slot-"]')].map((el) => Number(el.getAttribute("data-testid").replace("quest-give-slot-", "")));
     const ch = () => stores.character.getState();
+    // Each trade slot holds one item, as the quest scripts count them (Tykar Renlin takes four Drom's
+    // Champagnes in four slots), so a stack gives one unit through the cursor and keeps the rest.
+    const cursorRow = () => (ch().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
     for (let k = 0; k < items.length; k++) {
       const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
       if (!found) throw new Error(`no ${items[k]} in the bags`);
-      ch().moveItemToSlot({ bag: found.bag, slot: found.slot }, { bag: 0, slot: slots[k] });
+      let from = { bag: found.bag, slot: found.slot };
+      if ((found.quantity ?? 1) > 1) {
+        ch().splitItemToCursor(from, 1);
+        for (let j = 0; j < 20 && !cursorRow(); j++) await pause(200);
+        if (!cursorRow()) throw new Error(`could not take one ${items[k]} from its stack`);
+        await pause(400);
+        from = { bag: 0, slot: 30 };
+      }
+      ch().moveItemToSlot(from, { bag: 0, slot: slots[k] });
       await pause(800);
     }
     const give = buttonByText(/^Give$/i, win);
