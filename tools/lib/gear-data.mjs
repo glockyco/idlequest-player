@@ -3,6 +3,7 @@
 // a merchant) in the zones the live game has, with the time it takes to farm a copy.
 import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
+import { spawnTimes } from "./content.mjs";
 import { effectValue, spellEffects } from "./spell-value.mjs";
 
 export const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
@@ -237,10 +238,11 @@ export async function liveZoneNames(root) {
 }
 
 // Sources of the items in `itemIds`: item -> lootdrop -> loottable -> NPC -> spawns -> zone.
-//   sources  item id -> [{ npcId, npc, level, zone, zoneShort, drop, spawn, points, respawn }]
+//   sources  item id -> [{ npcId, npc, level, zone, zoneShort, drop, spawn, points, respawn, when }]
 //              drop     chance that one kill of the NPC drops the item
 //              spawn    chance that a spawn point of the group spawns this NPC
 //              points   spawn points of the NPC in the zone, respawn the shortest respawn time (s)
+//              when     "night" or "day" when every point spawns only then (`spawnTimes`), else null
 //   sellers  item id -> [{ npc, zone, zoneShort }] merchants that sell it and stand in a live zone
 // NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources.
 export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName }) {
@@ -274,27 +276,31 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
       needGroups.add(s.spawngroupID);
     }
   }
-  const pointsOf = new Map(); // group -> {zone -> {n, respawn}}
+  const timeOf = await spawnTimes(root);
+  const pointsOf = new Map(); // group -> {zone -> {n, respawn, when}}
   for await (const sp of rows(root, "spawn2")) {
     // Spawn points with a version above 0 belong to instanced copies of the zone, not to the zone itself.
     if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone) || sp.version > 0) continue;
     const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
-    const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity }).get(sp.zone);
+    const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity, when: new Set() }).get(sp.zone);
     r.n++;
+    r.when.add(timeOf(sp.zone, sp._condition) ?? "always");
     if (sp.respawntime > 0) r.respawn = Math.min(r.respawn, sp.respawntime); // 0 means no respawn timer
   }
   const sources = new Map();
   for (const npc of npcsOfLt.values()) {
     const byZone = new Map();
     for (const { g, chance } of groups.get(npc.id) ?? []) for (const [zone, r] of pointsOf.get(g) ?? []) {
-      const z = byZone.get(zone) ?? byZone.set(zone, { n: 0, respawn: Infinity, spawn: 0 }).get(zone);
+      const z = byZone.get(zone) ?? byZone.set(zone, { n: 0, respawn: Infinity, spawn: 0, when: new Set() }).get(zone);
       z.n += r.n;
       z.respawn = Math.min(z.respawn, r.respawn);
       z.spawn = Math.max(z.spawn, groupTotal.get(g) ? chance / groupTotal.get(g) : 1);
+      for (const w of r.when) z.when.add(w);
     }
     for (const [zone, z] of byZone) for (const [item, p] of itemsOfLt.get(npc.lt)) {
       const list = sources.get(item) ?? sources.set(item, []).get(item);
-      list.push({ npcId: npc.id, npc: npc.name.replace(/_/g, " "), level: npc.level, zone: zoneName.get(zone), zoneShort: zone, drop: p, spawn: z.spawn, points: z.n, respawn: z.respawn });
+      const only = z.when.size === 1 ? [...z.when][0] : null;
+      list.push({ npcId: npc.id, npc: npc.name.replace(/_/g, " "), level: npc.level, zone: zoneName.get(zone), zoneShort: zone, drop: p, spawn: z.spawn, points: z.n, respawn: z.respawn, when: only === "night" || only === "day" ? only : null });
     }
   }
   const sellers = new Map();
@@ -335,7 +341,7 @@ export const farmHours = (s) => (s.respawn > 0 && Number.isFinite(s.respawn) && 
 // enemy is cleared as it respawns. Null when the enemy has no spawn timer.
 const dropRow = (itemId, s) => {
   const hours = farmHours(s) / Math.max(1, s.points);
-  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn } : null;
+  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn, when: s.when ?? null } : null;
 };
 
 /**

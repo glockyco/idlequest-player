@@ -15,7 +15,7 @@
 //   respawn   seconds between respawns at a spawn point (smallest seen)
 //   when      always, or night or day for points that spawn only then (iq.gameHour() gives the game's hour, night is 20 to 5)
 //   rare      spawn% under 20 (the NPC shares a group with more common ones) or a `#` named NPC
-import { contentRoot, rows as contentRows } from "./lib/content.mjs";
+import { contentRoot, rows as contentRows, spawnTimes } from "./lib/content.mjs";
 
 const args = process.argv.slice(2);
 const [mode, pattern] = args.filter((a) => !a.startsWith("--"));
@@ -98,15 +98,7 @@ for await (const s of rows("spawnentry")) {
     groupsNeeded.add(s.spawngroupID);
   }
 }
-// A spawn point with a `_condition` spawns only while that zone condition is on, such as Kithicor's
-// night (spawn_conditions, switched by spawn_events). The report names the condition's time of day.
-const conditionName = new Map();
-for await (const c of rows("spawn_conditions")) conditionName.set(`${c.zone}:${c.id}`, c.name);
-const timeOf = (zone, cond) => {
-  if (!cond) return null;
-  const name = conditionName.get(`${zone}:${cond}`) ?? `condition ${cond}`;
-  return /night/i.test(name) ? "night" : /day/i.test(name) ? "day" : name;
-};
+const timeOf = await spawnTimes(root);
 const points = new Map(); // group -> [{zone, respawn, when}]
 for await (const sp of rows("spawn2")) if (groupsNeeded.has(sp.spawngroupID)) (points.get(sp.spawngroupID) ?? points.set(sp.spawngroupID, []).get(sp.spawngroupID)).push({ zone: sp.zone, respawn: sp.respawntime, when: timeOf(sp.zone, sp._condition) });
 

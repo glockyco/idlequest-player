@@ -156,6 +156,9 @@ test("each gear target says why it is not hunted", () => {
   expect([both["target-unrest-a-fiend"].status, both["target-unrest-a-ghoul"].status.startsWith("hunting")]).toEqual(["hunting: G1", false]);
   // Without its group's measured pace a copy's worth is unknown, which the status says.
   expect(status([target("a goo", "paw", 38)], { hoursPerLevel: {} })).toEqual([expect.stringMatching(/^waits for a measured pace of X1's group/)]);
+  // A night spawn waits for the night, by the tab's game hour (12 here).
+  expect(status([{ ...target("a dread wolf", "paw", 38), when: "night" }])).toEqual(["waits for the night, when it spawns"]);
+  expect(decide({ now: NOW, tabs: [{ ...tabs[0], gameHour: 22 }], targets: [{ ...target("a dread wolf", "paw", 38), when: "night" }], hoursPerLevel }).actions).toMatchObject([{ kind: "errand" }]);
 });
 
 test("a rare spawn gets a short visit, and a camp clears the target's spawn points", () => {

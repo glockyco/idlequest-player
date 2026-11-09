@@ -72,7 +72,7 @@ for raids. A leader that carries too little for a purchase pulls the largest acc
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
 | `visitHours` 0.1 | assumed, to be measured from the first visits |
 | `killMargin` 3 | assumed, to be checked against the guard's escapes |
-| Time of day | not read: the sources ignore day and night spawn conditions, so a hunt for a night spawn can come by day |
+| Time of day | read from the spawn conditions (`spawnTimes`): an enemy whose points all spawn only by night or by day is hunted only then, by the tab's game hour |
 | Travel | about 2 s a zone change (`travel/zone` time over zone entries), so a trip costs its hunting time and a camp ends at its item |
 | Trip zone's share of XP | measured rates where both zones have them, else the leveling model's prediction for both, which is unchecked for zones no group has played |
 

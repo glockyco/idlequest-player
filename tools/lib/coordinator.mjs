@@ -260,6 +260,8 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   // the bot task the history records for the target.
   const huntedBy = (x) => tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && history.some((h) => h.label === t.label && h.task != null && h.task === t.task.id && h.id === targetId(x))));
   const slotKey = (w) => `${w.to}:${w.slot}`;
+  // A night or day spawn is hunted only then, by the game's hour on the tab.
+  const inTime = (x, t) => !x.when || (x.when === "night" ? isNight(t.gameHour) : t.gameHour != null && !isNight(t.gameHour));
   const claimed = new Set(targets.filter(huntedBy).flatMap((x) => x.items.map(slotKey)));
   const open = (x) => ({ ...x, items: x.items.filter((w) => !claimed.has(slotKey(w))) });
   // The trips chosen this pass, as tabs in their zones for the shared-zone cost.
@@ -271,7 +273,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     for (const t of tabs.filter(hunter)) {
       for (const target of targets) {
         const id = targetId(target);
-        if (targetEval[id] || crowded.has(target.zone) || huntedBy(target)) continue;
+        if (targetEval[id] || crowded.has(target.zone) || huntedBy(target) || !inTime(target, t)) continue;
         const x = open(target);
         if (!x.items.length) continue;
         const w = bestWay(t, x, withTrips);
@@ -303,6 +305,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     if (on) status = `hunting: ${on.group}`;
     else if (!open(x).items.length) status = "its takers' slots are served by targets other groups hunt";
     else if (crowded.has(x.zone)) status = "zone crowded by other players";
+    else if (tabs.length && !inTime(x, tabs[0])) status = `waits for the ${x.when}, when it spawns`;
     else if (!best) status = `too strong for every group (level ${x.npcLevel})`;
     else if (!x.items.some((w) => hoursPerLevel[w.to] > 0)) status = `waits for a measured pace of ${taker(x)}'s group, without which a copy's worth is unknown`;
     else if (netRate(best.w) <= 0) status = `not worth it yet, best ${says}`;

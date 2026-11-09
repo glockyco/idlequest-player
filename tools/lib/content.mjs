@@ -15,6 +15,22 @@ export async function* rows(table, root) {
 }
 
 /**
+ * When a spawn point spawns: a point with a `_condition` spawns only while that zone condition is
+ * on, such as Kithicor's night (spawn_conditions, switched by spawn_events). Resolves with
+ * `timeOf(zone, condition)`, "night", "day", the condition's name for other conditions, or null
+ * for a point without one.
+ */
+export async function spawnTimes(root) {
+  const names = new Map();
+  for await (const c of rows("spawn_conditions", root)) names.set(`${c.zone}:${c.id}`, c.name);
+  return (zone, cond) => {
+    if (!cond) return null;
+    const name = names.get(`${zone}:${cond}`) ?? `condition ${cond}`;
+    return /night/i.test(name) ? "night" : /day/i.test(name) ? "day" : name;
+  };
+}
+
+/**
  * The spawn points (spawn2 ids) in `zone` whose spawn groups can put up an NPC whose name matches
  * `pattern` (spaces match underscores). A directed hunt watches these points: the one that
  * respawns first is when the next wanted enemy can appear.

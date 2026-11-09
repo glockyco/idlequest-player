@@ -416,9 +416,9 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
           wantSlot.set(k, o.slot);
         }
         const tk = `${d.zone}|${d.npc}`;
-        // The taker's level and the enemy's level, spawn chance per point, points and respawn, and the
-        // item's drop chance, for weighing a camp or a visit (tools/lib/acquire.mjs).
-        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, offers: [] }).get(tk)).offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, key: k });
+        // The taker's level and the enemy's level, spawn chance per point, points, respawn and time
+        // of day, and the item's drop chance, for weighing a camp or a visit (tools/lib/acquire.mjs).
+        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, when: d.when ?? null, offers: [] }).get(tk)).offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, key: k });
       }
     }
   }
@@ -448,7 +448,7 @@ function rankTargets(byTarget, copyValue) {
         items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
       }
       const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
-      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, spawn: t.spawn, points: t.points, respawn: t.respawn, rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
+      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
     })
     .filter((t) => t.rate > 0)
     .sort((a, b) => b.rate - a.rate);

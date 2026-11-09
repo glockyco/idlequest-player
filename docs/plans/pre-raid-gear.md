@@ -569,7 +569,7 @@ The 195 items that reach a top three. A filled "Entry" marks an item that `data/
 The items above with named or rare droppers are listed with their zone and dropper in `data/gear-picks.json`. The gear pass adds them to the drops of the band rotations, and the gear acquisition model ([gear-acquisition.md](gear-acquisition.md)) decides which group hunts which dropper, and how, from what each copy adds to its taker against the hunting it takes.
 
 - `keep` is the NPC's name without `#` and without a leading article, matched as a case-insensitive pattern (`enemyPattern` in `src/bot.js`). Checked against the snapshot's spawn tables, it matches only that NPC's variants in its zone, except the cyclops, whose pattern is anchored because The Fabled Ancient Cyclops shares the name.
-- One dropper, the gnoll embalmer of the Golden Ear Stud, spawns only by day (`tools/drops.mjs`, the `when` column). Gear targets do not read spawn conditions yet, so its hunts can come at night.
+- One dropper, the gnoll embalmer of the Golden Ear Stud, spawns only by day (`tools/drops.mjs`, the `when` column), and the coordinator hunts it only then.
 - Items whose copies need more than 250 hours at one spawn point are left out:
 
 | Item | Dropper (level) | Zone | Count | Hours per copy | Hours for all copies |
