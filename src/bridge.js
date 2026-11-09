@@ -1161,7 +1161,15 @@
         if (!b?.success) throw new Error(`buying the ingredients failed: ${b?.error ?? "no reply"}`);
       }
       const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity: 1, skillId, containerItemId }, 30000);
-      // A component the catalog does not sell can run out mid-way, which ends the attempts.
+      // A failed skill roll answers success false ("All 1 attempts failed."), which is an attempt that
+      // used up its components, so the next attempt follows. Anything else is an error, except once an
+      // attempt ran: a component the catalog does not sell can run out mid-way, which ends the attempts.
+      const rolled = r && !r.success && (r.attempted > 0 || r.failures > 0 || /attempts? failed/i.test(r.error ?? r.message ?? ""));
+      if (rolled) {
+        done.attempted += r.attempted ?? 1;
+        done.failures += r.failures ?? 1;
+        continue;
+      }
       if (!r?.success) {
         if (done.attempted > 0) break;
         throw new Error(`the craft failed: ${r?.error || r?.message || (r ? JSON.stringify(r).slice(0, 300) : "no reply")}`);
