@@ -444,14 +444,16 @@ test("cleanup sells extra copies first, then singles by value, and keeps food, r
   expect(bot.surplus().map((s) => s.name)).toEqual(["Legionnaire's Bracer", "Legionnaire's Bracer", "Solist's Icy Wand"]);
 });
 
-test("cleanup keeps the last copy of a quest turn-in item and sells its extra copies", async () => {
+test("cleanup keeps quest turn-ins and gear-plan items, and nearly full bags give them up", async () => {
   const { bot, me, iq } = await install();
   const item = (slot: number, itemid: number, Name: string, price: number) => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, itemtype: 0 } });
-  Object.assign(me, { inventory: [item(0, 16539, "Hill Giant Toes", 200), item(1, 16539, "Hill Giant Toes", 200), item(2, 1, "Rusty Mace", 100)] });
+  Object.assign(me, { inventory: [item(0, 16539, "Hill Giant Toes", 200), item(1, 16539, "Hill Giant Toes", 200), item(2, 1, "Rusty Mace", 100), item(3, 2, "Bronze Katana", 50), item(4, 3, "Power of Fire", 10)] });
   Object.assign(iq, { questItems: [16539] });
+  Object.assign(bot.config, { gearKeepIds: [2], keepNames: ["Power of Fire"] });
   expect(bot.surplus().map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace"]);
-  // Bags with almost no room left give up the last quest item too, after the cheaper single.
-  expect(bot.surplus(true).map((s) => s.name)).toEqual(["Hill Giant Toes", "Rusty Mace", "Hill Giant Toes"]);
+  // Bags with almost no room left give up the last quest item and the gear plan's items, cheapest
+  // first, but never what the coordinator named.
+  expect(bot.surplus(true).map((s) => s.name)).toEqual(["Hill Giant Toes", "Bronze Katana", "Rusty Mace", "Hill Giant Toes"]);
 });
 
 test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {

@@ -210,9 +210,11 @@
    * with `singles`, the last copies, lowest total value first, except items with an effect, food,
    * drink, research pieces and quest turn-in items (`window.iq.questItems`, from
    * tools/quest-items.mjs), because these sales bypass the client's Keep Epic Quest Items. With
-   * `last`, for bags with almost no room left, the items with an effect and the quest turn-in items
-   * are sold too, because that list holds common loot and full bags stop all looting. What some
-   * character can wear better is already in `gearKeepIds`.
+   * `last`, for bags with almost no room left, the items with an effect, the quest turn-in items,
+   * the research pieces and the gear plan's `gearKeepIds` are sold too, because full bags stop all
+   * looting: the gear plan keeps every drop that is an upgrade for anyone, research pieces pile up
+   * without a research pipeline to use them, and quest turn-ins include common loot. What the
+   * coordinator names in `keepNames` stays.
    */
   const surplus = (i, singles = false, last = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -231,14 +233,14 @@
         kept.set(r.itemid, (kept.get(r.itemid) ?? 0) + 1);
         continue;
       }
-      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || config.gearKeepIds.includes(r.itemid) || config.keepNames.includes(d.Name ?? d.name) || reagents.has(r.itemid)) continue;
+      if (d.nodrop === 0 || d.norent === 0 || !(d.price > 0) || config.keepItemIds.includes(r.itemid) || (!last && config.gearKeepIds.includes(r.itemid)) || config.keepNames.includes(d.Name ?? d.name) || reagents.has(r.itemid)) continue;
       if (!groups.has(r.itemid)) groups.set(r.itemid, []);
       groups.get(r.itemid).push(r);
     }
     const row = (r, copies) => ({ bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name: r.itemDetails.Name ?? r.itemDetails.name, quantity: r.quantity ?? 1, price: r.itemDetails.price, copies });
     const keepName = new RegExp(config.keepNamePattern, "i");
     const hasEffect = (d) => d.proceffect > 0 || d.clickeffect > 0 || d.worneffect > 0 || d.focuseffect > 0;
-    const singleOk = (r) => !config.keepItemTypes.includes(r.itemDetails.itemtype) && !keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && (last || (!hasEffect(r.itemDetails) && !questItems.has(r.itemid)));
+    const singleOk = (r) => !config.keepItemTypes.includes(r.itemDetails.itemtype) && (last || (!keepName.test(r.itemDetails.Name ?? r.itemDetails.name ?? "") && !hasEffect(r.itemDetails) && !questItems.has(r.itemid)));
     const extra = [];
     const single = [];
     for (const [id, rows] of groups) {
