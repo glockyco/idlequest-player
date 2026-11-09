@@ -332,13 +332,23 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` u
   wielding a weapon there keeps the instrument off, while a ring or mask with a `bardtype`
   counts without that cost.
 - Songs reach the party two ways, and worn instruments count in both. Cast songs (damage,
-  DoTs, heals, crowd control) use `W8` on worn items only. Buff songs (Chant of Battle, regen,
-  resist and haste songs) apply as party support (`Dt` 20095-20135, `wt` in `CAUokwED.js:1952-1966`),
-  which also takes one strings, brass or percussion instrument from the bags, by situation
-  (`Tt` `CAUokwED.js:1870-1881`): none in raids, out of combat strings when someone is hurt and
-  percussion otherwise, and in combat brass only while the Bard's melee and range are off,
-  which holds for a companion Bard by default but not for a Bard leader. Singing songs get the
-  Amplification bonus only when cast.
+  DoTs, heals, crowd control) use `W8` on worn items only. Buff songs apply as party support
+  (`Dt` 20111-20149), each with the modifier for its own skill (`instrumentMod`, from `wt` in
+  `CAUokwED.js:1949-1968`): the best worn item of that type, or a higher one from the bags while
+  the situation picks that type (`Tt` `CAUokwED.js:1865-1875`, called at 2012 and 2072):
+  - no bag instrument in raids;
+  - out of combat, strings while any party member is below full HP or below full mana, and
+    percussion once everyone is full, which is the walk to the next pull;
+  - in combat, brass only while the Bard's melee and range are both off, else none.
+- A bag instrument counts only from a general slot or a bag in one, never from the bank, only if
+  its `itemtype` equals its `bardtype` (24, 25 or 26), and the best of each type is taken (`Rt`
+  `CAUokwED.js:1876-1914`, `w01` 22410). A worn type-51 instrument in a hand turns the bag
+  instrument off (`Pt` `CAUokwED.js:1915-1927`).
+- Which songs a Bard supplies follows the support catalog and the stacking rules, not the song
+  list. Live at levels 30 to 46 the percussion songs supplied are Selo's Accelerando (run speed)
+  and Guardian Rhythms (AC, magic resistance), and Chant of Battle is not among them. The live
+  list, with each song's modifier, is in `characterProfile.partySupport.contributions`.
+  Singing songs get the Amplification bonus only when cast.
 
 ### What item stats and effects do
 

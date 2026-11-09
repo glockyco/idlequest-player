@@ -12,7 +12,7 @@ import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { attachEffects, bardSongs, merchantGoods, rows } from "./lib/gear-data.mjs";
+import { attachEffects, merchantGoods, rows } from "./lib/gear-data.mjs";
 import { BUY_PP, planGear, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
@@ -36,7 +36,7 @@ await attachEffects(items, opt.content);
 
 const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
 const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
-const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), songs: await bardSongs(), shop, buyPp: BUY_PP });
+const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: BUY_PP });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));
 else {
   const byGroup = Map.groupBy(moves, (m) => groupOf.get(m.to));

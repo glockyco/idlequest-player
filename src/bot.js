@@ -1210,8 +1210,9 @@
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
   // too, or buys it from the merchant its `buy` names after travelling to that zone, and gives it
-  // equipped to the character it suits best, in the party or not, so the tab never switches
-  // characters. A move that fails is recorded and the next one runs.
+  // to the character it suits best, in the party or not, so the tab never switches characters:
+  // equipped, or into the bags for a move to slot "bags" (a Bard's instrument for the party supply).
+  // A move that fails is recorded and the next one runs.
   const gearTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
     for (const mv of task.moves) {
@@ -1226,7 +1227,7 @@
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
         if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
-        const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: true }), 30000);
+        const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" }), 30000);
         // A move retried after a reinstall may find the item already given, which the server
         // reports as a lore conflict, so that refusal means the receiver has it.
         const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));

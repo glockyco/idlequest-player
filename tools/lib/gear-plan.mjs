@@ -103,28 +103,46 @@ export function recoveryShares(rows) {
   return out;
 }
 
-// A song's skill and the instrument type that modifies it (docs/client-internals.md, Bard
-// instruments). Type 51 modifies every song.
-const INSTRUMENT_OF_SKILL = { 54: 23, 49: 24, 12: 25, 70: 26, 41: 50 };
+// A Bard's percussion modifier sets its run song (Selo's Accelerando), which the party supply
+// applies while everyone is full, the walk to the next pull (docs/client-internals.md, Bard
+// instruments). Its other supplied songs gain little from an instrument at these levels: brass
+// songs start at 42, strings only raise Hymn's HP regeneration, and mana regeneration and haste
+// never scale.
+const PERCUSSION = 26;
+/** Whether an item is an instrument the party supply takes from the bags: `itemtype` equal to a strings, brass or percussion `bardtype`. */
+export const bagInstrument = (i) => [24, 25, 26].includes(i?.bardtype) && i.itemtype === i.bardtype && i.bardvalue > 0;
+/** A Bard's percussion modifier (10 to 36): the best worn percussion or all-instrument item, or percussion instrument in the bags. */
+export function percussionMod(worn, bags = []) {
+  const best = Math.max(10, ...worn.filter((i) => i?.bardtype === PERCUSSION || i?.bardtype === 51).map((i) => i.bardvalue ?? 0), ...bags.filter((i) => bagInstrument(i) && i.bardtype === PERCUSSION).map((i) => i.bardvalue));
+  return Math.min(36, best);
+}
 /**
- * Score points for raising every song a Bard sings from no instrument (10) to twice its effect
- * (20), in `outputValue`'s units (4% of the Bard's output). An estimate until a crossover measures it.
+ * What a percussion modifier is worth, in `outputValue`'s unit for six members, against none: the
+ * share of the group's time spent moving (`walk.share`) times the walking time a faster party saves.
+ * The party walks at 1 + run speed / 100, where the run speed is the other supplied speed
+ * (`walk.other`, percent) plus the run song's (`walk.selo`, percent at modifier 10) times mod / 10.
  */
-export const INSTRUMENT_WEIGHT = 40;
+export function walkValue(mod, walk) {
+  if (!walk || !(walk.share > 0)) return 0;
+  const speed = (m) => 100 + (walk.other ?? 0) + ((walk.selo ?? 0) * m) / 10;
+  return 10 * 6 * 100 * walk.share * (1 - speed(10) / speed(mod));
+}
 /**
- * What a Bard's worn instruments add: for each instrument type, the best worn modifier (10 to 36)
- * weighs by the share of the Bard's songs at `level` that use it. `songs`: `[{ minLevel, skill }]`.
+ * Each Bard's walk, from `bun tools/groups.mjs --json` rows: the group's move share, and from the
+ * leader's snapshot the party's run speed and the Bard's run song (`runSpeed: { total, bard: { name,
+ * level, mod, spellId } }`). `seloAt(spellId, level)` gives the song's run speed at modifier 10.
+ * Returns a Map of the Bard's name to `{ share, other, selo }`.
  */
-export function instrumentValue(items, level, songs) {
-  const mine = songs.filter((s) => s.minLevel <= level && INSTRUMENT_OF_SKILL[s.skill]);
-  if (!mine.length) return 0;
-  let value = 0;
-  for (const s of mine) {
-    const type = INSTRUMENT_OF_SKILL[s.skill];
-    const best = Math.max(10, ...items.filter((i) => i && (i.bardtype === type || i.bardtype === 51)).map((i) => i.bardvalue ?? 0));
-    value += (INSTRUMENT_WEIGHT * (Math.min(36, best) - 10)) / 10 / mine.length;
+export function walkShares(rows, seloAt) {
+  const out = new Map();
+  for (const r of rows) {
+    const b = r.runSpeed?.bard;
+    if (!b || !(r.move > 0) || r.runSpeed.total == null) continue;
+    const selo = seloAt(b.spellId, b.level);
+    if (!(selo > 0)) continue;
+    out.set(b.name, { share: r.move, other: r.runSpeed.total - (selo * b.mod) / 10, selo });
   }
-  return value;
+  return out;
 }
 
 /**
@@ -185,9 +203,9 @@ const fits = (item, p, slot) =>
 /**
  * `survey`: rows of `iq.searchAccount()` (`characterName`, `itemId`, `itemName`, `itemInstanceId`,
  * `location` "Equipped" with its `slot`, or "Carried", and `blockReason`). `items`: item id to its
- * content row. `people`: the roster characters, `[{ name, cls, level, race }]` with `cls` a
- * gear-data class key. `minGain`: the smallest armor score gain worth a move. `songs`: the Bard's
- * songs, `[{ minLevel, skill }]`. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
+ * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk? }]`
+ * with `cls` a gear-data class key and `walk` a Bard's (`walkShares`). `minGain`: the smallest gain
+ * worth a move. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
  * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
  * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
  * `[{ itemId, zone, npc, hours, levels: [min, max], pick? }]` with `hours` the expected hunting per copy,
@@ -195,8 +213,9 @@ const fits = (item, p, slot) =>
  * opportunity a camped drop comes from.
  * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], keep: { counts:
  * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }],
- * picks: { [pick]: { to, level, cls, gain, hours } } }`, `picks` being each camped drop's best taker,
- * whatever other drops want the same slot,
+ * picks: { [pick]: { to, level, cls, gain, hours } } }`, where a Bard's instrument for the party
+ * supply moves to slot "bags" (`slotNum` null), given without equipping it, and `picks` is each
+ * camped drop's best taker, whatever other drops want the same slot,
  * where a move with `buy: { merchant, zone, price }` buys its item first. `keep` is what the bots
  * must not sell: the copies this pass's moves take, the copies it buys, and for an item the account
  * holds no free copy of, as many copies as characters would still gain from one after the moves,
@@ -206,26 +225,30 @@ const fits = (item, p, slot) =>
  * `outputValue`'s unit, tenths of a percent of the wearer's output.
  * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
  * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
- * worn now (`setValue`, a Bard's instruments included, weapons left out), after this pass's moves, and after the moves and every wanted drop; and for each
+ * worn now (`setValue`, plus a Bard's walk value, weapons left out), after this pass's moves, and after the moves and every wanted drop; and for each
  * of the 22 slots of the paper doll (`DOLL_SLOTS`) the item worn now (`{ itemId, name }`), the last
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 5, songs = [], shop = [], buyPp = 0, drops = [] }) {
+export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp = 0, drops = [] }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
+  // The instruments in each Bard's bags, which the party supply uses.
+  const bags = new Map(people.filter((p) => p.cls === "bard").map((p) => [p.name, []]));
   for (const r of survey) {
     owned.get(r.characterName)?.add(r.itemId);
     if (r.location === "Equipped") worn.get(r.characterName)?.set(r.slot, items.get(r.itemId) ?? null);
+    else if (r.location === "Carried" && bagInstrument(items.get(r.itemId))) bags.get(r.characterName)?.push(items.get(r.itemId));
   }
-  const free = survey.filter((r) => r.location === "Carried" && (!r.blockReason || r.blockReason === "Already on this character.") && items.has(r.itemId));
+  // A Bard's own bag instruments serve it where they are, so they are not free to move.
+  const free = survey.filter((r) => r.location === "Carried" && (!r.blockReason || r.blockReason === "Already on this character.") && items.has(r.itemId) && !(bags.has(r.characterName) && bagInstrument(items.get(r.itemId))));
   const goods = shop.filter((s) => items.has(s.itemId) && s.price <= buyPp).map((s) => ({ characterName: null, itemId: s.itemId, itemName: items.get(s.itemId).Name, itemInstanceId: `shop:${s.itemId}`, buy: s }));
 
-  // A character's armor and jewelry by the set score, plus for a Bard everything it wears by the
-  // instruments' value.
+  // A character's armor and jewelry by the set score, plus for a Bard the walk its percussion
+  // instrument, worn or in the bags, speeds up.
   // A shield or an instrument in the off hand counts with its stats, a weapon there does not.
-  const value = (p, mine) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
+  const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
@@ -240,16 +263,10 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       const gain = gainIn(slot);
       if (gain >= minGain) out.push({ r, p, slot, gain });
     }
-    // A Bard's instrument takes the off hand, also from a weapon: it scales the songs of the whole
-    // group, while an off-hand weapon adds only the Bard's own off-hand swings. The main hand keeps
-    // its weapon.
-    if (p.cls === "bard" && item.bardtype > 0 && !(item.damage > 0)) {
-      for (const slot of [SECONDARY, PRIMARY]) {
-        if (!fits(item, p, slot) || (slot === PRIMARY && mine.get(slot)?.damage > 0)) continue;
-        const gain = gainIn(slot);
-        if (gain >= minGain) out.push({ r, p, slot, gain });
-        break;
-      }
+    // A Bard carries an instrument for the party supply in its bags, where it costs no hand.
+    if (p.cls === "bard" && bagInstrument(item) && r.characterName !== p.name) {
+      const gain = value(p, mine, [...(bags.get(p.name) ?? []), item]) - value(p, mine);
+      if (gain >= minGain) out.push({ r, p, slot: "bags", gain });
     }
     const held = mine.get(PRIMARY) ?? null;
     const offHeld = mine.get(SECONDARY) ?? null;
@@ -309,8 +326,9 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
     const best = top(offers);
     const { r, p, slot, gain } = best;
-    const replaced = worn.get(p.name).get(slot) ?? null;
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: SLOT_BY_NUM[slot], slotNum: slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    const toBags = slot === "bags";
+    const replaced = toBags ? null : (worn.get(p.name).get(slot) ?? null);
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;
@@ -319,7 +337,8 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
       spent.add(key(r));
       keepInstances.add(r.itemInstanceId);
     }
-    worn.get(p.name).set(slot, items.get(r.itemId));
+    if (toBags) bags.get(p.name).push(items.get(r.itemId));
+    else worn.get(p.name).set(slot, items.get(r.itemId));
     owned.get(p.name).add(r.itemId);
     offers = offers.filter((o) => !spent.has(key(o.r)) && o.p.name !== p.name);
     for (const f of sources()) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
@@ -347,9 +366,10 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
         if (o.gain < 2 * minGain || (d.levels && (p.level < d.levels[0] || p.level > d.levels[1]))) continue;
         if (d.pick && !(picks[d.pick]?.gain >= o.gain)) picks[d.pick] = { to: p.name, level: p.level, cls: p.cls, gain: Math.round(o.gain * 100) / 100, hours: d.hours };
         const k = `${p.name}:${o.slot}`;
+        const entry = { item: r.itemName, itemId: d.itemId, to: p.name, slot: o.slot === "bags" ? "bags" : SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours };
         const best = want.get(k);
         if (!best || o.gain > best.gain || (o.gain === best.gain && d.hours < best.hours)) {
-          want.set(k, { item: r.itemName, itemId: d.itemId, to: p.name, slot: SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: d.hours });
+          want.set(k, entry);
           wantSlot.set(k, o.slot);
         }
       }

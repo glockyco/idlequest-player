@@ -87,6 +87,8 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     limiters: a?.recover?.limiterSeconds ?? {},
     // The party supply's mana regeneration, from the leader's last snapshot.
     supportManaRegen: sn?.leader?.supportManaRegen ?? null,
+    // The party's run speed and its Bard's run song, from the leader's last snapshot.
+    runSpeed: sn?.runSpeed ?? null,
   });
 }
 

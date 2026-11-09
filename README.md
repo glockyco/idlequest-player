@@ -282,12 +282,13 @@ bun tools/fights.mjs
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
 and slot where it adds most: armor and jewelry as a set by what they add to the wearer's output (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste for melee, mana and regeneration for spell casters, a little for AC and HP), with the
 client's haste and regeneration caps, the main hand by `weaponRatio` against what the hand
-swings now, and for a Bard each instrument type by the share of its songs it modifies. Merchant
+swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
+saves the group (docs/client-internals.md, Bard instruments). Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
 buys for at most `BUY_PP` platinum in one city. `iqd run --coordinate` runs the plan every hour:
 worn items and the leaders' bags come from each party's own inventories, the companions' carried
 items from Inventory Search, and the moves run as one gear task (`iqBot.gear`), which buys or pulls
-each item and gives it equipped to its receiver, in the party or not. Each bot keeps what the plan
+each item and gives it equipped to its receiver, or into the bags for a Bard's instrument, in the party or not. Each bot keeps what the plan
 needs (`gearKeepCounts`, copies of each item the account is still short of, `gearKeepInstances`, the copies its
 moves take) and the names of what the coordinator's hunts, errands and quest chains are for
 (`keepNames`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). iqd saves

@@ -287,6 +287,10 @@ export function snapshotInPage(a) {
     out.leader = p?.id
       ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
       : null;
+    // The party's supplied run speed and the Bard's run song in it with its instrument modifier,
+    // which the gear plan weighs a Bard's percussion instrument by (`walkShares`).
+    const runSong = (p?.partySupport?.contributions ?? []).find((c) => c.classId === 8 && /Run speed/.test(c.description ?? ""));
+    out.runSpeed = p?.id ? { total: p.movementSpeedMod ?? null, bard: runSong ? { name: runSong.providerName, level: runSong.casterLevel, mod: runSong.instrumentMod ?? 10, spellId: runSong.spellId } : null } : null;
     out.party = (cs.companions ?? []).map((c) => {
       const r = c.characterId != null ? byId[c.characterId] : null;
       return { id: c.characterId ?? null, name: c.name, level: c.level, type: c.companionType, hp: c.curHp, maxHp: c.maxHp, mana: c.curMana, maxMana: c.maxMana, class: r ? cls[r.class] : (cls[cs.botCombatDataMap?.[c.id]?.class] ?? null), race: r ? races[r.race] : null };
@@ -793,7 +797,7 @@ class Daemon {
     // The last pass is kept in the database, so a restart of iqd does not survey again at once.
     if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
     metaSet(this.db, "gear", { t: now });
-    const { BUY_PP, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords } = await import("./lib/gear-plan.mjs");
+    const { BUY_PP, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
@@ -805,7 +809,7 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
-    const { attachEffects, bardSongs, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { attachEffects, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
     const { contentRoot } = await import("./lib/content.mjs");
     // The merchant goods, the drops of the band rotations and of the camped gear picks, and their item rows, read once.
     if (!this.shop) {
@@ -828,12 +832,19 @@ class Daemon {
     // Each character's last recorded maximum mana, which an item's mana is a share of.
     const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
     // Each character's part in its group's recovery over the last two hours, which mana regeneration
-    // shortens (`recoveryShares`). A character the party never waited for gets a zero share.
+    // shortens (`recoveryShares`), and each Bard's walk, which its percussion instrument speeds up
+    // (`walkShares`). A character the party never waited for gets a zero share.
     const proc = Bun.spawn(["bun", join(REPO, "tools/groups.mjs"), "--last", "120", "--json"], { stdout: "pipe", stderr: "ignore" });
     const groupRows = await new Response(proc.stdout).json().catch(() => []);
     const recoveryOf = recoveryShares(groupRows);
-    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined }));
-    const { moves, keep, drops, picks, characters } = planGear({ survey, items: this.items, people, songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    const runSongs = new Set(groupRows.map((r) => r.runSpeed?.bard?.spellId).filter(Boolean));
+    this.spellRows ??= new Map();
+    if ([...runSongs].some((id) => !this.spellRows.has(id))) for await (const s of rows(contentRoot(), "spells_new")) if (runSongs.has(s.id)) this.spellRows.set(s.id, s);
+    const { spellEffects } = await import("./lib/spell-value.mjs");
+    const seloAt = (id, level) => (this.spellRows.has(id) ? (spellEffects(this.spellRows.get(id), level).find((e) => e.spa === 3)?.value ?? 0) : 0);
+    const walkOf = walkShares(groupRows, seloAt);
+    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name) }));
+    const { moves, keep, drops, picks, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
     this.pickWants = picks;
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the

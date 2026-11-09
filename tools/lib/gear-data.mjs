@@ -326,12 +326,6 @@ export async function merchantGoods(root, { maxPp }) {
   return { shop, items };
 }
 
-/** A Bard's songs, `[{ minLevel, skill }]`, from data/class-spells.json, for `instrumentValue`. */
-export async function bardSongs() {
-  const table = JSON.parse(await readFile(new URL("../../data/class-spells.json", import.meta.url), "utf8"));
-  return (table[8]?.spells ?? []).map((s) => ({ minLevel: s.minLevel, skill: s.skill }));
-}
-
 // Expected hours of camping for one copy: the NPC's spawn point cycles once per respawn time, the
 // spawn group picks this NPC with the `spawn` chance and one kill drops the item with the `drop`
 // chance. One spawn point is assumed, however many the zone has. Infinity without a spawn timer.
