@@ -705,4 +705,5 @@ run once.
   `command`, `rangeState`, `damageDone` and `hate` (`yQ`, `OST` 64324-64400). A recruit
   joins at full HP and mana. DOM test ids: `raid-setup-panel`, `raid-recruit-<characterId>`,
   `raid-member-<id>` and `raid-loot-window`.
-- Open: whether the server caps the roster, and whether a raid stays active after a wipe.
+- Open: whether a raid stays active after a wipe. The server takes all 71 other account
+  characters as recruits and starts a fight with all 72 (docs/plans/raid-roster.md).

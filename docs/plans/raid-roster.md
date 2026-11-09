@@ -47,9 +47,7 @@ These are level-60 fights. Level 46 starts raids and only the leader's level is 
 
 Raid time costs platinum per hour for the whole account at a price set by its highest-level character (`.re/js/engine.pretty.js:8944-8947`), so recruits cost no extra. The client has no member limit: recruiting checks only the leader's level, the combat lock, that the character is on the account or in the guild, and duplicates, then asks the server for the recruit's snapshot, and every recruit carries `cost: 0` (`addGuildMember`, `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js:71607-71697`). The wiki states no raid size.
 
-Whether the server caps raid size is open, and the client carries an unused design that would cap it. Each class has a cost of 5 to 7 (Warrior, Paladin, Shadow Knight, Bard, Shaman and Enchanter 6, Cleric 7, the others 5), and 21 budget groups give a budget that shrinks as the leader levels, Cazic-Thule's from 190 at 46 to 142 at 60 (`TB` and the class profiles, `OSTsR53r.js:25091-27782`, 27795 on). Enforced, that would admit 27 to 38 characters to Cazic-Thule under a level-46 leader and 20 to 28 under a level-60 one, depending on the class mix. The client only builds a map from this catalog and discards it (`OSTsR53r.js:50651`). Its 115 targets are classic and Kunark raids, and Cazic-Thule is the only Raid Resolve boss among them, so it looks like an older design, which is an inference. Until the test below, roster plans above about 30 characters rest on the server taking them.
-
-The first leader at level 46 tests the server: in raid mode, recruit every account character, low levels included, until the server refuses one or all are in, then engage an NPC above level 50 to see whether combat start refuses the raid. Record the count, the refusal text and whether it changes with the target or the leader's level.
+The server does not cap raid size at the account's 72. With the leader at 46 it accepted all 71 other account characters as recruits (levels 23 to 45) in about 15 seconds while their groups kept playing them, and a fight with all 72 started and killed an unkempt fanatic in 25 seconds. The client also carries an unused design that would cap it. Each class has a cost of 5 to 7 (Warrior, Paladin, Shadow Knight, Bard, Shaman and Enchanter 6, Cleric 7, the others 5), and 21 budget groups give a budget that shrinks as the leader levels, Cazic-Thule's from 190 at 46 to 142 at 60 (`TB` and the class profiles, `OSTsR53r.js:25091-27782`, 27795 on). Enforced, that would admit 27 to 38 characters to Cazic-Thule under a level-46 leader and 20 to 28 under a level-60 one, depending on the class mix. The client only builds a map from this catalog and discards it (`OSTsR53r.js:50651`), and the server does not apply it.
 
 ## What the engine uses
 
@@ -89,7 +87,7 @@ Reading the table:
 - In six minutes the slots that need no mana pull ahead: the Necromancer and Shaman DoT packages and, if the templates are right, melee. A nuker adds little after the first 90 seconds. Mana regeneration changes a nuker's six-minute total by about 15% either way.
 - The Magician's pet is about 1 to 2 thousand in 90 seconds and 4 to 7 in six minutes. The earlier claim of 62-90 pet DPS was the unused template. The Magician is not a better raid damage slot than any other caster.
 - Bosses with high fire and magic resists (Nanzata, the Avatar of War, Tunare) cut a Magician to a quarter or a half of what it does against Hraashna. A Wizard, with fire, cold, magic, poison and disease spells, is hurt least.
-- What would change this: real melee DPS from geared recruits, whether raid DoT damage is resisted, real mana pools and regeneration, how many package spells a recruit has scribed, and whether Mod Rod is used. The first level 46 raid test settles these. Until then the simulator below gives a second estimate.
+- What would change this: real melee DPS from geared recruits, whether raid DoT damage is resisted, real mana pools and regeneration, how many package spells a recruit has scribed, and whether Mod Rod is used. The first fights at level 46 (below) were against a level 52 enemy without Raid Resolve, so a Resolve boss fight settles these. Until then the simulator below gives a second estimate.
 
 ### Simulated fights
 
@@ -109,6 +107,23 @@ Without auto-heal the Paladin and the Shadow Knight die at 71 and 88 s and the W
 
 Swapping the group 3 Monk slot through every class (20 seeds each) changed the mean kill time by: Necromancer -123 s, Shaman -81 s, Rogue -49 s, Magician -49 s, Shadow Knight -41 s, Cleric -38 s, Enchanter -36 s, Wizard -23 s, Warrior -19 s, Paladin -17 s, Druid -15 s, Ranger +16 s, Bard +36 s. With these assumed stats, a Necromancer or Shaman is the best extra slot and a Bard, Ranger or Monk the weakest. Re-run it when real recruit stats can replace the assumed ones.
 
+### First fights at level 46
+
+Group 1 (Warrior leader at 46, recruits at 45) fought an unkempt fanatic in the Rathe Mountains (level 52, 3,224 HP, no Raid Resolve) with the raid task (`iqBot.raid`, docs/client-internals.md "How a raid fight runs"). Damage per member, as the raid store counts it:
+
+| Orders | Raid | Kill | Leader (Warrior) | Magician | Bard | Others |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| All Attack only | group 1 | none in 15 min | died twice | 0 | 281, died | Cleric, Shaman, Enchanter 0 |
+| Heal, nuke (DPS: Balanced), Run To Target | group 1 | 217 s | 1,462 | 1,403 | 738 | 0 |
+| Same plus kept slow and a resist debuff | group 1 | 71 s | 95 (rooted) | 2,818 | 250 | 0 |
+| Same | group 1 and a level 26 Paladin | 67 s | 869 | 2,188 | 154 | Paladin 137 |
+| Same | all 72 | 25 s | 414 | 923 | among the others | the other 70 recruits, the Bard among them, 1,776 together, at most 105 each |
+
+- Only the Magician nukes under "DPS: Balanced". The Cleric and the Shaman heal, and the Enchanter has no order that fits it until the slow and debuff orders choose its spells. A resist debuff (Malaisement) doubled the Magician's damage per second.
+- The fanatic roots the tank with Engulfing Roots, strips slows and debuffs with Nullify Magic every 15 to 20 s and flees at about 20%. The rooted leader cannot follow, so the fight's end waits on nukes.
+- "All: Balanced" healing kept every member alive in every fight with orders. Two deaths of the leader in the first fight cost no XP, and a raid Cleric revived him.
+- Recruits of levels 23 to 31 add 70 to 105 damage each against a level 52 target. Against level 60 to 70 bosses the roster's damage comes from characters near 60, so these numbers do not size boss raids. The next measurement is a Raid Resolve boss.
+
 ### How big a raid
 
 Damage slots needed for a kill in six minutes are the boss HP divided by 360 seconds and a slot's DPS. At 15,000 to 30,000 damage per slot in six minutes (the Avatar column above):
@@ -124,7 +139,7 @@ Damage slots needed for a kill in six minutes are the boss HP divided by 360 sec
 
 Every character adds some damage, healers and tanks included, so these are upper bounds for the damage-class count. The last two rows are out of reach of 36 characters in six minutes unless the real per-slot damage is at the top of the range. Fights longer than six minutes are limited by healing. A Cleric under Resolve has about 6,700 mana (twice the template's 3,350, an assumption), so 16 Complete Heals of 7,500 HP for 400 mana each (spell 13, cast 10 s plus 2.5 s recovery in `C/data/spells_new`, 7,500 is the template's figure and the client's complete-heal rule `a71`, `.re/js/main.pretty.js:57872-57874`), about 120,000 HP and 200 seconds of sustained casting. Boss melee before mitigation, reading `attack_delay` as tenths of a second (an assumption) and ignoring misses, mitigation, rampage and flurry, is about 150 to 180 DPS for a Warder, 320 to 450 for Cazic-Thule, Yelinak, Tunare and the Avatar of War, and 660 and 880 for Vyemm and Vulak`Aerr. Over six minutes that is 55,000 to 65,000 for a Warder and up to 316,000 for Vulak`Aerr on one tank, so the large bosses need three or more Cleric pools on the tanks plus the raid-wide breaths (200 to 750 each). Low-HP casters take those breaths as tanks do.
 
-Planning ranges, assumptions until the level 46 test:
+Planning ranges, assumptions until a Raid Resolve boss fight:
 
 | Targets | Characters | Tanks / Clerics |
 | --- | ---: | --- |
@@ -226,11 +241,12 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
 - Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
 - Raid price and daily list (resolved): an hour of raid time costs 2,000 pp with the highest character at 46 as below it, and the daily list offers ten bosses, of which only Cazic-Thule is a goal boss (systems research, "Hourly price").
-- Open: the raid-time price at 47 to 60, whether the server caps raid size, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
+- Raid size (resolved): the server accepted all 71 other account characters as recruits and started a fight with all 72, while their own groups kept playing them ("What the raids ask for").
+- Open: the raid-time price at 47 to 60, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
 
 ## Revisit when
 
-- Group 1 reaches 46: fight a target above level 50 with group 1 alone. Record per-member damage and mana, the buff list and Resolve effects. Resize the roster and the ranges in "How big a raid" and choose groups 4 to 6 from that fight. Build the raid simulator first if the fight is not cheap to run.
+- A Raid Resolve boss is within reach (a daily boss summon or a casino potion): fight it and record per-member damage and mana, the buff list and Resolve effects. Then resize the roster and the ranges in "How big a raid" and choose groups 4 to 6 from that fight. The fanatic fights at 46 (above) measured an enemy without Resolve only.
 - The client bundle changes: diff the raid-mode code (`Vd`, `yQ`, `QQ`, `n8`, `o61`, `c61`, `m61`), the Resolve list `Ed`, the casino table and Kerafyrm's rows. A raid member limit, a new route to a boss or a targetable Kerafyrm changes what the roster has to beat.
 - Group 2 has leveled for two hours: compare its XP per hour, recovery time and root and cure waits with group 1's at the same levels. If a Druid and Cleric healing pair or a group without a Bard or Enchanter does as well, reduce the Cleric and haste duplicates in group 3.
 - Raid fights show the limit: move groups 4 to 6 toward Clerics and Warriors when healing or tanking runs out first, and toward the best measured damage slots when fights run long.
