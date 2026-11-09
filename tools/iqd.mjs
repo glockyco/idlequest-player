@@ -645,7 +645,10 @@ class Daemon {
     }
     // Each group's kills per hour from the last gear pass's report, which bound a common drop's hours per copy.
     this.killsPerHour ??= metaGet(this.db, "gear")?.killsPerHour ?? {};
-    const gear = await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
+    // The last gear pass's moves wait for a free tab until a gear task takes them or a newer pass
+    // replaces them, because the pass runs hourly and a busy hour would otherwise lose them.
+    this.pendingGear = (await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null))) ?? this.pendingGear ?? null;
+    const gear = this.pendingGear;
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
     // A camp clears its target's spawn points, read once from the content snapshot.
@@ -678,6 +681,7 @@ class Daemon {
         // takes up to about 30 s, so a shorter limit reported errands as not queued that had started.
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
         state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null, code: this.code });
+        if (a.kind === "gear") this.pendingGear = null;
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {

@@ -266,6 +266,9 @@ test("gear moves go to the free tab with the lowest levels", () => {
   const moves = [{ item: "Cloak", from: "X", to: "Y", slot: "back" }];
   expect(decide({ now: NOW, tabs, gear: { moves } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves } }]);
   expect(decide({ now: NOW, tabs, gear: { moves: [] } }).actions).toEqual([]);
+  // The plan's moves take the only free tab before a target hunt that would pay.
+  const one = [place(tab("A", "G1", 30), "paw")];
+  expect(decide({ now: NOW, tabs: one, gear: { moves }, targets: [target("a goo", "paw", 38)], hoursPerLevel }).actions).toMatchObject([{ label: "A", kind: "gear" }]);
 });
 
 test("a quest chain takes a tab before a camp would", () => {

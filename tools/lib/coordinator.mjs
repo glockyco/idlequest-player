@@ -235,6 +235,14 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
 
+  // Gear moves come before gear hunts: one gear task carries out every move of the plan, its
+  // largest gains, in minutes, with no character switch and at most one trip to a merchant's city.
+  // It goes to the free tab with the lowest levels, whose hunting the minutes cost least.
+  if (gear?.moves?.length) {
+    const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => mean(a) - mean(b))[0];
+    if (t) out.push({ label: t.label, kind: "gear", spec: { moves: gear.moves }, why: `${gear.moves.length} gear moves for ${new Set(gear.moves.map((m) => m.to)).size} characters` });
+  }
+
   // Gear targets (docs/plans/gear-acquisition.md): any group may hunt for any character, because a
   // gear task moves the copy afterwards. One copy serves one character's slot, and groups in one
   // zone contest its enemies, so the assignment is greedy with re-evaluation: of all pairs of free
@@ -327,13 +335,6 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     for (const t of on) if (!stay.includes(t) && !out.some((o) => o.label === t.label)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${held.has(t.group) ? "an experiment holds the group" : fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
     const join = tabs.filter((t) => free(t) && t.members.length && fits(t)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
     for (const t of join) out.push({ label: t.label, kind: "errand", id: f.id, spec: { zone: f.zone, keep: f.keep, minutes: f.minutes }, why: `${f.id} for ${t.group}, mean level ${mean(t).toFixed(1)}` });
-  }
-
-  // Gear moves need no character switch and no travel, so one tab carries them all out: the free
-  // tab with the lowest levels, whose hunting the minutes cost least.
-  if (gear?.moves?.length) {
-    const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => mean(a) - mean(b))[0];
-    if (t) out.push({ label: t.label, kind: "gear", spec: { moves: gear.moves }, why: `${gear.moves.length} gear moves for ${new Set(gear.moves.map((m) => m.to)).size} characters` });
   }
 
   // Lightstones go to the group with the lowest levels, where they buy the most levels and which
