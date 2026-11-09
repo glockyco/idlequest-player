@@ -275,6 +275,12 @@ test("the remedy table widens a crowded party's limits, then moves it, and wakes
     await alone.bot.tick();
     await alone.bot.tick();
     expect(alone.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)).toEqual([true]);
+    // A used-up ladder starts over ten minutes after its last remedy.
+    vi.advanceTimersByTime(601000);
+    alone.combat.minCon = 4;
+    await alone.bot.tick();
+    expect(alone.bot.state.idleCase.rung).toBeGreaterThan(0);
+    expect(alone.bot.state.idleCase.at).toBeGreaterThan(Date.now() - 1000);
   } finally {
     vi.useRealTimers();
   }
@@ -558,10 +564,12 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     await late.bot.tick();
     expect(late.moves).toEqual(["permafrost", "guktop"]);
 
-    // A crowded errand zone, whose enemies other players take, ends the errand before its minutes.
+    // A crowded errand zone, whose enemies other players take, ends the errand before its minutes,
+    // also when the crowding began before the errand and used up the hunting ladder.
     const crowded = await install();
     crowded.bot.config.rotation = ["guktop"];
     crowded.combat.currentZone = 65;
+    crowded.bot.state.idleCase = { why: "crowded", rung: 2, at: Date.now() - 900000, alerted: true };
     await crowded.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 60 });
     Object.assign(crowded.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
     await crowded.bot.tick();
