@@ -1238,10 +1238,25 @@
     m.at = Math.max(m.at ?? 0, resume);
     let fresh = true;
     let gathered = false;
+    // Up to four minutes for full HP and mana, the readiness the client's pull waits for.
+    const readyParty = () => step("wait for the party to be ready", async () => {
+      for (const end = now() + 240000; !i.partyFull() && now() < end; ) await sleep(3000);
+    }, 260000);
     for (const [k, s] of m.steps.entries()) {
       if (k < m.at) continue;
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
+      // The enemy a hand-in summons being up already shows that the hand-in happened earlier, so the
+      // member goes on to the fight: Maligar stays gone while his doppleganger lives.
+      const next = m.steps[k + 1];
+      if (next?.kill && !s.kill && next.zone === s.zone) {
+        await i.refreshSpawns().catch(() => {});
+        if ((i.zoneSpawns?.spawns ?? []).some((x) => enemyPattern(next.kill).test(x.name ?? ""))) {
+          log(`quest: ${next.kill} is up already, so ${m.name} goes on to the fight`);
+          m.at = k + 1;
+          continue;
+        }
+      }
       const need = { ...(s.each ?? {}) };
       for (const item of [...(s.give ?? []), ...(s.craft?.inputs ?? [])]) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
@@ -1254,11 +1269,21 @@
         const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: c.quantity ?? 1, skillId: c.skillId, output: c.output.id }), 120000);
         log(`craft: ${c.output.item} ${r.successes} of ${r.attempted}${r.newSkillValue != null ? `, skill ${r.newSkillValue}` : ""}`);
       }
+      // A hand-in that summons the next step's enemy waits for the party at full HP and mana, because
+      // the client attacks only a party it finds ready and does not fight back while it waits.
+      if (m.steps[k + 1]?.kill && !s.kill) {
+        if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
+        gathered = true;
+        await readyParty();
+      }
       // A script-spawned enemy appears a few seconds after the hand-in or kill that summons it, and a
       // fight the party did not reach is tried again, as a hunt does, until `waitSec` runs out.
       if (s.kill) {
         if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
         gathered = true;
+        // The client pulls only a party it finds ready, so the fight's time starts once it is, also
+        // when the enemy was up already and the summoning hand-in, which waits too, was skipped.
+        if (!i.stores.skills.getState().inCombat) await readyParty();
         const wanted = enemyPattern(s.kill);
         const since = now();
         const end = since + (s.waitSec ?? 60) * 1000;
@@ -1271,7 +1296,8 @@
       // An NPC that shares a spawn point with others is up only part of the time, so a step with
       // `waitMin` waits until the zone lists it.
       if (s.npc && s.waitMin) {
-        const wanted = enemyPattern(s.npc);
+        // The whole name, because a summoned enemy can carry it, such as Maligars Enraged Doppleganger.
+        const wanted = new RegExp(`^${s.npc.replace(/[ _]/g, "[ _]")}$`, "i");
         await step(`wait for ${s.npc}`, async () => {
           // The wait counts from its first start, which the task state keeps, so a reinstall that
           // resumes the step does not begin it anew.

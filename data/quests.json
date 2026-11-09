@@ -200,6 +200,7 @@
       {
         "zone": "lakerathe",
         "kill": "spirit of flame",
+        "expect": "Damaged Goblin Crown",
         "waitSec": 60
       },
       {
@@ -429,11 +430,13 @@
         "npc": "Maligar",
         "give": [
           "Note to Maligar"
-        ]
+        ],
+        "waitMin": 15
       },
       {
         "zone": "qey2hh1",
         "kill": "Enraged Doppleganger",
+        "expect": "Maligar's Head",
         "waitSec": 120
       },
       {

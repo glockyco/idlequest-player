@@ -1153,6 +1153,50 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
   }
 });
 
+test("a summoned enemy that is up already sends the member to the fight, and an NPC wait matches the whole name", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const gives: string[][] = [];
+    const dopple = { spawnInstanceId: 9, npcId: 4401, name: "Maligars_Enraged_Doppleganger", level: 40 };
+    const zone = { spawns: [{ name: "Maligars_Enraged_Doppleganger", spawn2Id: 0, currentHp: 900 }] as { name: string; spawn2Id: number; currentHp: number }[] };
+    let dead = false;
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Note to Maligar" ? 1 : 0),
+      refreshSpawns: async () => zone.spawns.length,
+      zoneSpawns: zone,
+      talkToNpc: async () => {},
+      giveToNpc: async (items: string[]) => void gives.push(items),
+    });
+    Object.assign(f.party, { requestAccountCharacterAvailability: () => {}, availableAccountCharacterIds: [] });
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => (dead ? [] : [dopple]);
+    // The party arrives with no mana, and the pull must wait until it is ready again.
+    Object.assign(f.me, { mana: 0, maxMana: 100 });
+    setTimeout(() => (f.me.mana = 100), 30000);
+    const pulledReady: boolean[] = [];
+    Object.assign(f.runtime, { selectEnemyTarget: () => (pulledReady.push(f.iq.partyFull()), setTimeout(() => ((dead = true), f.say("You have defeated Maligars Enraged Doppleganger, but gain no experience.")), 3000)) });
+    const steps = [
+      { zone: "qey2hh1", npc: "Maligar", give: ["Note to Maligar"], waitMin: 15 },
+      { zone: "qey2hh1", kill: "Enraged Doppleganger", waitSec: 120 },
+    ];
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(gives).toEqual([]);
+    expect(pulledReady).toEqual([true]);
+
+    // Without a fight to go on to, the doppleganger is not Maligar, so the wait goes on.
+    f.bot.quest({ members: ["Tagujazolu"], steps: steps.slice(0, 1) });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "running", step: "wait for Maligar" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
 // and ends in a kill or a wipe.
 function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000 } = {}) {
