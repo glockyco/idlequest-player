@@ -170,3 +170,30 @@ export async function bardSongs() {
 // spawn group picks this NPC with the `spawn` chance and one kill drops the item with the `drop`
 // chance. One spawn point is assumed, however many the zone has. Infinity without a spawn timer.
 export const farmHours = (s) => (s.respawn > 0 && Number.isFinite(s.respawn) && s.spawn * s.drop > 0 ? s.respawn / (s.spawn * s.drop) / 3600 : Infinity);
+
+/**
+ * The gear enemies drop in each band row's zones (data/band-rotations.json), for the roster gear
+ * plan's `drops`: `[{ itemId, zone, npc, hours, levels: [min, max] }]`, where `levels` are the
+ * row's leader levels and `hours` the expected hunting for one copy while every spawn point of the
+ * enemy is cleared as it respawns. Only enemies up to five levels above the row and items that fit
+ * a slot and carry stats, armor or damage count. Resolves with `{ drops, items }`.
+ */
+export async function zoneDrops(root, bandRows) {
+  const sorted = [...bandRows].sort((a, b) => a[0] - b[0]);
+  const bands = sorted.map(([min, zones], k) => ({ min, max: (sorted[k + 1]?.[0] ?? 61) - 1, zones }));
+  const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
+  const items = new Map();
+  for await (const i of rows(root, "items")) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
+  const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
+  const drops = [];
+  for (const [itemId, list] of sources) {
+    for (const b of bands) {
+      for (const s of list) {
+        if (!b.zones.includes(s.zoneShort) || s.level > b.max + 5) continue;
+        const hours = farmHours(s) / Math.max(1, s.points);
+        if (Number.isFinite(hours)) drops.push({ itemId, zone: s.zoneShort, npc: s.npc, hours: Math.round(hours * 100) / 100, levels: [b.min, b.max] });
+      }
+    }
+  }
+  return { drops, items };
+}

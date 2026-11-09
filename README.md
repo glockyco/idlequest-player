@@ -280,6 +280,10 @@ items from Inventory Search, and the moves run as one gear task (`iqBot.gear`), 
 each item and gives it equipped to its receiver, in the party or not. The items the plan finds to
 be an upgrade for anyone go to every bot as `gearKeepIds`, which its cleanup never sells. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
+The plan also lists the gear that enemies of each band row's zones drop (`zoneDrops` in
+`tools/lib/gear-data.mjs`) where it beats what a character wears, and each coordinator pass gives
+every group an errand for its drop with the most gain per hour of hunting among the zones of its
+rotation. The wants stay in the db meta key `gear`, so a restart keeps them.
 
 ## Monitoring
 

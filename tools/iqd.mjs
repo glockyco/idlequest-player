@@ -523,6 +523,16 @@ class Daemon {
     }
     const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
+    // Wanted drops from the gear pass: for each group, the drop with the most gain per hour of
+    // hunting among the zones of its rotation, as an errand inside normal hunting.
+    for (const t of tabs) {
+      // The last gear pass's wants, kept in the db so a restart does not lose them for an hour.
+      this.dropWants ??= metaGet(this.db, "gear")?.drops ?? [];
+      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
+      if (best) opportunities.push({ id: `drop-${best.to}-${best.slot}`, group: t.group, kind: "errand", zone: best.zone, keep: best.npc, item: best.item, count: 1, retryMin: 120, minutes: 30 });
+    }
+    const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
+    if (dropped.length) this.log(`coordinator: ${dropped.length} wanted drops in the groups' rotations (${dropped.map((o) => `${o.item} for ${o.group}`).join(", ")})`);
     const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), owned, farms, quests, holders, started, have, gear, held, history: state.history });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
@@ -675,7 +685,7 @@ class Daemon {
     const { moves, wanted, drops } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, { ids: wanted }), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: wanted.length, capped: job.result.capped });
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: wanted.length, capped: job.result.capped, drops });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${wanted.length} kept${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }
