@@ -1,7 +1,7 @@
 // The score and farm-time rules shared by tools/gear.mjs and the raid simulator's farmed kits.
 import { expect, test } from "bun:test";
 // @ts-expect-error plain .mjs module without types
-import { CLASS_KEYS, BIT, capFor, damageBonus, expectedMult, farmHours, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
+import { CLASS_KEYS, BIT, capFor, damageBonus, expectedMult, farmHours, outputValue, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
 
 test("class keys line up with the class bit masks", () => {
   CLASS_KEYS.slice(1).forEach((key: string, i: number) => expect(BIT[key]).toBe(1 << i));
@@ -40,6 +40,19 @@ test("a proc adds its damage at the wearer's level, (0.5 + DEX/170) times a minu
   expect(procDamagePerMinute({ ...blade, procrate: 50 }, 30, 85)).toBeCloseTo(1.5 * 50);
   expect(procDamagePerMinute(blade, 19, 85)).toBe(0);
   expect(weaponRatio(blade, "wizard", 30, { dex: 85 })).toBeCloseTo(10 / 30 + 50 / 60 / (10 * expectedMult(30)));
+});
+
+test("a worn effect counts like the stats it gives, from its required level, and a focus by its best item", () => {
+  // Worn STR (SPA 4) adds offense for a Warrior like the same STR on the item.
+  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 40)).toBeCloseTo(outputValue([{ astr: 15 }], "warrior", 40));
+  expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 20)).toBe(0);
+  // Worn haste (SPA 11, 100 plus the percent) counts as the highest item haste.
+  expect(outputValue([{ wornEffects: [{ spa: 11, value: 121 }] }, { haste: 15 }], "warrior", 40)).toBeCloseTo(outputValue([{ haste: 21 }], "warrior", 40));
+  // A 10% mana cost focus (SPA 132) is worth 10% of a caster's output, and of two only the better counts.
+  const focus = (v: number) => ({ focusEffects: [{ spa: 132, value: v }] });
+  expect(outputValue([focus(10)], "wizard", 40)).toBe(100);
+  expect(outputValue([focus(10), focus(5)], "wizard", 40)).toBe(100);
+  expect(outputValue([focus(10)], "warrior", 40)).toBe(0);
 });
 
 test("farm hours are respawn over spawn chance and drop chance", () => {

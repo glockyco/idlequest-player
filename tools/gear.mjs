@@ -18,7 +18,7 @@
 // damage. Both and the source tables are in tools/lib/gear-data.mjs.
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
-import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachProcs, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, rows as contentRows, slotName, weaponRatio } from "./lib/gear-data.mjs";
+import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachEffects, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, rows as contentRows, slotName, weaponRatio } from "./lib/gear-data.mjs";
 
 const args = process.argv.slice(2);
 const opt = (n, d) => {
@@ -69,18 +69,20 @@ for await (const i of rows("items")) {
   const slots = slotName(i.slots);
   if (!slots.length) continue;
   allItems.set(i.id, { raw: i, id: i.id, name: i.Name, slots, req: i.reqlevel ?? 0, classes: i.classes ?? 0, races: i.races ?? 0, ac: i.ac, hp: i.hp, mana: i.mana, int: i.aint, wis: i.awis, dmg: i.damage, delay: i.delay, twoHand: [1, 4, 35].includes(i.itemtype), nodrop: i.nodrop, price: i.price });
+}
+// An item's worth counts its proc, worn and focus effects, so their spells come along before scoring.
+await attachEffects(new Map([...allItems].map(([id, w]) => [id, w.raw])), root);
+for (const [id, w] of allItems) {
+  const i = w.raw;
   if (partyMode) {
-    if ((i.reqlevel ?? 0) <= level) cands.set(i.id, allItems.get(i.id));
+    if ((i.reqlevel ?? 0) <= level) cands.set(id, w);
     continue;
   }
   if (!(i.classes & BIT[cls]) || (race && !(i.races & RACE[race])) || (i.reqlevel ?? 0) > level) continue;
   const sc = score(i);
-  if (sc <= 0 && !((slots.includes("primary") || slots.includes("secondary")) && i.damage)) continue;
-  cands.set(i.id, { ...allItems.get(i.id), score: sc });
+  if (sc <= 0 && !((w.slots.includes("primary") || w.slots.includes("secondary")) && i.damage)) continue;
+  cands.set(id, { ...w, score: sc, ratio: weaponRatio(i, cls, level) });
 }
-// A weapon's worth counts its proc, so the proc spells come along before the ratios.
-await attachProcs(new Map([...allItems].map(([id, w]) => [id, w.raw])), root);
-for (const c of cands.values()) c.ratio = weaponRatio(c.raw, cls, level);
 
 // ---- Sources: item -> lootdrop -> loottable -> NPC -> spawns -> zone (tools/lib/gear-data.mjs) ---
 const { sources, sellers } = await loadSources(root, { itemIds: new Set(cands.keys()), maxNpcLevel: mobMax, zoneName });

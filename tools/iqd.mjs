@@ -803,7 +803,7 @@ class Daemon {
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
     const survey = mergeSurvey(party, job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
-    const { attachProcs, bardSongs, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { attachEffects, bardSongs, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
     const { contentRoot } = await import("./lib/content.mjs");
     // The merchant goods, the drops of the band rotations and of the camped gear picks, and their item rows, read once.
     if (!this.shop) {
@@ -818,11 +818,10 @@ class Daemon {
     }
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
-    // A weapon's proc counts in its worth, so its spell comes along (read once per new weapon).
-    if ([...this.items.values()].some((i) => i.proceffect > 0 && !("procSpell" in i))) {
-      await attachProcs(this.items, contentRoot());
-      for (const i of this.items.values()) if (i.proceffect > 0 && !("procSpell" in i)) i.procSpell = null;
-    }
+    // An item's proc, worn and focus effects count in its worth, so their spells come along, read again
+    // only when an item new to the pass has one.
+    const unread = (i) => (i.proceffect > 0 && !("procSpell" in i)) || (i.worneffect > 0 && i.worntype === 2 && !("wornEffects" in i)) || (i.focuseffect > 0 && i.focustype === 6 && !("focusEffects" in i));
+    if ([...this.items.values()].some(unread)) await attachEffects(this.items, contentRoot());
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
     // Each character's last recorded maximum mana, which an item's mana is a share of.
     const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));

@@ -3,7 +3,7 @@
 // a merchant) in the zones the live game has, with the time it takes to farm a copy.
 import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { effectValue } from "./spell-value.mjs";
+import { effectValue, spellEffects } from "./spell-value.mjs";
 
 export const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
 export const RACE = { human: 1, barbarian: 2, erudite: 4, woodelf: 8, highelf: 16, darkelf: 32, halfelf: 64, dwarf: 128, troll: 256, ogre: 512, halfling: 1024, gnome: 2048, iksar: 4096, vahshir: 8192 };
@@ -65,10 +65,16 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  *   so recovery shortens with the pool, and 2% faster regeneration a point of `manaregen` (at most 15);
  * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
  *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
+ * A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste, regeneration, HP and
+ * mana like the item's own fields, and a spell focus (`focusEffects`) its best mana cost reduction,
+ * spell damage and spell haste percent to the spell share.
  * Resists and the stats the client does not use for this class count for nothing.
  */
 export const outputValue = (items, c, level, { pool } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
+  // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
+  const focus = { 124: 0, 127: 0, 132: 0 };
+  const statSpa = WIS_CLASSES.has(c) ? 9 : 8;
   for (const i of items) {
     if (!i) continue;
     str += i.astr ?? 0;
@@ -80,10 +86,28 @@ export const outputValue = (items, c, level, { pool } = {}) => {
     ac += i.ac ?? 0;
     hp += i.hp ?? 0;
     sta += i.asta ?? 0;
+    // A worn effect adds to the item fields by the spell's effects (`kd` in the client), only once
+    // the wearer has the item's required level (`HE`).
+    if (i.wornEffects && level >= (i.reqlevel ?? 0)) {
+      for (const { spa, value } of i.wornEffects) {
+        if (spa === 1) ac += value;
+        else if (spa === 2) atk += value;
+        else if (spa === 4) str += value;
+        else if (spa === 7) sta += value;
+        else if (spa === statSpa) stat += value;
+        else if (spa === 11) haste = Math.max(haste, value - 100);
+        else if (spa === 15) manaregen += value;
+        else if (spa === 69) hp += value;
+        else if (spa === 97) mana += value;
+      }
+    }
+    if (i.focusEffects && level >= (i.reqlevel ?? 0)) for (const { spa, value } of i.focusEffects) if (spa in focus) focus[spa] = Math.max(focus[spa], value);
   }
   const meleeShare = MELEE_SHARE[groupOf(c)];
   const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
-  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + 2 * Math.min(manaregen, 15));
+  // Spell output: the pool and regeneration that shorten recovery, a lower mana cost (recovery is the
+  // mana spent), more spell damage and faster casts, each a percent of the spell share.
+  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + 2 * Math.min(manaregen, 15) + focus[132] + focus[124] + focus[127]);
   const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
   return 10 * (melee + spells + survival);
 };
@@ -93,7 +117,7 @@ export const outputValue = (items, c, level, { pool } = {}) => {
 // level's limit, the flat damage bonus of a main-hand hit (`sd`) divided by the typical roll
 // multiplier, and its procs, `(0.5 + DEX/170) (1 + procrate/100)` a minute at the wearer's level,
 // converted to the same unit. Hit chance, double attack and haste scale every weapon alike and are
-// left out. Procs count their damage only, and an item's proc spell comes from `attachProcs`.
+// left out. Procs count their damage only, and an item's proc spell comes from `attachEffects`.
 const MELEE_BONUS = new Set(["warrior", "paladin", "ranger", "shadowknight", "monk", "bard", "rogue"]);
 const TWO_HANDED = new Set([1, 4, 35]);
 const TWO_HAND_BONUS = JSON.parse(readFileSync(new URL("../../data/two-hand-bonus.json", import.meta.url), "utf8")).rows;
@@ -133,18 +157,32 @@ export const weaponRatio = (i, c, level, { primary = true, dex = 75 } = {}) => {
   return (Math.min(i.damage, capFor(c, level)) + bonus / m) / i.delay + procDamagePerMinute(i, level, dex) / 60 / (10 * m);
 };
 
-/** Adds `procSpell` (the proc spell's hit point effects and its duration in ticks) to the weapons of `items`, a Map of item rows. */
-export async function attachProcs(items, root) {
-  const want = new Set([...items.values()].filter((i) => i.proceffect > 0 && i.proceffect !== 255 && (i.proctype ?? 0) <= 1).map((i) => i.proceffect));
+/**
+ * Adds the item effects the gear value counts to the rows of `items` (a Map of item rows), read
+ * from spells_new: `procSpell` (a weapon proc's hit point damage effects and duration in ticks),
+ * `wornEffects` (a worn effect, `worntype` 2, at `wornlevel`) and `focusEffects` (a spell focus,
+ * `focustype` 6, at `focuslevel`), both `[{ spa, value }]` (docs/client-internals.md, "What item
+ * stats and effects do"). Each field is set on every item that has the effect, null when its spell is missing.
+ */
+export async function attachEffects(items, root) {
+  const want = new Set();
+  for (const i of items.values()) {
+    if (i.proceffect > 0 && i.proceffect !== 255 && (i.proctype ?? 0) <= 1) want.add(i.proceffect);
+    if (i.worneffect > 0 && i.worntype === 2) want.add(i.worneffect);
+    if (i.focuseffect > 0 && i.focustype === 6) want.add(i.focuseffect);
+  }
   if (!want.size) return items;
   const spells = new Map();
   for await (const s of rows(root, "spells_new")) if (want.has(s.id)) spells.set(s.id, s);
   for (const i of items.values()) {
-    const s = spells.get(i.proceffect);
-    if (!s || !want.has(i.proceffect)) continue;
-    const effects = [];
-    for (let k = 1; k <= 12; k++) if (s[`effectid${k}`] === 0 && s[`effect_base_value${k}`] < 0) effects.push({ formula: s[`formula${k}`], base: s[`effect_base_value${k}`], max: s[`max${k}`] });
-    i.procSpell = { name: s.name, effects, ticks: s.buffduration > 0 ? s.buffduration : 0 };
+    if (i.proceffect > 0 && i.proceffect !== 255 && (i.proctype ?? 0) <= 1) {
+      const s = spells.get(i.proceffect);
+      const effects = [];
+      if (s) for (let k = 1; k <= 12; k++) if (s[`effectid${k}`] === 0 && s[`effect_base_value${k}`] < 0) effects.push({ formula: s[`formula${k}`], base: s[`effect_base_value${k}`], max: s[`max${k}`] });
+      i.procSpell = s ? { name: s.name, effects, ticks: s.buffduration > 0 ? s.buffduration : 0 } : null;
+    }
+    if (i.worneffect > 0 && i.worntype === 2) i.wornEffects = spells.has(i.worneffect) ? spellEffects(spells.get(i.worneffect), i.wornlevel ?? 0) : null;
+    if (i.focuseffect > 0 && i.focustype === 6) i.focusEffects = spells.has(i.focuseffect) ? spellEffects(spells.get(i.focuseffect), i.focuslevel ?? 0) : null;
   }
   return items;
 }
