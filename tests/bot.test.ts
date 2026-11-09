@@ -254,6 +254,7 @@ test("the remedy table widens a crowded party's limits, then moves it, and wakes
     const p = await install();
     p.bot.config.rotation = ["guktop", "permafrost"];
     p.combat.currentZone = 65;
+    p.bot.config.limits = { minCon: 10, maxCon: 13, maxLevelDiff: 5 };
     p.combat.minCon = 10;
     await p.bot.tick();
     Object.assign(p.activity, { act: "idle", why: "crowded", since: Date.now() });
@@ -590,6 +591,7 @@ test("an errand widens AutoLevel's range for its enemies, keeps the others in th
     f.combat.currentZone = 73;
     // A level 7 party pulls levels 7 and 8; blue reaches down to 5, green to 3, and the cap adds to the leader's level.
     Object.assign(f.combat, { minCon: 10, maxCon: 10, maxLevelDiff: 1 });
+    f.bot.config.limits = { minCon: 10, maxCon: 10, maxLevelDiff: 1 };
     Object.assign(f.me, { level: 7 });
     Object.assign(f.runtime, { getAutoCombatLevelBounds: () => ({ minLevel: f.combat.minCon <= 2 ? 3 : f.combat.minCon <= 4 ? 5 : 7, maxLevel: 7 + f.combat.maxLevelDiff }) });
     // A level 15 wisp lies 8 levels up, where the guard (levelGap 8) leaves the fight, so the range stops at 11.

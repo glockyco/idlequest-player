@@ -92,9 +92,11 @@
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     // AutoLevel's con and level limits, { minCon, maxCon, maxLevelDiff }, that the party returns to
-    // after a zone change, an errand, and `widenMin` minutes after a remedy widened them (`keepLimits`).
-    // null leaves the limits as they are.
-    limits: null,
+    // after a zone change, an errand, a task, and `widenMin` minutes after a remedy widened them
+    // (`keepLimits`). The default is Blue to Red up to 5 levels above the leader, because green
+    // enemies pay no XP and a White minimum gained nothing at levels 15 to 19
+    // (docs/plans/leveling-plan.md, lever 2). null leaves the limits as they are.
+    limits: { minCon: 4, maxCon: 13, maxLevelDiff: 5 },
     widenMin: 20,
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
     rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
