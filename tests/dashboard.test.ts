@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { dayStart, engineeringView, groupRowsView, makeCatalog, nameIds, needsYouView, rosterView, statusView, taskName } from "../tools/lib/dashboard.mjs";
+import { dayStart, engineeringView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, xpRate } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -165,4 +165,60 @@ test("the status line turns amber and red at its thresholds and stays calm other
   expect(level(worse, "needs")).toBe("bad");
   expect(level(worse, "memory")).toBe("bad");
   expect(worse.find((i) => i.id === "xp24")?.value).toBeNull();
+});
+
+/** Insert minute totals of group `grp` at `minutesAgo` minutes before `now`. */
+function addMinute(db: ReturnType<typeof openDb>, grp: string, now: number, minutesAgo: number, sec: Record<string, number>, xp = 0, deaths = 0) {
+  db.query("INSERT INTO minutes (grp, minute, sec, xp, deaths) VALUES (?, ?, ?, ?, ?)").run(grp, Math.floor(now / 60000) - minutesAgo, JSON.stringify(sec), xp, deaths);
+}
+
+test("the timeline has a cell per minute with data, task spans and death marks, and the row's idle share comes from the last hour", () => {
+  const db = openDb(":memory:");
+  const now = Math.floor(Date.now() / 3600000) * 3600000 + 30 * 60000; // half past an hour, so the hourly bars split
+  db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (1, 'Tank', 'Warrior', 'Human', ?, ?)").run(now, now);
+  addSession(db, "Tank", now, { leader: { name: "Tank", level: 30, class: "Warrior" }, activity: { act: "fight", since: now - 5000 }, t: now, bot: { enabled: true, rotation: [], crowdedAt: {}, task: { id: "hunt-9", kind: "hunt", status: "running", step: "camp x", startedAt: now - 10 * 60000 } } });
+  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history: [{ t: now - 90 * 60000, label: "Tank", kind: "hunt", id: "o1", task: "hunt-1", ms: 20 * 60000 }, { t: now - 10 * 60000, label: "Tank", kind: "hunt", id: "o1", task: "hunt-9" }] }));
+  // 50 minutes of data: fights, a stretch of idle minutes (crowded), and a death. Nothing before them.
+  for (let a = 59; a >= 10; a--) {
+    if (a >= 20 && a <= 29) addMinute(db, "G1", now, a, { "idle/crowded": 45, "idle/noTarget": 10, fight: 5 });
+    else if (a === 40) addMinute(db, "G1", now, a, { fight: 20, dead: 40 }, -500, 1);
+    else addMinute(db, "G1", now, a, { fight: 50, recover: 10 }, 1000);
+  }
+  const catalog = makeCatalog({ opportunities: [{ id: "o1", item: "Orb" }] });
+  const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank"] }] });
+  const [row] = groupRowsView(db, now, { roster, groupOf: new Map([["Tank", "G1"]]), catalog, report: [{ group: "G1", idle: 0.9, idleCause: "off" }] });
+
+  const tl = row.timeline;
+  expect(tl.minutes).toBe(120);
+  expect(tl.cells.length).toBe(50);
+  // Offsets count from the window's start, 119 minutes before the current minute.
+  expect(tl.cells.find((c: { m: number }) => c.m === 119 - 59)).toMatchObject({ k: "fight", i: null });
+  expect(tl.cells.find((c: { m: number }) => c.m === 119 - 25)).toMatchObject({ k: "idle", i: "crowded" });
+  expect(tl.cells.find((c: { m: number }) => c.m === 119 - 40)).toMatchObject({ k: "dead", d: 1, x: -500 });
+  // A finished task shows as a span from its queue time for its length, the running one up to now.
+  expect(tl.spans.map((s: { name: string; status: string; to: number }) => [s.name, s.status])).toEqual([["Orb", "done"], ["Orb", "running"]]);
+  expect(tl.spans[0].to - tl.spans[0].from).toBeCloseTo(20);
+  expect(tl.spans[1].to).toBeCloseTo(119, 0);
+  // The last hour of minute totals beats the report: 10 minutes with 55 idle seconds each in 50 minutes of data.
+  expect(row.idleWindow).toBe("hour");
+  expect(row.idleShare).toBeCloseTo(550 / 3000, 3);
+  expect(row.idleCause).toBe("crowded");
+
+  // XP over the day and the hourly bars read the same minutes.
+  const minutes = minuteTotals(db, now);
+  expect(xpRate(minutes, now)).toBeNull(); // under an hour recorded is no rate
+  for (let a = 60 * 3; a < 60 * 5; a++) addMinute(db, "G1", now, a, { fight: 60 }, 2000);
+  const rate = xpRate(minuteTotals(db, now), now);
+  expect(rate?.groups).toBe(1);
+  expect(rate?.perHour).toBeGreaterThan(0);
+  const bars = hourlyView(minuteTotals(db, now), now);
+  expect(bars.length).toBe(24);
+  const current = bars.at(-1);
+  expect(current).toMatchObject({ partial: true });
+  expect(current.sec["idle/crowded"]).toBeGreaterThan(0);
+  // The death at 40 minutes ago falls in the hour before.
+  expect(bars.at(-2).sec.dead).toBe(40);
+  expect(bars.at(-2).deaths).toBe(1);
+  expect(bars.at(-2).groupHours).toBeGreaterThan(0);
+  expect(bars[0].groupHours).toBe(0);
 });

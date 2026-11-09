@@ -16,6 +16,7 @@
   --idle: #d9822b;
   --dead: #c43c3c;
   --task: #7a8899;
+  --mark: #111;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,6 +27,7 @@
     --card: #1e2125;
     --border: #33373d;
     --accent: #6c9cf0;
+    --mark: #fff;
     --good: #5fbf88;
     --warn: #e0a93a;
     --bad: #ee7b7b;
@@ -95,19 +97,21 @@ table.plain { border-radius: 6px; }
 table.plain td:first-child { white-space: nowrap; }
 table.groups td { vertical-align: middle; padding: 5px 8px; }
 table.groups { table-layout: fixed; }
-table.groups th:nth-child(1) { width: 13%; }
+table.groups th:nth-child(1) { width: 12%; }
 table.groups th:nth-child(2) { width: 8%; }
-table.groups th:nth-child(3) { width: 16%; }
-table.groups th:nth-child(4) { width: 13%; }
+table.groups th:nth-child(3) { width: 13%; }
+table.groups th:nth-child(4) { width: 12%; }
 table.groups th:nth-child(5) { width: 6%; }
 table.groups th:nth-child(6) { width: 9%; }
-table.groups th:nth-child(7) { width: 8%; }
+table.groups th:nth-child(7) { width: 20%; }
+.tlsvg { display: block; width: 100%; height: 18px; }
+.zone2 { display: none; }
 table.groups td { overflow: hidden; text-overflow: ellipsis; }
 tr.grow { cursor: pointer; }
 tr.grow:hover { background: var(--bg); }
 tr.grow.stuck { box-shadow: inset 3px 0 0 var(--bad); }
 tr.grow.open { background: var(--bg); }
-tr.grow td.zone, tr.grow td.gid, tr.grow td.state { white-space: nowrap; }
+tr.grow td.gid, tr.grow td.state { white-space: nowrap; }
 tr.grow td.task { font-size: 13px; line-height: 1.3; }
 .caret::before { content: "\25B8"; display: inline-block; width: 12px; color: var(--muted); }
 tr.open .caret::before { content: "\25BE"; }
@@ -162,13 +166,16 @@ svg .grid { stroke: var(--border); }
 .controls { margin: 6px 0; }
 
 @media (max-width: 1150px) {
-  table.groups th:nth-child(7), table.groups td.tl { display: none; }
-  table.groups th:nth-child(1) { width: 15%; }
-  table.groups th:nth-child(3) { width: 15%; }
-  table.groups th:nth-child(4) { width: 14%; }
+  /* The zone moves under the activity to leave room for the timeline. */
+  table.groups th:nth-child(3), table.groups td.zone { display: none; }
+  .zone2 { display: block; white-space: normal; line-height: 1.25; }
+  table.groups tr.grow td.state { white-space: normal; }
+  table.groups th:nth-child(1) { width: 16%; }
+  table.groups th:nth-child(2) { width: 10%; }
+  table.groups th:nth-child(4) { width: 19%; }
   table.groups th:nth-child(5) { width: 8%; }
   table.groups th:nth-child(6) { width: 10%; }
-  table.groups tr.grow td.zone { white-space: normal; }
+  table.groups th:nth-child(7) { width: 15%; }
   .detail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .trio { grid-template-columns: 1fr; gap: 10px; }
   .stamp { display: none; }

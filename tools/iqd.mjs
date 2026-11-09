@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
+import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -59,6 +60,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   started INTEGER NOT NULL, done INTEGER, result TEXT);
 CREATE TABLE IF NOT EXISTS attach_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, target_id TEXT NOT NULL, url TEXT, event TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS minutes (
+  grp TEXT NOT NULL, minute INTEGER NOT NULL, sec TEXT NOT NULL, xp REAL NOT NULL DEFAULT 0, deaths INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (grp, minute)) WITHOUT ROWID;
 `;
 
 export function openDb(path) {
@@ -987,12 +991,31 @@ class Daemon {
         await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
         this.addRates(tr, got.samples);
+        this.addMinutes(snap.leader.name, got.samples);
       }
       if (got.events.length) {
         await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
       }
       if (!got.more) return;
+    }
+  }
+
+  /**
+   * Fold a tab's new samples into the minute totals (tools/lib/minutes.mjs) of the leader's roster
+   * group, and drop totals past their retention once an hour. A leader outside the roster counts
+   * under its own name.
+   */
+  addMinutes(leader, samples) {
+    const now = Date.now();
+    if (!this.groupOf || now - this.groupOfAt > 600000) {
+      this.groupOf = rosterGroups();
+      this.groupOfAt = now;
+    }
+    (this.minutes ??= new MinuteFolder(this.db)).add(this.groupOf.get(leader) ?? leader, samples);
+    if (!this.prunedAt || now - this.prunedAt > 3600000) {
+      this.prunedAt = now;
+      pruneMinutes(this.db, now);
     }
   }
 
@@ -1154,6 +1177,8 @@ const HELP = `iqd <command>
                                  --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs,
                                  --recover signs tabs in again, reinstalls a missing bridge and bot, and deploys changed code
   serve [--port 4790]            only the dashboard, on the database as it is
+  minutes [--hours 336]          rebuild the minute totals of the last hours from the recorded samples, for the
+                                 time before the collector wrote them (run it while the collector is stopped)
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]
                                  block until a new unresolved attention item appears
@@ -1168,7 +1193,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -1233,6 +1258,14 @@ async function cmdServe({ values, runs }) {
   const db = openDb(join(runs, "iq.db"));
   const { startDashboard } = await import("./lib/dashboard-server.mjs");
   startDashboard({ db, port: Number(values.port ?? 4790) });
+}
+
+async function cmdMinutes({ values, runs }) {
+  const hours = Number(values.hours ?? 336);
+  if (!(hours > 0)) throw new Error("--hours must be a positive number");
+  const db = openDb(join(runs, "iq.db"));
+  const n = await backfillMinutes(db, runs, rosterGroups(), Date.now() - hours * 3600000);
+  console.log(`minutes: ${n} group-minutes written for the last ${hours} hours`);
 }
 
 async function cmdStatus({ runs }) {
@@ -1315,7 +1348,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

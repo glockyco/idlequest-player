@@ -25,6 +25,9 @@ const ACT = [
   ["dead", "var(--dead)", (k) => k === "dead"],
   ["task", "var(--task)", (k) => k === "task"],
 ];
+// Idle time in the hourly bars is split by cause, in shades of the idle colour.
+const IDLE_COLORS = { noTarget: "#d9822b", crowded: "#e8b64f", afterKill: "#f0d08c", off: "#8d5a1f", readyWait: "#c46f3a", waitAttack: "#b9946a", noEnemies: "#a8431f", other: "#c9b08a" };
+const idleColor = (cause) => IDLE_COLORS[cause] ?? IDLE_COLORS.other;
 const actColor = (act) => ACT.find(([, , t]) => t(act))?.[1] ?? "var(--task)";
 const groupColor = (i, n) => `hsl(${Math.round((360 * i) / n)} 65% 50%)`;
 // Level 1 to 60 from cool to warm, so the roster grid reads as progress at a glance.
@@ -112,13 +115,21 @@ function taskCell(now, t) {
   return `<span class="name">${esc(t.name)}</span><span class="muted">: ${short(what, 48)}${t.agoMs != null ? `, ${dur(t.agoMs)} ago` : ""}</span>${retry}`;
 }
 
-function actBar(sec) {
-  const total = Object.values(sec ?? {}).reduce((a, b) => a + b, 0);
-  if (!total) return `<div class="bar"></div>`;
-  return `<div class="bar">${ACT.map(([name, color, test]) => {
-    const v = Object.entries(sec).filter(([k]) => test(k)).reduce((a, [, x]) => a + x, 0);
-    return v ? `<span title="${name} ${Math.round((100 * v) / total)}%" style="width:${(100 * v) / total}%;background:${color}"></span>` : "";
-  }).join("")}</div>`;
+/** "fight 45s, recover 15s" from a minute's seconds per activity group. */
+const mixText = (mix) => Object.entries(mix).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v}s`).join(", ");
+
+/** The two-hour timeline: one cell per minute coloured by its main activity, task spans below and death marks across. */
+function timeline(tl) {
+  // A server older than the page sends no timeline, and the row stays readable without it.
+  if (!tl?.cells) return "";
+  const H = 14;
+  const cells = tl.cells
+    .filter((c) => c.k)
+    .map((c) => `<rect x="${c.m}" y="0" width="1" height="10" fill="${c.k === "idle" && c.i ? idleColor(c.i) : (ACT.find(([n]) => n === c.k)?.[1] ?? "var(--task)")}"><title>${hhmm(tl.start + c.m * 60000)} ${esc(mixText(c.mix))}${c.x ? `, ${big(c.x)} XP` : ""}</title></rect>`)
+    .join("");
+  const spans = tl.spans.map((x) => `<rect x="${x.from.toFixed(2)}" y="11" width="${Math.max(0.5, x.to - x.from).toFixed(2)}" height="3" fill="${x.status === "failed" ? "var(--bad)" : "var(--task)"}"><title>${esc(x.name)}${x.status === "running" ? " (running)" : x.status === "failed" ? " (failed)" : ""}</title></rect>`).join("");
+  const deaths = tl.cells.filter((c) => c.d).map((c) => `<rect x="${c.m}" y="0" width="1.4" height="${H}" fill="var(--mark)"><title>${hhmm(tl.start + c.m * 60000)} ${c.d} death${c.d > 1 ? "s" : ""}</title></rect>`).join("");
+  return `<svg class="tlsvg" viewBox="0 0 ${tl.minutes} ${H}" preserveAspectRatio="none" shape-rendering="crispEdges"><rect x="0" y="0" width="${tl.minutes}" height="10" fill="var(--border)"/>${cells}${[30, 60, 90].map((m) => `<rect x="${m}" y="0" width="0.3" height="10" fill="var(--card)" opacity="0.8"/>`).join("")}${spans}${deaths}</svg>`;
 }
 
 function details(s, g) {
@@ -154,7 +165,7 @@ function details(s, g) {
 
 function renderGroups(s) {
   $("act-legend").innerHTML = ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("");
-  const head = ["Group", "Level", "Zone", "Doing now", "XP/h", "Idle", "Last 10 min", "Task"];
+  const head = ["Group", "Level", "Zone", "Doing now", "XP/h", "Idle", "Last 2 hours", "Task"];
   const rows = s.groups
     .map((g) => {
       const open = openGroups.has(g.id);
@@ -163,10 +174,10 @@ function renderGroups(s) {
         <td class="gid"><span class="caret"></span><b>${esc(g.id)}</b> <span class="muted">${esc(g.leader)}</span></td>
         <td class="lvl" title="${g.partyMin != null ? `party levels ${g.partyMin} to ${g.partyMax}, ` : ""}${pct(g.share)} of the XP to level 60"><b>${g.level ?? "?"}</b>${g.xpPct != null ? `<span class="muted"> ${Math.round(g.xpPct)}%</span>` : ""}${meter(g.share)}</td>
         <td class="zone">${esc(g.zone ?? "-")}</td>
-        <td class="state">${stateCell(g)}</td>
+        <td class="state">${stateCell(g)}<div class="zone2 muted small">${esc(g.zone ?? "-")}</div></td>
         <td class="n">${big(g.xpPerHour)}</td>
         <td class="idle ${idleCls}" title="share of the last ${g.idleWindow}">${pct(g.idleShare)}${g.idleCause ? ` <span class="muted">${esc(g.idleCause)}</span>` : ""}</td>
-        <td class="tl">${actBar(g.activitySec)}</td>
+        <td class="tl">${timeline(g.timeline)}</td>
         <td class="task">${taskCell(s.now, g.task)}</td></tr>
         ${open ? `<tr class="drow"><td colspan="${head.length}">${details(s, g)}</td></tr>` : ""}`;
     })
@@ -203,13 +214,38 @@ function renderCoordinator(s) {
     </div>`;
 }
 
+/** The hourly bars: height is the group-hours recorded in the hour, segments are the shares of each activity and idle cause. */
 function renderTime(s) {
-  const mix = s.mix;
-  const total = Object.values(mix).reduce((a, b) => a + b, 0);
-  const bar = total ? `<div class="bar big">${ACT.map(([n, c]) => (mix[n] ? `<span title="${n} ${Math.round((100 * mix[n]) / total)}%" style="width:${(100 * mix[n]) / total}%;background:${c}"></span>` : "")).join("")}</div>` : "";
-  const legend = ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n} ${pct(total ? mix[n] / total : 0)}</span>`).join("");
-  $("time-body").innerHTML = `<h4>All groups, last 10 minutes</h4>${bar}<div class="legend wide">${legend}</div>
-    <div class="slot"><b>24 hourly bars</b> of the groups' time by activity and idle cause will fill this panel once the collector stores minute totals.</div>`;
+  const bars = s.hourly;
+  if (!bars.some((b) => b.groupHours > 0)) {
+    $("time-body").innerHTML = `<div class="slot">No minute totals yet. The collector writes them while it runs, and <code>bun tools/iqd.mjs minutes</code> fills the past from the recorded samples.</div>`;
+    return;
+  }
+  const W = 560, H = 210, L = 34, B = 22, T = 10;
+  const cap = Math.max(s.groups.length, ...bars.map((b) => b.groupHours));
+  const bw = (W - L - 4) / bars.length;
+  const order = ["fight", "recover", "move", "task", "dead"];
+  const segColor = (k) => (k.startsWith("idle/") ? idleColor(k.slice(5)) : (ACT.find(([n]) => n === k)?.[1] ?? "var(--task)"));
+  const causes = new Set();
+  const rects = bars
+    .map((b, n) => {
+      const tot = Object.values(b.sec).reduce((x, y) => x + y, 0);
+      if (!tot) return "";
+      const idle = Object.keys(b.sec).filter((k) => k.startsWith("idle/")).sort((x, y) => b.sec[y] - b.sec[x]);
+      idle.forEach((k) => causes.add(k.slice(5)));
+      const keys = [...order.filter((k) => b.sec[k]), ...idle];
+      const full = ((H - B - T) * b.groupHours) / cap;
+      let y = H - B;
+      const x = L + n * bw + 1;
+      const idleSec = idle.reduce((x2, k) => x2 + b.sec[k], 0);
+      const tip = `${hhmm(b.t)}${b.partial ? " (so far)" : ""}: ${b.groupHours.toFixed(1)} group-hours, ${keys.map((k) => `${k.replace("idle/", "idle ")} ${pct(b.sec[k] / tot)}`).join(", ")}, idle ${pct(idleSec / tot)}${b.xp ? `, ${big(b.xp)} XP` : ""}${b.deaths ? `, ${b.deaths} death${b.deaths > 1 ? "s" : ""}` : ""}`;
+      return `<g><title>${esc(tip)}</title>${keys.map((k) => { const h = (full * b.sec[k]) / tot; y -= h; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="${segColor(k)}"${b.partial ? ' opacity="0.7"' : ""}/>`; }).join("")}</g>`;
+    })
+    .join("");
+  const labels = bars.map((b, n) => (new Date(b.t).getHours() % 3 === 0 ? `<text x="${(L + n * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${String(new Date(b.t).getHours()).padStart(2, "0")}</text>` : "")).join("");
+  const ticks = [0, 0.5, 1].map((f) => `<line class="grid" x1="${L}" x2="${W}" y1="${(H - B - (H - B - T) * f).toFixed(1)}" y2="${(H - B - (H - B - T) * f).toFixed(1)}"/><text x="${L - 4}" y="${(H - B - (H - B - T) * f + 4).toFixed(1)}" text-anchor="end">${(cap * f).toFixed(0)}</text>`).join("");
+  const legend = [...ACT.filter(([n]) => n !== "idle").map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`), ...[...causes].sort().map((c) => `<span><i style="background:${idleColor(c)}"></i>idle ${esc(c)}</span>`)].join("");
+  $("time-body").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${ticks}${rects}${labels}</svg><div class="legend wide">${legend}</div><p class="muted small">Bar height is the group-hours recorded in each hour (axis: group-hours), segments are shares of that time. The last bar is the current hour so far. Hover a bar for its numbers.</p>`;
 }
 
 // ---- Folded sections ---------------------------------------------------------------------------

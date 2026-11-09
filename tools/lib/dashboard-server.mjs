@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
 import { rows as contentRows } from "./content.mjs";
-import { attentionView, coordinatorView, engineeringView, goalView, groupRowsView, jobsView, levelTrends, makeCatalog, mixView, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { attentionView, coordinatorView, engineeringView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = join(REPO, "tools/dashboard");
@@ -96,17 +96,18 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         const roster = rosterView(db, rosterFile);
         const report = reports.groups.get();
         const plan = reports.plan.get();
-        const rows = groupRowsView(db, now, { roster, groupOf, catalog, report: report.value });
+        const minutes = minuteTotals(db, now);
+        const rows = groupRowsView(db, now, { roster, groupOf, catalog, report: report.value, minutes });
         const attention = attentionView(db, now);
         const needs = needsYouView(attention.open, now, groupOf);
         const daemon = meta("daemon");
         return json({
           now,
-          status: statusView({ now, daemon, rows, needs, xp24: xpRate(db, roster, now) }),
+          status: statusView({ now, daemon, rows, needs, xp24: xpRate(minutes, now) }),
           needs,
           goal: goalView(db, { roster, plan: plan.value, groupOf, catalog }),
           groups: rows,
-          mix: mixView(rows),
+          hourly: hourlyView(minutes, now),
           coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,

@@ -3,6 +3,7 @@
 // tested on a database built in memory. Reports that need the run logs (tools/groups.mjs,
 // tools/plan.mjs) come from those tools, not from here.
 import { THRESHOLDS, sessionSummary } from "../iqd.mjs";
+import { MINUTE_MS } from "./minutes.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 
 const DAY = 86400000;
@@ -282,6 +283,108 @@ export function activityMix(sec) {
 /** The idle cause with the most seconds in a map of activity seconds ("idle/afterKill" gives "afterKill"). */
 const idleCauseOf = (sec) => Object.entries(sec ?? {}).filter(([k, v]) => k.startsWith("idle") && v > 0).sort((a, b) => b[1] - a[1])[0]?.[0].replace(/^idle\/?/, "") || null;
 
+const activityGroup = (key) => ACTIVITY_GROUPS.find(([, test]) => test(key))?.[0] ?? "task";
+
+// ---- Minute totals ---------------------------------------------------------------------------------
+
+/** The group timeline covers this many minutes, one cell each. */
+export const TIMELINE_MINUTES = 120;
+/** "Where time goes" shows this many hourly bars. */
+export const HOURLY_BARS = 24;
+/** Minute totals of the last hours that a view needs, `Map<group, [{ minute, sec, xp, deaths }]>` oldest first. */
+export function minuteTotals(db, now, hours = HOURLY_BARS + 1) {
+  const out = new Map();
+  for (const r of db.query("SELECT grp, minute, sec, xp, deaths FROM minutes WHERE minute >= ? ORDER BY minute").all(Math.floor(now / MINUTE_MS) - hours * 60)) {
+    if (!out.has(r.grp)) out.set(r.grp, []);
+    out.get(r.grp).push({ minute: r.minute, sec: JSON.parse(r.sec), xp: r.xp, deaths: r.deaths });
+  }
+  return out;
+}
+
+const total = (sec) => Object.values(sec).reduce((a, b) => a + b, 0);
+
+/**
+ * A group's last two hours as one cell per minute that has data: `m` is the minute's offset from
+ * the window's start, `k` the activity group with the most seconds (fight, move, recover, idle,
+ * dead or task), `i` the main idle cause of an idle minute, `mix` the seconds per activity group,
+ * `d` the deaths and `x` the XP. `spans` are task spans as minute offsets from the window's start,
+ * `[{ from, to, name, status }]` clipped to the window. A minute without data has no cell.
+ */
+export function timelineView(minutes, now, spans = []) {
+  const end = Math.floor(now / MINUTE_MS);
+  const start = end - TIMELINE_MINUTES + 1;
+  const cells = [];
+  for (const r of minutes) {
+    if (r.minute < start || r.minute > end) continue;
+    const mix = activityMix(r.sec);
+    const top = Object.entries(mix).sort((a, b) => b[1] - a[1])[0];
+    cells.push({ m: r.minute - start, k: top[1] > 0 ? top[0] : null, i: top[0] === "idle" ? idleCauseOf(r.sec) : null, mix: Object.fromEntries(Object.entries(mix).filter(([, v]) => v >= 0.5).map(([k, v]) => [k, Math.round(v)])), d: r.deaths, x: r.xp });
+  }
+  const clipped = spans
+    .map((s) => ({ from: (s.from - start * MINUTE_MS) / MINUTE_MS, to: (s.to - start * MINUTE_MS) / MINUTE_MS, name: s.name, status: s.status }))
+    .filter((s) => s.to > 0 && s.from < TIMELINE_MINUTES)
+    .map((s) => ({ ...s, from: Math.max(0, s.from), to: Math.min(TIMELINE_MINUTES, s.to) }));
+  return { start: start * MINUTE_MS, minutes: TIMELINE_MINUTES, cells, spans: clipped };
+}
+
+/** The idle share and main idle cause of the last hour in a group's minute rows, or null with under five minutes of data. */
+function lastHour(minutes, now) {
+  const from = Math.floor(now / MINUTE_MS) - 59;
+  const sec = {};
+  for (const r of minutes) if (r.minute >= from) for (const [k, v] of Object.entries(r.sec)) sec[k] = (sec[k] ?? 0) + v;
+  const all = total(sec);
+  if (all < 300) return null;
+  const idle = Object.entries(sec).filter(([k]) => activityGroup(k) === "idle").reduce((a, [, v]) => a + v, 0);
+  return { share: idle / all, cause: idleCauseOf(sec) };
+}
+
+const hourStart = (t) => new Date(t).setMinutes(0, 0, 0);
+/** A bar's segment: the activity group, with an idle minute split by its cause. */
+const barKey = (key) => (activityGroup(key) === "idle" ? (key.includes("/") ? key : "idle/other") : activityGroup(key));
+
+/**
+ * The last `HOURLY_BARS` local hours of all groups' time: per hour the seconds by segment (fight,
+ * move, recover, dead, task and `idle/<cause>`), the group-hours recorded, XP and deaths. The
+ * current hour is partial. An hour without minute totals is an empty bar.
+ */
+export function hourlyView(minutes, now, hours = HOURLY_BARS) {
+  const starts = [];
+  for (let t = hourStart(now); starts.length < hours; t = hourStart(t - 1)) starts.unshift(t);
+  const bars = new Map(starts.map((t) => [t, { t, sec: {}, groupHours: 0, xp: 0, deaths: 0, partial: t === starts.at(-1) }]));
+  for (const rows of minutes.values()) {
+    for (const r of rows) {
+      const bar = bars.get(hourStart(r.minute * MINUTE_MS));
+      if (!bar) continue;
+      for (const [k, v] of Object.entries(r.sec)) {
+        const key = barKey(k);
+        bar.sec[key] = (bar.sec[key] ?? 0) + v;
+        bar.groupHours += v / 3600;
+      }
+      bar.xp += r.xp;
+      bar.deaths += r.deaths;
+    }
+  }
+  return [...bars.values()].map((b) => ({ ...b, sec: Object.fromEntries(Object.entries(b.sec).map(([k, v]) => [k, Math.round(v)])) }));
+}
+
+/**
+ * XP per hour over the last `hours`: each group's net XP (kills and hand-ins, minus deaths) over
+ * the time it recorded, summed over the groups that recorded at least an hour. Null without any.
+ */
+export function xpRate(minutes, now, hours = 24) {
+  const from = Math.floor(now / MINUTE_MS) - hours * 60;
+  let perHour = 0;
+  let groups = 0;
+  for (const rows of minutes.values()) {
+    const mine = rows.filter((r) => r.minute >= from);
+    const sec = mine.reduce((a, r) => a + total(r.sec), 0);
+    if (sec < 3600) continue;
+    perHour += mine.reduce((a, r) => a + r.xp, 0) / (sec / 3600);
+    groups++;
+  }
+  return groups ? { perHour, groups } : null;
+}
+
 /** The open sessions with their summary and the bot state the summary leaves out, by group id. */
 function sessionsByGroup(db, now, groupOf) {
   const out = new Map();
@@ -329,11 +432,11 @@ export function taskView(catalog, task, history, now) {
 /**
  * One row per roster group with the columns the page compares: level and its share of the XP to
  * level 60, zone, what the group does and for how long, XP per hour, idle share with its main
- * cause, the bot's task, and the details a click opens. `report` is tools/groups.mjs's rows of the
- * last hour, which give the idle share and cause over that hour. Without a report row the last 10
- * minutes of the tab's own activity seconds stand in.
+ * cause, the bot's task, the two-hour timeline, and the details a click opens. The idle share and
+ * cause are the last hour's, from the minute totals, else from `report` (tools/groups.mjs's rows of
+ * the last hour), else from the tab's own last 10 minutes.
  */
-export function groupRowsView(db, now, { roster, groupOf, catalog, report = null }) {
+export function groupRowsView(db, now, { roster, groupOf, catalog, report = null, minutes = minuteTotals(db, now) }) {
   const sessions = sessionsByGroup(db, now, groupOf);
   const history = (metaRow(db, "coordinator")?.history ?? []).slice().reverse();
   const reportOf = new Map((report ?? []).map((r) => [r.group, r]));
@@ -343,11 +446,17 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     const leader = v?.leader ?? g.members[0].name;
     const state = stateOf(v);
     const r = reportOf.get(g.id);
-    const idleShare = r?.idle ?? v?.idleShare ?? null;
+    const hour = lastHour(minutes.get(g.id) ?? [], now);
+    const idleShare = hour?.share ?? r?.idle ?? v?.idleShare ?? null;
     const task = taskView(catalog, v?.bot.task, history, now);
     const levels = (v?.party ?? []).map((m) => m.level).filter((l) => l != null);
     const stuck = state.kind === "gone" || (state.kind === "activity" && (state.act === "idle" || state.act === "dead") && state.forMs > 120000) || (v != null && !v.parked && !v.raid && v.lastKillMs != null && v.lastKillMs > 300000);
     const mine = history.filter((h) => h.label === leader);
+    // Task spans: finished tasks from the coordinator's history (queued at `t`, took `ms`) and the task running now.
+    const spans = [
+      ...mine.filter((h) => h.ms).map((h) => ({ from: h.t, to: h.t + h.ms, name: taskLabel(catalog, h), status: h.task && h.task === v?.bot.task?.id ? v.bot.task.status : "done" })),
+      ...(task?.status === "running" && v.bot.task.startedAt ? [{ from: v.bot.task.startedAt, to: now, name: task.name, status: "running" }] : []),
+    ];
     const lines = [
       ...tail("SELECT t, actor AS source, text FROM interventions WHERE session = ? ORDER BY id DESC LIMIT 8", leader),
       ...tail("SELECT t, 'alert' AS source, text FROM attention WHERE session = ? AND severity != 'info' ORDER BY id DESC LIMIT 8", leader),
@@ -370,10 +479,10 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
       zone: v?.zone ?? null,
       xpPerHour: v?.xpPerHour ?? null,
       idleShare,
-      idleCause: r ? (r.idleCause ?? null) : idleCauseOf(v?.activitySec),
-      idleWindow: r ? "hour" : "10 minutes",
+      idleCause: hour ? hour.cause : r ? (r.idleCause ?? null) : idleCauseOf(v?.activitySec),
+      idleWindow: hour || r ? "hour" : "10 minutes",
       waitedFor: r?.waitedFor ?? null,
-      activitySec: v?.activitySec ?? null,
+      timeline: timelineView(minutes.get(g.id) ?? [], now, spans),
       task,
       lastKillMs: v?.lastKillMs ?? null,
       details: {
@@ -391,40 +500,12 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
   });
 }
 
-/** All groups' activity seconds of the last 10 minutes by activity group, the live part of "Where time goes". */
-export function mixView(rows) {
-  const total = activityMix(null);
-  for (const r of rows) for (const [k, v] of Object.entries(activityMix(r.activitySec))) total[k] += v;
-  return total;
-}
-
 // ---- Status, goal and coordinator ----------------------------------------------------------------
 
 const metaRow = (db, k) => {
   const row = db.query("SELECT v FROM meta WHERE k = ?").get(k);
   return row ? JSON.parse(row.v) : null;
 };
-
-/**
- * XP per hour gained by the roster leaders over the last `hours`, from their level snapshots, as
- * the sum of each leader's rate over the time its snapshots span (at least an hour). It counts net
- * XP, so hand-ins add and deaths subtract. Null when no leader has snapshots with XP over an hour.
- */
-export function xpRate(db, roster, now, hours = 24) {
-  const chars = new Map(db.query("SELECT id, name, class, race FROM characters").all().map((c) => [c.name, c]));
-  let perHour = 0;
-  let leaders = 0;
-  for (const g of roster.groups) {
-    const c = chars.get(g.members?.[0]?.name);
-    if (!c) continue;
-    const from = db.query("SELECT t, level, xp_pct FROM char_snapshots WHERE char_id = ? AND t >= ? AND xp_pct IS NOT NULL ORDER BY t LIMIT 1").get(c.id, now - hours * 3600000);
-    const to = db.query("SELECT t, level, xp_pct FROM char_snapshots WHERE char_id = ? AND xp_pct IS NOT NULL ORDER BY t DESC LIMIT 1").get(c.id);
-    if (!from || !to || to.t - from.t < 3600000) continue;
-    perHour += ((xpAt(to.level, to.xp_pct) - xpAt(from.level, from.xp_pct)) * factor(c.race, c.class)) / ((to.t - from.t) / 3600000);
-    leaders++;
-  }
-  return leaders ? { perHour, leaders } : null;
-}
 
 /** Colour thresholds of the status line. Idle shares and page memory turn amber, then red. */
 export const STATUS_LIMITS = { idleWarn: 0.15, idleBad: 0.3, heapWarn: 0.6, heapBad: THRESHOLDS.heapShare };
@@ -449,8 +530,8 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
     { id: "relay", label: "Relay", value: daemon?.relay ? "up" : "down", level: daemon?.relay ? "ok" : "bad" },
     { id: "playing", label: "Groups playing", value: `${playing} / ${rows.length}`, level: playing === rows.length ? "ok" : playing >= rows.length * 0.75 ? "warn" : "bad" },
     { id: "xp", label: "XP/h now", value: xpNow, level: "ok", title: "Sum of the groups' leaders' kill XP over the last 30 minutes" },
-    { id: "xp24", label: "XP/h, 24 h", value: xp24?.perHour ?? null, level: "ok", title: xp24 ? `Net XP of ${xp24.leaders} leaders over the last 24 hours, from their level snapshots` : "No leader has snapshots with XP over an hour yet" },
-    { id: "idle", label: "Idle, last hour", value: idle, level: idle == null ? "ok" : idle >= STATUS_LIMITS.idleBad ? "bad" : idle >= STATUS_LIMITS.idleWarn ? "warn" : "ok", title: "Mean idle share of the groups over the last hour" },
+    { id: "xp24", label: "XP/h, 24 h", value: xp24?.perHour ?? null, level: "ok", title: xp24 ? `Net XP per recorded hour of ${xp24.groups} groups over the last 24 hours, from the minute totals` : "Minute totals start when the collector runs the version that writes them" },
+    { id: "idle", label: "Idle, last hour", value: idle, level: idle == null ? "ok" : idle >= STATUS_LIMITS.idleBad ? "bad" : idle >= STATUS_LIMITS.idleWarn ? "warn" : "ok", title: "Mean idle share of the groups over the last hour, from the minute totals" },
     { id: "needs", label: "Needs you", value: need, level: need === 0 ? "ok" : need >= 3 || needs.needs.some((n) => n.severity === "decide") ? "bad" : "warn" },
     { id: "memory", label: "Max tab memory", value: heapRow ? heapRow.details.heap.used : null, share: heapShare, tab: heapRow?.id ?? null, level: heapShare == null ? "ok" : heapShare >= STATUS_LIMITS.heapBad ? "bad" : heapShare >= STATUS_LIMITS.heapWarn ? "warn" : "ok" },
   ];
