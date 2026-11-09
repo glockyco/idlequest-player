@@ -60,14 +60,14 @@ const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * the client's formulas (docs/client-internals.md, "What item stats and effects do"):
  * - melee: offense (2/3 a point of STR, 1 a point of ATK) through the damage roll, and the highest
  *   item haste (at most 50) as swing rate;
- * - spells: the share of a typical pool (30 mana a level) that item mana and INT or WIS add (80 ×
+ * - spells: the share of the wearer's maximum mana (`pool`, else a typical 30 mana a level) that item mana and INT or WIS add (80 ×
  *   level / 425 mana a point), because out-of-fight regeneration is 2.5% of the maximum per 600 ms,
  *   so recovery shortens with the pool, and 2% faster regeneration a point of `manaregen` (at most 15);
  * - survival: AC and HP (STA at about 6 HP a point at 60) at the leveling model's 0.5% per 100
  *   (leveling plan, lever 7), which undervalues them for raids until the raid model weighs them.
  * Resists and the stats the client does not use for this class count for nothing.
  */
-export const outputValue = (items, c, level) => {
+export const outputValue = (items, c, level, { pool } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
   for (const i of items) {
     if (!i) continue;
@@ -83,7 +83,7 @@ export const outputValue = (items, c, level) => {
   }
   const meleeShare = MELEE_SHARE[groupOf(c)];
   const melee = meleeShare * (((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50));
-  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (30 * level) + 2 * Math.min(manaregen, 15));
+  const spells = NO_MANA.has(c) ? 0 : (1 - meleeShare) * ((100 * (mana + ((80 * level) / 425) * stat)) / (pool > 0 ? pool : 30 * level) + 2 * Math.min(manaregen, 15));
   const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta);
   return 10 * (melee + spells + survival);
 };

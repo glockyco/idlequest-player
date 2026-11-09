@@ -34,7 +34,9 @@ const { shop, items } = await merchantGoods(opt.content, { maxPp: BUY_PP });
 for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
 await attachProcs(items, opt.content);
 
-const { moves } = planGear({ survey, items, people: rosterPeople(survey, groupOf, raceOf), minGain: Number(opt["min-gain"]), songs: await bardSongs(), shop, buyPp: BUY_PP });
+const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
+const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
+const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), songs: await bardSongs(), shop, buyPp: BUY_PP });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));
 else {
   const byGroup = Map.groupBy(moves, (m) => groupOf.get(m.to));

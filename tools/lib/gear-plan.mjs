@@ -75,8 +75,8 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a class at a level: its output value (`outputValue` in gear-data.mjs). */
-export const setValue = (items, cls, level) => outputValue(items, cls, level);
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool? }`): its output value (`outputValue` in gear-data.mjs). */
+export const setValue = (items, p) => outputValue(items, p.cls, p.level, { pool: p.pool });
 
 // A song's skill and the instrument type that modifies it (docs/client-internals.md, Bard
 // instruments). Type 51 modifies every song.
@@ -197,7 +197,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
   // A character's armor and jewelry by the set score, plus for a Bard everything it wears by the
   // instruments' value.
   // A shield or an instrument in the off hand counts with its stats, a weapon there does not.
-  const value = (p, mine) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p.cls, p.level) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
+  const value = (p, mine) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p) + (p.cls === "bard" ? instrumentValue([...mine.values()], p.level, songs) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
@@ -247,7 +247,7 @@ export function planGear({ survey, items, people, minGain = 5, songs = [], shop 
     }
     // A main hand that swings harder replaces one only if it does not carry fewer stats, because
     // casters and priests often wear a main hand for its stats.
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && outputValue([item], p.cls, p.level) >= (held ? outputValue([held], p.cls, p.level) : 0)) {
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && setValue([item], p) >= (held ? setValue([held], p) : 0)) {
       const gain = weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld);
       if (gain >= MIN_RATIO_GAIN) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }

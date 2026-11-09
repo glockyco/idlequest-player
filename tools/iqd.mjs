@@ -812,7 +812,10 @@ class Daemon {
       for (const i of this.items.values()) if (i.proceffect > 0 && !("procSpell" in i)) i.procSpell = null;
     }
     const raceOf = new Map(this.db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
-    const { moves, keep, drops, characters } = planGear({ survey, items: this.items, people: rosterPeople(survey, rosterGroups(), raceOf), songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    // Each character's last recorded maximum mana, which an item's mana is a share of.
+    const poolOf = new Map(this.db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
+    const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
+    const { moves, keep, drops, characters } = planGear({ survey, items: this.items, people, songs: await bardSongs(), shop: this.shop, buyPp: BUY_PP, drops: this.drops });
     this.dropWants = drops;
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
     // start of a pass never wipes it: the scores in `gearPlan`, and in `gearSheets` each character's slots
