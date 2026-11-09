@@ -217,9 +217,11 @@ const fits = (item, p, slot) =>
  * opportunity a camped drop comes from.
  * Returns `{ moves: [{ item, itemId, from, to, slot, slotNum, gain, replaces, buy? }], keep: { counts:
  * { [itemId]: copies }, instances: [itemInstanceId] }, drops: [{ item, itemId, to, slot, gain, zone, npc, hours }],
- * picks: { [pick]: { to, level, cls, gain, hours } } }`, where a Bard's instrument for the party
- * supply moves to slot "bags" (`slotNum` null), given without equipping it, and `picks` is each
- * camped drop's best taker, whatever other drops want the same slot,
+ * picks: { [pick]: { to, level, cls, gain, hours } }, targets: [{ zone, npc, perHour, firstHours, items }] }`,
+ * where a Bard's instrument for the party supply moves to slot "bags" (`slotNum` null), given
+ * without equipping it, `picks` is each camped drop's best taker, whatever other drops want the
+ * same slot, and `targets` ranks the enemies by the gear gain an hour of hunting them is worth
+ * (`rankTargets`), with every character's slot it serves in `items`,
  * where a move with `buy: { merchant, zone, price }` buys its item first. `keep` is what the bots
  * must not sell: the copies this pass's moves take, the copies it buys, and for an item the account
  * holds no free copy of, as many copies as characters would still gain from one after the moves,
@@ -362,6 +364,8 @@ export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp 
   const wantSlot = new Map();
   // A camped pick (`pick`, an opportunity id) is weighed on its own, against its best taker.
   const picks = {};
+  // Each enemy's wanted drops, every item with every character slot it would serve (`rankTargets`).
+  const byTarget = new Map();
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
     const r = virtual(d.itemId);
@@ -376,8 +380,46 @@ export function planGear({ survey, items, people, minGain = 5, shop = [], buyPp 
           want.set(k, entry);
           wantSlot.set(k, o.slot);
         }
+        const tk = `${d.zone}|${d.npc}`;
+        // For weighing a trip (`assignTargets`): the taker's level, the enemy's level, and the last
+        // level the item serves (`until`). A pick names its levels. An item from a band row's zone
+        // stays in its slot past the row, so it serves to 10 levels above its enemy, like the
+        // 12-level windows of the picks, an assumption until the gear plan tracks replacements.
+        const until = d.pick ? d.levels?.[1] : d.npcLevel != null ? d.npcLevel + 10 : d.levels?.[1];
+        (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, offers: [] }).get(tk)).offers.push({ ...entry, level: p.level, until: until ?? null, key: k });
       }
     }
   }
-  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], picks, characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
+  return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], picks, targets: rankTargets(byTarget), characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }
+
+/**
+ * The enemies worth hunting for gear, best first. A kill yields one copy, which serves one
+ * character, so each item counts once, at the best of its takers, and each character slot once, at
+ * the item that pays most there per hour: items are given to slots in the order of gain over hours
+ * per copy. An enemy's worth is the gear gain an hour of hunting it brings, the sum of each item's
+ * gain over its hours per copy, since each drop rolls on its own, with `takers` the characters each
+ * item would serve and `firstHours` the hours until the first of them drops.
+ */
+function rankTargets(byTarget) {
+  return [...byTarget.values()]
+    .map((t) => {
+      const rate = (w) => w.gain / w.hours;
+      const usedItems = new Set();
+      const usedSlots = new Set();
+      const items = [];
+      for (const w of [...t.offers].sort((a, b) => rate(b) - rate(a))) {
+        if (usedItems.has(w.itemId) || usedSlots.has(w.key)) continue;
+        usedItems.add(w.itemId);
+        usedSlots.add(w.key);
+        const { key, ...rest } = w;
+        items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
+      }
+      const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
+      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, perHour: Math.round(items.reduce((s, w) => s + rate(w), 0) * 100) / 100, firstHours: Math.round(100 / copies) / 100, items };
+    })
+    .sort((a, b) => b.perHour - a.perHour);
+}
+
+/** The coordinator's id of a gear target's errand, `target-<zone>-<npc>` with the name in lower-case words joined by dashes. */
+export const targetId = (t) => `target-${t.zone}-${t.npc.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;

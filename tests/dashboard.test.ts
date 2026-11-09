@@ -127,15 +127,16 @@ test("the group row's own idle seconds stand in without a report, and a long idl
   expect(row.idleShare).toBeCloseTo(0.5);
 });
 
-test("coordinator ids become item, quest and drop names", () => {
+test("coordinator ids become item, quest and target names", () => {
   const catalog = makeCatalog({
     opportunities: [{ id: "gear-loam-encrusted-pantaloons", item: "Loam Encrusted Pantaloons" }],
     quests: { "paladin-epic-note": { class: "Paladin", reward: "Sealed Note" } },
-    drops: [{ item: "Crown of the Forlorn", to: "Kiabriala", slot: "head" }],
+    targets: [{ zone: "dalnir", npc: "a coerced gnome", items: [{ item: "Sap of Piety" }, { item: "Gnome Hat" }] }],
+    zones: { dalnir: "The Crypt of Dalnir" },
   });
   expect(taskName(catalog, "gear-loam-encrusted-pantaloons")).toBe("Loam Encrusted Pantaloons");
   expect(taskName(catalog, "paladin-epic-note")).toBe("Paladin quest for Sealed Note");
-  expect(taskName(catalog, "drop-Kiabriala-head")).toBe("Crown of the Forlorn (head for Kiabriala)");
+  expect(taskName(catalog, "target-dalnir-a-coerced-gnome")).toBe("a coerced gnome in The Crypt of Dalnir (Sap of Piety, Gnome Hat)");
   expect(nameIds(catalog, "quest: paladin-epic-note for A, B")).toBe("quest: Paladin quest for Sealed Note for A, B");
 });
 

@@ -294,9 +294,13 @@ moves take) and the names of what the coordinator's hunts, errands and quest cha
 (`keepNames`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of each band row's zones drop (`zoneDrops` in
-`tools/lib/gear-data.mjs`) where it beats what a character wears, and each coordinator pass gives
-every group an errand for its drop with the most gain per hour of hunting among the zones of its
-rotation that no other group plays in. The wants stay in the db meta key `gear`, so a restart keeps them.
+`tools/lib/gear-data.mjs`) where it beats what a character wears, and ranks the enemies by the gear
+gain an hour of hunting them brings (`targets`): each item at its best taker over its hours per
+copy, added up over the enemy's drops. Each coordinator pass gives every free group the target it
+can kill whose worth in XP beats its cost most (`assignTargets` in `tools/lib/coordinator.mjs`): an
+errand inside normal hunting when the zone is in its rotation, a hunt trip when it is not. The
+dashboard lists the top targets as Most wanted, each with why it is or is not hunted. The wants stay
+in the db meta key `gear`, so a restart keeps them.
 
 ## Monitoring
 
@@ -331,7 +335,7 @@ status line, the items no mechanism handles, one bar per success criterion, one 
 (click for its party, bags, rotation and task history), the coordinator's tasks and decisions, a
 gear section with a character sheet per roster character (each slot's worn item beside the best one
 the account's items, merchants and wanted drops give, with the game's icons and item tooltips, from
-the gear pass's meta keys `gearPlan` and `gearSheets`), and folded sections for engineering health,
+the gear pass's meta keys `gearPlan` and `gearSheets`, and the most wanted enemies), and folded sections for engineering health,
 the roster, epic chains, level trends, jobs and the alert history. It
 reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for their reports, and it changes
 nothing. The page lives in `tools/dashboard/`, its views in `tools/lib/dashboard.mjs`. `--port 0`

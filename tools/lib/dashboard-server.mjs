@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
 import { rows as contentRows } from "./content.mjs";
-import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, mostWantedView, needsYouView, rosterView, statusView, xpRate } from "./dashboard.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = join(REPO, "tools/dashboard");
@@ -92,7 +92,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           return row ? JSON.parse(row.v) : null;
         };
         const groupOf = rosterGroups();
-        const catalog = makeCatalog({ opportunities: readJson("data/opportunities.json", []), quests: readJson("data/quests.json", {}), farms: readJson("data/farms.json", []), drops: meta("gear")?.drops ?? [], zones: await zones() });
+        const catalog = makeCatalog({ opportunities: readJson("data/opportunities.json", []), quests: readJson("data/quests.json", {}), farms: readJson("data/farms.json", []), targets: meta("gear")?.targets ?? [], zones: await zones() });
         const roster = rosterView(db, rosterFile);
         const report = reports.groups.get();
         const plan = reports.plan.get();
@@ -111,7 +111,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,
-          gear: gearView(db, { roster }),
+          gear: { ...gearView(db, { roster }), wanted: mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, status: meta("targetStatus")?.status ?? {} }) },
           epics: epicsView(meta("coordinator")),
           attention: { info: attention.info, resolved: attention.resolved, manual: attention.manual },
           engineering: engineeringView(db, now),

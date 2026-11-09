@@ -339,6 +339,72 @@ export function crowdedZones(tabs, now) {
   return new Set(tabs.flatMap((t) => Object.entries(t.crowdedAt ?? {}).filter(([, at]) => now - at < 45 * 60000).map(([z]) => z)));
 }
 
+// The share of its time a group idled on an errand in a zone another group played (group 4, once).
+const SHARED_COST = 0.4;
+// A trip out of the rotation gives up the group's XP for its length, and its zone's XP is not counted.
+const TRIP_COST = 1;
+// The most levels a target may stand above the group's leader.
+const KILL_MARGIN = 3;
+/**
+ * What an hour of hunting gear target `x` is worth in hours of the group's XP: for each item (a copy
+ * every `hours`), the taker's output gain times its share of the party's damage (one of six), the
+ * XP elasticity at its level and the hours until it outlevels the drop's levels (`until`, at the
+ * taker's group's pace in `hoursPerLevel`), the terms of `campPays`.
+ */
+export const targetWorth = (x, hoursPerLevel = {}) => x.items.reduce((s, w) => s + ((w.gain / 1000) * (1 / 6) * elasticity(w.level ?? 0) * Math.max(0, (w.until ?? 0) - (w.level ?? 0)) * (hoursPerLevel[w.to] ?? 0)) / w.hours, 0);
+/**
+ * The gear targets (`targets` of tools/lib/gear-plan.mjs, best first) to hunt now, and why each one
+ * is or is not hunted. Each free tab (no errand, no running task, its group not `held` by an
+ * experiment, whose arms a hunt would change) takes the target with the most worth over its cost
+ * (`targetWorth`) among those it can kill (at most `KILL_MARGIN` levels above its leader) in zones no
+ * tab found crowded by other players lately. The cost per hour is none in the tab's rotation, where
+ * it hunts anyway, `SHARED_COST` there in a zone another tab plays, and `TRIP_COST` outside it. A
+ * group whose members are all at `cfg.levelCap` pays only AA XP, so any worth pays. In the rotation
+ * the hunt is an errand inside normal hunting, outside it a hunt task. `tabs` are `decide`'s,
+ * `crowded` and `held` Sets of zones and groups. Returns `{ errands: [{ target, group, kind }],
+ * status: [text] }` with one status per target.
+ */
+export function assignTargets({ targets, tabs, crowded = new Set(), held = new Set(), hoursPerLevel = {}, cfg = DEFAULTS }) {
+  const free = (t) => !t.errand && t.task?.status !== "running" && !held.has(t.group);
+  const lead = (t) => t.members[0]?.level ?? 0;
+  const capped = (t) => t.members.length && t.members.every((m) => (m.level ?? 0) >= cfg.levelCap);
+  const killable = (t, x) => x.npcLevel == null || x.npcLevel <= lead(t) + KILL_MARGIN;
+  const cost = (t, x) => (capped(t) ? 0 : !(t.rotation ?? []).includes(x.zone) ? TRIP_COST : tabs.some((o) => o !== t && o.zone === x.zone) ? SHARED_COST : 0);
+  const worth = (t, x) => (capped(t) ? x.perHour : targetWorth(x, hoursPerLevel));
+  const errands = [];
+  const taken = new Map();
+  for (const t of tabs.filter(free)) {
+    let best = -1;
+    let bestNet = 0;
+    targets.forEach((x, k) => {
+      if (taken.has(k) || crowded.has(x.zone) || !killable(t, x)) return;
+      const net = worth(t, x) - cost(t, x);
+      if (net > bestNet) [best, bestNet] = [k, net];
+    });
+    if (best < 0) continue;
+    const kind = (t.rotation ?? []).includes(targets[best].zone) ? "errand" : "hunt";
+    taken.set(best, `${kind} queued for ${t.group}`);
+    errands.push({ target: targets[best], group: t.group, kind });
+  }
+  const status = targets.map((x, k) => {
+    const hunting = tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && t.task?.kind === "hunt" && t.zone === x.zone));
+    if (hunting) return `hunting: ${hunting.group}`;
+    if (taken.has(k)) return taken.get(k);
+    if (crowded.has(x.zone)) return "zone crowded by other players";
+    const able = tabs.filter((t) => killable(t, x));
+    if (!able.length) return `too strong for every group (level ${x.npcLevel})`;
+    // The group it would pay most for, busy or not, since a busy or held group takes it later.
+    const net = (t) => worth(t, x) - cost(t, x);
+    const bestTab = able.reduce((a, t) => (net(t) > net(a) ? t : a));
+    const w = worth(bestTab, x);
+    const c = cost(bestTab, x);
+    if (w <= c) return `not worth it yet: ${w.toFixed(2)} h of XP an hour against ${c.toFixed(1)} for ${bestTab.group}`;
+    if (!free(bestTab)) return `worth it for ${bestTab.group}, which is ${held.has(bestTab.group) ? "held by an experiment" : "busy"}`;
+    return "its groups took better targets";
+  });
+  return { errands, status };
+}
+
 export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();

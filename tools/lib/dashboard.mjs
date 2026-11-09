@@ -4,6 +4,7 @@
 // tools/plan.mjs) come from those tools, not from here.
 import { THRESHOLDS, sessionSummary } from "../iqd.mjs";
 import { MINUTE_MS } from "./minutes.mjs";
+import { targetId } from "./gear-plan.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 
 const DAY = 86400000;
@@ -161,11 +162,11 @@ const unslug = (id) => String(id).replace(/^gear-/, "").replace(/-/g, " ").repla
 
 /**
  * What the dashboard needs to give coordinator ids and zone ids names: the opportunities, quest
- * chains and farms of data/*.json, the gear pass's wanted `drops` (the coordinator names a drop errand
- * `drop-<character>-<slot>`), and `zones` mapping a zone's short name to its long name.
+ * chains and farms of data/*.json, the gear pass's wanted `targets` (the coordinator names a gear
+ * errand `target-<zone>-<npc>`, `targetId`), and `zones` mapping a zone's short name to its long name.
  */
-export function makeCatalog({ opportunities = [], quests = {}, farms = [], drops = [], zones = {} } = {}) {
-  return { opportunities: new Map(opportunities.map((o) => [o.id, o])), quests, farms: new Map(farms.map((f) => [f.id, f])), drops: new Map(drops.map((d) => [`drop-${d.to}-${d.slot}`, d])), zones };
+export function makeCatalog({ opportunities = [], quests = {}, farms = [], targets = [], zones = {} } = {}) {
+  return { opportunities: new Map(opportunities.map((o) => [o.id, o])), quests, farms: new Map(farms.map((f) => [f.id, f])), targets: new Map(targets.map((t) => [targetId(t), t])), zones };
 }
 
 /** A zone's long name from its short name, or the short name for a zone the content does not list. */
@@ -180,16 +181,14 @@ export function taskName(catalog, id) {
   if (q) return `${q.class} quest for ${q.reward}`;
   const f = catalog.farms.get(id);
   if (f) return `${f.keep} farm in ${zoneName(catalog, f.zone)}`;
-  const wanted = catalog.drops.get(id);
-  if (wanted) return `${wanted.item} (${wanted.slot} for ${wanted.to})`;
-  const drop = /^drop-(.+)-([a-z0-9]+)$/i.exec(id);
-  if (drop) return `${drop[2]} drop for ${drop[1]}`;
+  const target = catalog.targets.get(id);
+  if (target) return `${target.npc} in ${zoneName(catalog, target.zone)} (${target.items.map((w) => w.item).join(", ")})`;
   return unslug(id);
 }
 
 /** `text` with every coordinator id in it replaced by its name. */
 export function nameIds(catalog, text) {
-  const ids = [...catalog.opportunities.keys(), ...Object.keys(catalog.quests), ...catalog.farms.keys(), ...catalog.drops.keys()].sort((a, b) => b.length - a.length);
+  const ids = [...catalog.opportunities.keys(), ...Object.keys(catalog.quests), ...catalog.farms.keys(), ...catalog.targets.keys()].sort((a, b) => b.length - a.length);
   let out = String(text ?? "");
   for (const id of ids) out = out.replace(new RegExp(`(?<![\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "g"), taskName(catalog, id));
   return out;
@@ -200,7 +199,24 @@ export function retryAt(catalog, h) {
   if (h.nextAt) return h.nextAt;
   if (h.kind === "quest") return h.t + (catalog.quests[h.id]?.retryMin ?? 120) * 60000;
   if (!h.id || catalog.farms.has(h.id) || (h.kind !== "hunt" && h.kind !== "errand")) return null;
-  return h.t + (catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("drop-") ? 120 : 30)) * 60000;
+  return h.t + (catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? 120 : 30)) * 60000;
+}
+
+/**
+ * The gear pass's most wanted enemies for the dashboard, best first: zone names in full, the gain
+ * an hour of hunting each is worth in percent of a wearer's output, the hours until the first wanted
+ * drop, why the coordinator hunts it or not (`status`, from `assignTargets`, by `targetId`), and
+ * each item with its taker and the taker's group. `limit` caps the rows.
+ */
+export function mostWantedView(targets, { catalog, groupOf = new Map(), status = {}, limit = 15 }) {
+  return targets.slice(0, limit).map((t) => ({
+    npc: t.npc,
+    zone: zoneName(catalog, t.zone),
+    perHour: t.perHour / 10,
+    firstHours: t.firstHours,
+    status: status[targetId(t)] ?? null,
+    items: t.items.map((w) => ({ item: w.item, itemId: w.itemId, to: w.to, group: groupOf.get(w.to) ?? null, slot: w.slot, gain: w.gain / 10, hours: w.hours, takers: w.takers ?? 1 })),
+  }));
 }
 
 const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped" };

@@ -102,6 +102,27 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
   expect(planGear({ survey, items: bardItems, people, shop }).moves).toHaveLength(1);
 });
 
+test("a target counts each item once at its best taker and each character slot once", () => {
+  const people = [{ name: "B1", cls: "bard", level: 30, race: "", walk }, { name: "B2", cls: "bard", level: 30, race: "", walk }];
+  const survey = [bRow("B1", 22, "Equipped", 14, 1), bRow("B2", 22, "Equipped", 14, 2)];
+  const items2 = new Map([...bardItems, item(25, "Big Drum", { slots: 1 << 14, bardtype: 26, bardvalue: 20, itemtype: 26 })]);
+  const drops = [
+    { itemId: 20, zone: "kurn", npc: "a drummer", hours: 2 },
+    { itemId: 25, zone: "kurn", npc: "a drummer", hours: 4 },
+    { itemId: 20, zone: "befallen", npc: "a skeleton", hours: 1 },
+  ];
+  const { targets } = planGear({ survey, items: items2, people, drops });
+  // One Hand Drum serves one Bard, so the drummer's second Bard counts with the Big Drum, at its
+  // own hours per copy: the Hand Drum's gain over 2 h plus the Big Drum's over 4 h.
+  const drummer = targets.find((t) => t.npc === "a drummer")!;
+  expect(drummer.items.map((w) => [w.to, w.item, w.takers])).toEqual([["B1", "Hand Drum", 2], ["B2", "Big Drum", 2]]);
+  expect(drummer.perHour).toBeCloseTo(walkValue(18, walk) / 2 + walkValue(20, walk) / 4, 1);
+  expect(drummer.firstHours).toBeCloseTo(1 / (1 / 2 + 1 / 4), 2);
+  // The skeleton drops the Hand Drum twice as often, which is worth more than both drops of the drummer.
+  expect(targets[0].npc).toBe("a skeleton");
+  expect(targets[0].perHour).toBeCloseTo(walkValue(18, walk), 1);
+});
+
 test("a leader's carried item that Inventory Search does not list stays out of the moves", () => {
   const people = [{ name: "War", cls: "warrior", level: 30, race: "" }];
   const loose = { ...row("Lead", 6, "Carried", 0, 9), characterName: "Lead", characterId: 9, bag: 22 };

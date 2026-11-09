@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
+import { targetId } from "./lib/gear-plan.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -514,7 +515,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, questKeepItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignTargets, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, questKeepItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -623,24 +624,8 @@ class Daemon {
     settleHistory(state.history, tabs.map((t) => t.task));
     const held = await this.experimentPass(now, tabs, state);
     const gear = await this.gearPass(now, tabs).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
-    // Wanted drops from the gear pass: for each group, the drop with the most gain per hour of
-    // hunting among the zones of its rotation that no other group plays in, because a shared zone
-    // left group 4 idle 40% of its errand, as an errand inside normal hunting. A zone any tab found
-    // crowded by other players in the last 45 minutes is skipped too, after group 1 idled a whole
-    // errand in a Temple of Solusek Ro it had just left as crowded.
-    const crowded = crowdedZones(tabs, now);
-    for (const t of tabs) {
-      // The last gear pass's wants, kept in the db so a restart does not lose them for an hour.
-      this.dropWants ??= metaGet(this.db, "gear")?.drops ?? [];
-      const best = this.dropWants.filter((d) => groupOf.get(d.to) === t.group && (t.rotation ?? []).includes(d.zone) && !crowded.has(d.zone) && !tabs.some((o) => o !== t && o.zone === d.zone)).sort((a, b) => b.gain / b.hours - a.gain / a.hours)[0];
-      if (best) opportunities.push({ id: `drop-${best.to}-${best.slot}`, group: t.group, kind: "errand", zone: best.zone, keep: best.npc, item: best.item, count: 1, retryMin: 120, minutes: 30 });
-    }
-    const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
-    if (dropped.length) this.log(`coordinator: ${dropped.length} wanted drops in the groups' rotations (${dropped.map((o) => `${o.item} for ${o.group}`).join(", ")})`);
-    // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
-    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
-    // Hours a level takes each character at its group's measured rate, for weighing camps (`campPays`).
+    // Hours a level takes each character at its group's measured rate, for weighing camps (`campPays`)
+    // and gear targets (`assignTargets`).
     const rates = await this.loadRates();
     const { estimate } = await import("./lib/rates.mjs");
     const { xpStart } = await import("./lib/xp.mjs");
@@ -650,8 +635,31 @@ class Daemon {
       const xph = estimate(rates, t.zone, level, now)?.xph;
       if (xph > 0) for (const m of t.members) hoursPerLevel[m.name] = (xpStart((m.level ?? level) + 1) - xpStart(m.level ?? level)) / xph;
     }
+    // Wanted drops from the gear pass, by enemy (`targets`, every taker on the account, since a gear
+    // task moves items to anyone), as errands inside normal hunting or hunt trips, by their worth
+    // against the XP they cost (`assignTargets`). A zone any tab found crowded by other players in the
+    // last 45 minutes is skipped, after group 1 idled a whole errand in a Temple of Solusek Ro it had
+    // just left as crowded. The errand ends at its best item, and the gear plan keeps the others.
+    const crowded = crowdedZones(tabs, now);
+    // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
+    this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
+    const { errands, status } = assignTargets({ targets: this.targetWants, tabs, crowded, held, hoursPerLevel });
+    for (const { target: best, group, kind } of errands) opportunities.push({ id: targetId(best), group, ...(kind === "errand" ? { kind } : {}), zone: best.zone, keep: best.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), item: best.items[0].item, count: 1, retryMin: kind === "errand" ? 120 : 60, minutes: 30 });
+    if (errands.length) this.log(`coordinator: ${errands.length} wanted targets (${errands.map((e) => `${e.target.npc} in ${e.target.zone} for ${e.group}, ${e.kind}`).join(", ")})`);
+    // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
+    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
     this.pickWants ??= metaGet(this.db, "gear")?.picks ?? {};
     const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, picks: this.pickWants, hoursPerLevel });
+    // Why each listed target is or is not hunted, for the dashboard's Most wanted list. A target given
+    // to a group that `decide` sends elsewhere, or holds back for its retry or hunt share, says so.
+    for (const e of errands) {
+      const k = this.targetWants.indexOf(e.target);
+      if (actions.some((a) => a.id === targetId(e.target))) continue;
+      const other = actions.find((a) => tabs.find((t) => t.label === a.label)?.group === e.group);
+      status[k] = other ? `${e.group} took another task: ${other.kind} ${other.why}` : `${e.kind} for ${e.group} waits for its retry or the group's hunt share`;
+    }
+    metaSet(this.db, "targetStatus", { t: now, status: Object.fromEntries(this.targetWants.map((x, k) => [targetId(x), status[k]])) });
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -844,8 +852,9 @@ class Daemon {
     const seloAt = (id, level) => (this.spellRows.has(id) ? (spellEffects(this.spellRows.get(id), level).find((e) => e.spa === 3)?.value ?? 0) : 0);
     const walkOf = walkShares(groupRows, seloAt);
     const people = rosterPeople(survey, rosterGroups(), raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name) }));
-    const { moves, keep, drops, picks, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops });
-    this.dropWants = drops;
+    const { moves, keep, drops, picks, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: BUY_PP, drops: this.drops });
+    // The 40 best targets are all the errands and the dashboard's list need.
+    this.targetWants = targets.slice(0, 40);
     this.pickWants = picks;
     // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
     // start of a pass never wipes it: the scores in `gearPlan`, and in `gearSheets` each character's slots
@@ -855,7 +864,7 @@ class Daemon {
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
     metaSet(this.db, "gearSheets", { t: now, sheets: Object.fromEntries(characters.map((c) => [c.name, c.slots])), items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops: this.dropWants, picks });
+    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops, picks, targets: this.targetWants });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
     return { moves };
   }

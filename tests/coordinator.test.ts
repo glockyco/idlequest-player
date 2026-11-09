@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory } from "../tools/lib/coordinator.mjs";
+import { assignTargets, assignZones, campPays, chainSummary, decide, doneItems, elasticity, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory, targetWorth } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -112,6 +112,33 @@ test("the XP elasticity follows the model's table between its levels", () => {
   expect(elasticity(40)).toBeCloseTo(0.835);
   expect(elasticity(60)).toBe(0.85);
   expect(campPays({ levels: [20, 30] }, { to: "X", level: 30, gain: 500, hours: 0.1 }, { X: 2 })).toBe(false); // no levels of use left
+});
+
+test("a free group takes the target whose worth beats its cost most, and each target says why it is not hunted", () => {
+  // One item for a level 30 character, useful for 10 levels at an hour each, one copy an hour: a gain
+  // of g tenths of a percent is worth g/1000 x 1/6 x 0.753 x 10 hours of the group's XP an hour.
+  const target = (npc: string, zone: string, gain: number, npcLevel = 30) => ({ npc, zone, npcLevel, perHour: gain, items: [{ item: "X", to: "X1", level: 30, until: 40, gain, hours: 1 }] });
+  const targets = [target("a fiend", "unrest", 600), target("a warder", "nurga", 1000), target("a goo", "dalnir", 60), target("a broodling", "velketor", 1000, 50), target("a king", "soldunga", 600)];
+  const tabs = [
+    { ...tab("A", "G1", 30), zone: "unrest", rotation: ["unrest"] },
+    { ...tab("B", "G2", 30), zone: "unrest", rotation: ["unrest"], errand: { zone: "unrest", keep: "a ghoul" } },
+    { ...tab("C", "G3", 30), zone: "paw", rotation: ["dalnir", "paw"] },
+  ];
+  const hoursPerLevel = { X1: 1 };
+  expect(targetWorth(targets[1], hoursPerLevel)).toBeCloseTo(1 * (1 / 6) * elasticity(30) * 10);
+  const { errands, status } = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), hoursPerLevel });
+  // G1 hunts the fiend in its shared zone (0.75 - 0.4), G3 travels for the warder (1.26 - 1), and
+  // the goo in G3's rotation (0.08) loses to the trip.
+  expect(errands.map((e) => [e.target.npc, e.group, e.kind])).toEqual([["a fiend", "G1", "errand"], ["a warder", "G3", "hunt"]]);
+  expect(status).toEqual(["errand queued for G1", "hunt queued for G3", "its groups took better targets", "too strong for every group (level 50)", "zone crowded by other players"]);
+  // A trip that is worth less than the XP it costs does not run, and says so.
+  const poor = assignTargets({ targets: [target("a warder", "nurga", 400)], tabs: [tabs[2]], hoursPerLevel });
+  expect([poor.errands, poor.status[0]]).toEqual([[], "not worth it yet: 0.50 h of XP an hour against 1.0 for G3"]);
+  // A group on the target's errand hunts it, and a group an experiment holds takes none.
+  expect(assignTargets({ targets, tabs: [{ ...tabs[1], errand: { zone: "unrest", keep: "a fiend" } }], hoursPerLevel }).status[0]).toBe("hunting: G2");
+  const held = assignTargets({ targets, tabs, crowded: new Set(["soldunga"]), held: new Set(["G1", "G3"]), hoursPerLevel });
+  // The status names the group the target pays for, which waits here for its experiment.
+  expect([held.errands, held.status[1]]).toEqual([[], "worth it for G1, which is held by an experiment"]);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
@@ -230,8 +257,8 @@ test("an experiment gives arm A the setting and arm B the other in the first blo
   expect(experimentSettings({ now: NOW + 200 * 60000, experiments: [x], started: { con: NOW }, ended: { con: NOW } }).events).toEqual([]);
   // A held group's errand stops, whatever it hunts for.
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12, { errand: { zone: "najena", keep: "magician" } })], held: new Set(["G4"]) })).toMatchObject([{ kind: "stopErrand" }]);
-  // A held group gets no new errand, also one that names it, such as a wanted drop.
-  const drop = { id: "drop-A-back", group: "G4", kind: "errand", zone: "kurn", keep: "a skeleton", item: "Fine Cloak", count: 1 };
+  // A held group gets no new errand, also one that names it, such as a wanted target.
+  const drop = { id: "target-kurn-a-skeleton", group: "G4", kind: "errand", zone: "kurn", keep: "a skeleton", item: "Fine Cloak", count: 1 };
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop], held: new Set(["G4"]) })).toEqual([]);
   expect(decide({ now: NOW, tabs: [tab("A", "G4", 12)], opportunities: [drop] })).toMatchObject([{ kind: "errand" }]);
   // A farm skips a held group and stops it when it farms.
