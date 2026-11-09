@@ -82,6 +82,8 @@ async function install(partyIds: number[] = []) {
     minCon: 4,
     maxCon: 13,
     maxLevelDiff: 5,
+    minNpcLevel: 0,
+    setMinNpcLevel: (v: number) => { combat.minNpcLevel = v; },
     setIsRunning: (on: boolean) => { if (!on) autoLevel.stops++; },
     startAutoLevel: () => autoLevel.starts++,
     setMinCon: (v: number) => { combat.minCon = v; },
@@ -438,6 +440,30 @@ test("an empty zone first undoes the guard's tightening, then a raised minimum c
   Object.assign(unfit.activity, empty);
   await unfit.bot.tick();
   expect(unfit.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)).toEqual([true]);
+});
+
+test("a level floor follows the leader's level, and an empty zone lifts it before it lowers the con", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.config.limits = { minCon: 4, maxCon: 13, maxLevelDiff: 5, levelsBelow: 4 };
+    Object.assign(f.me, { level: 28 });
+    await f.bot.tick();
+    expect(f.combat.minNpcLevel).toBe(24);
+    Object.assign(f.me, { level: 29 });
+    await f.bot.tick();
+    expect(f.combat.minNpcLevel).toBe(25);
+    Object.assign(f.activity, { act: "idle", why: "noEnemies", since: Date.now() });
+    await f.bot.tick();
+    expect([f.combat.minNpcLevel, f.combat.minCon]).toEqual([0, 4]);
+    // The floor returns once the widening is `widenMin` old.
+    Object.assign(f.activity, { act: "fight", why: null, since: Date.now() });
+    vi.advanceTimersByTime(21 * 60000);
+    await f.bot.tick();
+    expect(f.combat.minNpcLevel).toBe(25);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("rotation moves on from a zone whose XP rate fell or whose guard keeps escaping", async () => {

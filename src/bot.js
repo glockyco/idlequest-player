@@ -91,7 +91,8 @@
     // after a zone change, an errand, a task, and `widenMin` minutes after a remedy widened them
     // (`keepLimits`). The default is Blue to Red up to 5 levels above the leader, because green
     // enemies pay no XP and a White minimum gained nothing at levels 15 to 19
-    // (docs/plans/leveling-plan.md, lever 2). null leaves the limits as they are.
+    // (docs/plans/leveling-plan.md, lever 2). An optional `levelsBelow` floors the window that many
+    // levels below the leader (`floorOf`). null leaves the limits as they are.
     limits: { minCon: 4, maxCon: 13, maxLevelDiff: 5 },
     widenMin: 20,
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
@@ -686,8 +687,8 @@
       restartAutoLevel(cb);
       return "restarted AutoLevel";
     },
-    // Undo what narrowed the limits: the guard's tightening first, then a minimum con above blue.
-    // `keepLimits` returns them to `limits` after `widenMin`.
+    // Undo what narrowed the limits: the guard's tightening first, then the level floor, then a
+    // minimum con above blue. `keepLimits` returns them to `limits` after `widenMin`.
     widen: (i, cb) => {
       const p = i.guard?.preferred;
       if (p) {
@@ -696,6 +697,13 @@
         state.widenedAt = now();
         restartAutoLevel(cb);
         return `back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff} from before the guard tightened them`;
+      }
+      if (cb.minNpcLevel > 0) {
+        const was = cb.minNpcLevel;
+        cb.setMinNpcLevel(0);
+        state.widenedAt = now();
+        restartAutoLevel(cb);
+        return `lifted the minimum enemy level ${was}`;
       }
       if (cb.minCon > 4) {
         const was = cb.minCon;
@@ -772,9 +780,21 @@
   // minute. The limits return to `limits` once nothing holds them: no errand or task and no
   // widening within `widenMin`. The guard's tightening holds only the cap, which it returns by
   // itself after a quiet hour, so meanwhile the cons follow the target and the guard returns to it.
+  // `limits.levelsBelow` floors the window at that many levels below the leader through the
+  // client's minimum NPC level, an absolute level, so it follows the leader's level-ups.
+  const floorOf = (i) => {
+    const below = config.limits?.levelsBelow ?? 0;
+    const lvl = i.stores.character.getState().characterProfile?.level ?? 0;
+    return below > 0 && lvl > 0 ? Math.max(1, lvl - below) : 0;
+  };
   const keepLimits = (i, cb) => {
     const t = config.limits;
     if (!t || state.errand || state.task?.status === "running" || now() - (state.widenedAt ?? 0) < config.widenMin * 60000) return;
+    const floor = floorOf(i);
+    if (typeof cb.setMinNpcLevel === "function" && (cb.minNpcLevel ?? 0) !== floor) {
+      log(`AutoLevel minimum enemy level ${floor || "off"} from ${cb.minNpcLevel || "off"}`);
+      cb.setMinNpcLevel(floor);
+    }
     const g = i.guard?.preferred;
     if (g && (g.minCon !== t.minCon || g.maxCon !== t.maxCon || g.maxLevelDiff !== t.maxLevelDiff)) i.guard.preferred = { ...t };
     // The client sets the highest con from the cap (docs/client-internals.md: 1 or 2 give Yellow),
@@ -1417,6 +1437,8 @@
     // offers) while the camp runs.
     const minCon = cb().minCon;
     if (minCon > 2) cb().setMinCon(2);
+    // Placeholders and wanted enemies can lie below a level floor, which `keepLimits` restores after the task.
+    if (cb().minNpcLevel > 0) cb().setMinNpcLevel(0);
     rt.startSpawnCamp(task.points, 0, task.keep);
     try {
       while (now() < task.startedAt + task.minutes * 60000) {
@@ -1794,6 +1816,7 @@
     const hi = Math.max(...levels);
     // Blue, then green, the lowest con AutoLevel pulls. The cap goes last, because the setters
     // overwrite each other in that order (docs/client-internals.md).
+    if (cb().minNpcLevel > lo) cb().setMinNpcLevel(0);
     for (const c of [4, 2]) {
       if (rt.getAutoCombatLevelBounds().minLevel <= lo) break;
       if (c < cb().minCon) cb().setMinCon(c);
