@@ -507,6 +507,14 @@ class Daemon {
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
       .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
+    // Crowding comes from other players and holds for every group, and a tab's own reports end with
+    // the tab, so the account remembers the newest report per zone for 45 minutes and every tab
+    // carries the same map. A machine restart had sent group 1 straight back to two crowded zones.
+    const crowdedAt = metaGet(this.db, "crowded") ?? {};
+    for (const t of tabs) for (const [z, at] of Object.entries(t.crowdedAt)) if (!(crowdedAt[z] >= at)) crowdedAt[z] = at;
+    for (const z of Object.keys(crowdedAt)) if (now - crowdedAt[z] > 45 * 60000) delete crowdedAt[z];
+    metaSet(this.db, "crowded", crowdedAt);
+    for (const t of tabs) t.crowdedAt = crowdedAt;
     let opportunities = [];
     try {
       opportunities = JSON.parse(await readFile(join(REPO, "data/opportunities.json"), "utf8"));
