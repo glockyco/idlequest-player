@@ -339,9 +339,9 @@ export async function searchInPage(a) {
   return (r?.matches ?? []).map((m) => ({ item: m.itemName, who: m.characterName, n: m.quantity ?? 1 }));
 }
 
-/** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`, `iqBot.errand`), which checks it and runs it in the page. `stopErrand` ends the errand. */
+/** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`, `iqBot.errand`), which checks it and runs it in the page. `stopErrand` ends the errand and `stopTask` the running task. */
 export async function queueInPage(a) {
-  const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : window.iqBot[a.kind](a.spec));
+  const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : a.kind === "stopTask" ? window.iqBot.stopTask() : window.iqBot[a.kind](a.spec));
   return { id: t?.id ?? null, status: t?.status ?? String(t) };
 }
 

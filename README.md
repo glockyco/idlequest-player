@@ -391,6 +391,7 @@ The bridge labels every recorded second with what the party does (`act`, and `wh
 | `nobridge` | act | `window.iq` or `window.iqBot` is missing, or the snapshot fails | When both answer |
 | `stall` | act | The party is idle or dead for 2 min, or makes no kill for 5 min, outside raid mode and bot pauses. Errands count. The text names the cause and the activity shares of the last 10 minutes. | When the party is busy and killing again |
 | `heap` | act | The page's JS heap is above 85% of its limit | Below 85% |
+| `longtask` | act | A bot task has run for over an hour, which the stall rule does not see because a task holds its tab under a bot pause. The coordinator stops a task at 90 minutes and logs it as an intervention. | When the task ends |
 | `death` | act | The bot's `death` alert with `wake`, which means the leader or a party member died | `ack` |
 | `alert-<kind>` | act | Any other bot alert with `wake`, with its text copied. `levelUp` is left out because the level rules report it. | `ack` |
 | `levelup` | info | A leader or an account companion is above its last stored level | `ack` |

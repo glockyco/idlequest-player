@@ -20,6 +20,12 @@ test("stones go to the lowest free group only once there are two a member", () =
   expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "handIn" }] })[0].label).toBe("C");
 });
 
+test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
+  const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] })).toEqual([{ label: "A", kind: "stopTask", id: null, spec: null, why: 'quest task running for 91 min at "wait for Tykar Renlin"' }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] })).toEqual([]);
+});
+
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {
   const tabs = [tab("A", "G1", 40)];
   expect(decide({ now: NOW, tabs, opportunities: [page] })).toMatchObject([{ label: "A", kind: "hunt", id: "p3", spec: { zone: "gukbottom", waitMin: 0 } }]);

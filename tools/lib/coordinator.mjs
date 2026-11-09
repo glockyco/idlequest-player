@@ -18,6 +18,9 @@ export const DEFAULTS = {
   // Hunts and camps take a tab away from its own hunting, so they get at most this share of a tab's
   // last hour until the value model weighs a piece against the XP it costs.
   huntShare: 0.15,
+  // A task running this long, half again the hour that raises the long-task alert, waits for
+  // something that is not coming (an NPC that never spawns), so it stops and the tab hunts again.
+  taskStopMin: 90,
 };
 
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
@@ -42,7 +45,8 @@ export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
  * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
  *   errands by level range, because both change the limits the arms compare.
  * - `history`: the coordinator's earlier tasks, `[{ t, label, kind, id }]`.
- * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's errand.
+ * Returns `[{ label, kind, spec, why, id? }]`, at most one per tab. Kind `stopErrand` ends a tab's
+ * errand and `stopTask` its running task.
  */
 export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], cfg = DEFAULTS }) {
   const out = [];
@@ -59,6 +63,11 @@ export function decide({ now, tabs, stock = {}, opportunities = [], owned = {}, 
 
   // A group an experiment holds plays only what its arm sets, so an errand it runs stops.
   for (const t of tabs) if (held.has(t.group) && t.errand) out.push({ label: t.label, kind: "stopErrand", id: null, spec: null, why: `an experiment holds ${t.group}` });
+
+  for (const t of tabs) {
+    const ms = t.task?.status === "running" && t.task.startedAt ? now - t.task.startedAt : 0;
+    if (ms > cfg.taskStopMin * 60000) out.push({ label: t.label, kind: "stopTask", id: null, spec: null, why: `${t.task.kind} task running for ${Math.round(ms / 60000)} min${t.task.step ? ` at "${t.task.step}"` : ""}` });
+  }
 
   // Quest chains (data/quests.json) come first, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
