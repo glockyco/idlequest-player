@@ -153,6 +153,14 @@ test("wake alerts keep their text, deaths have their own kind, level-up alerts b
   ]);
 });
 
+test("a bags alert settles once the free slots are back at the bot's reserve", () => {
+  const step = (bags: Snap) => stepSession({ state: {}, obs: { reachable: true, present: true, snap: snap({ bags }) }, now: T0, label: "G2" });
+  expect(step({ free: 7, cursor: null, reserve: 8 }).settled["alert-bags"]).toBeUndefined();
+  expect(step({ free: 12, cursor: null, reserve: 8 }).settled["alert-bags"]).toBe(T0);
+  // A snapshot from a bot without the reserve settles nothing.
+  expect(step({ free: 12, cursor: null }).settled["alert-bags"]).toBeUndefined();
+});
+
 test("heap above 85% of the limit raises", () => {
   expect(kinds(run(() => ok(snap({ heap: { used: 3300, limit: 4000 } })), 1, 30))).toEqual([]);
   expect(kinds(run(() => ok(snap({ heap: { used: 3500, limit: 4000 } })), 1, 30))).toEqual(["heap"]);

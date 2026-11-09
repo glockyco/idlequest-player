@@ -194,8 +194,10 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   if (snap.bot.task?.status === "done" && snap.bot.task.endedAt) settled["alert-task"] = snap.bot.task.endedAt;
   if (snap.activity && snap.activity.act !== "idle" && snap.activity.since) settled["alert-idle"] = snap.activity.since;
   if (snap.bags && !snap.bags.cursor) settled["alert-cursor"] = now;
-  // Room in the bags means new drops are looted again.
+  // Room in the bags means new drops are looted again, and room up to the bot's reserve ends the
+  // shortage a bags alert reported.
   if (snap.bags?.free >= 4) settled["alert-lootFull"] = now;
+  if (snap.bags?.reserve != null && snap.bags.free >= snap.bags.reserve) settled["alert-bags"] = now;
   return { state: st, items, evaluated, settled };
 }
 
@@ -308,7 +310,7 @@ export function snapshotInPage(a) {
     out.kills = { total: ks.length, last: ks.length ? ks.at(-1).t : null, lastEnemy: ks.length ? ks.at(-1).enemy : null, n30: n, xp30: xp, winMs: Math.min(1800000, t - firstT) };
     const m = performance.memory;
     out.heap = m ? { used: Math.round(m.usedJSHeapSize / 1048576), limit: Math.round(m.jsHeapSizeLimit / 1048576) } : null;
-    out.bags = p?.id ? iq.bagSpace() : null;
+    out.bags = p?.id ? { ...iq.bagSpace(), reserve: window.iqBot?.config?.minFreeSlots ?? null } : null;
     out.rec = { ses: iq.session, seqS: iq.seqs?.sample ?? 0, seqE: iq.seqs?.event ?? 0 };
   } catch (e) {
     out.error = String(e?.message ?? e).slice(0, 200);
