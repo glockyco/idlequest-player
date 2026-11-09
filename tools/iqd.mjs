@@ -527,6 +527,16 @@ class Daemon {
     const { spawnPoints } = await import("./lib/content.mjs");
     this.points ??= new Map();
     for (const o of opportunities) if (!this.points.has(o.id)) this.points.set(o.id, o.camp === false ? [] : await spawnPoints(o.zone, o.keep).catch(() => []));
+    // An NPC wait watches the NPC's spawn points, because a point that another NPC holds rolls again
+    // only when that NPC dies.
+    for (const q of Object.values(quests)) {
+      for (const s of q.steps) {
+        if (!s.npc || !s.waitMin) continue;
+        const k = `${s.zone}:${s.npc}`;
+        if (!this.points.has(k)) this.points.set(k, await spawnPoints(s.zone, `^${s.npc}$`).catch(() => []));
+        s.points = this.points.get(k);
+      }
+    }
     const state = metaGet(this.db, "coordinator") ?? { history: [] };
     // A finished hunt reports when its points respawn, which is when to come back.
     for (const h of state.history) {

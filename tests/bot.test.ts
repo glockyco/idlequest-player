@@ -1255,6 +1255,43 @@ test("a quest runs its steps in order for each member and stops at a step whose 
   }
 });
 
+test("an NPC wait ends at once while another NPC holds the spawn point, and waits while the point is empty", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    let note = 0;
+    const zone = { spawns: [{ name: "Lozani", spawn2Id: 3075, currentHp: 1200 }] as { name: string; spawn2Id: number; currentHp: number }[] };
+    Object.assign(f.iq, {
+      // The champagne is carried, the cell number comes from the hand-in.
+      carried: (item: string) => (item === "Bunker Cell #1" ? note : 1),
+      refreshSpawns: async () => zone.spawns.length,
+      zoneSpawns: zone,
+      talkToNpc: async () => {},
+      giveToNpc: async () => {
+        note = 1;
+      },
+    });
+    const steps = [{ zone: "freporte", npc: "Tykar Renlin", waitMin: 45, points: [3075], give: ["Drom's Champagne"], expect: "Bunker Cell #1" }];
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "failed" });
+    expect(f.bot.state.task.error).toContain("Tykar Renlin cannot spawn while Lozani holds its spawn point");
+
+    // An empty point respawns, so the wait goes on until the NPC stands there.
+    zone.spawns = [];
+    f.bot.quest({ members: ["Edroun"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "running", step: "wait for Tykar Renlin" });
+    zone.spawns = [{ name: "Tykar_Renlin", spawn2Id: 3075, currentHp: 651 }];
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest running when the bot is reinstalled goes on under the new install", async () => {
   vi.useFakeTimers();
   try {

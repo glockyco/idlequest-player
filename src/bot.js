@@ -1180,10 +1180,20 @@
       if (s.npc && s.waitMin) {
         const wanted = enemyPattern(s.npc);
         await step(`wait for ${s.npc}`, async () => {
-          for (const end = now() + s.waitMin * 60000; ; await sleep(15000)) {
+          // The wait counts from its first start, which the task state keeps, so a reinstall that
+          // resumes the step does not begin it anew.
+          m.waitSince ??= {};
+          m.waitSince[k] ??= now();
+          for (const end = m.waitSince[k] + s.waitMin * 60000; ; await sleep(15000)) {
             // Right after a zone change the server may not have the zone's spawns yet, so the next round asks again.
             await i.refreshSpawns().catch(() => {});
-            if ((i.zoneSpawns?.spawns ?? []).some((x) => wanted.test(x.name ?? ""))) return;
+            const spawns = i.zoneSpawns?.spawns ?? [];
+            if (spawns.some((x) => wanted.test(x.name ?? ""))) return;
+            // A spawn point that another living NPC holds rolls again only when that NPC dies, and the
+            // party does not fight while it waits, so the wait cannot succeed (`points` from the
+            // content snapshot, which tools/iqd.mjs adds).
+            const at = (s.points ?? []).map((p) => spawns.find((x) => x.spawn2Id === p));
+            if (at.length && at.every((x) => x && x.currentHp > 0)) throw new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`);
             if (now() > end) throw new Error(`${s.npc} did not spawn within ${s.waitMin} minutes`);
           }
         }, s.waitMin * 60000 + 30000);
