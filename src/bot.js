@@ -1523,13 +1523,14 @@
   // and a member casts only on an order. The task buys an hour of raid time when none is left and
   // an hour costs at most `maxPp`, releases the party, recruits `members`, targets the boss (a daily
   // boss by `bossKey`, or the enemy in the zone whose name matches `target`), sets the heal mode
-  // `heal`, walks the raid to the boss, attacks with everyone and gives the nuke order `nuke`. It
-  // follows the fight until the boss dies, the raid wipes or `minutes` pass, has a living member
-  // revive the leader when he falls, and always ends raid mode, after which the bot's party and
-  // AutoLevel keepers restore the group. `task.fight` keeps what a fight is read from: duration,
-  // each member's damage, HP and mana, the leader's deaths and revives, the raid log's last lines
-  // and a trace every 5 s of the leader's order, auto attack, casting and navigation, his distance
-  // to the boss and the boss's HP.
+  // `heal`, walks the raid to the boss, attacks with everyone, gives the nuke order `nuke` and the
+  // effect orders `effects` (`iq.raid.effect`: a slow kept up, a resist debuff), which the Utility
+  // classes cast only on order. It follows the fight until the boss dies, the raid wipes or
+  // `minutes` pass, has a living member revive the leader when he falls, and always ends raid mode,
+  // after which the bot's party and AutoLevel keepers restore the group. `task.fight` keeps what a
+  // fight is read from: duration, the orders given, each member's damage, HP and mana, the leader's
+  // deaths and revives, the raid log's last lines and a trace every 5 s of the leader's order, auto
+  // attack, casting and navigation, his distance to the boss and the boss's HP.
   const raidTask = async (i, task, step) => {
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
@@ -1581,8 +1582,18 @@
       }, 75000);
       const t0 = now();
       await step(`attack ${boss.name}`, () => raid.attack(), 30000);
+      task.fight = { boss: boss.name, startedAt: t0, orders: [], deaths: 0, revives: 0, trace: [] };
       if (task.nuke) await step("nuke order", async () => raid.nuke(task.nuke), 10000);
-      task.fight = { boss: boss.name, startedAt: t0, deaths: 0, revives: 0, trace: [] };
+      // An effect the group cannot cast is recorded and does not hold the fight.
+      if (task.effects?.length) {
+        await step("effect orders", async () => {
+          for (const kind of task.effects) {
+            const o = await raid.effect(kind).catch((e) => ({ kind, error: e?.message ?? String(e) }));
+            task.fight.orders.push(o);
+            if (o.error) log(`task raid: no ${kind} order: ${o.error}`);
+          }
+        }, 20000 * task.effects.length);
+      }
       const bossAlive = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => x.spawnInstanceId === boss.spawnInstanceId);
       const outcome = await step(`fight ${boss.name}`, async () => {
         let traced = 0;
@@ -2224,18 +2235,19 @@
      * Fight one raid target with the leader and the account characters `members` (names or ids),
      * as a task in the page (`raidTask`): `target`, a regular expression for an enemy of level 51
      * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. An hour of raid time is
-     * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode and
-     * `nuke` the nuke order (`iq.raid.heal` and `iq.raid.nuke`), null for none. The task ends when
-     * the boss dies, the raid wipes or `minutes` pass, and `task.fight` records the fight. Returns
-     * a copy of the task, which `state.task` keeps up to date.
+     * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
+     * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
+     * `iq.raid.effect`), null or empty for none. The task ends when the boss dies, the raid wipes
+     * or `minutes` pass, and `task.fight` records the fight. Returns a copy of the task, which
+     * `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced" }) {
+    raid({ members, target = null, bossKey = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = ["slow", "debuff"] }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of members) if (!findCharacter(iq(), m)) throw new Error(`no account character ${m}`);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, heal, nuke, startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
       log(`task raid: ${target ?? bossKey}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },

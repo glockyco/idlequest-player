@@ -593,6 +593,30 @@
     runtimeExport ??= allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })()) ?? null;
     return runtimeExport?.getInstance();
   };
+  // The raid window's command panel `id` ("heal", "debuff", "slow", "mez", ...), opened as a click
+  // on its tile opens it. The window can close during a fight while the fight goes on, so its combat
+  // view opens first, as the client's own returnFromLoot does after the loot window.
+  const raidPanel = async (id) => {
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    const r = stores.raid.getState();
+    if (!r.isRaidOpen || r.view !== "combat") {
+      if (typeof r.returnFromLoot === "function") r.returnFromLoot();
+      else stores.raid.setState({ isRaidOpen: true, view: "combat" });
+      await wait(300);
+    }
+    if (stores.raid.getState().commandPanel !== id) stores.raid.getState().toggleCommandPanel(id);
+    await wait(400);
+    const panel = document.querySelector("[data-raid-action-panel]");
+    if (!panel) throw new Error(`the raid window shows no ${id} panel`);
+    return panel;
+  };
+  // The panel groups of each raid effect and the button that keeps it up, where the window has one.
+  const RAID_EFFECTS = {
+    slow: { panel: "slow", group: "Single-Target Slows", keep: "KEEP SLOWED" },
+    mez: { panel: "mez", group: "Single-Target Mez", keep: "KEEP MEZZED" },
+    debuff: { panel: "debuff", group: "Resistance Debuffs" },
+    snare: { panel: "debuff", group: "Snares" },
+  };
   const guardDanger = () => {
     const cfg = guard.config;
     const cb = stores.combat.getState();
@@ -1466,9 +1490,7 @@
         if (!stores.raid.getState().leaderDead) return this.state();
         // The client records the death with the server first and takes no revive until it has.
         for (let k = 0; k < 20 && stores.raid.getState().lifecyclePending; k++) await wait(500);
-        const r = stores.raid.getState();
-        if (r.commandPanel !== "heal") r.toggleCommandPanel("heal");
-        await wait(400);
+        await raidPanel("heal");
         const spell = document.querySelector('[aria-label="Revive"] button:not([disabled])');
         if (!spell) throw new Error("no living raid member can revive the leader");
         spell.click();
@@ -1479,6 +1501,41 @@
         for (let k = 0; k < 30 && stores.raid.getState().leaderDead; k++) await wait(500);
         if (stores.raid.getState().leaderDead) throw new Error(`the leader was not revived: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
         return this.state();
+      },
+      /**
+       * A Slow, Mez, Debuff or Snare order against the running fight's target, as in the raid
+       * window: the first spell of the panel's group for `kind` that a living member can cast,
+       * kept up for "slow" and "mez" (KEEP SLOWED and KEEP MEZZED recast it when it wears off) and
+       * cast once for "debuff" (resist debuffs such as Tash and Malo) and "snare", then the target
+       * in the engaged enemies. Resolves with the spell and whether it is kept up.
+       */
+      async effect(kind) {
+        const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+        const spec = RAID_EFFECTS[kind];
+        if (!spec) throw new Error(`unknown raid effect ${kind}`);
+        const r = stores.raid.getState();
+        const target = r.focusTarget ?? r.openingTarget;
+        if (!r.combatActive || !target?.spawnInstanceId) throw new Error("no running fight for an effect");
+        const panel = await raidPanel(spec.panel);
+        const group = panel.querySelector(`[aria-label="${spec.group}"]`);
+        if (!group) throw new Error(`no raid member has ${spec.group.toLowerCase()}`);
+        const buttons = [...group.querySelectorAll("button:not([disabled])")];
+        const button = spec.keep ? buttons.find((b) => b.textContent.trim().toUpperCase() === spec.keep) : buttons[0];
+        if (!button) throw new Error(`no ${spec.group.toLowerCase()} can be cast now`);
+        const spell = (spec.keep ? button.closest("[aria-label]")?.getAttribute("aria-label") : null) ?? button.textContent.trim().replace(/\s+/g, " ").slice(0, 40);
+        const before = { kept: (stores.raid.getState().ongoingActions ?? []).length, queued: (stores.raid.getState().pendingActions ?? []).length };
+        button.click();
+        await wait(300);
+        // The spell button starts a target pick, which the target's row in the engaged enemies ends.
+        const row = [...document.querySelectorAll('[data-raid-target="true"][aria-label^="Target "]')].find((e) => e.getAttribute("aria-label") === `Target ${target.name}`);
+        if (!row) throw new Error(`the raid window does not list ${target.name}`);
+        row.click();
+        for (let k = 0; k < 10; k++) {
+          await wait(300);
+          const s = stores.raid.getState();
+          if ((s.ongoingActions ?? []).length > before.kept || (s.pendingActions ?? []).length > before.queued) return { kind, spell, kept: Boolean(spec.keep) };
+        }
+        throw new Error(`the ${kind} order did not start: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
       },
       /** The daily raid bosses of the current zone (`DailyRaidBossesRequest`), or with `bossKey` summon that boss. */
       async bosses(bossKey) {

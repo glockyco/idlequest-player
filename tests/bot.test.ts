@@ -1236,6 +1236,11 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       }, fightMs);
     },
     nuke: (mode: string) => calls.push(`nuke ${mode}`),
+    effect: async (kind: string) => {
+      calls.push(`effect ${kind}`);
+      if (kind === "debuff") throw new Error("no raid member has resistance debuffs");
+      return { kind, spell: "Drowsy", kept: true };
+    },
     revive: async () => {
       calls.push("revive");
       r.leaderDead = false;
@@ -1259,10 +1264,10 @@ test("a raid task buys time when none is left, recruits, sets its orders, kills 
     const calls = fakeRaid(f);
     f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500 });
     await runToEnd(f);
-    // The heal mode stands before the fight, the raid walks to the boss first, and the nuke order
-    // needs the running fight.
-    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "end"]);
-    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2, deaths: 0 } });
+    // The heal mode stands before the fight, the raid walks to the boss first, and the nuke and
+    // effect orders need the running fight. A debuff nobody can cast does not hold the fight.
+    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "effect slow", "effect debuff", "end"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2, deaths: 0, orders: [{ kind: "slow", spell: "Drowsy", kept: true }, { kind: "debuff", error: "no raid member has resistance debuffs" }] } });
     expect(f.bot.state.task.fight.trace.length).toBeGreaterThan(0);
     expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toHaveLength(1);
   } finally {
@@ -1275,7 +1280,7 @@ test("a raid task records a wipe, and without raid time it stops before releasin
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, outcome: "wiped" });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", heal: null, nuke: null });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", heal: null, nuke: null, effects: [] });
     await runToEnd(f);
     expect(calls).toEqual(["time", "open", "recruit 10", "position Lord_Nagafen", "attack Lord_Nagafen", "end"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "wiped", alive: 0 } });

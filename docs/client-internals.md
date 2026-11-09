@@ -598,11 +598,13 @@ orders the raid holds, and nothing else moves or casts.
   Target first and one All Attack that the script waits on, the leader stood at the target with
   auto attack on from the first second. In the first raid, with two All Attack calls and no Run
   To Target, he stood 12 minutes in a visible tab at 60 frames per second, and which condition
-  held him is open.
+  held him is open. When the target moved away from him during a fight, toward a fleeing spot or
+  onto another member, he stayed "navigating" at a constant distance (79 to 85 units) for up to a
+  minute without closing in, and why is open.
 - End of a fight: `finishCombat` runs when no engaged enemy remains (`OST` 72130) and clears the
   nuke order, maintained effects and queued casts, but not the heal mode. A fleeing enemy stays
   engaged, and melee skips it: an unkempt fanatic fled 85 units at 22% HP, out of melee and spell
-  range, while the leader navigated toward it without closing in, and came back a minute later.
+  range, and came back a minute later.
   Root and blind stop a flee, a mez, stun, fear or charm keeps one from starting, and undead never
   flee (`0ea` 4399-4466). While the leader is dead the fight stays open until a revive or a
   release. Recruits keep their HP and mana between fights, and fallen recruits get up at 10 HP
@@ -664,6 +666,14 @@ run once.
   and then `raid-member-player`, the steps a person takes in the window. `iq.raid.state().leader`
   holds the leader's order, auto attack, casting and navigation, which decide whether his frame
   loop moves him.
+- Effect orders: the Slow, Mez and Debuff panels group their spells by kind ("Single-Target
+  Slows", "Single-Target Mez", "Resistance Debuffs", "Snares", `CVE` 10185-10197). A slow or mez
+  spell has CAST ONCE and KEEP SLOWED or KEEP MEZZED buttons, and KEEP starts a maintained effect
+  that the raid recasts when it wears off (`CVE` 11523-11577). Debuffs and snares have one button.
+  Each button starts a target pick, and the target's row in the engaged enemies (`data-raid-target`,
+  "Target <name>", `CVE` 399791-399811) ends it. `iq.raid.effect(kind)` takes these steps with the
+  group's first spell a living member can cast, so a Bard's song can be the slow: group 1's first
+  slow was Ugfeu's Selo's Consonant Chain and its first resist debuff Qigaa's Malaisement.
 - Daily bosses: `DailyRaidBossesRequest` (1222) with `{ characterId, zoneId }` lists them, and the
   same request with `bossKey` summons one (`CVE` 415155). The reply holds `resetsRemaining`,
   `nextResetAtMs` and `bosses[{ key, name, zoneName, status, availableAtMs, expiresAtMs,
