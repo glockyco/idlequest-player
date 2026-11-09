@@ -40,6 +40,35 @@ export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
 }
 
 /**
+ * The items that show a character is done with quest chain `id`: its reward, its `doneIf`, and,
+ * for every chain that `needs` the reward and so takes it away, that chain's own done items, so a
+ * reward spent on the next chain (the Sealed Note for Brother Hayle's Note) does not start the
+ * chain over.
+ */
+export function doneItems(id, quests, seen = new Set()) {
+  const q = quests[id];
+  if (!q || seen.has(id)) return [];
+  seen.add(id);
+  const later = Object.keys(quests).filter((k) => k !== id && (quests[k].needs ?? []).includes(q.reward));
+  return [...new Set([q.reward, ...(q.doneIf ?? []), ...later.flatMap((k) => doneItems(k, quests, seen))].filter(Boolean))];
+}
+
+/**
+ * The items quest chains keep: every chain's done items (`doneItems`), which show progress and are
+ * often epic pieces, and the needed pieces and step items of every chain that a member of its
+ * class, at any level, does not hold yet. The bag reserve never sells or destroys them, and lets go
+ * of a finished chain's inputs.
+ */
+export function questKeepItems({ quests = {}, holders = {}, members = [] }) {
+  const open = Object.keys(quests).filter((id) => members.some((m) => m.class === quests[id].class && !(holders[id] ?? []).includes(m.name)));
+  const steps = open.flatMap((id) => {
+    const q = quests[id];
+    return [...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])];
+  });
+  return [...new Set([...Object.keys(quests).flatMap((id) => doneItems(id, quests)), ...steps].filter(Boolean))];
+}
+
+/**
  * Where each quest chain stands, for the dashboard: its class, reward and level, `holders` (carry
  * the reward or an item that stands for it), `started` (carry an item of the chain, not holders)
  * and `needers` (`chainNeeders`: members of the class and level who do not hold it yet).

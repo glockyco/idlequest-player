@@ -506,7 +506,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, questKeepItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -559,9 +559,9 @@ class Daemon {
     const members = tabs.flatMap((t) => t.members);
     const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
-      // A character is done with a chain while it carries the reward or an item of a later chain
-      // that the reward was spent on (`doneIf`), so a spent reward does not restart the chain.
-      holders[id] = [...new Set((await Promise.all([q.reward, ...(q.doneIf ?? [])].map(carriers))).flat())];
+      // A character is done with a chain while it carries an item that shows it (`doneItems`): the
+      // reward, or what the reward was spent on, so a spent reward does not restart the chain.
+      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map(carriers))).flat())];
       // A step's item shows progress only once the chain's needed pieces lie behind it
       // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
       started[id] = [...new Set((await Promise.all(progressItems(q).map(carriers))).flat())];
@@ -623,8 +623,8 @@ class Daemon {
     }
     const dropped = opportunities.filter((o) => o.id.startsWith("drop-"));
     if (dropped.length) this.log(`coordinator: ${dropped.length} wanted drops in the groups' rotations (${dropped.map((o) => `${o.item} for ${o.group}`).join(", ")})`);
-    // What the hunts, errands and quest chains are for is never sold, wherever it is looted.
-    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...Object.values(quests).flatMap((q) => [q.reward, ...(q.doneIf ?? []), ...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])])].filter(Boolean))].sort();
+    // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
+    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
     const actions = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code });
     for (const a of actions) {

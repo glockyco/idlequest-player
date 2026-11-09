@@ -120,7 +120,7 @@ Everything else is raid or late.
 
 ## Chains the coordinator runs
 
-`data/quests.json` holds the chains below besides the Warrior, Cleric, Necromancer, Bard torch relay and Paladin ones. A chain with `needs` runs only while the account holds the items it hands in. A chain counts as done for a character that carries its reward or an item of its `doneIf`, which lists what a later hand-in turns the reward into.
+`data/quests.json` holds the chains below besides the Warrior, Cleric, Necromancer, Bard torch relay and Paladin ones. A chain with `needs` runs only while the account holds the items it hands in. A chain counts as done for a character that carries its reward, an item of its `doneIf`, which lists what a later hand-in outside the file turns the reward into, or the done items of a chain in the file that `needs` the reward (`doneItems` in tools/lib/coordinator.mjs). Its needed pieces and step items stay off sale only while a member of its class, at any level, has not done it.
 
 | Chain | Class | Scripts | Left for hand |
 | --- | --- | --- | --- |

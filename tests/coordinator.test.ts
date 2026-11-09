@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, experimentSettings, piecesNeeded, progressItems, settleHistory } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, questKeepItems, settleHistory } from "../tools/lib/coordinator.mjs";
 
 const NOW = 1_800_000_000_000;
 const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k) => ({ name: `${prefix}${k}`, level }));
@@ -68,6 +68,24 @@ test("a failure under older code is retried at once after a deploy, and only onc
   expect(decide({ now: NOW, tabs, quests, history: failed("new"), code: "new" })).toEqual([]);
   // A run that ended well comes back after its interval, whatever the code.
   expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" })).toEqual([]);
+});
+
+test("a chain whose reward a later chain takes stays done, and a finished chain's inputs are let go", () => {
+  const quests = {
+    note: { class: "Paladin", reward: "Sealed Note", doneIf: ["SoulFire"], needs: ["Fire Beetle Eye"], steps: [{ zone: "freportw", craft: { inputs: ["Fire Beetle Eye"] }, expect: "Edible Goo" }] },
+    hayle: { class: "Paladin", reward: "Note", needs: ["Sealed Note"], steps: [{ zone: "freportw", npc: "Brother Hayle", give: ["Sealed Note"], expect: "Note" }] },
+    later: { class: "Paladin", reward: "Badge", needs: ["Note"], steps: [{ zone: "x", give: ["Note"], expect: "Badge" }] },
+  };
+  // Spent on hayle, then on the chain after it: either reward shows the note chain is done.
+  expect(doneItems("note", quests).sort()).toEqual(["Badge", "Note", "Sealed Note", "SoulFire"]);
+  const members = [{ name: "Pal", class: "Paladin", level: 5 }];
+  // Open for a level 5 Paladin: its inputs are kept even below the chain's level.
+  expect(questKeepItems({ quests, holders: {}, members })).toContain("Fire Beetle Eye");
+  // Done: the inputs go, the items that show progress stay.
+  const keep = questKeepItems({ quests, holders: { note: ["Pal"], hayle: ["Pal"], later: ["Pal"] }, members });
+  expect(keep).not.toContain("Fire Beetle Eye");
+  expect(keep).not.toContain("Edible Goo");
+  expect(keep).toEqual(expect.arrayContaining(["Sealed Note", "Note", "Badge", "SoulFire"]));
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {

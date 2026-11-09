@@ -341,8 +341,8 @@ back when the camp says its points respawn, a held camp after 15 minutes, and ot
 `retryMin` minutes. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
-members of its class and level who carry neither its reward nor an item of `doneIf`, which names
-what a later step spends the reward on, one task per tab. Members who carry the item of the step
+members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file
+spends the reward on), nor the done items of a chain in the file that `needs` the reward. One task per tab. Members who carry the item of the step
 that uses up what the chain `needs`, or of a later step, always run, and the others at most as many
 as the account holds copies of those items. A chain that stopped part way goes on after the last step `expect` the member
 carries. A step talks to its `npc` with `say` keywords, waiting up to `waitMin` for an NPC that
