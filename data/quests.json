@@ -551,7 +551,7 @@
   },
   "shadow-knight-epic-soulcase": {
     "class": "Shadow Knight",
-    "minLevel": 10,
+    "minLevel": 45,
     "reward": "Soulcase",
     "doneIf": [
       "Heart of the Innocent",
