@@ -340,6 +340,41 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` u
   which holds for a companion Bard by default but not for a Bard leader. Singing songs get the
   Amplification bonus only when cast.
 
+### What item stats and effects do
+
+Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` ("O") and
+`0eakiHJI.js` ("R"). `Sd` (O 21186-21291) sums the item fields, `kd` (O 21292-21660) applies the
+worn and focus effect spells, and `Bt` (O 21847-22168) caps and totals them. Every stat is capped
+at 255 (`a4`), item haste takes the highest item at most 50 (buff haste adds up to the level cap
+`hd`), and item HP and mana regeneration are capped at 15 each.
+
+- STR enters melee only as offense, `weaponSkill + max(0, (2 STR - 150) / 3) + item ATK + buff ATK`
+  (`je` O 16715), which scales the damage roll against the target's AC (0.1 to 2.0, `ap` O 62209).
+  A point of ATK is worth 1.5 points of STR there. Neither changes the chance to hit, which comes
+  from skills alone (`Ct` O 16674).
+- DEX gives weapon procs, `(0.5 + DEX/170) (1 + procrate/100)` procs a minute per hand, rolled on the
+  first swing of each hand in a round (`Oo` R 8466-8473), and the Warrior's melee crit
+  `(DEX + 45) / 89` percent from level 12 (O 62242-62253). An item proc casts at the wearer's
+  level and needs the wearer at `proclevel`.
+- STA gives HP, `STA × level × f / 3000` with a class factor `f` (`kD` O 20565): 6 HP a point for a
+  level 60 Warrior, 3 for a Cleric. AGI lowers the chance to be hit through avoidance (`xt` O 16679)
+  and adds `AGI/20` AC above 70. AC counts at 4/3, capped at `25 + 6 × level` below 50 and then
+  soft-capped per class (`F6` O 20762), and it lowers damage taken, not the chance to be hit.
+- INT or WIS (by class) gives mana, `80 × level / 425` a point up to 200 and half that above
+  (`bD` O 20578), and lowers the fizzle chance by 0.01 points a point (O 63523-63552). Neither
+  raises spell damage, spell crits, heals or mana regeneration. Mana regeneration is a meditate
+  term plus item `manaregen` in a fight, and 2.5% of maximum mana per 600 ms out of a fight,
+  raised by up to twice by `manaregen` (R 20174-20231, 24442-24575).
+- Spell damage comes from item `spelldmg` and focus effects only: a flat bonus scaled by cast
+  time and capped at half the spell's base (`us` O 55191), and percent focus (SPA 124, the best one
+  counts). Spell crits need both a crit chance and a crit damage modifier (`NU` O 55213).
+- `damageshield` hits each NPC that hits the wearer, and `extradmgamt` adds flat damage per hit of
+  `extradmgskill`. `elemdmgamt` and `banedmgamt` are read by no damage code, and `accuracy`,
+  `avoidance` and `strikethrough` are summed but used nowhere.
+- Click effects are cast at the clicker's level. Companions click only infinite-charge heal, nuke
+  and revive items on their own, never buff items. Buff durations come from the spell, and the
+  wiki's "clicky buffs have no expiration" is not visible in the client.
+
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
