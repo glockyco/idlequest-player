@@ -240,6 +240,16 @@ test("zones found crowded lately drop out of the rotation, and the report ages o
   expect(b.rotation[0]).toBe("kurn");
 });
 
+test("a rotation of the whole row, or one with a crowded zone, is trimmed to the best zones", () => {
+  const close = measured({ kurn: 680000, runnyeye: 600000, warrens: 580000, najena: 420000 });
+  // restoreGroup gives the whole row, which the bot would walk through in row order.
+  const whole = tab("A", "G3", 15, { zone: "runnyeye", rotation: ROWS[0][1] });
+  expect(assignZones({ now: NOW, tabs: [whole], rows: ROWS, rates: close })[0].rotation).toHaveLength(3);
+  // A three-zone rotation that holds a zone crowded ten minutes ago is ranked again without it.
+  const crowded = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "kurn", "warrens"], crowdedAt: { kurn: NOW - 10 * 60000 } });
+  expect(assignZones({ now: NOW, tabs: [crowded], rows: ROWS, rates: close })[0].rotation).not.toContain("kurn");
+});
+
 test("busy groups keep their rotation and count for the zone they are in", () => {
   const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye", task: { status: "running" } }), tab("B", "G4", 15, { zone: "najena" })];
   const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });

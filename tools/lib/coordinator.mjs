@@ -247,10 +247,12 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
-    // A group that stays keeps its rotation while every zone of it is in the band row: the other
-    // zones matter only once the bot leaves this one, and the pass after that move ranks them anew,
-    // so shifting crowds do not rewrite the rotation every pass.
-    const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.every((z) => row.includes(z)) && t.rotation.includes(t.zone);
+    // A group that stays keeps its rotation while it holds at most `keep` zones of the band row and
+    // none found crowded: the other zones matter only once the bot leaves this one, and the pass
+    // after that move ranks them anew, so shifting crowds do not rewrite the rotation every pass. A
+    // longer rotation, as restoreGroup sets the whole row, or one with a crowded zone sends the bot
+    // through zones the ranking would skip.
+    const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.length <= cfg.keep && t.rotation.every((z) => row.includes(z) && !busyZones.has(z)) && t.rotation.includes(t.zone);
     // The bot moves through its rotation as spawns run out, so the rotation is judged by its best zone.
     const rotationBest = Math.max(0, ...ranked.filter((m) => (t.rotation ?? []).includes(m.z)).map((m) => m.value));
     if (rotationInRow && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
