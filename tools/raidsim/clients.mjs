@@ -75,6 +75,36 @@ export const CLIENTS = {
       bq: ["MO", "vO", "yO", "WO", "XO", "JO", "Ve", "sb", "_P"],
     },
   },
+  "20261110T154736-1d13b899": {
+    dir: ".re/releases/20261110T154736-1d13b899/",
+    files: { main: "BpHyB6iC.js", bq: "B6iSY2J0.js", engine: "BHfVSHXB.js" },
+    names: {
+      main: {
+        spellStore: "c1",
+        socket: "z",
+        npcSpellBuilder: "os",
+        eventRecorder: "$2",
+        characterStore: "t1",
+        defaultProfile: "Y6",
+        spellbookStore: "Yt",
+        gameStore: "y1",
+        raidTimeStore: "r2",
+        raidTimeScope: "T5",
+        hydrateSpells: "cD",
+        skillNames: "wc",
+        resolveBosses: "Fd",
+        memberFromSnapshot: "br",
+        petsForRoster: "Q7",
+      },
+      bq: { combatStartRequest: "$L", sceneStandIn: "W2", encounterClass: "L2" },
+      engine: { runtime: "hi", raidStore: "st", raidTick: "Kd", setAutoHeal: "ZL", setAutoDps: "UGe" },
+    },
+    counted: {
+      engine: ["Kd", "ZGe", "KGe", "Nu", "wGe", "N_", "dDt", "o0e", "n0e", "a0e", "CDt", "ADt", "KOt", "qOt", "IDt", "RDt", "bDt", "SDt", "vDt", "rDt", "iDt", "rM", "lDt", "cDt", "uDt"],
+      main: ["br", "NQ", "wp", "RJ", "o8", "oJ", "r8", "v6", "Y0", "Z8", "dn", "Fp", "C61", "x61", "R61", "IQ"],
+      bq: ["MO", "vO", "yO", "WO", "XO", "JO", "Ve", "ub", "_P"],
+    },
+  },
 };
 
 // Without a reference the newest saved release is used. A reference is a release id, "legacy", or

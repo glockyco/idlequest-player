@@ -9,7 +9,9 @@
 //   --roster      JSON file: { "level": 60, "gear": "merchant", "members": [...] } or just the array. A member is
 //                 { name, class, race?, leader?, gear?, stats?, skills?, items?, spells?, gems? }, documented
 //                 in tools/raidsim/roster.mjs. Without "leader" the first member leads. See
-//                 tools/raidsim/rosters/groups-1-3.json.
+//                 tools/raidsim/rosters/groups-1-3.json. "account" is every account character as the last gear
+//                 survey found it (tools/raidsim/account.mjs), led by --leader, or only the --members
+//                 (comma-separated names)
 //   --gear P      where a member's default items and spells come from: merchant (default) or farm. Overrides
 //                 the roster file's "gear", and a member's own "gear" overrides both (see "Gear policies")
 //   --farm-hours H  farm policy: the most hours of camping one copy of an item or scroll may take (default 4)
@@ -107,6 +109,7 @@
 import { readFile } from "node:fs/promises";
 import { resolveBossList, resolveClient } from "./raidsim/clients.mjs";
 import { CLASS_NAMES } from "./raidsim/classes.mjs";
+import { accountRoster } from "./raidsim/account.mjs";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
 import { DEFAULT_FARM_HOURS, GEAR_POLICIES, normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
 import { compactSpells } from "./raidsim/spells.mjs";
@@ -159,7 +162,10 @@ let boss;
 let file;
 try {
   boss = await bossSpec(await findBoss(opt("boss")));
-  file = JSON.parse(await readFile(opt("roster"), "utf8"));
+  file =
+    opt("roster") === "account"
+      ? accountRoster(JSON.parse(await readFile("runs/state/account-items.json", "utf8")), { leader: opt("leader") ?? fail("--roster account needs --leader"), names: opt("members")?.split(",") ?? null })
+      : JSON.parse(await readFile(opt("roster"), "utf8"));
 } catch (error) {
   fail(error.message);
 }
