@@ -428,7 +428,8 @@ open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and
-`events.jsonl` in `exportRun`'s format, read from the page's buffers without removing anything, so
+`events.jsonl` of the tab's group leader, also while a task plays a member, in `exportRun`'s format,
+read from the page's buffers without removing anything, once each, so
 `tools/analyze.mjs runs/live/<leader>` works on them and `iq.exportRun` can still run on the same
 tab.
 

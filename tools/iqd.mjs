@@ -548,7 +548,6 @@ class Daemon {
     this.recover = recover;
     this.coordinatedAt = 0;
     this.trackers = new Map(); // targetId -> tracker
-    this.cursors = new Map(); // recorder directory -> { s, e }
     this.lastSnap = new Map(); // characterId -> last stored snapshot { t, level, maxHp, maxMana, zone }
     this.stopped = false;
     for (const r of db.query("SELECT * FROM sessions WHERE ended IS NULL").all()) {
@@ -1178,7 +1177,6 @@ class Daemon {
       )
       .get(tr.targetId, snap.pageSession, leader?.id ?? null, leader?.name ?? tr.leader, now, now, parked, JSON.stringify(tr.state), JSON.stringify(snap));
     tr.rowId = row.id;
-    tr.prevLeader = tr.leader;
     tr.leader = leader?.name ?? tr.leader;
     // A tab that vanished, as all of them do in a machine restart, is replaced by a new tab of the same
     // leader, so the old session ends here: it kept a second card for each group on the dashboard and
@@ -1266,39 +1264,47 @@ class Daemon {
     syncAttention(this.db, { label: tr.label, oldLabel, res, now, log: this.log });
   }
 
-  /** Append the tab's new recorder rows to its leader's logs. Resolves true once every row is on disk. */
+  /**
+   * Append a tab's new recorder rows to its group leader's logs, `runs/live/<leader>/`, also while a
+   * task plays a member, so each tab's rows stay in one place. The cursor belongs to the page
+   * (`tr.state.cursor`, saved with the session), so every row is written once: cursors per log
+   * directory had written a page's whole buffer again into a member's logs. A new page starts at
+   * its first row. Resolves true once every row is on disk.
+   */
   async exportRows(tr, snap) {
-    const dir = join(this.runs, "live", safeName(snap.leader.name));
-    let cur = this.cursors.get(dir);
-    if (!cur) {
-      cur = { s: tailCursor(join(dir, "samples.jsonl")), e: tailCursor(join(dir, "events.jsonl")) };
-      // A tab that switched to another character carries the earlier character's rows. Start after them.
-      if (!cur.s.ses && !cur.e.ses && tr.prevLeader && tr.prevLeader !== snap.leader.name) {
-        cur = { s: { ses: snap.rec.ses, seq: snap.rec.seqS }, e: { ses: snap.rec.ses, seq: snap.rec.seqE } };
-      }
-      this.cursors.set(dir, cur);
-    }
+    const dir = join(this.runs, "live", safeName(this.leaderOf(snap.leader.name)));
     await mkdir(dir, { recursive: true });
     // Only a reload brings lost loot messages back, so the count starts again with each page.
     if (tr.lootSession !== snap.pageSession) Object.assign(tr, { lootSession: snap.pageSession, lootless: 0 });
-    for (let i = 0; i < 12; i++) {
-      const got = await this.relay.evaluate(tr.targetId, call(drainInPage, { s: cur.s, e: cur.e, maxS: 2000, maxE: 4000 }), { timeout: 10000 });
-      if (!got) return false;
-      if (got.samples.length) {
-        await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
-        cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
-        this.addRates(tr, got.samples);
-        this.addMinutes(snap.leader.name, got.samples);
+    // A page iqd has not exported in this run resumes after its rows already in the logs.
+    const resume = (file) => {
+      const c = tailCursor(join(dir, file));
+      return c.ses === snap.rec.ses ? c : { ses: snap.rec.ses, seq: 0 };
+    };
+    const cur = (tr.state.cursor ??= { s: resume("samples.jsonl"), e: resume("events.jsonl") });
+    try {
+      for (let i = 0; i < 12; i++) {
+        const got = await this.relay.evaluate(tr.targetId, call(drainInPage, { s: cur.s, e: cur.e, maxS: 2000, maxE: 4000 }), { timeout: 10000 });
+        if (!got) return false;
+        if (got.samples.length) {
+          await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
+          cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
+          this.addRates(tr, got.samples);
+          this.addMinutes(snap.leader.name, got.samples);
+        }
+        if (got.events.length) {
+          await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
+          cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
+          recordProgress(this.db, lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) }), this.groups());
+          tr.lootless = lootlessKills(tr.lootless, got.events);
+        }
+        if (!got.more) return true;
       }
-      if (got.events.length) {
-        await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
-        cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
-        recordProgress(this.db, lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) }), this.groups());
-        tr.lootless = lootlessKills(tr.lootless, got.events);
-      }
-      if (!got.more) return true;
+      return false;
+    } finally {
+      // The cursor is saved at once, so a restart of iqd resumes after the last row on disk.
+      if (tr.rowId) this.db.query("UPDATE sessions SET state = ? WHERE id = ?").run(JSON.stringify(tr.state), tr.rowId);
     }
-    return false;
   }
 
   /**
@@ -1320,9 +1326,16 @@ class Daemon {
     const now = Date.now();
     if (!this.groupOf || now - this.groupOfAt > 600000) {
       this.groupOf = rosterGroups();
+      this.leaderOfName = rosterLeaders();
       this.groupOfAt = now;
     }
     return this.groupOf;
+  }
+
+  /** The roster leader of `name`'s group, or `name` itself outside the roster. */
+  leaderOf(name) {
+    this.groups();
+    return this.leaderOfName.get(name) ?? name;
   }
 
   /** The bosses of the raid goal (data/raid-goal.json), read once. */
@@ -1389,6 +1402,16 @@ export function rosterGroups() {
   try {
     const r = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
     return new Map(r.groups.flatMap((g) => (g.members ?? []).map((n) => [n, g.id])));
+  } catch {
+    return new Map();
+  }
+}
+
+/** The leader, its first member, of each character's group from data/roster.json, or an empty map without the file. */
+export function rosterLeaders() {
+  try {
+    const r = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8"));
+    return new Map(r.groups.flatMap((g) => (g.members ?? []).map((n) => [n, g.members[0]])));
   } catch {
     return new Map();
   }
