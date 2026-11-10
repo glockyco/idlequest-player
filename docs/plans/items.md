@@ -47,7 +47,9 @@ The gear task becomes the item task. It moves gear to be worn, and kept copies t
 
 ### Value
 
-Hand-in rewards (XP, coin and items, read from the scripts) value the items a quest takes. Gear is also valued for raids, from the raid simulator, which runs the client's own code for clicks, procs, focus effects and resists that the leveling score leaves out.
+Hand-in rewards (XP, coin and items, read from the scripts) value the items a quest takes.
+
+Gear has two kits, because leveling value (XP rate) and raid value (a boss fight's outcome) have no measured exchange rate. The leveling kit is scored by `xpGain` and worn while hunting. The raid kit is scored by the raid simulator, which runs the client's own code for clicks, procs, focus effects and resists that the leveling score leaves out: kill chance first, then mean kill time. Its target is the coordinator's next planned raid, and until raid planning exists, the goal bosses the simulator says are closest to a kill. The demand keeps both kits' copies. The item task swaps the raid kit in before a raid and back after it, only when the simulator says the raid kit changes the outcome.
 
 ## Migration
 
@@ -58,7 +60,7 @@ Hand-in rewards (XP, coin and items, read from the scripts) value the items a qu
 | 3 | One held-item routine in the bot, loot primitives in the bridge, raid loot given in the raid window. | The cursor handling of `clearCursorAfterTrade`, `collectLoot` and `giveItem` | Open |
 | 4 | The item task delivers kept copies and stores them. | Kept copies in the leader's bags | Open |
 | 5 | Hand-in reward values. | Hand-picked hand-ins such as lightstones | Open |
-| 6 | Raid value in the gear score. | | Open |
+| 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
 
 ## Checks
 
