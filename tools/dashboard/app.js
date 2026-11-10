@@ -385,7 +385,7 @@ function renderEpics(s) {
   $("d-epics").querySelector("summary").textContent = e ? `Epic chains (${e.chains.length}, ${e.holders} done, ${e.needers} to go)` : "Epic chains";
   if (!e) return void ($("epics").innerHTML = `<p class="muted">The coordinator has not saved a chain summary yet.</p>`);
   const names = (list) => (list.length > 4 ? `${esc(list.slice(0, 4).join(", "))} and ${list.length - 4} more` : esc(list.join(", ")) || "-");
-  $("epics").innerHTML = table(["Class", "Chain item", "From level", "Hold it", "Started", "Still need it"], e.chains.map((c) => [esc(c.class), esc(c.reward), c.minLevel, c.holders.length, c.started.length, `${c.needers.length} <span class="muted">${names(c.needers)}</span>`]), [2, 3, 4]) + `<p class="muted small">Holders carry the chain's reward or an item that stands for it. Needers are the characters of the class at the chain's level who do not hold it.</p>`;
+  $("epics").innerHTML = table(["Class", "Chain item", "From level", "Have it", "Started", "Still need it"], e.chains.map((c) => [esc(c.class), esc(c.reward), c.minLevel, c.holders.length, c.started.length, `${c.needers.length} <span class="muted">${names(c.needers)}</span>`]), [2, 3, 4]);
 }
 
 function renderJobs(s) {

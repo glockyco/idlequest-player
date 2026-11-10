@@ -57,12 +57,12 @@ function sourceTip(slot) {
     : `<div class="tsrc">Queued move from ${esc(m.from)}. Raises the slot score by ${m.gain}.</div>`;
 }
 
-/** The text of an optimal item's source for the list beside the doll. */
+/** A slot's best item's source in a word or two for the list beside the doll: the enemy, the price or the holder. */
 function sourceText(slot) {
   const o = slot.optimal;
-  if (o.kind === "drop") return `wanted drop: ${slot.drop.zoneName ?? slot.drop.zone}, ${slot.drop.npc}, about ${slot.drop.hours >= 10 ? Math.round(slot.drop.hours) : slot.drop.hours.toFixed(1)} h per copy`;
-  if (o.kind === "buy") return `queued purchase from ${slot.move.buy.merchant} in ${slot.move.buy.zoneName ?? slot.move.buy.zone} for ${slot.move.buy.price} pp`;
-  return `queued move from ${slot.move.from}`;
+  if (o.kind === "drop") return `drop: ${slot.drop.npc}`;
+  if (o.kind === "buy") return `buy: ${slot.move.buy.price} pp`;
+  return `from ${slot.move.from}`;
 }
 
 // The stats the totals table adds up over the worn items, and over the optimal items.
@@ -77,7 +77,7 @@ function totalsTable(sheet) {
     const d = best[k] - now[k];
     return `<tr><td>${label}</td><td class="n">${now[k]}</td><td class="n">${best[k]}</td><td class="n ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d ? (d > 0 ? "+" : "") + d : ""}</td></tr>`;
   });
-  return `<table class="totals"><thead><tr><th>Worn items add up to</th><th class="n">now</th><th class="n">optimal</th><th class="n"></th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+  return `<table class="totals"><thead><tr><th>Worn items add up to</th><th class="n">now</th><th class="n">within reach</th><th class="n"></th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
 }
 
 const tips = new Map();
@@ -105,7 +105,7 @@ function slotBox(sheet, n) {
   const worn = slot?.worn ? (sheet.items[slot.worn.itemId] ?? { id: slot.worn.itemId, name: slot.worn.name, icon: 0, classes: 16383, races: 16383, slots: [] }) : null;
   const best = slot?.optimal ? sheet.items[slot.optimal.itemId] : null;
   if (worn) tips.set(`w${n}`, itemTip(worn));
-  if (best) tips.set(`o${n}`, `<div class="thead">Optimal for ${esc(SLOT_LABEL[n])}</div>${itemTip(best)}${sourceTip(slot)}`);
+  if (best) tips.set(`o${n}`, `<div class="thead">Best within reach for ${esc(SLOT_LABEL[n])}</div>${itemTip(best)}${sourceTip(slot)}`);
   return `<div class="slot${worn ? "" : " empty"}${best ? " upgrade" : ""}">
     <div class="box" ${worn ? `data-tip="w${n}"` : ""}>${worn ? icon(worn) : `<span class="sl">${SLOT_LABEL[n]}</span>`}</div>
     ${best ? `<div class="opt" data-tip="o${n}">${icon(best)}</div>` : ""}</div>`;
@@ -127,24 +127,23 @@ function renderSheet(sheet) {
     ? changes
         .map((s) => {
           const best = sheet.items[s.optimal.itemId];
-          const own = s.worn ? esc(s.worn.name) : "empty";
-          return `<li><span class="sn">${esc(SLOT_LABEL[s.slotNum])}</span> ${own} <span class="muted">to</span> <b>${esc(best?.name ?? s.optimal.item)}</b> <span class="muted">${esc(sourceText(s))}</span></li>`;
+          const tip = sourceTip(s).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          return `<li title="${esc(`${s.worn ? `Worn: ${s.worn.name}. ` : ""}${tip}`)}"><span class="sn">${esc(SLOT_LABEL[s.slotNum])}</span> ${itemChip(best, best?.name ?? s.optimal.item)} <span class="muted">${esc(sourceText(s))}</span></li>`;
         })
         .join("")
-    : `<li class="muted">No item from the account, the merchants or the wanted drops beats a worn one by enough: 0.05% of the group's XP rate for a move, 0.1% for a drop. Armor and jewelry that add only AC and HP are worth almost nothing to XP per hour while leveling.</li>`;
+    : `<li class="muted">Nothing within reach beats the worn items.</li>`;
   el.innerHTML = `<div class="sheet-head"><span class="cname">${esc(sheet.name)}</span><span class="muted">${esc(sheet.group)} · ${esc(sheet.race ?? "?")} ${esc(sheet.class ?? "?")} · level ${sheet.level ?? "?"}${sheet.xpPct != null ? ` (${Math.round(sheet.xpPct)}%)` : ""}</span></div>
     <div class="sheet-score">${head}</div>
     <div class="sheet-body">
       <div class="doll">
         <div class="col">${DOLL.left.map((n) => slotBox(sheet, n)).join("")}</div>
         <div class="mid"><div class="portrait"><b>${esc(sheet.class ?? "")}</b><span>${esc(sheet.race ?? "")}</span><span>Level ${sheet.level ?? "?"}</span></div>
-          <div class="legend2"><span class="box mini"></span> worn<br><span class="optsample"></span> optimal item</div></div>
+          <div class="legend2"><span class="box mini"></span> worn<br><span class="optsample"></span> best within reach</div></div>
         <div class="col">${DOLL.right.map((n) => slotBox(sheet, n)).join("")}</div>
         <div class="bottom">${DOLL.bottom.map((n) => slotBox(sheet, n)).join("")}</div>
       </div>
       <div class="changes"><h4>What lifts the score</h4><ul class="plainlist">${list}</ul>
-        <div class="totals-wrap">${totalsTable(sheet)}</div>
-        <p class="muted small">Items are valued by what they add to the group's XP rate, in tenths of a percent: the wearer's melee and spells weighed by its measured share of the party's damage, and the time they save the party (xpGain in tools/lib/gear-plan.mjs). Optimal is the best the account's items, the merchants and the wanted drops give, not the best in the game. Hover a slot for its item.</p></div>
+        <div class="totals-wrap">${totalsTable(sheet)}</div></div>
     </div>`;
 }
 
