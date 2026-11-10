@@ -11,7 +11,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { Relay } from "../src/cdp.mjs";
-import { SLOT_BY_NUM, rows } from "./lib/gear-data.mjs";
+import { rows } from "./lib/content.mjs";
+import { SLOT_BY_NUM } from "./lib/gear-data.mjs";
 
 const { values: opt } = parseArgs({ options: { json: { type: "boolean", default: false }, content: { type: "string", default: `${homedir()}/src/github.com/brynnb/idlequest-content` } } });
 const REPO = new URL("..", import.meta.url).pathname;
@@ -63,7 +64,7 @@ const chars = [...byId.values()];
 
 const ids = new Set(chars.flatMap((c) => (c.equipped ?? []).map(([, id]) => id)));
 const items = new Map();
-for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
+for await (const i of rows("items", opt.content)) if (ids.has(i.id)) items.set(i.id, i);
 for (const c of chars) {
   c.group = groupOf.get(c.name) ?? null;
   c.gear = (c.equipped ?? []).map(([slot, id]) => ({ slot: SLOT_BY_NUM[slot] ?? String(slot), item: items.get(id)?.Name ?? `item ${id}`, ac: items.get(id)?.ac ?? 0 }));

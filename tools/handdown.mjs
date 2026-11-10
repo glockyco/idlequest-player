@@ -15,7 +15,8 @@ import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { attachEffects, merchantGoods, rows } from "./lib/gear-data.mjs";
+import { rows } from "./lib/content.mjs";
+import { attachEffects, merchantGoods } from "./lib/gear-data.mjs";
 import { planGear, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
@@ -35,7 +36,7 @@ const db = new Database(`${REPO}runs/iq.db`, { readonly: true });
 const raceOf = new Map(db.query("SELECT name, race FROM characters").all().map((r) => [r.name, r.race]));
 const ids = new Set(survey.map((r) => r.itemId));
 const { shop, items } = await merchantGoods(opt.content);
-for await (const i of rows(opt.content, "items")) if (ids.has(i.id)) items.set(i.id, i);
+for await (const i of rows("items", opt.content)) if (ids.has(i.id)) items.set(i.id, i);
 await attachEffects(items, opt.content);
 
 const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));

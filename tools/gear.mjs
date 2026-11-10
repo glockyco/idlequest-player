@@ -19,7 +19,8 @@
 // tools/lib/gear-data.mjs.
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
-import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachEffects, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, rows as contentRows, slotName, weaponRatio } from "./lib/gear-data.mjs";
+import { rows } from "./lib/content.mjs";
+import { BIT, RACE, SLOTS, SLOT_BY_NUM, attachEffects, capFor as capForLevel, groupOf, liveZoneNames, loadSources, outputValue, slotName, weaponRatio } from "./lib/gear-data.mjs";
 import { xpGain } from "./lib/gear-plan.mjs";
 
 const args = process.argv.slice(2);
@@ -60,13 +61,12 @@ const scoreFor = (i, c) => xpGain(outputValue([i], c, level), { cls: c, level })
 const group = groupOf(cls);
 const damageCap = capFor(cls);
 const score = (i) => scoreFor(i, cls);
-const rows = (table) => contentRows(root, table);
 const zoneName = await liveZoneNames(root);
 
 // ---- Candidate items ---------------------------------------------------------------------------
 const cands = new Map(); // id -> item with slot names and score
 const allItems = new Map();
-for await (const i of rows("items")) {
+for await (const i of rows("items", root)) {
   if (!i.slots || i.augtype || i.bagslots || (listed && !listed.has(i.Name))) continue;
   const slots = slotName(i.slots);
   if (!slots.length) continue;

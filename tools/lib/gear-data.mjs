@@ -2,8 +2,8 @@
 // score of an item for a class, the damage cap of a weapon, and where an item comes from (a drop or
 // a merchant) in the zones the live game has, with the time it takes to farm a copy.
 import { readFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { spawnTimes } from "./content.mjs";
+import { readFile } from "node:fs/promises";
+import { rows, spawnTimes } from "./content.mjs";
 import { effectValue, spellEffects } from "./spell-value.mjs";
 
 export const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
@@ -188,7 +188,7 @@ export async function attachEffects(items, root) {
   }
   if (!want.size) return items;
   const spells = new Map();
-  for await (const s of rows(root, "spells_new")) if (want.has(s.id)) spells.set(s.id, s);
+  for await (const s of rows("spells_new", root)) if (want.has(s.id)) spells.set(s.id, s);
   for (const i of items.values()) {
     if (i.proceffect > 0 && i.proceffect !== 255 && (i.proctype ?? 0) <= 1) {
       const s = spells.get(i.proceffect);
@@ -221,11 +221,6 @@ export const offhandChanceOf = (skill, level) => (skill > 0 ? Math.min(1, (skill
 /** The chance of an off-hand swing for a class at a level, with the skill trained to the cap. */
 export const offhandChance = (cls, level) => offhandChanceOf(dualWieldSkill(cls, level), level);
 
-export async function* rows(root, table) {
-  const dir = `${root}/data/${table}`;
-  for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
-}
-
 const norm = (s) => s.replace(/^the\s+/i, "").trim().toLowerCase();
 // Zones the live game has: short name to long name. A zone counts when the wiki lists it and the
 // live client has it.
@@ -233,7 +228,7 @@ export async function liveZoneNames(root) {
   const gameZones = new Set(Object.keys(JSON.parse(await readFile(new URL("../../data/idlequest-zones.json", import.meta.url), "utf8"))).map(norm));
   const liveZones = new Set(JSON.parse(await readFile(new URL("../../data/live-zones.json", import.meta.url), "utf8")));
   const zoneName = new Map();
-  for await (const z of rows(root, "zone")) if (gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name)) zoneName.set(z.short_name, z.long_name);
+  for await (const z of rows("zone", root)) if (gameZones.has(norm(z.long_name)) && liveZones.has(z.short_name)) zoneName.set(z.short_name, z.long_name);
   return zoneName;
 }
 
@@ -247,9 +242,9 @@ export async function liveZoneNames(root) {
 // NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources.
 export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName }) {
   const dropsByLootdrop = new Map(); // lootdrop_id -> [{item, chance, mult}]
-  for await (const e of rows(root, "lootdrop_entries")) if (e.chance > 0 && itemIds.has(e.item_id)) (dropsByLootdrop.get(e.lootdrop_id) ?? dropsByLootdrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ item: e.item_id, chance: e.chance, mult: e.multiplier || 1 });
+  for await (const e of rows("lootdrop_entries", root)) if (e.chance > 0 && itemIds.has(e.item_id)) (dropsByLootdrop.get(e.lootdrop_id) ?? dropsByLootdrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ item: e.item_id, chance: e.chance, mult: e.multiplier || 1 });
   const ltsOfDrop = new Map(); // lootdrop_id -> [{lt, prob}]
-  for await (const e of rows(root, "loottable_entries")) if (dropsByLootdrop.has(e.lootdrop_id)) (ltsOfDrop.get(e.lootdrop_id) ?? ltsOfDrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ lt: e.loottable_id, prob: e.probability });
+  for await (const e of rows("loottable_entries", root)) if (dropsByLootdrop.has(e.lootdrop_id)) (ltsOfDrop.get(e.lootdrop_id) ?? ltsOfDrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ lt: e.loottable_id, prob: e.probability });
   const itemsOfLt = new Map(); // loottable_id -> Map(item -> p)
   for (const [drop, lts] of ltsOfDrop) for (const { lt, prob } of lts) for (const d of dropsByLootdrop.get(drop)) {
     const m = itemsOfLt.get(lt) ?? itemsOfLt.set(lt, new Map()).get(lt);
@@ -259,17 +254,17 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   // Merchants: merchantlist maps a merchant id to the items it sells, and an NPC with that
   // `merchant_id` sells them wherever it spawns.
   const itemsOfMerchant = new Map(); // merchant id -> [item id]
-  for await (const m of rows(root, "merchantlist")) if (itemIds.has(m.item)) (itemsOfMerchant.get(m.merchantid) ?? itemsOfMerchant.set(m.merchantid, []).get(m.merchantid)).push(m.item);
+  for await (const m of rows("merchantlist", root)) if (itemIds.has(m.item)) (itemsOfMerchant.get(m.merchantid) ?? itemsOfMerchant.set(m.merchantid, []).get(m.merchantid)).push(m.item);
   const npcsOfLt = new Map(); // npc id -> {name, level, lt}
   const merchantNpcs = new Map(); // npc id -> {name, items}
-  for await (const n of rows(root, "npc_types")) {
+  for await (const n of rows("npc_types", root)) {
     if (n.level <= maxNpcLevel && itemsOfLt.has(n.loottable_id) && !skipNpc(n)) npcsOfLt.set(n.id, { id: n.id, name: n.name, level: n.level, lt: n.loottable_id });
     if (n.merchant_id && itemsOfMerchant.has(n.merchant_id)) merchantNpcs.set(n.id, { name: n.name, items: itemsOfMerchant.get(n.merchant_id) });
   }
   const groups = new Map(); // npc id -> [{group, chance}]
   const groupTotal = new Map();
   const needGroups = new Set();
-  for await (const s of rows(root, "spawnentry")) {
+  for await (const s of rows("spawnentry", root)) {
     groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
     if (npcsOfLt.has(s.npcID) || merchantNpcs.has(s.npcID)) {
       (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push({ g: s.spawngroupID, chance: s.chance });
@@ -278,7 +273,7 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   }
   const timeOf = await spawnTimes(root);
   const pointsOf = new Map(); // group -> {zone -> {n, respawn, when}}
-  for await (const sp of rows(root, "spawn2")) {
+  for await (const sp of rows("spawn2", root)) {
     // Spawn points with a version above 0 belong to instanced copies of the zone, not to the zone itself.
     if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone) || sp.version > 0) continue;
     const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
@@ -320,10 +315,10 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
  */
 export async function merchantGoods(root) {
   const sold = new Set();
-  for await (const m of rows(root, "merchantlist")) sold.add(m.item);
+  for await (const m of rows("merchantlist", root)) sold.add(m.item);
   const items = new Map();
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
-  for await (const i of rows(root, "items")) if (sold.has(i.id) && i.slots > 0 && stats.some((k) => i[k] > 0)) items.set(i.id, i);
+  for await (const i of rows("items", root)) if (sold.has(i.id) && i.slots > 0 && stats.some((k) => i[k] > 0)) items.set(i.id, i);
   const { sellers } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root), maxNpcLevel: -1 });
   const cities = new Set(JSON.parse(await readFile(new URL("../../data/shop-zones.json", import.meta.url), "utf8")));
   const shop = [];
@@ -354,7 +349,7 @@ export async function zoneDrops(root, bandRows) {
   const bands = sorted.map(([, zones], k) => ({ max: (sorted[k + 1]?.[0] ?? 61) - 1, zones }));
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
   const items = new Map();
-  for await (const i of rows(root, "items")) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
+  for await (const i of rows("items", root)) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
   const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
   const drops = [];
   for (const [itemId, list] of sources) {
@@ -376,7 +371,7 @@ export async function zoneDrops(root, bandRows) {
 export async function pickDrops(root, picks) {
   const names = new Set(picks.map((o) => o.item));
   const items = new Map();
-  for await (const i of rows(root, "items")) if (names.has(i.Name) && i.slots > 0) items.set(i.id, i);
+  for await (const i of rows("items", root)) if (names.has(i.Name) && i.slots > 0) items.set(i.id, i);
   const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
   const drops = [];
   for (const o of picks) {

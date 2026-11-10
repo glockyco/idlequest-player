@@ -857,8 +857,8 @@ class Daemon {
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
     recordWear(this.db, survey, now);
-    const { attachEffects, merchantGoods, pickDrops, rows, zoneDrops } = await import("./lib/gear-data.mjs");
-    const { contentRoot } = await import("./lib/content.mjs");
+    const { attachEffects, merchantGoods, pickDrops, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { contentRoot, rows } = await import("./lib/content.mjs");
     // The merchant goods, the drops of the band rotations and of the gear picks (data/gear-picks.json,
     // sources outside the rotations), and their item rows, read once.
     if (!this.shop) {
@@ -871,7 +871,7 @@ class Daemon {
       for (const [id, i] of [...dropped.items, ...picked.items]) this.items.set(id, i);
     }
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
-    if (missing.size) for await (const i of rows(contentRoot(), "items")) if (missing.has(i.id)) this.items.set(i.id, i);
+    if (missing.size) for await (const i of rows("items", contentRoot())) if (missing.has(i.id)) this.items.set(i.id, i);
     // An item's proc, worn and focus effects count in its worth, so their spells come along, read again
     // only when an item new to the pass has one.
     const unread = (i) => (i.proceffect > 0 && !("procSpell" in i)) || (i.worneffect > 0 && i.worntype === 2 && !("wornEffects" in i)) || (i.focuseffect > 0 && i.focustype === 6 && !("focusEffects" in i));
@@ -888,7 +888,7 @@ class Daemon {
     const recoveryOf = recoveryShares(groupRows);
     const runSongs = new Set(groupRows.map((r) => r.runSpeed?.bard?.spellId).filter(Boolean));
     this.spellRows ??= new Map();
-    if ([...runSongs].some((id) => !this.spellRows.has(id))) for await (const s of rows(contentRoot(), "spells_new")) if (runSongs.has(s.id)) this.spellRows.set(s.id, s);
+    if ([...runSongs].some((id) => !this.spellRows.has(id))) for await (const s of rows("spells_new", contentRoot())) if (runSongs.has(s.id)) this.spellRows.set(s.id, s);
     const { spellEffects } = await import("./lib/spell-value.mjs");
     const seloAt = (id, level) => (this.spellRows.has(id) ? (spellEffects(this.spellRows.get(id), level).find((e) => e.spa === 3)?.value ?? 0) : 0);
     const walkOf = walkShares(groupRows, seloAt);
