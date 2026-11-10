@@ -367,7 +367,9 @@ members of its class and level who carry neither its reward, nor an item of `don
 spends the reward on), nor the done items of a chain in the file that `needs` the reward. One task per tab. Members who carry the item of the step
 that uses up what the chain `needs`, or of a later step, always run, and the others at most as many
 as the account holds copies of those items. A chain that stopped part way goes on after the last step `expect` the member
-carries. A step talks to its `npc` with `say` keywords once the NPC stands on one of its spawn points:
+carries, so an item that counts only inside a timed encounter is no `expect`: the Damaged Goblin
+Crown goes to Natasha Whitewater, whom Shmendrik Lavawalker's hand-in spawns for five minutes, and a
+chain that stopped inside the encounter starts it again. A step talks to its `npc` with `say` keywords once the NPC stands on one of its spawn points:
 with another NPC on the point, the group's leader becomes active in the step's zone, gathers the
 party and clears the point with the client's Spawn Camp, as a directed hunt does, and the task ends
 as waiting until the point rolls again, as it does while the point respawns, so the coordinator

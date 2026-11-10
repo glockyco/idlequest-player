@@ -175,7 +175,6 @@
       {
         "zone": "lakerathe",
         "kill": "spirit of flame",
-        "expect": "Damaged Goblin Crown",
         "waitSec": 60
       },
       {

@@ -1193,6 +1193,26 @@ test("a summoned enemy that is up already sends the member to the fight", async 
     expect(f.bot.state.task).toMatchObject({ status: "done" });
     expect(gives).toEqual([]);
     expect(pulledReady).toEqual([true]);
+
+    // An enemy that is also the hand-in's NPC says nothing about the hand-in: Shmendrik Lavawalker
+    // can be attacked before he has the crown too, so he gets it first and the fight follows.
+    const shmendrik = { spawnInstanceId: 12, npcId: 51012, name: "Shmendrik Lavawalker", level: 30 };
+    let handed = false;
+    dead = false;
+    zone.spawns = [{ name: "Shmendrik_Lavawalker", spawn2Id: 7099, currentHp: 900 }];
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Lord Bergurgle's Crown" && !handed ? 1 : 0),
+      giveToNpc: async (items: string[]) => {
+        gives.push(items);
+        handed = true;
+      },
+    });
+    f.runtime.combatScene.getAliveCombatTargetList = () => (dead ? [] : [shmendrik]);
+    Object.assign(f.runtime, { selectEnemyTarget: () => setTimeout(() => ((dead = true), f.say("You have slain Shmendrik Lavawalker, but gain no experience.")), 3000) });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "lakerathe", npc: "Shmendrik Lavawalker", give: ["Lord Bergurgle's Crown"] }, { zone: "lakerathe", kill: "Shmendrik Lavawalker", waitSec: 30 }] });
+    await runToEnd(f);
+    expect(gives).toEqual([["Lord Bergurgle's Crown"]]);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
   } finally {
     vi.useRealTimers();
   }

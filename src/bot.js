@@ -1314,11 +1314,13 @@
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
       // The enemy a hand-in summons being up already shows that the hand-in happened earlier, so the
-      // member goes on to the fight: Maligar stays gone while his doppleganger lives.
+      // member goes on to the fight: Maligar stays gone while his doppleganger lives. Up means among
+      // the enemies the party can attack, the list `directedKill` fights from. That holds only for an
+      // enemy other than the hand-in's NPC: Shmendrik Lavawalker takes the crown and is then the
+      // enemy, and he can be attacked before the hand-in too, so his being up says nothing.
       const next = m.steps[k + 1];
-      if (next?.kill && !s.kill && next.zone === s.zone) {
-        await i.refreshSpawns().catch(() => {});
-        if ((i.zoneSpawns?.spawns ?? []).some((x) => enemyPattern(next.kill).test(x.name ?? ""))) {
+      if (next?.kill && !s.kill && next.zone === s.zone && !enemyPattern(next.kill).test(s.npc ?? "")) {
+        if ((runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(next.kill).test(x.name ?? ""))) {
           log(`quest: ${next.kill} is up already, so ${m.name} goes on to the fight`);
           m.at = k + 1;
           continue;
