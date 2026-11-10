@@ -66,7 +66,8 @@ on their own.
 
 Whether AutoLevel runs is part of the desired state, and the remedy table is the only code that
 starts it. A hold keeps it off: a pause, a raid, a page out of the world or in a zone change, a
-character switch, the guard's escape, a dead leader or members still joining. The bot stops
+character switch, the guard's escape, a dead leader, members still joining or a discard the client
+has not taken off the cursor yet, which would leave the next kill's loot on its corpse. The bot stops
 AutoLevel only under a hold or for a fresh start, and it notes every hold in `state.heldAt`, so
 the label names AutoLevel that went off under one `held`. Every cause has its delay in the table:
 `held` and `contested` at once, `clientPause` after 5 s, `off` after 60 s (manual movement cancels

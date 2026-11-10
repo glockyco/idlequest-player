@@ -568,6 +568,15 @@ The courier flows refuse while another inventory service runs, and abort on a zo
 With the option `autoLevelMerchantTravelEnabled` off, AutoLevel sells and buys through couriers
 instead of walking to a merchant.
 
+Item actions go through one transaction tracker (`bP` in `OSTsR53r.js`), which keeps its state in
+a store of `{ busy }` alone (`inventory` in the bridge's surface). It is busy until the server
+confirms the last item action, and meanwhile the client refuses a destroy (`deleteItemOnCursor`).
+A slow server pauses item actions ("Inventory confirmation delayed. Waiting for the server and
+retrying automatically; item actions are temporarily paused.") until "Inventory refreshed. Item
+actions are available again". An item on the cursor leaves the next kill's loot on its corpse, so
+the bot starts no reserve pass while the tracker is busy, and a discard left on the cursor holds
+AutoLevel until the destroy goes through.
+
 ### Account-wide sharing rules
 
 - Held-item transfer: `transferHeldItem(characterId, equip)` (`main.pretty.js:53376-53420`) needs the

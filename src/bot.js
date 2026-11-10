@@ -255,8 +255,11 @@
    * slow courier), then the cheapest loss first until `targetFreeSlots`: surplus without a price,
    * which nothing buys, then surplus sold cheapest first. When kept items alone leave too little
    * room, one alert an hour lists them, because only a decision about what the account keeps can help.
+   * A pass waits while the server has not confirmed the last item action (`inventory.busy`), when the
+   * client refuses a destroy and would leave the discard on the cursor.
    */
   const keepReserve = async (i, force = false, withCursor = false) => {
+    if (i.stores.inventory?.getState?.().busy) return;
     let space = i.bagSpace();
     if (space.cursor && state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) {
       log(`finishing the discard of ${space.cursor}: ${(await destroyCursor(i)) ? "done" : "refused again"}`);
@@ -420,7 +423,8 @@
   // Whether AutoLevel runs is part of the desired state, and the remedy table below is the only
   // code that starts it (docs/plans/fault-handling.md). A hold keeps it off: a pause for a script
   // or a task, a raid, a page out of the world or in a zone change, a character switch or another
-  // character than the leader in play, the guard's escape, a dead leader, or members still joining.
+  // character than the leader in play, the guard's escape, a dead leader, members still joining, or
+  // a discard the client has not taken off the cursor yet.
   // The bot stops AutoLevel only under a hold or for a fresh start (`holdAutoLevel`), and it notes
   // every hold in `state.heldAt`, so the page's activity label tells AutoLevel that went off under
   // a hold ("held") from the client's own stops and from a stop nothing explains (src/bridge.js).
@@ -437,6 +441,9 @@
     if (leaderDead(i)) return "the leader's death";
     // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
     if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return "members joining";
+    // An item on the cursor leaves the next kill's loot on its corpse, and the client refuses a
+    // destroy while the server has not confirmed the move, so the fight waits for the discard.
+    if (state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) return "a discard on the cursor";
     return null;
   };
   // Both ticks note the holds, and the end of one wakes the tick, so AutoLevel starts without

@@ -13,9 +13,10 @@
   // BEGIN CLIENT_SURFACE
   // Everything the SDK and the bot need from the client, in one place. The check
   // (tools/check-client.mjs) and the snapshot tool evaluate this block on their own, so it has to
-  // stay self-contained. A store is found by the `find` keys of its state. `actions` are the
-  // functions of that state the SDK calls, `state` the values it reads. A store, the socket or the
-  // dispatcher that is missing stops the bridge. Any other missing name is listed in `missingApi`.
+  // stay self-contained. A store is found by the `find` keys of its state, and with `exact` by a
+  // state of those keys alone. `actions` are the functions of that state the SDK calls, `state` the
+  // values it reads. A store, the socket or the dispatcher that is missing stops the bridge. Any
+  // other missing name is listed in `missingApi`.
   const CLIENT_SURFACE = (() => {
     const ASSET_RE = /\/assets\/[^/?#]+\.js(?:[?#]|$)/;
     const STORES = {
@@ -50,6 +51,9 @@
       // The failed zone load that the loading overlay shows as Loading Failed, and the retry its
       // TRY AGAIN button calls.
       loadFailure: { find: ["retryToken", "fail", "retry"], actions: ["retry"], state: ["message"] },
+      // The inventory's transactions: `busy` until the server confirms an item action. Meanwhile the
+      // client refuses a destroy, and a slow server pauses item actions for minutes.
+      inventory: { find: ["busy"], exact: true, actions: [], state: ["busy"] },
       merchant: { find: ["merchants", "selectedMerchant", "merchantItems"], actions: [], state: [] },
       partyTactics: { find: ["meleeByCharacterId", "setTactic"], actions: [], state: ["overridesByCharacterId"] },
       partySpells: { find: ["castingPreferences", "setPetPreference"], actions: ["setTactic", "setCastingPreferences"], state: ["overridesByCompanion"] },
@@ -123,7 +127,7 @@
           const st = stateOf(v);
           if (!st) continue;
           for (const [name, spec] of Object.entries(STORES)) {
-            if (!stores[name] && spec.find.every((k) => k in st)) stores[name] = v;
+            if (!stores[name] && spec.find.every((k) => k in st) && (!spec.exact || Object.keys(st).length === spec.find.length)) stores[name] = v;
           }
         }
       }

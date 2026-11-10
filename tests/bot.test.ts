@@ -1864,6 +1864,57 @@ test("the reserve discards surplus without a price first, then sells surplus che
   }
 });
 
+test("a discard the client has not taken off the cursor holds AutoLevel until the destroy goes through", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; quantity: number; itemDetails: Record<string, unknown> };
+    const inv: Row[] = [{ bag: 23, slot: 0, itemid: 3, itemInstanceId: 103, quantity: 1, itemDetails: { Name: "Battle Plans", price: 0, nodrop: 0, norent: 1, bagslots: 0, itemtype: 11 } }];
+    (f.me as unknown as { inventory: Row[] }).inventory = inv;
+    const at = (b: number, s: number) => inv.find((r) => r.bag === b && r.slot === s);
+    // The client refuses the destroy while the server has not confirmed the move to the cursor.
+    let busy = true;
+    Object.assign(f.sheet, {
+      moveItemToSlot: async (from: { bag: number; slot: number }, to: { bag: number; slot: number }) => {
+        const r = at(from.bag, from.slot);
+        if (r && !at(to.bag, to.slot)) Object.assign(r, to);
+      },
+      deleteItemOnCursor: () => {
+        const r = at(0, 30);
+        if (r && !busy) inv.splice(inv.indexOf(r), 1);
+      },
+    });
+    Object.assign(f.iq, { bagSpace: () => ({ free: 1 - inv.filter((r) => !(r.bag === 0 && r.slot === 30)).length, capacity: 1, cursor: (at(0, 30)?.itemDetails.Name as string) ?? null }) });
+    Object.assign(f.bot.config, { autoBank: false, minFreeSlots: 1, targetFreeSlots: 1 });
+    // AutoLevel went off under a hold, so nothing but a hold keeps it from starting at once.
+    f.combat.isRunning = false;
+    Object.assign(f.activity, { act: "idle", why: "held", since: Date.now() });
+    const settle = async (p: Promise<unknown>) => {
+      for (let k = 0; k < 40; k++) {
+        vi.advanceTimersByTime(500);
+        await flush();
+      }
+      await p;
+    };
+    await settle(f.bot.tick());
+    expect(at(0, 30)?.itemDetails.Name).toBe("Battle Plans");
+    expect(f.autoLevel.starts).toBe(0);
+    // While the server has not confirmed the move, a pass leaves the cursor alone.
+    const inventory = { busy: true };
+    (f.iq.stores as Record<string, unknown>).inventory = { getState: () => inventory, subscribe: () => () => {} };
+    busy = false;
+    await settle(f.bot.tick());
+    expect(at(0, 30)?.itemDetails.Name).toBe("Battle Plans");
+    expect(f.autoLevel.starts).toBe(0);
+    inventory.busy = false;
+    await settle(f.bot.tick());
+    expect(inv).toEqual([]);
+    expect(f.autoLevel.starts).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest running when the bot is reinstalled goes on under the new install", async () => {
   vi.useFakeTimers();
   try {
