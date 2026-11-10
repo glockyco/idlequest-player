@@ -108,8 +108,8 @@ export function historyView(resolved, groupOf = new Map()) {
 /**
  * Engineering health per local day over the last `days` days: group-hours played (the time each
  * open or ended session was seen, parked tabs left out), manual interventions and stalls, both per
- * group-hour, the stalls' mean minutes to resolution, and deaths raised as attention items. These
- * are the numbers the goal asks to fall over time.
+ * group-hour, the stalls' mean minutes to resolution, and the deaths of the character each tab
+ * plays, from the minute totals. These are the numbers the goal asks to fall over time.
  */
 export function engineeringView(db, now, days = 14) {
   // The window starts at the first recorded session when that is later, so the chart has no empty days before the data.
@@ -132,7 +132,7 @@ export function engineeringView(db, now, days = 14) {
     row.stalls++;
     if (r.resolved) row.stallMinutes.push((r.resolved - r.t) / 60000);
   }
-  for (const r of db.query("SELECT t FROM attention WHERE t >= ? AND kind = 'death'").all(first)) at(r.t).deaths++;
+  for (const r of db.query("SELECT minute, deaths FROM minutes WHERE minute >= ? AND deaths > 0").all(Math.floor(first / 60000))) at(r.minute * 60000).deaths += r.deaths;
   return out.map((r) => ({
     day: r.day,
     groupHours: r.groupHours,

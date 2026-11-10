@@ -353,9 +353,9 @@ function renderEngineering(s) {
   const rows = s.engineering;
   const two = (v) => v.toFixed(2);
   $("eng-charts").innerHTML = dayBars("Manual interventions per group-hour", rows, (r) => r.interventionsPerGroupHour, two) + dayBars("Stalls per group-hour", rows, (r) => r.stallsPerGroupHour, two);
-  $("eng-charts").title = "Manual interventions are SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items.";
+  $("eng-charts").title = "Manual interventions are SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items. Leader deaths are those of the character each tab plays, its leader outside tasks, from its one-second samples.";
   $("eng-table").innerHTML = table(
-    ["Day", "Group-hours", "Interventions", "per group-hour", "Stalls", "per group-hour", "Minutes to resolve", "Deaths"],
+    ["Day", "Group-hours", "Interventions", "per group-hour", "Stalls", "per group-hour", "Minutes to resolve", "Leader deaths"],
     rows.filter((r) => r.groupHours > 0).reverse().map((r) => [dayName(r.day), r.groupHours.toFixed(1), r.interventions, r.interventionsPerGroupHour?.toFixed(2) ?? "-", r.stalls, r.stallsPerGroupHour?.toFixed(3) ?? "-", r.stallMinutes?.toFixed(1) ?? "-", r.deaths]),
     [1, 2, 3, 4, 5, 6, 7],
   );

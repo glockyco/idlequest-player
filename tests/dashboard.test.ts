@@ -8,7 +8,7 @@ import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
 
-test("engineering rates divide by group-hours of unparked sessions, split at local midnight", () => {
+test("engineering rates divide by group-hours of unparked sessions, split at local midnight, and deaths come from the minute totals", () => {
   const db = openDb(":memory:");
   const today = dayStart(Date.now());
   const now = today + 12 * H;
@@ -19,6 +19,10 @@ test("engineering rates divide by group-hours of unparked sessions, split at loc
   note.run(today + H, "sdk", "errand");
   note.run(today + H, "bot", "restart"); // the bot's own actions are not manual
   db.query("INSERT INTO attention (t, severity, kind, dedupe, text, resolved) VALUES (?, 'act', 'stall', 'k1', 'x', ?)").run(today + H, today + H + 6 * 60000);
+  // Two deaths in one group's minute before midnight and one in another's after it.
+  const minute = db.query("INSERT INTO minutes (grp, minute, sec, deaths) VALUES (?, ?, '{}', ?)");
+  minute.run("G1", Math.floor((today - H) / 60000), 2);
+  minute.run("G2", Math.floor((today + H) / 60000), 1);
   const days = engineeringView(db, now, 14);
   expect(days.map((d) => d.day)).toEqual([today - 86400000, today]);
   const [yesterday, day] = days;
@@ -28,6 +32,7 @@ test("engineering rates divide by group-hours of unparked sessions, split at loc
   expect(day.stallsPerGroupHour).toBeCloseTo(0.5);
   expect(day.stallMinutes).toBeCloseTo(6);
   expect(yesterday.interventions).toBe(0);
+  expect([yesterday.deaths, day.deaths]).toEqual([2, 1]);
 });
 
 test("roster progress counts XP with race and class factors, and members never seen count as nothing", () => {
