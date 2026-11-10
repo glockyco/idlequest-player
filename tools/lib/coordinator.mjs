@@ -87,19 +87,24 @@ export function chainSummary({ quests = {}, holders = {}, started = {}, members 
 /**
  * Write the outcome of each ended bot task into its history entry: when it ended, how long it took,
  * its status (done, failed or stopped), the result or error and the step it stopped at, and when
- * the task said to come back. `tasks` are the tabs' latest `bot.task` objects. Returns whether
- * an entry changed.
+ * the task said to come back. A failure at the step where the tab's run of the same task before it
+ * failed too is a `repeat` (`retryTime`). `tasks` are the tabs' latest `bot.task` objects. Returns
+ * whether an entry changed.
  */
 export function settleHistory(history, tasks) {
   const byId = new Map(tasks.filter((t) => t?.id).map((t) => [t.id, t]));
   let changed = false;
-  for (const h of history) {
+  for (const [k, h] of history.entries()) {
     const task = byId.get(h.task);
     if (!task || task.status === "running") continue;
     const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null };
-    for (const [k, v] of Object.entries(next)) {
-      if (v === undefined || h[k] === v) continue;
-      h[k] = v;
+    if (task.status === "failed") {
+      const before = history.slice(0, k).filter((x) => x.id === h.id && x.label === h.label).at(-1);
+      next.repeat = before?.status === "failed" && before.step === next.step;
+    }
+    for (const [key, v] of Object.entries(next)) {
+      if (v === undefined || h[key] === v) continue;
+      h[key] = v;
       changed = true;
     }
   }
@@ -131,24 +136,25 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * When the coordinator may run a task again after `last`, its newest history entry on a tab, as a
  * time in ms (0 for at once): the time the run named (`nextAt`, a respawn) or `retryMin` after it.
  * A failure under older code than `code` may run at once, also one that named a time, because the
- * deploy since may have fixed its cause, and a repeat under the new code waits as usual. A run that
- * ended as waiting named the world's time, such as a spawn point's next roll, which no deploy
- * changes.
+ * deploy since may have fixed its cause, and a repeat under the new code waits as usual. So does a
+ * failure that repeated the run before it at the same step (`repeat`), because the deploys between
+ * them did not change it. A run that ended as waiting named the world's time, such as a spawn
+ * point's next roll, which no deploy changes.
  */
 export function retryTime(last, retryMin, code = null) {
   if (!last) return 0;
-  if (last.status === "failed" && code != null && last.code != null && last.code !== code) return 0;
+  if (last.status === "failed" && !last.repeat && code != null && last.code != null && last.code !== code) return 0;
   return last.nextAt ?? last.t + retryMin * 60000;
 }
 
 /**
  * Until when quest `id` is held for every tab, in ms (0 for not at all): a run that waits for the
  * world's time, such as a spawn point that rolls at a known time, and a failure with a time of its
- * own under the code that runs now (`code`), such as an occupant the group could not clear, hold
- * every member who needs that NPC.
+ * own under the code that runs now (`code`) or repeated at its step, such as an occupant the group
+ * could not clear, hold every member who needs that NPC.
  */
 export function worldHold(history, id, code = null) {
-  const holds = (h) => h.status === "waiting" || (h.status === "failed" && (code == null || h.code == null || h.code === code));
+  const holds = (h) => h.status === "waiting" || (h.status === "failed" && (h.repeat || code == null || h.code == null || h.code === code));
   return Math.max(0, ...history.filter((h) => h.id === id && h.nextAt && holds(h)).map((h) => h.nextAt));
 }
 

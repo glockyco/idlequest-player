@@ -70,6 +70,9 @@ test("a failure under older code is retried at once after a deploy, and only onc
   expect(decide({ now: NOW, tabs, quests, history: failed("new"), code: "new" }).actions).toEqual([]);
   // A run that ended well comes back after its interval, whatever the code.
   expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" }).actions).toEqual([]);
+  // A failure that repeated the run before it at the same step waits, whatever deploys came since:
+  // five runs of one quest in 42 minutes followed five deploys.
+  expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("older")[0], t: NOW - 60 * 60000, step: "talk" }, { ...failed("old")[0], step: "talk", repeat: true }], code: "new" }).actions).toEqual([]);
 });
 
 test("a run waiting for the world holds every group until its time, also after a deploy, and a failure with a time only under its own code", () => {
@@ -513,11 +516,15 @@ test("settleHistory writes an ended task's outcome into its entry once, and leav
     { id: "hunt-2", status: "running", startedAt: 3100 },
   ];
   expect(settleHistory(history, tasks)).toBe(true);
-  expect(history[0]).toMatchObject({ status: "failed", step: "make room", error: "no free bag slot", result: null, ms: 3000, endedAt: 4100, nextAt: 9000 });
+  expect(history[0]).toMatchObject({ status: "failed", step: "make room", error: "no free bag slot", result: null, ms: 3000, endedAt: 4100, nextAt: 9000, repeat: false });
   expect(history[1]).toMatchObject({ status: "done", result: "got Sealed Note", ms: 500 });
   expect(history[2].status).toBeUndefined();
   // Settled again with the same tasks, nothing changes.
   expect(settleHistory(history, tasks)).toBe(false);
+  // The tab's next run of the hunt fails at the same step, which is a repeat, and a third at another step is not.
+  history.push({ t: 5000, label: "A", kind: "hunt", id: "o1", task: "hunt-3" }, { t: 6000, label: "A", kind: "hunt", id: "o1", task: "hunt-4" });
+  settleHistory(history, [{ id: "hunt-3", status: "failed", step: "make room", startedAt: 5100, endedAt: 5200 }, { id: "hunt-4", status: "failed", step: "travel", startedAt: 6100, endedAt: 6200 }]);
+  expect(history.slice(3).map((h) => h.repeat)).toEqual([true, false]);
 });
 
 test("chainSummary lists holders, those who started a chain and those who still need it", () => {

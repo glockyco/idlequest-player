@@ -378,7 +378,8 @@ party and clears the point with the client's Spawn Camp, as a directed hunt does
 as waiting until the point rolls again, as it does while the point respawns, so the coordinator
 brings every member who needs that NPC back then, one group at a time, since the groups would
 reach the point together and all but the first find it held. A failure that names a time, such as a point the
-leader's party could not clear, holds the chain for all groups until that time or the next deploy (`worldHold` in
+leader's party could not clear, holds the chain for all groups until that time, or until the next deploy unless
+it repeated the failure before it at its step (`worldHold` in
 `tools/lib/coordinator.mjs`). A step gives the NPC `give`, hands in `each`, buys `buy` from a merchant, or fights
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or
 crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
@@ -392,8 +393,9 @@ AutoLevel limits the arms compare, while their hunts, quests and gear moves run,
 a job with the `tools/crossover.mjs` command that reads the result. An entry
 removed before its end puts its groups back on `without` and registers no job. A tab gets no
 coordinator task while a task or errand runs or a pause holds, and the next one as soon as it ends:
-each quest, hunt and target comes back on its own retry time, and a hand-in or farm join that failed
-holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`).
+each quest, hunt and target comes back on its own retry time, a failure at once after a deploy,
+which may have fixed it, unless it failed at the same step as the run before it, and a hand-in or
+farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`).
 
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, best first by the XP per hour measured there at levels
