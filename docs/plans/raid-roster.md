@@ -152,6 +152,8 @@ Planning ranges, assumptions until a Raid Resolve boss fight:
 
 Kerafyrm does not size the roster. All three of his rows in the content snapshot are `untargetable: 1`, his scripts in `C/effective/quests/sleeper/` and `skyshrine/` are empty files, and he is not in the casino table or the raid catalog. The live server's NPC list for `sleeper` marks him targetable (`untargetable: 0`, level 99, 3,500,000 HP), but his spawn and The Sleeper's are `disabled`. If he spawns, re-plan from the Resolve list.
 
+After a client or content update, check again: the client's casino table and Resolve list (the boss lines of the bundle against the last saved release in `.re/releases/`), his NPC definition, which the read-only `iq.query(1004, { zoneName: "sleeper" })` returns from any zone, and his spawn, which the spawn list (opcode 1062) shows only to a character inside the zone ("Your zone is out of sync" from elsewhere).
+
 ## Roster and leveling groups
 
 The goal is the strongest roster the account can field at the level cap of 60. Raid kills at 46 are welcome earlier, but no choice of class, race or group may trade strength at 60 for an earlier kill, so class mixes are judged by simulated fights of level-60 rosters first and by fights at 46 to 50 second. The goal also needs every roster character at level 46 or higher, the raid bosses killed and the class epics. The epic of each class needs a character of that class, so the roster holds every class at least once. The groups below are built in this order. Each group levels on its own, and the last column says what it adds to the raid.

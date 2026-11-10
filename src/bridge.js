@@ -996,6 +996,7 @@
   // effect. Each entry names the reply's opcode, how long one answer may take and, for a request
   // that can also act, which payloads only read.
   const READS = {
+    1004: { reply: 1005, ms: 10000 }, // a zone's NPC definitions by `zoneName`, any zone, as the client asks on entry
     1062: { reply: 1063, ms: 9000 }, // the zone's spawns, as the client asks on entry and for Spawn Camp
     1222: { reply: 1223, ms: 10000, reads: (p) => !p.bossKey }, // the daily raid bosses: with a bossKey it summons one
     1225: { reply: 1225, ms: 10000, reads: (p) => p.action === "read" }, // a tradeskill bank's contents
