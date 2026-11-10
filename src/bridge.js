@@ -1244,8 +1244,8 @@
    * that came back. The bot's bag upkeep decides later what is surplus. An item the bags cannot
    * take, such as the Concordance of Research container Smith Tv`ysa gives with every lightstone
    * trade when no top-level slot is free, is sold if the bot's sale rules allow it (tradable, with
-   * a merchant price, not in `keepItemIds` or the quest items). Anything else throws, so a reward
-   * is never sold or dropped.
+   * a merchant price, not in `keepItemIds` or the account's `demand`). Anything else throws, so a
+   * reward is never sold or dropped.
    */
   const clearCursorAfterTrade = async () => {
     const held = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
@@ -1255,8 +1255,9 @@
     for (let k = 0; k < 10 && held(); k++) await pause(200);
     if (!held()) return itemName(row);
     const d = row.itemDetails ?? {};
-    const kept = [...(window.iqBot?.config?.keepItemIds ?? []), ...(window.iq?.questItems ?? [])];
-    if (d.nodrop !== 0 && d.norent !== 0 && d.price > 0 && !kept.includes(row.itemid)) {
+    const config = window.iqBot?.config ?? {};
+    const kept = (config.keepItemIds ?? []).includes(row.itemid) || (config.demand?.[row.itemid] ?? 0) > 0;
+    if (d.nodrop !== 0 && d.norent !== 0 && d.price > 0 && !kept) {
       await clientFn("sell")(0, 30);
       return `sold ${itemName(row)}`;
     }

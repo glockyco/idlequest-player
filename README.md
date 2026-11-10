@@ -515,8 +515,7 @@ names the running client and `iq.missingApi` lists the missing parts.
   copies in `pretty/` (see [After a client update](#after-a-client-update)). Regenerate the opcode
   table with `bun tools/extract-opcodes.ts <release dir>/pretty/<entry>.js data/opcodes.json` and
   the leader's spell table with `bun install && bun tools/class-spells.mjs`, which loads the
-  client's bundles under a DOM shim. After a content snapshot update, regenerate the quest
-  turn-in items the bot keeps with `bun tools/quest-items.mjs`.
+  client's bundles under a DOM shim.
 - Use `pausedAutoLevel` for travel or other actions that need AutoLevel stopped. If it was running,
   it restarts with the saved con and level limits. `travelTo` waits for the current fight to end,
   then sends the Travel window's zone change, which teleports at once. The bot's pause is renewed
