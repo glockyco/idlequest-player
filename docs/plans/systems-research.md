@@ -184,6 +184,17 @@ The wiki explains same-account companion progression and independent raid copies
 - The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). The potion that casts it is handed out as a reward for bug reports and the like, not obtainable in normal play, so the plans leave it out.
 - The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
 - The casino's prizes and Olyna Mudel's potions in West Freeport hold no XP boost either.
+- Repeatable XP hand-ins add XP beside hunting. The quest graph (`tools/lib/quest-graph.mjs`) lists 1,104 single-item hand-ins that pay XP, 189 of whose items drop in live zones. A hand-in pays the active character only. The best by expected XP per kill of the dropper, from the content's loot and spawn tables:
+
+  | Hand-in | XP each | Dropper, level, zone | Drop | Respawn | XP per kill |
+  | --- | ---: | --- | ---: | ---: | ---: |
+  | Head of the Huntsman, and of the Royal Scribe, to Yetarr in Kael | 1,750,000 | Grand Huntsman Darral, Royal Scribe Kaavin, 49, thurgadinb | 100% | 5.8 h | 1,750,000 |
+  | Crumpled Piece of Paper to Expin in Greater Faydark | 5,061,818 | Expin himself, 45, gfaydark | 25% | 10.7 min | 1,265,455 |
+  | Sealed Letter to Fjokar Frozenshard in Kael | 1,107,392 | Shardwing Courier, 50, westwastes | about 100% | 10.7 min | 1,160,126 |
+  | Item 55035 to Yilbit Gerbigo in Rathe Mountains | 1,750,000 | Sir Bronthas, 40, mistmoore | 35% | 80 min | 612,500 |
+  | Greater Lightstone to Smith Tv`ysa | 274,400 | Karg IceBear, 35, everfrost | 25% | 18 min | 68,600 |
+
+  Expin's paper branch and Fjokar's letter branch check no flag or faction (Fjokar's script bypasses the faction gates on purpose), so both repeat. Every dropper and hand-in NPC above stands in its live zone (opcode 1004) and is out of automated combat (`exclude`), so only a directed attack fights it. A trial with group 1 at level 52 found Greater Faydark unsafe: Tilania Shadowwalker, level 61, engaged the party 31 s after it arrived, and the guard left the zone. The Sealed Letter works: group 1 killed the Shardwing Courier in the Western Wastes with a directed attack, looted the letter on the first kill, and Fjokar paid Tagujazolu 1,107,392 XP 84 s later. A level-65 giant engaged the party a few seconds after the hand-in and the guard left Kael Drakkel, which costs nothing once the letter is in. The measured zone rates are per character (`estimate` in tools/lib/rates.mjs, about 3M an hour in Paw at level 40), so a group of six makes about six times that. The letter pays as an errand inside hunting in the Western Wastes: each 640 s respawn costs a trip of about 1.5 min, about 14% of the group's XP (about 0.7M at 4M an hour a character), and pays 1.1M to one character, a gain of about 0.4M a loop. It is worth that only while the Western Wastes is a zone the group would hunt anyway. Open: the Thurgadin heads at level 49.
 
 ## 7. Race
 
