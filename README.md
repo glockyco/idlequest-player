@@ -373,7 +373,8 @@ chain that stopped inside the encounter starts it again. A step talks to its `np
 with another NPC on the point, the group's leader becomes active in the step's zone, gathers the
 party and clears the point with the client's Spawn Camp, as a directed hunt does, and the task ends
 as waiting until the point rolls again, as it does while the point respawns, so the coordinator
-brings every member who needs that NPC back then. A failure that names a time, such as a point the
+brings every member who needs that NPC back then, one group at a time, since the groups would
+reach the point together and all but the first find it held. A failure that names a time, such as a point the
 leader's party could not clear, holds the chain for all groups until that time or the next deploy (`worldHold` in
 `tools/lib/coordinator.mjs`). A step gives the NPC `give`, hands in `each`, buys `buy` from a merchant, or fights
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or

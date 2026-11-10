@@ -77,9 +77,15 @@ test("a run waiting for the world holds every group until its time, also after a
   const pal = (label: string, group: string) => ({ ...tab(label, group, 40), members: [{ name: `${label}0`, level: 40, class: "Paladin" }] });
   const tabs = [pal("A", "G1"), pal("B", "G2")];
   const run = (status: string, code: string) => [{ t: NOW - 10 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", status, code, nextAt: NOW + 3600000 }];
-  // A spawn point that rolls at a known time holds both groups, whatever code runs.
+  // A spawn point that rolls at a known time holds both groups, whatever code runs, and when the
+  // hold ends one group looks at a time, since both would reach the point at once.
   expect(decide({ now: NOW, tabs, quests, history: run("waiting", "old"), code: "new" }).actions).toEqual([]);
-  expect(decide({ now: NOW + 3700000, tabs, quests, history: run("waiting", "old"), code: "new" }).actions).toHaveLength(2);
+  expect(decide({ now: NOW + 3700000, tabs, quests, history: run("waiting", "old"), code: "new" }).actions).toMatchObject([{ label: "A" }]);
+  const looking = [...run("waiting", "old"), { t: NOW + 3700000, label: "A", kind: "quest", id: "paladin-epic-note", task: "q2" }];
+  const runningA = [{ ...pal("A", "G1"), task: { id: "q2", kind: "quest", status: "running" } }, pal("B", "G2")];
+  expect(decide({ now: NOW + 3800000, tabs: runningA, quests, history: looking, code: "new" }).actions).toEqual([]);
+  // Once that run has ended, the other group comes.
+  expect(decide({ now: NOW + 3900000, tabs, quests, history: [...looking.slice(0, 1), { ...looking[1], status: "done" }], code: "new" }).actions).toMatchObject([{ label: "B" }]);
   // An occupant the group could not clear holds both groups under the code that judged it.
   expect(decide({ now: NOW, tabs, quests, history: run("failed", "new"), code: "new" }).actions).toEqual([]);
   // A deploy may have fixed that judgment, so both groups try again at once.
@@ -380,15 +386,15 @@ test("a group moves to the best zone only once it is worth the margin more than 
   expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "runnyeye", rotation: [...a.rotation].reverse() })], rows: ROWS, rates: close })).toEqual([]);
 });
 
+// A small zone's supply, which the groups in it share evenly.
+const shared = (_zone: string, _level: number, n: number) => 1 / (1 + n);
+
 test("the lowest group takes the best zone first, and the next counts it as crowded", () => {
   const tabs = [tab("B", "G4", 16, { zone: "najena" }), tab("A", "G3", 15, { zone: "warrens" })];
   const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: shared });
   expect(out.find((z) => z.label === "A")!.rotation[0]).toBe("kurn");
   expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
 });
-// A small zone's supply, which the groups in it share evenly.
-const shared = (_zone: string, _level: number, n: number) => 1 / (1 + n);
-
 
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
   // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
