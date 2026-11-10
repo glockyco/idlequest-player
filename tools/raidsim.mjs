@@ -162,9 +162,12 @@ let boss;
 let file;
 try {
   boss = await bossSpec(await findBoss(opt("boss")));
+  // The account roster is the members of data/roster.json unless --members names others, because
+  // Inventory Search also lists the items of deleted characters.
+  const members = opt("members")?.split(",") ?? JSON.parse(await readFile("data/roster.json", "utf8")).groups.flatMap((g) => g.members ?? []);
   file =
     opt("roster") === "account"
-      ? accountRoster(JSON.parse(await readFile("runs/state/account-items.json", "utf8")), { leader: opt("leader") ?? fail("--roster account needs --leader"), names: opt("members")?.split(",") ?? null })
+      ? accountRoster(JSON.parse(await readFile("runs/state/account-items.json", "utf8")), { leader: opt("leader") ?? fail("--roster account needs --leader"), names: members })
       : JSON.parse(await readFile(opt("roster"), "utf8"));
 } catch (error) {
   fail(error.message);
