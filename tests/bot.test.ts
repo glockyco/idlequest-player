@@ -1375,6 +1375,26 @@ test("a summoned enemy that is up already sends the member to the fight", async 
     await runToEnd(f);
     expect(gives).toEqual([["Lord Bergurgle's Crown"]]);
     expect(f.bot.state.task).toMatchObject({ status: "done" });
+
+    // During Natasha's scene the server takes Shmendrik out of automated combat, so Enemy Targets
+    // leaves him out and the step attacks his spawn directly.
+    handed = false;
+    dead = false;
+    const attacked: number[] = [];
+    const entity = { spawnInstanceId: 12, spawn: { name: "Shmendrik_Lavawalker", npcId: 51012, automatedCombatExcluded: true, combatBlockedReason: "scripted" } };
+    f.runtime.combatScene.getAliveCombatTargetList = () => (handed || dead ? [] : [shmendrik]);
+    Object.assign(f.runtime.combatScene, { dependencies: { getEntityPool: () => ({ getAliveEntities: () => (dead ? [] : [entity]) }) } });
+    Object.assign(f.runtime, {
+      selectEnemyTarget: () => {},
+      startDirectedCombat: (npcId: number) => {
+        attacked.push(npcId);
+        setTimeout(() => ((dead = true), f.say("You have slain Shmendrik Lavawalker, but gain no experience.")), 3000);
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "lakerathe", npc: "Shmendrik Lavawalker", give: ["Lord Bergurgle's Crown"] }, { zone: "lakerathe", kill: "Shmendrik Lavawalker", waitSec: 30 }] });
+    await runToEnd(f);
+    expect(attacked).toEqual([51012]);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
   } finally {
     vi.useRealTimers();
   }

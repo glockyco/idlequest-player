@@ -1593,14 +1593,22 @@
     // fight, so its kill is only awaited.
     const engaged = () => i.stores.skills.getState().inCombat && wanted.test(cb().targetNPC?.name ?? "");
     const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? ""));
-    if (!alive.length && !engaged()) return "none";
+    // The server can take a spawn out of automated combat (`automatedCombatExcluded`), as it does
+    // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it
+    // out. Outside a raid a player can still select it and press Attack, which starts the same
+    // directed fight (`startDirectedCombat`, docs/client-internals.md).
+    const excluded = alive.length || !rt.startDirectedCombat ? null : (rt.combatScene.dependencies?.getEntityPool?.()?.getAliveEntities?.() ?? []).find((e) => e.spawn?.automatedCombatExcluded && wanted.test(String(e.spawn.name ?? "").replace(/#/g, "").replace(/_/g, " ")));
+    if (!alive.length && !excluded && !engaged()) return "none";
     let t0 = now();
     if (!engaged()) {
       for (let k = 0; k < 30 && (rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null); k++) await sleep(1000);
       if (cb().isRunning) holdAutoLevel(cb(), "a directed kill");
       if (!cb().enemyTargetAttackOnArrival) cb().setEnemyTargetAttackOnArrival(true);
       t0 = now();
-      rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
+      if (excluded) {
+        log(`kill: ${excluded.spawn.name} is out of automated combat (${excluded.spawn.combatBlockedReason ?? "no reason given"}), so the party attacks it directly`);
+        rt.startDirectedCombat(excluded.spawn.npcId, excluded);
+      } else rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
     }
     for (let k = 0; k < 150; k++) {
       await sleep(1000);
