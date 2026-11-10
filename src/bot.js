@@ -141,6 +141,8 @@
     switching: null, // { id, name, startedAt, done, ok, message } of the last character switch
     switchFails: 0, // failed switches in a row
     switchRetryAt: 0, // the leader is not switched to again before this time
+    moveFails: 0, // failed zone moves in a row
+    moveRetryAt: 0, // no zone move starts before this time
     task: null, // the last task: { id, kind, status, step, startedAt, endedAt, error, ... }
     fight: null, // { name, t } of the enemy the party engaged last, until its kill line
     foes: {}, // per enemy name: { fights, secs, xp, slow, level }, the party's fight times and XP with it
@@ -1926,7 +1928,7 @@
     return [...others.filter((z) => config.rotation.indexOf(z) > k), ...others.filter((z) => config.rotation.indexOf(z) < k)][0];
   };
   const moveTo = async (i, dest, why) => {
-    if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat) return false;
+    if (!dest || typeof i.changeZone !== "function" || i.guard?.phase === "leaving" || i.stores.skills.getState().inCombat || now() < state.moveRetryAt) return false;
     const cb = i.stores.combat.getState();
     // A new zone starts from the target limits: a widening was for the zone the party leaves.
     const limits = config.limits ?? { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
@@ -1936,10 +1938,15 @@
       const name = await i.changeZone(dest);
       setLimits(i.stores.combat.getState(), limits);
       state.widenedAt = 0;
+      state.moveFails = 0;
       alert("rotate", `moved to ${name}: ${why}`);
       return true;
     } catch (e) {
-      alert("rotate", `move to ${dest} failed: ${e?.message ?? e}`, true);
+      // A slow server times the request out ("Request timeout for opcode 313") and a later try goes
+      // through, so failures back off like switches and only the third in a row wakes a script.
+      state.moveFails++;
+      state.moveRetryAt = now() + Math.min(600000, 30000 * 2 ** (state.moveFails - 1));
+      alert("rotate", `move to ${dest} failed: ${e?.message ?? e}`, state.moveFails >= 3);
       return false;
     }
   };

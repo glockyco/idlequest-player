@@ -1166,6 +1166,39 @@ test("failed switches back off and the third in a row wakes a script", async () 
   }
 });
 
+test("failed zone moves back off, and only the third in a row wakes a script", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.config.rotation = ["guktop"];
+    f.combat.currentZone = 73; // permafrost, outside the rotation
+    let refusals = 3;
+    const move = f.iq.changeZone;
+    f.iq.changeZone = async (shortName: string) => {
+      if (refusals-- > 0) throw new Error("Request timeout for opcode 313");
+      return move(shortName);
+    };
+    const at = async (waitMs: number) => {
+      vi.advanceTimersByTime(waitMs);
+      await f.bot.tick();
+      await flush();
+    };
+    await at(0); // arrival starts the clock outside the rotation
+    await at(61000);
+    await at(5000); // inside the 30 s back-off
+    await at(30000);
+    const woken = () => f.bot.state.alerts.filter((a) => a.kind === "rotate" && a.wake).length;
+    expect(woken()).toBe(0);
+    await at(60000);
+    expect(woken()).toBe(1);
+    await at(120000);
+    expect(f.moves).toEqual(["guktop"]);
+    expect(f.bot.state.alerts.filter((a) => a.kind === "rotate").map((a) => a.text.slice(0, 22))).toEqual(["move to guktop failed:", "move to guktop failed:", "move to guktop failed:", "moved to guktop: perma"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // Bags per character for the hand-in tests, and fake bridge actions that use them the way the
 // game does: a pull adds one item to the active character, a hand-in takes what is due.
 function handInPage(f: Awaited<ReturnType<typeof install>>, held: Record<string, Record<string, number>>, pull: { ok: boolean }) {
