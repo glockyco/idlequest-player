@@ -84,7 +84,7 @@
 //
 // Inputs taken from the live game: raw attributes are the creation stats of the member's race and
 // class with the server's preset allocation (data/char-create.json), and skill caps come from the
-// server for levels 46 to 60 (data/skill-caps.json), classes.mjs. Entries override them.
+// server for every level (data/skill-caps.json, tools/skill-caps.mjs), classes.mjs. Entries override them.
 //
 // What this tool assumes, because no client, server or content data says what we will own:
 //   - every skill trained to its cap, no AAs, and the default race of a class (Human, Barbarian for

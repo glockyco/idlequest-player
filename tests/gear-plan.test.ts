@@ -52,13 +52,13 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   ];
   const survey = [row("War", 4, "Equipped", 13, 1), row("War", 6, "Equipped", 14, 2), row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)];
   // A weapon replaces the Monk's fists (10 at 34 delay at level 30) whatever its type, and a
-  // two-hander pays for the off-hand fist it ends, which swings 0.49 of the time. The Long Sword's
-  // melee is 143% over the Rusty Sword, the Great Axe's 22% over the Monk's two fists, and an
+  // two-hander pays for the off-hand fist it ends, which swings 0.61 of the time at the server's
+  // Dual Wield cap of 215. The Long Sword's melee is 143% over the Rusty Sword, the Great Axe's 13% over the Monk's two fists, and an
   // unmeasured member's melee counts for one sixth of the party's damage at the XP elasticity.
   const weight = elasticity(30) / 6;
   const plan = planGear({ survey, items, people }).moves;
   expect(plan.map((m) => [m.item, m.to])).toEqual([["Long Sword", "War"], ["Great Axe", "Mnk"]]);
-  expect(plan.map((m) => m.gain / weight)).toEqual([expect.closeTo(1427, 0), expect.closeTo(218.4, 0)]);
+  expect(plan.map((m) => m.gain / weight)).toEqual([expect.closeTo(1427, 0), expect.closeTo(132.5, 0)]);
   // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
   const bare = survey.filter((r) => r.itemId !== 6);
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);

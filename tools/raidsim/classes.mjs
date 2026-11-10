@@ -61,12 +61,12 @@ export function creationStats(cls, race, alloc) {
 // checks this table against the client.
 export const SKILL_IDS = {"OneHBlunt": 0, "OneHSlashing": 1, "TwoHBlunt": 2, "TwoHSlashing": 3, "Abjuration": 4, "Alteration": 5, "Archery": 7, "Backstab": 8, "Bash": 10, "Block": 11, "BrassInstruments": 12, "Channeling": 13, "Conjuration": 14, "Defense": 15, "Divination": 18, "Dodge": 19, "DoubleAttack": 20, "DragonPunch": 21, "DualWield": 22, "EagleStrike": 23, "Evocation": 24, "FlyingKick": 26, "HandToHand": 28, "Kick": 30, "Meditate": 31, "Mend": 32, "Offense": 33, "Parry": 34, "OneHPiercing": 36, "Riposte": 37, "RoundKick": 38, "Singing": 41, "StringedInstruments": 49, "WindInstruments": 54, "PercussionInstruments": 70, "Taunt": 73};
 
-// Skill caps per class and level from the live server (data/skill-caps.json, levels 46 to 60). A
+// Skill caps per class and level from the live server (data/skill-caps.json, levels 1 to 60). A
 // recruit is assumed trained to the cap. Returns the cap of every skill the class has, by skill id.
 const SKILL_CAP_ROWS = JSON.parse(readFileSync(new URL("../../data/skill-caps.json", import.meta.url), "utf8")).caps;
 export function skillCaps(cls, level) {
   const row = SKILL_CAP_ROWS[`${cls}-${level}`];
-  if (!row) throw new Error(`no skill caps for class ${cls} at level ${level}; data/skill-caps.json holds levels 46 to 60`);
+  if (!row) throw new Error(`no skill caps for class ${cls} at level ${level} in data/skill-caps.json`);
   return Object.fromEntries(row.flatMap((cap, id) => (cap > 0 ? [[id, cap]] : [])));
 }
 // The same caps by the names in SKILL_IDS, for the kit's weapon choice.

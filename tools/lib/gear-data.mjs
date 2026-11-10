@@ -202,20 +202,12 @@ export async function attachEffects(items, root) {
   return items;
 }
 
-// Dual Wield (docs/client-internals.md, Off hand and dual wield). The server's cap of the skill is
-// in data/skill-caps.json for levels 46 to 60 only. Below 46 the cap is interpolated linearly from
-// the level the class first has the skill, with the cap read from the server then, to the cap at 46.
+// Dual Wield (docs/client-internals.md, Off hand and dual wield): the server's cap of the skill at
+// each level (data/skill-caps.json), 0 before the class has it.
 const DUAL_WIELD_SKILL = 22;
-const DUAL_WIELD_FROM = { warrior: [13, 70], ranger: [17, 90], monk: [1, 12], bard: [17, 90], rogue: [13, 83] };
 const SKILL_CAP_ROWS = JSON.parse(readFileSync(new URL("../../data/skill-caps.json", import.meta.url), "utf8")).caps;
-const capAt = (cls, level) => SKILL_CAP_ROWS[`${CLASS_KEYS.indexOf(cls)}-${level}`]?.[DUAL_WIELD_SKILL] ?? 0;
 /** A character's Dual Wield skill at `level`, trained to the class's cap; 0 before the class has it and for a class that never does. */
-export function dualWieldSkill(cls, level) {
-  const from = DUAL_WIELD_FROM[cls];
-  if (!from || level < from[0]) return 0;
-  if (level >= 46) return capAt(cls, Math.min(level, 60));
-  return Math.round(from[1] + ((capAt(cls, 46) - from[1]) * (level - from[0])) / (46 - from[0]));
-}
+export const dualWieldSkill = (cls, level) => SKILL_CAP_ROWS[`${CLASS_KEYS.indexOf(cls)}-${Math.min(Math.max(level, 1), 60)}`]?.[DUAL_WIELD_SKILL] ?? 0;
 /** The chance that a due off-hand swing happens (`IZ` in the client) for a Dual Wield skill: `min(1, (skill + level) / 400)`, 0 without the skill. */
 export const offhandChanceOf = (skill, level) => (skill > 0 ? Math.min(1, (skill + level) / 400) : 0);
 /** The chance of an off-hand swing for a class at a level, with the skill trained to the cap. */
