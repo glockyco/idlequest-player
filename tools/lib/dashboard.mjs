@@ -5,6 +5,7 @@
 import { THRESHOLDS, sessionSummary } from "../iqd.mjs";
 import { MINUTE_MS } from "./minutes.mjs";
 import { targetId, targetRetryMin } from "./acquire.mjs";
+import { retryTime, worldHold } from "./coordinator.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 
 const DAY = 86400000;
@@ -201,12 +202,16 @@ export function nameIds(catalog, text) {
   return out;
 }
 
-/** When the coordinator looks at a history entry's task again: the time the task named, or its opportunity's retry interval. */
-export function retryAt(catalog, h) {
+/**
+ * When the coordinator looks at a history entry's task again, by its own rule (`retryTime` and,
+ * for a quest, `worldHold` in tools/lib/coordinator.mjs), with `history` the coordinator's history
+ * and `code` the code version the tabs run. Null for a task kind that does not come back.
+ */
+export function retryAt(catalog, h, { history = [], code = null } = {}) {
+  if (h.kind === "quest") return Math.max(retryTime(h, catalog.quests[h.id]?.retryMin ?? 120, code), worldHold(history, h.id, code));
   if (h.nextAt) return h.nextAt;
-  if (h.kind === "quest") return h.t + (catalog.quests[h.id]?.retryMin ?? 120) * 60000;
   if (!h.id || catalog.farms.has(h.id) || (h.kind !== "hunt" && h.kind !== "errand")) return null;
-  return h.t + (catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? targetRetryMin(h.kind) : 30)) * 60000;
+  return retryTime(h, catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? targetRetryMin(h.kind) : 30), code);
 }
 
 /**
@@ -433,9 +438,10 @@ function stateOf(v) {
 /**
  * A bot task as the row and the coordinator panel show it: its name from the coordinator's history
  * (the bot knows only the task's kind and step), how long it runs or ended, its outcome and when
- * the coordinator looks at it again. A running `errand` shows instead of a task that has ended.
+ * the coordinator looks at it again under the tabs' code version `code`. A running `errand` shows
+ * instead of a task that has ended.
  */
-export function taskView(catalog, task, history, now, errand = null) {
+export function taskView(catalog, task, history, now, errand = null, code = null) {
   // An errand runs inside normal hunting, between and after tasks, so while one runs and no task
   // does, the errand is what the group is doing.
   if (errand && task?.status !== "running") {
@@ -443,7 +449,7 @@ export function taskView(catalog, task, history, now, errand = null) {
   }
   if (!task) return null;
   const h = history.find((x) => x.task === task.id);
-  const retry = h ? retryAt(catalog, h) : (task.nextAt ?? null);
+  const retry = h ? retryAt(catalog, h, { history, code }) : (task.nextAt ?? null);
   return {
     id: task.id,
     kind: task.kind,
@@ -468,6 +474,7 @@ export function taskView(catalog, task, history, now, errand = null) {
 export function groupRowsView(db, now, { roster, groupOf, catalog, report = null, minutes = minuteTotals(db, now) }) {
   const sessions = sessionsByGroup(db, now, groupOf);
   const history = (metaRow(db, "coordinator")?.history ?? []).slice().reverse();
+  const code = metaRow(db, "daemon")?.code ?? null;
   const reportOf = new Map((report ?? []).map((r) => [r.group, r]));
   const tail = (q, ...args) => db.query(q).all(...args);
   return roster.groups.map((g) => {
@@ -477,7 +484,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     const r = reportOf.get(g.id);
     const hour = lastHour(minutes.get(g.id) ?? [], now);
     const idleShare = hour?.share ?? r?.idle ?? v?.idleShare ?? null;
-    const task = taskView(catalog, v?.bot.task, history, now, v?.errand);
+    const task = taskView(catalog, v?.bot.task, history, now, v?.errand, code);
     const levels = (v?.party ?? []).map((m) => m.level).filter((l) => l != null);
     const stuck = state.kind === "gone" || (state.kind === "activity" && (state.act === "idle" || state.act === "dead") && state.forMs > 120000) || (v != null && !v.parked && !v.raid && v.lastKillMs != null && v.lastKillMs > 300000);
     const mine = history.filter((h) => h.label === leader);
@@ -523,7 +530,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
         rotation: (v?.bot.rotation ?? []).map((z) => ({ zone: zoneName(catalog, z), crowdedMs: v.bot.crowdedAt[z] ? now - v.bot.crowdedAt[z] : null })),
         crowded: Object.entries(v?.bot.crowdedAt ?? {}).filter(([z]) => !(v.bot.rotation ?? []).includes(z)).map(([z, at]) => ({ zone: zoneName(catalog, z), crowdedMs: now - at })),
         lines,
-        history: mine.slice(0, 12).map((h) => ({ t: h.t, kind: h.kind, name: taskLabel(catalog, h), ms: h.ms ?? null, retryAt: retryAt(catalog, h), outcome: outcomeOf(h) })),
+        history: mine.slice(0, 12).map((h) => ({ t: h.t, kind: h.kind, name: taskLabel(catalog, h), ms: h.ms ?? null, retryAt: retryAt(catalog, h, { history, code }), outcome: outcomeOf(h) })),
       },
     };
   });
@@ -706,9 +713,10 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   for (const h of history) latest.set(h.kind === "quest" ? `${h.id}@${h.label}` : (h.id ?? `${h.kind}@${h.label}`), h);
   const missing = state.last?.missing ?? {};
   const runningIds = new Set(running.map((t) => t.id));
+  const code = metaRow(db, "daemon")?.code ?? null;
   const retries = [...latest.values()]
     .filter((h) => h.id && !runningIds.has(h.task) && missing[h.id] !== 0)
-    .map((h) => ({ at: retryAt(catalog, h), h }))
+    .map((h) => ({ at: retryAt(catalog, h, { history, code }), h }))
     .filter((x) => x.at != null && x.at > now - RETRY_GRACE_MS)
     .sort((a, b) => a.at - b.at)
     .map(({ at, h }) => ({ inMs: at - now, group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h) }));

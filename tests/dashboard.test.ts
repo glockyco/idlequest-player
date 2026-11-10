@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
+import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -320,4 +320,15 @@ test("a running errand shows instead of an ended task, and a running task instea
   expect(taskView(catalog, { ...ended, status: "running", step: "camp" }, [], now, errand)).toMatchObject({ kind: "hunt", status: "running" });
   // A gear target no longer on the wanted list still reads as its enemy in its zone.
   expect(taskName(catalog, "target-gukbottom-a-ghoul-scribe")).toBe("a ghoul scribe in The Ruins of Old Guk");
+});
+
+test("a quest's retry time is the coordinator's: a failure under older code is due at once unless the world holds the quest", () => {
+  const now = 1_800_000_000_000;
+  const catalog = makeCatalog({ quests: { ink: { retryMin: 240 } } });
+  const failed = { t: now - 600000, label: "A", kind: "quest", id: "ink", status: "failed", code: "old" };
+  expect(retryAt(catalog, failed, { history: [failed], code: "old" })).toBe(failed.t + 240 * 60000);
+  expect(retryAt(catalog, failed, { history: [failed], code: "new" })).toBe(0);
+  // Another tab's run that waits for the spawn point's roll holds the quest for every tab.
+  const waiting = { t: now - 60000, label: "B", kind: "quest", id: "ink", status: "waiting", nextAt: now + 1200000 };
+  expect(retryAt(catalog, failed, { history: [failed, waiting], code: "new" })).toBe(now + 1200000);
 });
