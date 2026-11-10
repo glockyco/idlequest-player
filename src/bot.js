@@ -1536,6 +1536,9 @@
         if (killedSince(i, wanted, scanned)) kills++;
         scanned = now();
         if (task.item && hasItem(i, task.item)) return { kills, result: `got ${task.item}` };
+        // A camp loots for up to half an hour under the task's pause, which keeps the tick's reserve
+        // away, so the camp keeps the reserve itself between fights.
+        if (!i.stores.skills.getState().inCombat) await keepReserve(i, true);
         const waiting = CAMP_WAITING.test(cb().spawnCampStatus ?? "") && !i.stores.skills.getState().inCombat;
         waitingSince = waiting ? (waitingSince ?? now()) : null;
         if (waitingSince && now() - waitingSince > 5000) {
@@ -1588,6 +1591,8 @@
           task.kills++;
           seen = now();
           empty = 0;
+          // The hunt loots under the task's pause, so it keeps the bag reserve itself.
+          await keepReserve(i, true);
         } else if (r === "none") {
           empty++;
           if (empty >= zones.length && now() - seen >= task.waitMin * 60000) return void (task.result = `none of ${task.keep} up`);
