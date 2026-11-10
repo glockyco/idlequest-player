@@ -1233,11 +1233,18 @@
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
         if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
-        const r = await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" }), 30000);
+        // A transfer to oneself is refused, so a move to the active character equips from its own
+        // bags, and an instrument for its bags is already there.
+        const self = Number(to.id) === Number(i.stores.character.getState().characterProfile?.id);
+        if (self && mv.slot === "bags") {
+          Object.assign(mv, { done: true, lines: [] });
+          continue;
+        }
+        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" }), 30000);
         // A move retried after a reinstall may find the item already given, which the server
         // reports as a lore conflict, so that refusal means the receiver has it.
         const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));
-        if (!given) throw new Error(`the transfer was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
+        if (!given) throw new Error(`the ${self ? "slot move" : "transfer"} was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
         Object.assign(mv, { done: true, lines: r.lines });
       } catch (e) {
         if (e instanceof TaskStopped) throw e;
@@ -2311,7 +2318,7 @@
     gear({ moves }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },

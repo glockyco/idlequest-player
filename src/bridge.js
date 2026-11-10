@@ -1278,6 +1278,25 @@
     return { ok: Boolean(ok), lines };
   };
   /**
+   * Equip a carried `item` on the active character in worn slot `slotNum`, since a transfer to
+   * oneself is refused. As the client's own equip does, an occupied slot swaps with the item's bag
+   * slot, so the worn item lands where the new one was, and an empty slot takes a move. Resolves
+   * with `{ ok }`, whether the slot holds the item afterwards.
+   */
+  const equipOwn = async (item, slotNum) => {
+    const ch = () => stores.character.getState();
+    const inv = () => ch().characterProfile?.inventory ?? [];
+    const row = inv().find((x) => inBags(x) && itemName(x) === item);
+    if (!row) throw new Error(`no ${item} in the bags`);
+    const from = { bag: row.bag, slot: row.slot };
+    const to = { bag: 0, slot: slotNum };
+    await (inv().some((x) => x.bag === 0 && x.slot === slotNum) ? ch().swapItems(from, to) : ch().moveItemToSlot(from, to));
+    await pause(900);
+    if (cursorItem()) throw new Error(`${cursorItem()} is on the cursor`);
+    const worn = (ch().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === slotNum);
+    return { ok: Boolean(worn) && itemName(worn) === item };
+  };
+  /**
    * Inventory Search's own request (opcode 1241, action "search", read-only) for each of `words`,
    * four at a time, merged by owner, item instance and bank. A search matches names anywhere and
    * lists at most 200 rows, so the words are item kinds and name parts. Resolves with the rows and
@@ -1402,6 +1421,7 @@
     handInEach,
     pullItem,
     giveItem,
+    equipOwn,
     buyItem,
     refreshSpawns,
     worldPort,
