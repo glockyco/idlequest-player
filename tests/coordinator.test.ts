@@ -14,10 +14,12 @@ test("stones go to the lowest free group only once there are two a member", () =
   expect(a.label).toBe("B");
   expect(a.kind).toBe("handIn");
   expect(a.spec.members.map((m: { counts: Record<string, number> }) => m.counts)).toEqual(Array(6).fill({ "Greater Lightstone": 1, Lightstone: 1 }));
-  // A running task or a recent coordinator task passes the stones to the next lowest group.
+  // A running task, or a hand-in that failed in the last half hour, passes the stones to the next lowest group.
   const busy = [tab("A", "G1", 40), tab("B", "G10", 8, { task: { kind: "hunt", status: "running" } }), tab("C", "G7", 9)];
   expect(decide({ now: NOW, tabs: busy, stock: { "Greater Lightstone": 12 } }).actions[0].label).toBe("C");
-  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "handIn" }] }).actions[0].label).toBe("C");
+  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "handIn", status: "failed" }] }).actions[0].label).toBe("C");
+  // A task that just ended does not hold its tab: the next one starts at once.
+  expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "quest", id: "q", status: "done" }] }).actions[0].label).toBe("B");
 });
 
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
@@ -203,7 +205,7 @@ test("a hunt that reported its next respawn comes back then, earlier or later th
   const tabs = [tab("A", "G1", 40)];
   const hunted = (nextAt: number) => [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "p3", nextAt, ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history: hunted(NOW + 60000) }).actions).toEqual([]);
-  // Five minutes after a hunt that set its return time, the 20 minute gap does not hold the tab.
+  // Five minutes after a hunt whose return time has passed, it runs again.
   const soon = [{ t: NOW - 5 * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW - 1000, ms: 120000 }];
   expect(decide({ now: NOW, tabs, opportunities: [page], history: soon }).actions).toHaveLength(1);
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) }).actions).toMatchObject([{ spec: { points: [7] } }]);

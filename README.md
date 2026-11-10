@@ -378,8 +378,10 @@ the entry leaves the file. Its groups get no farms and no errands meanwhile, sin
 AutoLevel limits the arms compare, while their hunts, quests and gear moves run, because
 `tools/crossover.mjs` counts XP per hour over the minutes without a task. At the end iqd registers
 a job with the `tools/crossover.mjs` command that reads the result. An entry
-removed before its end puts its groups back on `without` and registers no job. A tab gets at most one coordinator task in
-20 minutes, and none while a task or errand runs or a pause holds.
+removed before its end puts its groups back on `without` and registers no job. A tab gets no
+coordinator task while a task or errand runs or a pause holds, and the next one as soon as it ends:
+each quest, hunt and target comes back on its own retry time, and a hand-in or farm join that failed
+holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`).
 
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, best first by the XP per hour measured there at levels

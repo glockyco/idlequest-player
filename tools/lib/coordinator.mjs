@@ -14,8 +14,9 @@ export const DEFAULTS = {
   // A hand-in costs each member about a minute of the group's hunting, so a batch waits until it
   // pays every member at least one Greater Lightstone's worth (two stones a member on average).
   minStonesPerMember: 2,
-  // A tab gets at most one coordinator task in this window, so a failing task cannot loop.
-  taskGapMin: 20,
+  // A hand-in or farm join that failed holds its tab this long, because neither has a retry time
+  // of its own, unlike quests, hunts and targets (`due` in `decide`).
+  failHoldMin: 30,
   // A hunt for an epic or quest piece, whose value the gear model does not price, starts only while
   // the tab's hunts took less than this share of its last hour.
   huntShare: 0.15,
@@ -158,10 +159,10 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
 export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
-  // A task that reported when to come back (`nextAt`, a hunt's respawn) brings its own schedule;
-  // any other task holds its tab for `taskGapMin`, so a failing task cannot loop.
-  const recent = (label) => history.some((h) => h.label === label && !h.nextAt && now - h.t < cfg.taskGapMin * 60000);
-  const free = (t) => !busy.has(t.label) && !recent(t.label) && !out.some((o) => o.label === t.label);
+  // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
+  // (`due`), and the two kinds without one, hand-ins and farm joins, wait `failHoldMin` after a failure.
+  const free = (t) => !busy.has(t.label) && !out.some((o) => o.label === t.label);
+  const failedLately = (label, match) => history.some((h) => h.label === label && h.status === "failed" && match(h) && now - h.t < cfg.failHoldMin * 60000);
   // A task comes back after the time its last run said (`nextAt`, a respawn) or after `retryMin`. A
   // failure under older code comes back at once, because the deploy since may have fixed its cause,
   // and a repeat under the new code waits as usual.
@@ -262,7 +263,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     if (queued) return `${queued.kind} ${queued.why}`;
     if (t.errand) return `an errand for ${t.errand.item ?? t.errand.keep} in ${t.errand.zone}`;
     if (t.task?.status === "running") return `a ${t.task.kind} task${t.task.step ? ` at "${t.task.step}"` : ""}`;
-    return `the ${cfg.taskGapMin} minutes after its last task`;
+    return "a tab without members";
   };
   // The tab on a target's errand, by its enemies, or on the hunt the coordinator queued for it, by
   // the bot task the history records for the target.
@@ -333,7 +334,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     const on = tabs.filter((t) => t.errand?.zone === f.zone && t.errand?.keep === f.keep).sort((a, b) => mean(a) - mean(b));
     const stay = on.filter(fits).slice(0, f.maxGroups);
     for (const t of on) if (!stay.includes(t) && !out.some((o) => o.label === t.label)) out.push({ label: t.label, kind: "stopErrand", id: f.id, spec: null, why: `${f.id}: ${held.has(t.group) ? "an experiment holds the group" : fits(t) ? `more than ${f.maxGroups} groups` : `mean level ${mean(t).toFixed(1)} is outside ${f.levels.join(" to ")}`}` });
-    const join = tabs.filter((t) => free(t) && t.members.length && fits(t)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
+    const join = tabs.filter((t) => free(t) && t.members.length && fits(t) && !failedLately(t.label, (h) => h.id === f.id)).sort((a, b) => mean(a) - mean(b)).slice(0, Math.max(0, f.maxGroups - stay.length));
     for (const t of join) out.push({ label: t.label, kind: "errand", id: f.id, spec: { zone: f.zone, keep: f.keep, minutes: f.minutes }, why: `${f.id} for ${t.group}, mean level ${mean(t).toFixed(1)}` });
   }
 
@@ -342,7 +343,8 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   // interrupts: the farm itself feeds the lowest groups, so it must not keep them from the stones.
   const total = STONES.reduce((a, s) => a + (stock[s] ?? 0), 0);
   const farming = (t) => farms.some((f) => t.errand?.zone === f.zone && t.errand?.keep === f.keep);
-  const candidates = tabs.filter((t) => (free(t) || (farming(t) && t.task?.status !== "running" && !recent(t.label) && !out.some((o) => o.label === t.label))) && t.members.length).sort((a, b) => mean(a) - mean(b));
+  const ready = (t) => (free(t) || (farming(t) && t.task?.status !== "running" && !out.some((o) => o.label === t.label))) && !failedLately(t.label, (h) => h.kind === "handIn");
+  const candidates = tabs.filter((t) => ready(t) && t.members.length).sort((a, b) => mean(a) - mean(b));
   const target = candidates[0];
   if (target && total >= cfg.minStonesPerMember * target.members.length) {
     const levels = Object.fromEntries(target.members.map((m) => [m.name, m.level]));
