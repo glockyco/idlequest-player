@@ -202,8 +202,11 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   // shortage a bags alert reported.
   if (snap.bags?.free >= 4) settled["alert-lootFull"] = now;
   if (snap.bags?.reserve != null && snap.bags.free >= snap.bags.reserve) settled["alert-bags"] = now;
-  // A page back in the game world ends the outage an offline alert reported.
+  // A page back in the game world ends the outage an offline alert reported, the leader in play
+  // ends a failed switch, and a page whose client lacks nothing ends a client update.
   if (snap.conn?.screen === "game" && snap.conn.connected) settled["alert-offline"] = now;
+  if (snap.leader?.id != null && snap.leader.id === snap.bot?.leaderId) settled["alert-switch"] = now;
+  if (snap.release && !snap.missingApi?.length) settled["alert-clientUpdate"] = now;
   return { state: st, items, evaluated, settled };
 }
 
@@ -237,7 +240,7 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
   const newest = new Map(events.filter((e) => e.severity === "act").map((e) => [e.kind, e.id]));
   for (const e of events) {
     if (CONDITION_KINDS.includes(e.kind) || !(e.severity in EVENT_TTL_MS)) continue;
-    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room" }[e.kind] ?? "the tab plays again", now);
+    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room", "alert-switch": "the leader plays again", "alert-clientUpdate": "the client lacks nothing" }[e.kind] ?? "the tab plays again", now);
     else if (e.severity === "act" && newest.get(e.kind) !== e.id) resolveItem(db, e.id, `replaced by #${newest.get(e.kind)}`, now);
     else if (now - e.t >= EVENT_TTL_MS[e.severity] && (e.severity === "info" || !conditionOpen)) resolveItem(db, e.id, "expired", now);
   }
@@ -264,6 +267,7 @@ export function snapshotInPage(a) {
       const wake = st.alerts.filter((x) => x.seq > after && x.t >= since && x.wake);
       out.bot = {
         enabled: bot.config.enabled,
+        leaderId: bot.config.leaderId ?? null,
         pauseUntil: st.pauseUntil || 0,
         pauseReason: st.pauseReason ?? null,
         rotation: bot.config.rotation ?? [],
@@ -288,6 +292,7 @@ export function snapshotInPage(a) {
     const ep = p?.experienceProgress;
     out.pageSession = iq.session;
     out.release = iq.release ?? null;
+    out.missingApi = iq.missingApi ?? [];
     out.code = iq.code ?? null;
     // `supportManaRegen`: the mana regeneration the party's supply gives every member, which sets how
     // fast the slowest bar refills between fights (docs/client-internals.md, Readiness wait).
@@ -1018,8 +1023,41 @@ class Daemon {
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code });
     await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
+    // A minute or so of downloads and checks, so it runs beside the cycles.
+    void this.checkRelease(Date.now()).catch((e) => this.log(`client check: ${e.message}`));
     await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
     await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
+  }
+
+  /**
+   * Check a client release the first time a page runs it: save it (tools/client-snapshot.mjs) and
+   * run tools/check-client.mjs on it, and raise an item only for the parts it lacks, because a
+   * release with everything the bot uses needs nobody. The meta key `clientChecks` keeps the results.
+   */
+  async checkRelease(now) {
+    if (this.checkingRelease) return;
+    const done = metaGet(this.db, "clientChecks") ?? {};
+    const release = [...this.trackers.values()].map((tr) => tr.snap?.release).find((r) => r && !done[r]);
+    if (!release) return;
+    this.checkingRelease = true;
+    try {
+      const run = async (args) => {
+        const p = Bun.spawn(["bun", ...args], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+        const out = await new Response(p.stdout).text();
+        await p.exited;
+        return out;
+      };
+      await run(["tools/client-snapshot.mjs"]);
+      const dir = join(REPO, ".re/releases", release);
+      // The site may serve a newer release than this page runs, which a later page brings.
+      if (!(await readdir(dir).catch(() => null))) return void this.log(`client check: release ${release} is no longer served`);
+      const fails = [...(await run(["tools/check-client.mjs", dir])).matchAll(/^FAIL \S+\s+(\S+)/gm)].map((m) => m[1]);
+      metaSet(this.db, "clientChecks", { ...done, [release]: { t: now, fails } });
+      this.log(`client check: ${release} ${fails.length ? `lacks ${fails.join(", ")}` : "has everything the bot uses"}`);
+      if (fails.length) raiseItem(this.db, { t: now, severity: "act", kind: "client", key: `client:${release}`, text: `The client update ${release} lacks ${fails.join(", ")}, which the bot uses. Fix them in CLIENT_SURFACE (src/bridge.js).` });
+    } finally {
+      this.checkingRelease = false;
+    }
   }
 
   async poll(tr, now, triggers) {

@@ -1106,11 +1106,12 @@
       } catch {
         /* storage unavailable */
       }
-      // The bridge's surface audit covers the stores, the socket and the client functions.
+      // The bridge's surface audit covers the stores, the socket and the client functions. iqd checks
+      // a new release itself (`checkRelease` in tools/iqd.mjs), so these lines are notes.
       const missing = i.missingApi ?? [];
       const changed = last && last !== i.release;
       if (changed || missing.length) {
-        alert("clientUpdate", `${changed ? `client changed from ${last} to ${i.release}` : `client ${i.release}`}; ${missing.length ? `it lacks ${missing.join(", ")}, which the SDK uses` : "it has everything the SDK uses"}. Run tools/check-client.mjs and read the diff (tools/client-snapshot.mjs --diff)`, true);
+        alert("clientUpdate", `${changed ? `client changed from ${last} to ${i.release}` : `client ${i.release}`}; ${missing.length ? `it lacks ${missing.join(", ")}` : "it has everything the bot uses"}`);
       }
     }
     if (!config.releaseProbeMin || !i.surface?.releaseId || now() - state.releaseProbeAt < config.releaseProbeMin * 60000) return;
@@ -1121,7 +1122,7 @@
       const id = tag && i.surface.releaseId(tag, i.surface.assetNames(i.surface.declaredInHtml(html)));
       if (id && id !== i.release && state.remoteRelease !== id) {
         state.remoteRelease = id;
-        alert("clientUpdate", `the site serves client ${id} while this page runs ${i.release}; a reload loads it. Run tools/client-snapshot.mjs and tools/check-client.mjs first`, true);
+        alert("clientUpdate", `the site serves client ${id} while this page runs ${i.release}`);
       }
     } catch {
       /* offline or blocked: ask again next time */

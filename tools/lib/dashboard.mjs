@@ -260,18 +260,21 @@ export const KINDS = {
   nokill: { label: "no kill", how: "the bot restarts AutoLevel", ends: true, needsAfterMs: STALL_AGE_MS },
   gone: { label: "tabs gone", how: "the tab may answer again", ends: true, needsAfterMs: STALL_AGE_MS },
   nobridge: { label: "tabs without bridge", how: "the collector injects the bridge again", ends: true, needsAfterMs: STALL_AGE_MS },
+  "alert-switch": { label: "failed switches", how: "the bot tries again", ends: true, needsAfterMs: STALL_AGE_MS },
+  "alert-clientUpdate": { label: "client updates", how: "the collector checks each new release", ends: true },
 };
 /** Names for the kinds that need a person. */
-const NEEDS_LABEL = { "alert-bags": "bags full of kept items", "alert-offline": "signed out", "alert-idle": "idle, remedies used up", heap: "page memory high", trigger: "decision", "alert-xpStall": "no XP" };
+const NEEDS_LABEL = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing" };
 
 /**
  * Open attention items split into those a person must act on and those a mechanism handles. A
  * person is needed for a decision, a sign-in, a bags alert, a stall, gone tab or lost bridge older
- * than ten minutes, and for any kind that no list names. The handled items come back as counts per
- * kind for one muted line.
+ * than ten minutes, and for any kind that no list names. Needs of one kind with one text on several
+ * tabs share a card that lists their groups. The handled items come back as counts per kind for
+ * one muted line.
  */
 export function needsYouView(open, now, groupOf = new Map()) {
-  const needs = [];
+  const cards = new Map();
   const handled = new Map();
   for (const a of open) {
     if (a.severity === "info") continue;
@@ -279,13 +282,19 @@ export function needsYouView(open, now, groupOf = new Map()) {
     const ageMs = now - a.t;
     const person = a.severity === "decide" || !k || (k.needsAfterMs != null && ageMs > k.needsAfterMs);
     if (person) {
-      needs.push({ id: a.id, t: a.t, ageMs, severity: a.severity, kind: a.kind, label: k?.label ?? NEEDS_LABEL[a.kind] ?? a.kind, group: groupOf.get(a.session) ?? null, session: a.session, text: a.text });
+      const key = `${a.kind}|${a.text}`;
+      const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: NEEDS_LABEL[a.kind] ?? k?.label ?? a.kind, groups: [], text: a.text };
+      const g = groupOf.get(a.session);
+      if (g && !c.groups.includes(g)) c.groups.push(g);
+      c.t = Math.min(c.t, a.t);
+      cards.set(key, c);
     } else {
       const h = handled.get(a.kind) ?? { kind: a.kind, label: k.label, how: k.how, n: 0 };
       h.n++;
       handled.set(a.kind, h);
     }
   }
+  const needs = [...cards.values()].map((c) => ({ ...c, ageMs: now - c.t, groups: c.groups.sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))) }));
   needs.sort((a, b) => (b.severity === "decide") - (a.severity === "decide") || a.t - b.t);
   return { needs, handled: [...handled.values()].sort((a, b) => b.n - a.n), handledTotal: [...handled.values()].reduce((s, h) => s + h.n, 0) };
 }

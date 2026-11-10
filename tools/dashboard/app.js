@@ -63,7 +63,7 @@ function renderNeeds(s) {
   const n = s.needs;
   $("needs-list").innerHTML = n.needs.length
     ? n.needs
-        .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.group ? `<span class="grp">${esc(x.group)}</span>` : ""}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text)}</div></div>`)
+        .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.groups.map((g) => `<span class="grp">${esc(g)}</span>`).join("")}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text)}</div></div>`)
         .join("")
     : `<p class="calm">Nothing needs you.</p>`;
   $("needs-handled").textContent = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `${h.label} ${h.n} (${h.how})`).join(", ")}.` : "";

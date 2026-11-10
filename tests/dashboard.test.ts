@@ -62,9 +62,16 @@ test("needs-you keeps decisions, bags, sign-ins, unknown kinds and stalls older 
   const view = needsYouView(open, now, new Map([["Tank", "G1"]]));
   // A decision comes first, then the others from the oldest.
   expect(view.needs.map((n) => n.id)).toEqual([1, 3, 8, 9, 2]);
-  expect(view.needs[1]).toMatchObject({ group: "G1", label: "stalls", ageMs: 11 * 60000 });
+  expect(view.needs[1]).toMatchObject({ groups: ["G1"], label: "Stalled", ageMs: 11 * 60000 });
   expect(view.handledTotal).toBe(4);
   expect(view.handled.map((h) => [h.kind, h.n])).toEqual([["alert-task", 2], ["stall", 1], ["alert-cursor", 1]]);
+});
+
+test("one problem on several tabs is one card that lists their groups", () => {
+  const now = 100 * 60000;
+  const failed = (id: number, session: string) => item(id, { kind: "client", session, text: "The client update X lacks fn.hail", t: now - id * 1000 });
+  const view = needsYouView([failed(1, "Tank"), failed(2, "Heal"), failed(3, "Tank")], now, new Map([["Tank", "G3"], ["Heal", "G11"]]));
+  expect(view.needs).toMatchObject([{ label: "Client update breaks the bot", groups: ["G3", "G11"], t: now - 3000 }]);
 });
 
 /** A session row of a group's leader with the snapshot fields the dashboard reads. */
