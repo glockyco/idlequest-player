@@ -353,6 +353,7 @@ function renderEngineering(s) {
   const rows = s.engineering;
   const two = (v) => v.toFixed(2);
   $("eng-charts").innerHTML = dayBars("Manual interventions per group-hour", rows, (r) => r.interventionsPerGroupHour, two) + dayBars("Stalls per group-hour", rows, (r) => r.stallsPerGroupHour, two);
+  $("eng-charts").title = "Manual interventions are SDK calls and notes started by hand. Stalls are the collector's stall, no-kill, gone and no-bridge items.";
   $("eng-table").innerHTML = table(
     ["Day", "Group-hours", "Interventions", "per group-hour", "Stalls", "per group-hour", "Minutes to resolve", "Deaths"],
     rows.filter((r) => r.groupHours > 0).reverse().map((r) => [dayName(r.day), r.groupHours.toFixed(1), r.interventions, r.interventionsPerGroupHour?.toFixed(2) ?? "-", r.stalls, r.stallsPerGroupHour?.toFixed(3) ?? "-", r.stallMinutes?.toFixed(1) ?? "-", r.deaths]),
@@ -380,24 +381,31 @@ function renderRoster(s) {
   $("roster").innerHTML = `<div class="roster">${cells}</div>`;
 }
 
+/** The epic chains someone still needs, and how many every eligible character has finished. */
 function renderEpics(s) {
   const e = s.epics;
-  $("d-epics").querySelector("summary").textContent = e ? `Epic chains (${e.chains.length}, ${e.holders} done, ${e.needers} to go)` : "Epic chains";
+  $("d-epics").querySelector("summary").textContent = e ? `Epic chains (${e.holders} done, ${e.needers} to go)` : "Epic chains";
   if (!e) return void ($("epics").innerHTML = `<p class="muted">The coordinator has not saved a chain summary yet.</p>`);
-  const names = (list) => (list.length > 4 ? `${esc(list.slice(0, 4).join(", "))} and ${list.length - 4} more` : esc(list.join(", ")) || "-");
-  $("epics").innerHTML = table(["Class", "Chain item", "From level", "Have it", "Started", "Still need it"], e.chains.map((c) => [esc(c.class), esc(c.reward), c.minLevel, c.holders.length, c.started.length, `${c.needers.length} <span class="muted">${names(c.needers)}</span>`]), [2, 3, 4]);
+  const names = (list) => (list.length > 4 ? `${esc(list.slice(0, 4).join(", "))} and ${list.length - 4} more` : esc(list.join(", ")));
+  const open = e.chains.filter((c) => c.needers.length).sort((a, b) => b.needers.length - a.needers.length);
+  const done = e.chains.length - open.length;
+  $("epics").innerHTML = table(["Class", "Chain item", "From level", "Still need it"], open.map((c) => [esc(c.class), esc(c.reward), c.minLevel, `${c.needers.length} <span class="muted">${names(c.needers)}</span>`]), [2]) + (done ? `<p class="muted small">${done} more chains are done by every character that can take them.</p>` : "");
 }
 
+/** Open jobs, and what the latest finished ones found, with each job's purpose in its hover. */
 function renderJobs(s) {
   const j = s.jobs;
-  $("jobs-list").innerHTML =
-    `<h3>Open</h3>` + table(["#", "Since", "Purpose", "Output"], j.open.map((x) => [x.id, dur(s.now - x.started), esc(x.purpose), esc(x.output ?? "")])) + `<h3>Done</h3>` + table(["#", "Done", "Purpose", "Result"], j.done.map((x) => [x.id, `${dayName(x.done)} ${hhmm(x.done)}`, esc(x.purpose), esc(x.result ?? "")]));
+  const open = j.open.length ? table(["Since", "Job"], j.open.map((x) => [dur(s.now - x.started), esc(x.purpose)])) : `<p class="muted small">No job is running.</p>`;
+  const done = table(["Done", "Result"], j.done.slice(0, 8).map((x) => [`${dayName(x.done)} ${hhmm(x.done)}`, `<span title="${esc(x.purpose)}">${esc(x.result ?? "")}</span>`]));
+  $("jobs-list").innerHTML = `<h3>Running</h3>${open}<h3>Found</h3>${done}`;
 }
 
+/** Resolved items, one row per kind and ending, with their groups and the text in the hover. */
 function renderAlerts(s) {
-  const a = s.attention;
-  const info = Object.entries(a.info).map(([k, n]) => `${n} ${k}`).join(", ");
-  $("alerts").innerHTML = table(["#", "Raised", "Took", "Kind", "Tab", "Text", "Note"], a.resolved.map((x) => [x.id, ago(s.now, x.t), dur(x.resolved - x.t), esc(x.kind), esc(x.session ?? ""), esc(x.text), esc(x.note ?? "")])) + (info ? `<p class="muted">Open info items: ${esc(info)}.</p>` : "");
+  $("alerts").innerHTML = table(
+    ["Raised", "What", "Groups", "Ended"],
+    s.attention.resolved.map((x) => [ago(s.now, x.t), `<span title="${esc(x.text)}">${esc(x.title)}${x.n > 1 ? ` <span class="muted">×${x.n}</span>` : ""}</span>`, x.groups.map((g) => `<span class="grp">${esc(g)}</span>`).join(" "), `<span class="muted">${esc(x.note ?? "")}, after ${dur(x.tookMs)}</span>`]),
+  );
 }
 
 async function renderTrends() {
@@ -463,7 +471,6 @@ async function refresh() {
     renderRoster(s);
     renderJobs(s);
     renderAlerts(s);
-    $("d-alerts").querySelector("summary").textContent = `Alert history (${s.attention.resolved.length})`;
   } catch (e) {
     $("status").innerHTML = `<h1>IdleQuest account</h1><div class="chip bad"><span class="k">Dashboard</span><span class="v">${reached ? "" : "not reachable: "}${esc(e.message)}</span></div>`;
   }

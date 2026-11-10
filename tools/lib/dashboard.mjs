@@ -70,9 +70,10 @@ export function rosterView(db, roster, target = 60) {
 
 /**
  * Open attention items that are not info, open info items counted by kind, the latest resolved
- * ones and the latest manual interventions (SDK calls and notes started by hand).
+ * ones grouped for the alert history (`historyView`) and the latest manual interventions (SDK calls
+ * and notes started by hand).
  */
-export function attentionView(db, now, recent = 25) {
+export function attentionView(db, now, { recent = 25, groupOf = new Map() } = {}) {
   const open = db.query("SELECT id, t, severity, kind, session, text FROM attention WHERE resolved IS NULL ORDER BY id DESC").all();
   const info = {};
   for (const a of open.filter((x) => x.severity === "info")) info[a.kind] = (info[a.kind] ?? 0) + 1;
@@ -80,9 +81,28 @@ export function attentionView(db, now, recent = 25) {
   return {
     open: open.filter((x) => x.severity !== "info"),
     info,
-    resolved: db.query("SELECT id, t, severity, kind, session, text, resolved, note FROM attention WHERE resolved IS NOT NULL AND severity != 'info' ORDER BY resolved DESC LIMIT ?").all(recent),
+    resolved: historyView(db.query("SELECT id, t, severity, kind, session, text, resolved, note FROM attention WHERE resolved IS NOT NULL AND severity != 'info' ORDER BY resolved DESC LIMIT ?").all(recent), groupOf),
     manual: db.query(`SELECT id, t, session, actor, text FROM interventions WHERE actor IN (${manual}) ORDER BY id DESC LIMIT ?`).all(...MANUAL_ACTORS, recent),
   };
+}
+
+/**
+ * Resolved items for the alert history, newest end first: items of one kind that ended the same
+ * way share a row with their groups, the time the first was raised and the longest any took.
+ */
+export function historyView(resolved, groupOf = new Map()) {
+  const rows = new Map();
+  for (const x of resolved) {
+    const key = `${x.kind}|${x.note ?? ""}`;
+    const r = rows.get(key) ?? { kind: x.kind, title: itemTitle(x.kind), note: x.note ?? null, text: x.text, t: x.t, resolved: x.resolved, tookMs: 0, groups: [], n: 0 };
+    const g = groupOf.get(x.session) ?? x.session;
+    if (g && !r.groups.includes(g)) r.groups.push(g);
+    r.t = Math.min(r.t, x.t);
+    r.tookMs = Math.max(r.tookMs, x.resolved - x.t);
+    r.n++;
+    rows.set(key, r);
+  }
+  return [...rows.values()].map((r) => ({ ...r, groups: r.groups.sort((x, y) => Number(String(x).slice(1)) - Number(String(y).slice(1))) }));
 }
 
 /**
@@ -284,8 +304,9 @@ export const KINDS = {
   "alert-switch": { label: "failed switches", how: "the bot tries again", ends: true, needsAfterMs: STALL_AGE_MS },
   "alert-clientUpdate": { label: "client updates", how: "the collector checks each new release", ends: true },
 };
-/** Names for the kinds that need a person. */
-const NEEDS_LABEL = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing" };
+/** What one item of each kind is called on the page. */
+const TITLE = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing", "alert-task": "Task failed", "alert-cursor": "Item on the cursor", "alert-lootFull": "Loot left on a corpse", "alert-guard": "Guard escape", "alert-errand": "Errand ended", "alert-crowded": "Zone crowded", "alert-rotate": "Zone move failed", "alert-autoLevelRestarted": "AutoLevel restarted", "alert-raid": "Raid kill", "alert-deaths": "Deaths", death: "Death", longtask: "Task ran long", "alert-clientUpdate": "Client update" };
+export const itemTitle = (kind) => TITLE[kind] ?? kind;
 
 /**
  * Open attention items split into those a person must act on and those a mechanism handles. A
@@ -304,7 +325,7 @@ export function needsYouView(open, now, groupOf = new Map()) {
     const person = a.severity === "decide" || !k || (k.needsAfterMs != null && ageMs > k.needsAfterMs);
     if (person) {
       const key = `${a.kind}|${a.text}`;
-      const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: NEEDS_LABEL[a.kind] ?? k?.label ?? a.kind, groups: [], text: a.text };
+      const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: itemTitle(a.kind), groups: [], text: a.text };
       const g = groupOf.get(a.session);
       if (g && !c.groups.includes(g)) c.groups.push(g);
       c.t = Math.min(c.t, a.t);

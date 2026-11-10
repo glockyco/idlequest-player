@@ -99,7 +99,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         const plan = reports.plan.get();
         const minutes = minuteTotals(db, now);
         const rows = groupRowsView(db, now, { roster, groupOf, catalog, report: report.value, minutes });
-        const attention = attentionView(db, now);
+        const attention = attentionView(db, now, { groupOf });
         const needs = needsYouView(attention.open, now, groupOf);
         const daemon = meta("daemon");
         const progress = progressView(db, now);

@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
+import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, historyView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
 import { putCards } from "../tools/lib/cards.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
@@ -72,6 +72,12 @@ test("one problem on several tabs is one card that lists their groups", () => {
   const failed = (id: number, session: string) => item(id, { kind: "client", session, text: "The client update X lacks fn.hail", t: now - id * 1000 });
   const view = needsYouView([failed(1, "Tank"), failed(2, "Heal"), failed(3, "Tank")], now, new Map([["Tank", "G3"], ["Heal", "G11"]]));
   expect(view.needs).toMatchObject([{ label: "Client update breaks the bot", groups: ["G3", "G11"], t: now - 3000 }]);
+});
+
+test("the alert history gives items of one kind that ended the same way one row with their groups", () => {
+  const done = (id: number, session: string, kind: string, note: string, t: number, took: number) => ({ id, t, severity: "act", kind, session, text: `item ${id}`, resolved: t + took, note });
+  const rows = historyView([done(1, "Tank", "alert-clientUpdate", "the client lacks nothing", 100, 50), done(2, "Heal", "alert-clientUpdate", "the client lacks nothing", 90, 70), done(3, "Tank", "alert-task", "a later task finished", 95, 10)], new Map([["Tank", "G3"], ["Heal", "G11"]]));
+  expect(rows).toMatchObject([{ title: "Client update", groups: ["G3", "G11"], n: 2, t: 90, tookMs: 70 }, { title: "Task failed", groups: ["G3"], n: 1 }]);
 });
 
 /** A session row of a group's leader with the snapshot fields the dashboard reads. */
