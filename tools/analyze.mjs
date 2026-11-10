@@ -32,6 +32,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
+import { xpStep } from "./lib/samples.mjs";
 
 const args = process.argv.slice(2);
 const dir = args.find((a) => !a.startsWith("--"));
@@ -90,7 +91,8 @@ for (let i = 1; i < samples.length; i++) {
   }
   covered += dt;
   for (let s = Math.floor(a.t / 1000) + 1; s <= Math.floor(b.t / 1000); s++) coveredSec.add(s);
-  if (a.xp != null && b.xp != null) xpSum += b.xp - a.xp;
+  const dxp = xpStep(a, b);
+  if (dxp != null) xpSum += dxp;
   if (a.cp != null && b.cp != null) {
     coinSeen = true;
     if (b.cp > a.cp) coinSum += b.cp - a.cp;

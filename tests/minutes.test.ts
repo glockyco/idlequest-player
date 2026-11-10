@@ -43,6 +43,13 @@ test("XP is the active character's net change, with deaths counted once and part
   expect(row.deaths).toBe(1);
 });
 
+test("a switch between characters whose parties look alike is not XP gained, because each sample names its character", () => {
+  // While a switch runs, neither sample shows a companion yet.
+  const alone = { lv: [51], party: [["me"]] };
+  const totals = foldMinutes(null, [at(0, { xp: 40_000_000, cid: 1, ...alone }), at(1, { xp: 18_000_000, cid: 2, ...alone }), at(2, { xp: 18_000_400, cid: 2, ...alone })]);
+  expect(totals.get(T0 / MIN).xp).toBe(400);
+});
+
 test("a recorder session change pairs with nothing", () => {
   const totals = foldMinutes(null, [at(1, { ses: 1, xp: 0 }), at(2, { ses: 2, xp: 5000 })]);
   expect(totals.size).toBe(0);

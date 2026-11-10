@@ -38,6 +38,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { conLimits, cfgFromFlags, evalZone, loadZones } from "./predict.mjs";
 import { factor, xpStart } from "./lib/xp.mjs";
+import { xpStep } from "./lib/samples.mjs";
 
 const here = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -170,9 +171,9 @@ for (const { leader, snap } of playing) {
   for (let i = rows.length - 1; i >= 1 && secs < windowMin * 60 && rows[i].t > now.t - 6 * 3600000; i--) {
     const a = rows[i - 1];
     const b = rows[i];
-    if (b.t - a.t > 3500 || a.lvl !== b.lvl || (b.lvl !== leaderLevel && b.lvl !== leaderLevel - 1) || a.ses !== b.ses || a.mode !== "auto-level" || b.mode !== "auto-level") continue;
+    const dxp = xpStep(a, b);
+    if (b.t - a.t > 3500 || a.lvl !== b.lvl || (b.lvl !== leaderLevel && b.lvl !== leaderLevel - 1) || a.ses !== b.ses || a.mode !== "auto-level" || b.mode !== "auto-level" || dxp == null) continue;
     const dt = (b.t - a.t) / 1000;
-    const dxp = b.xp - a.xp;
     fromT = a.t;
     secs += dt;
     net += dxp;

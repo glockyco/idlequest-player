@@ -127,9 +127,11 @@ knows whether it took effect.
 
 ### Samples name their character
 
-Each sample carries the active character's id, so the minute totals and zone rates never take an
-XP difference across a character switch. A switch to a lower-level member showed as -22M XP per hour
-for group 1 and a switch back as 32M for group 8.
+Each sample carries the active character's id (`cid`), and every reader takes an XP difference
+only between two samples of one character (`xpStep` in `tools/lib/samples.mjs`): the minute
+totals, the zone rates, `analyze.mjs`, `calibrate.mjs`, `plan.mjs` and the bot's report. A switch
+to a lower-level member showed as -22M XP per hour for group 1 and a switch back as 32M for group
+8. Samples recorded before the id fall back to the party's size and first companion.
 
 ## Migration
 

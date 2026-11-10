@@ -36,6 +36,7 @@
 import { readFile } from "node:fs/promises";
 import { DEFAULTS, cfgFromFlags, conLimits, evalZone, loadZones } from "./predict.mjs";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
+import { xpStep } from "./lib/samples.mjs";
 
 const args = process.argv.slice(2);
 const has = (n) => args.includes(`--${n}`);
@@ -91,7 +92,8 @@ function stretchesOf(samples, members) {
     const cell = b.combat ? "combat" : !active ? "off" : moved ? "move" : !full(b) ? "recover" : "idle";
     cur.secs += dt / 1000;
     cur.cells[cell] += dt / 1000;
-    if (a.xp != null && b.xp != null) cur.xp += b.xp - a.xp;
+    const dxp = xpStep(a, b);
+    if (dxp != null) cur.xp += dxp;
     const ck = `${b.minCon}|${b.maxCon}`;
     cur.con.set(ck, (cur.con.get(ck) ?? 0) + dt);
     if (b.lv && b.party) {

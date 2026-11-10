@@ -501,6 +501,8 @@
       act,
       ...(why ? { why } : {}),
       ...(busy ? { busy } : {}),
+      // The active character, so an XP difference never spans a switch (tools/lib/samples.mjs).
+      cid: p.id,
       lvl: p.level,
       xp: p.experienceProgress?.current ?? null, // absolute XP, continuous across levels
       zone: cb.currentZone,

@@ -5,6 +5,7 @@
 // less, halving every `HALF_LIFE_H` hours, so the estimates follow the groups' gear and the
 // account's crowding, and time recorded before errands were marked fades out.
 import { rows } from "./content.mjs";
+import { xpStep } from "./samples.mjs";
 
 export const HALF_LIFE_H = 24;
 // Samples come every second, so a longer gap is a pause in recording, not play.
@@ -18,14 +19,15 @@ const weight = (t0, t) => 2 ** (-(t - t0) / (HALF_LIFE_H * 3600000));
  * with `t` the time the cell's sums are weighed at) and return it. Leaders come one after another,
  * so a sample can be older than its cell, and then the sample weighs less. `zoneOf(id)` gives a
  * zone id's short name, `alone(sample)` whether no other account group hunted in that zone then.
- * A pair of samples counts when it is one second of play in one zone at one level, outside tasks
- * (`act` "task", or `busy`) and errands (`busy`). Deaths count with the XP they lose.
+ * A pair of samples counts when it is one second of play by one character in one zone at one level,
+ * outside tasks (`act` "task", or `busy`) and errands (`busy`). Deaths count with the XP they lose.
  */
 export function accumulate(rates, samples, { zoneOf, alone = () => true }) {
   for (let k = 1; k < samples.length; k++) {
     const a = samples[k - 1];
     const b = samples[k];
-    if (a.ses !== b.ses || a.zone !== b.zone || a.lvl !== b.lvl || a.xp == null || b.xp == null) continue;
+    const dxp = xpStep(a, b);
+    if (a.ses !== b.ses || a.zone !== b.zone || a.lvl !== b.lvl || dxp == null) continue;
     if (a.busy || b.busy || a.act === "task" || b.act === "task") continue;
     const dt = b.t - a.t;
     if (!(dt > 0 && dt <= MAX_GAP_MS)) continue;
@@ -35,7 +37,7 @@ export function accumulate(rates, samples, { zoneOf, alone = () => true }) {
     const cell = byLevel[a.lvl] ?? { s: 0, xp: 0, t: b.t };
     const older = weight(cell.t, b.t); // the cell, when the sample is newer
     const late = weight(b.t, cell.t); // the sample, when the cell is newer
-    byLevel[a.lvl] = b.t >= cell.t ? { s: cell.s * older + dt / 1000, xp: cell.xp * older + (b.xp - a.xp), t: b.t } : { s: cell.s + (late * dt) / 1000, xp: cell.xp + late * (b.xp - a.xp), t: cell.t };
+    byLevel[a.lvl] = b.t >= cell.t ? { s: cell.s * older + dt / 1000, xp: cell.xp * older + dxp, t: b.t } : { s: cell.s + (late * dt) / 1000, xp: cell.xp + late * dxp, t: cell.t };
   }
   return rates;
 }

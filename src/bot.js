@@ -2566,7 +2566,11 @@
       const lastHalfHour = (i.samples ?? []).filter((s) => s.t >= t - 1800000 && s.xp != null);
       const first = lastHalfHour[0];
       const last = lastHalfHour.at(-1);
-      const xpPerHour = first && last && last.t - first.t > 300000 ? Math.round(((last.xp - first.xp) / (last.t - first.t)) * 3600000) : null;
+      // Steps between samples of one character, since a switch puts another character's XP into
+      // the next sample (tools/lib/samples.mjs).
+      let gained = 0;
+      for (let k = 1; k < lastHalfHour.length; k++) if (lastHalfHour[k].cid === lastHalfHour[k - 1].cid) gained += lastHalfHour[k].xp - lastHalfHour[k - 1].xp;
+      const xpPerHour = first && last && last.t - first.t > 300000 ? Math.round((gained / (last.t - first.t)) * 3600000) : null;
       const withVis = lastHalfHour.filter((s) => s.vis != null);
       const newer = state.alerts.filter((a) => a.seq > sinceSeq);
       const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone);

@@ -5,6 +5,7 @@
 // small table and not the sample files. Rows older than `RETENTION_MS` are removed.
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { activeOf, xpStep } from "./samples.mjs";
 
 export const MINUTE_MS = 60000;
 export const RETENTION_MS = 14 * 86400000;
@@ -13,13 +14,6 @@ export const MAX_GAP_MS = 3500;
 /** XP gained across a gap longer than this is not attributed to a minute, since it cannot be placed. */
 const MAX_XP_GAP_MS = 60000;
 
-/**
- * Who is active in a sample: the party size and its first companion. A task plays another
- * character alone, so its samples carry that character's XP, and an XP step between two samples
- * with different parties is a character switch, not XP gained.
- */
-const partyOf = (s) => s.pk ?? `${s.lv?.length ?? ""}/${s.party?.[1]?.[0] ?? ""}`;
-
 /** The key a sample's seconds count under, as in the bridge's `activitySeconds`. */
 export const sampleKey = (s) => (s.why && (s.act === "idle" || s.act === "travel") ? `${s.act}/${s.why}` : s.act);
 
@@ -27,8 +21,8 @@ export const sampleKey = (s) => (s.why && (s.act === "idle" || s.act === "travel
  * Fold `samples` (oldest first, `prev` the sample before them or null) into minute totals,
  * `Map<minute, { sec, xp, deaths }>` with `minute` = floor(t / 60000). An interval counts toward
  * the minute of its later sample, within one recorder session and without a gap. `xp` is the
- * active character's XP change, net of losses at death, and leaves out steps where the active
- * party changes. Pass `into` to keep adding to earlier totals.
+ * active character's XP change, net of losses at death, and leaves out steps across a character
+ * switch (`xpStep` in tools/lib/samples.mjs). Pass `into` to keep adding to earlier totals.
  */
 export function foldMinutes(prev, samples, into = new Map()) {
   let a = prev;
@@ -42,7 +36,8 @@ export function foldMinutes(prev, samples, into = new Map()) {
         const key = sampleKey(s);
         row.sec[key] = (row.sec[key] ?? 0) + dt / 1000;
       }
-      if (s.xp != null && a.xp != null && dt <= MAX_XP_GAP_MS && partyOf(a) === partyOf(s)) row.xp += s.xp - a.xp;
+      const dxp = dt <= MAX_XP_GAP_MS ? xpStep(a, s) : null;
+      if (dxp != null) row.xp += dxp;
       if (s.act === "dead" && a.act !== "dead") row.deaths++;
     }
     a = s;
@@ -116,7 +111,7 @@ export async function backfillMinutes(db, runs, groupOf, since) {
       if (!line) continue;
       try {
         const s = JSON.parse(line);
-        if (s.t >= since - MINUTE_MS) rows.set(`${s.ses}:${s.seq}`, { ses: s.ses, t: s.t, act: s.act, why: s.why, xp: s.xp, pk: partyOf(s) });
+        if (s.t >= since - MINUTE_MS) rows.set(`${s.ses}:${s.seq}`, { ses: s.ses, t: s.t, act: s.act, why: s.why, xp: s.xp, cid: activeOf(s) });
       } catch {
         /* a line cut short by a crash */
       }

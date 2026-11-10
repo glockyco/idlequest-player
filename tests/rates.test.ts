@@ -35,6 +35,13 @@ test("zone rates leave out time another group shares the zone", () => {
   expect(r.kurn[10].xp).toBeCloseTo(100, 1);
 });
 
+test("a switch to another character of the same level in the zone is not XP earned there", () => {
+  const samples = [at(0, 40_000_000, { cid: 1 }), at(1, 40_000_100, { cid: 1 }), at(2, 18_000_000, { cid: 2 }), at(3, 18_000_100, { cid: 2 })];
+  const r = accumulate({}, samples, { zoneOf });
+  expect(r.kurn[10].s).toBeCloseTo(2, 3);
+  expect(r.kurn[10].xp).toBeCloseTo(200, 1);
+});
+
 test("an estimate weighs nearer levels more and older time less", () => {
   const rates = { kurn: { 10: { s: 3600, xp: 1e6, t: NOW }, 12: { s: 3600, xp: 4e6, t: NOW } } };
   // Level 12 counts a third: (1M + 4M/3) over (1 h + 1/3 h).
