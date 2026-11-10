@@ -386,8 +386,6 @@ export const ZONE_DEFAULTS = {
   // Hours of the row's median rate a zone's own measurement is weighed against, so a zone with
   // little time there ranks near the median and gets tried, and its own rate takes over with time.
   priorHours: 0.5,
-  // Another group in the zone takes about half a group's share of its enemies (tools/calibrate.mjs).
-  crowdWeight: 0.5,
   // A group leaves its zone for one worth this share more.
   margin: 0.2,
   // A rotation set this recently stays, so the group can arrive before the crowds shift again.
@@ -407,15 +405,16 @@ export function crowdedZones(tabs, now) {
  * rotation. A group stays in its zone, and keeps its rotation, until the best zone is worth
  * `margin` more, so measurement noise and shifting crowds do not move groups back and forth.
  * A rotation set within `settleMin` (`rotationSetAt`) stays while the group travels to it. Groups are assigned from the lowest
- * level up, because the slowest group sets the account's time to 60, and a zone is worth a
- * `crowdWeight` share less for each group that hunts there already. A zone's measured rate is
+ * level up, because the slowest group sets the account's time to 60, and a zone is worth its
+ * `crowdFactor(zone, level, n)` share of its rate alone for the `n` groups that hunt there already
+ * (docs/plans/zone-crowding.md: a zone supplies so many kills an hour, which the groups share). A zone's measured rate is
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
  * zone with little time there ranks near the median and gets tried. Busy groups keep their rotation and
  * count for the zone they are in. Groups an experiment holds are assigned like the others, because
  * crowding the arms unevenly confounds an experiment more than a change of zone does. Returns
  * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
-export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAULTS }) {
+export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = () => 1, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();
   const occupy = (zone) => zone && crowd.set(zone, (crowd.get(zone) ?? 0) + 1);
@@ -433,7 +432,7 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
     const known = (solid.length ? solid : zones.filter((m) => m.e)).map((m) => m.e.xph).sort((a, b) => a - b);
     const median = known.length ? known[Math.floor(known.length / 2)] : 1;
     const xph = (e) => (e ? (e.hours * e.xph + cfg.priorHours * median) / (e.hours + cfg.priorHours) : median);
-    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: xph(m.e) / (1 + cfg.crowdWeight * (crowd.get(m.z) ?? 0)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: (xph(m.e) * crowdFactor(m.z, level, crowd.get(m.z) ?? 0)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
@@ -447,7 +446,7 @@ export function assignZones({ now, tabs, rows = [], rates = {}, cfg = ZONE_DEFAU
     const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.length <= cfg.keep && t.rotation.every((z) => row.includes(z) && !busyZones.has(z)) && t.rotation.includes(t.zone);
     // The bot moves through its rotation as spawns run out, so the rotation is judged by its best zone.
     const rotationBest = Math.max(0, ...ranked.filter((m) => (t.rotation ?? []).includes(m.z)).map((m) => m.value));
-    if (rotationInRow && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
+    if (stay && rotationInRow && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
     if (t.rotationSetAt && now - t.rotationSetAt < cfg.settleMin * 60000 && (t.rotation ?? []).every((z) => row.includes(z))) {
       occupy(t.rotation[0]);
       continue;

@@ -382,10 +382,13 @@ test("a group moves to the best zone only once it is worth the margin more than 
 
 test("the lowest group takes the best zone first, and the next counts it as crowded", () => {
   const tabs = [tab("B", "G4", 16, { zone: "najena" }), tab("A", "G3", 15, { zone: "warrens" })];
-  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });
+  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: shared });
   expect(out.find((z) => z.label === "A")!.rotation[0]).toBe("kurn");
   expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
 });
+// A small zone's supply, which the groups in it share evenly.
+const shared = (_zone: string, _level: number, n: number) => 1 / (1 + n);
+
 
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
   // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
@@ -409,7 +412,7 @@ test("a rotation of the whole row, or one with a crowded zone, is trimmed to the
 
 test("busy groups keep their rotation and count for the zone they are in", () => {
   const tabs = [tab("A", "G3", 14, { zone: "kurn", errand: { zone: "kurn" } }), tab("H", "G5", 14, { zone: "runnyeye", task: { status: "running" } }), tab("B", "G4", 15, { zone: "najena" })];
-  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES });
+  const out = assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: shared });
   expect(out.map((z) => z.label)).toEqual(["B"]);
   // Kurn and Runnyeye each hold a group, so Upper Guk and Warrens rank first.
   expect(out[0].rotation.slice(0, 2)).toEqual(["guktop", "warrens"]);
@@ -424,8 +427,9 @@ test("a group that stays keeps its rotation, and one that should move gets a new
   // A zone that left the band row, or a group that should move, gets a new rotation.
   const old = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "befallen"] });
   expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })).toHaveLength(1);
-  // A group in its rotation's weaker zone keeps it while the rotation's best zone is within the margin.
-  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })).toEqual([]);
+  // A group in its rotation's weaker zone moves when the best zone is worth the margin more, even if
+  // that zone is in its rotation, since the bot would stay where it is.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })).toHaveLength(1);
   const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
   expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
 });

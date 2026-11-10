@@ -555,7 +555,7 @@ class Daemon {
     // the account remembers the newest report per zone for 45 minutes and every tab carries the same
     // map. A machine restart had sent group 1 straight back to two crowded zones. A report from a zone
     // where another of our groups hunts is left out, because the zone choice counts our own groups
-    // already (`crowdWeight`): seven restored groups in Permafrost marked it crowded and pushed five
+    // already (`crowdFactor`): seven restored groups in Permafrost marked it crowded and pushed five
     // groups into Paw. Only reports since the last pass count, so the groups' zones now are the zones
     // at the report.
     const crowdedAt = metaGet(this.db, "crowded") ?? {};
@@ -716,7 +716,8 @@ class Daemon {
     // Zone rotations by measured XP per hour. A tab given a task this pass keeps its rotation.
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
     const tasked = new Set(actions.map((a) => a.label));
-    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates })) {
+    const crowdFactor = await this.crowdFactors();
+    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, crowdFactor })) {
       const tab = tabs.find((t) => t.label === z.label);
       const changed = await this.relay.evaluate(tab.targetId, call(applySettingsInPage, { s: { rotation: z.rotation } }), { timeout: 10000 }).catch(() => []);
       if (!changed?.length) continue;
@@ -1039,6 +1040,29 @@ class Daemon {
     const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
     // Only with every recorded row on disk, since a reload drops the page's buffers.
     if (exported && this.recover && snap.hasBot && !stale) await this.recycleTab(tr, snap, now).catch((e) => this.log(`reload ${tr.label}: ${e.message}`));
+  }
+
+  /**
+   * The zone choice's `crowdFactor(zone, level, n)`: the share of its rate alone a zone pays a group
+   * at `level` while `n` other groups hunt there, as tools/predict.mjs models it (every kill empties
+   * a point until its respawn, and the groups share the zone's spawn rate), docs/plans/zone-crowding.md.
+   * The zones are read once and each factor is kept. A zone the model lacks counts as shared evenly.
+   */
+  async crowdFactors() {
+    const predict = await import("./predict.mjs");
+    this.zoneModels ??= await predict.loadZones();
+    this.crowdCache ??= new Map();
+    return (zone, level, n) => {
+      if (!n) return 1;
+      const key = `${zone}:${level}:${n}`;
+      if (!this.crowdCache.has(key)) {
+        const z = this.zoneModels.get(zone);
+        const at = (crowd) => (z ? predict.evalZone(z, { ...predict.cfgFromFlags(level), crowd }).xph : undefined);
+        const alone = at(0);
+        this.crowdCache.set(key, alone > 0 ? at(n) / alone : 1 / (1 + n));
+      }
+      return this.crowdCache.get(key);
+    };
   }
 
   /**
