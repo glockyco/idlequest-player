@@ -1,9 +1,11 @@
 // Measured XP per hour by zone and leader level, from the leaders' one-second samples
-// (src/bridge.js), which the coordinator's zone assignment ranks zones by. Only time a group
-// hunts alone in its zone and on its own counts: a task or an errand changes what the party
-// fights, and another account group in the zone takes part of its enemies. Older time weighs
-// less, halving every `HALF_LIFE_H` hours, so the estimates follow the groups' gear and the
-// account's crowding, and time recorded before errands were marked fades out.
+// (src/bridge.js), which the coordinator's zone assignment ranks zones by. A task or an errand
+// changes what the party fights, so only hunting time counts. Time shared with other account groups
+// counts as the share of the zone's rate alone that tools/predict.mjs gives for them
+// (docs/plans/zone-crowding.md), so the rates are rates alone, measured over all of a zone's hours:
+// the minutes a busy zone is alone come right after the others left, with every point up, and
+// alone they overrated Solusek's Eye by a third. Older time weighs less, halving every
+// `HALF_LIFE_H` hours, so the estimates follow the groups' gear.
 import { rows } from "./content.mjs";
 import { xpStep } from "./samples.mjs";
 
@@ -18,11 +20,13 @@ const weight = (t0, t) => 2 ** (-(t - t0) / (HALF_LIFE_H * 3600000));
  * Add one leader's samples, oldest first, to `rates` (`{ [zone]: { [level]: { s, xp, t } } }`,
  * with `t` the time the cell's sums are weighed at) and return it. Leaders come one after another,
  * so a sample can be older than its cell, and then the sample weighs less. `zoneOf(id)` gives a
- * zone id's short name, `alone(sample)` whether no other account group hunted in that zone then.
- * A pair of samples counts when it is one second of play by one character in one zone at one level,
- * outside tasks (`act` "task", or `busy`) and errands (`busy`). Deaths count with the XP they lose.
+ * zone id's short name, `others(sample)` the number of other account groups in that zone then, and
+ * `factor(zone, level, n)` the share of its rate alone a zone pays with `n` others, so `s` holds
+ * seconds alone-equivalent. A pair of samples counts when it is one second of play by one character
+ * in one zone at one level, outside tasks (`act` "task", or `busy`) and errands (`busy`). Deaths
+ * count with the XP they lose.
  */
-export function accumulate(rates, samples, { zoneOf, alone = () => true }) {
+export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = () => 1 }) {
   for (let k = 1; k < samples.length; k++) {
     const a = samples[k - 1];
     const b = samples[k];
@@ -32,12 +36,16 @@ export function accumulate(rates, samples, { zoneOf, alone = () => true }) {
     const dt = b.t - a.t;
     if (!(dt > 0 && dt <= MAX_GAP_MS)) continue;
     const zone = zoneOf(a.zone);
-    if (!zone || !alone(a)) continue;
+    if (!zone) continue;
+    const n = others(a);
+    const f = n ? factor(zone, a.lvl, n) : 1;
+    if (!(f > 0)) continue;
+    const sec = (dt / 1000) * f;
     const byLevel = (rates[zone] ??= {});
     const cell = byLevel[a.lvl] ?? { s: 0, xp: 0, t: b.t };
     const older = weight(cell.t, b.t); // the cell, when the sample is newer
     const late = weight(b.t, cell.t); // the sample, when the cell is newer
-    byLevel[a.lvl] = b.t >= cell.t ? { s: cell.s * older + dt / 1000, xp: cell.xp * older + dxp, t: b.t } : { s: cell.s + (late * dt) / 1000, xp: cell.xp + late * dxp, t: cell.t };
+    byLevel[a.lvl] = b.t >= cell.t ? { s: cell.s * older + sec, xp: cell.xp * older + dxp, t: b.t } : { s: cell.s + late * sec, xp: cell.xp + late * dxp, t: cell.t };
   }
   return rates;
 }

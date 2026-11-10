@@ -28,11 +28,13 @@ test("zone rates count play outside tasks and errands, and leave out gaps and le
   expect(r.kurn[11].xp).toBeCloseTo(100, 1);
 });
 
-test("zone rates leave out time another group shares the zone", () => {
-  const samples = [at(0, 0), at(1, 100), at(2, 200), at(3, 300)];
-  const r = accumulate({}, samples, { zoneOf, alone: (s: { t: number }) => s.t < NOW + 1000 });
-  expect(r.kurn[10].s).toBeCloseTo(1, 3);
-  expect(r.kurn[10].xp).toBeCloseTo(100, 1);
+test("time another group shares the zone counts at the share of the zone it gets, so it measures the rate alone", () => {
+  // One second alone at 100 XP, then two seconds with two others at 50 XP each, where the model
+  // gives a group half the zone's rate alone: the rate alone is 100 XP a second throughout.
+  const samples = [at(0, 0), at(1, 100), at(2, 150), at(3, 200)];
+  const r = accumulate({}, samples, { zoneOf, others: (s: { t: number }) => (s.t < NOW + 1000 ? 0 : 2), factor: (zone: string, level: number, n: number) => (zone === "kurn" && level === 10 && n === 2 ? 0.5 : 1) });
+  expect(r.kurn[10].s).toBeCloseTo(2, 3);
+  expect(r.kurn[10].xp).toBeCloseTo(200, 1);
 });
 
 test("a switch to another character of the same level in the zone is not XP earned there", () => {

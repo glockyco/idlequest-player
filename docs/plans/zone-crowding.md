@@ -11,6 +11,11 @@ model every kill empties a point until its respawn, the other groups' kills empt
 candidates, which lengthens the walk, and kills cannot exceed the zone's spawn rate shared among
 the groups. A zone the model lacks counts as shared evenly.
 
+The rate alone is measured over all of a zone's time (`tools/lib/rates.mjs`): a second shared with
+`n` other groups counts as `crowdFactor(zone, level, n)` seconds alone. Measured over the minutes
+a group was alone only, it overrates a zone the account keeps busy, because those minutes follow
+the other groups' departure with every spawn point up.
+
 A rotation that already holds the right zones stays only while the group should stay in its zone,
 since the bot moves along its rotation only when a zone runs dry.
 
@@ -33,5 +38,5 @@ to zones that measure worse.
   another group as half (`--crowd-weight`), a fit from earlier runs that today's crowded rates do
   not support. Refit it with `tools/calibrate.mjs --fit` once a day of crowded stretches per zone
   exists, and use one value in both places.
-- Check after a day: the crowded rates the groups measure match the factors within the zones'
-  measurement noise.
+- Fit the factors to the measured rates per number of groups once the rates alone stop moving, and
+  replace the model's factors where they disagree beyond the measurement noise.

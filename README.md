@@ -399,13 +399,15 @@ farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mj
 
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, best first by the XP per hour measured there at levels
-within two of the leader's (`tools/lib/rates.mjs`). Only time a group hunted alone in its zone,
-outside tasks and errands, counts, and older time weighs less, halving every 24 hours. iqd keeps
-the rates in the db's meta key `rates`, built once from `runs/live/*/samples.jsonl` and grown from
-every new sample. A zone with little time there ranks near the row's median, so it gets tried, and a
-zone another group hunts in counts for less. A group stays in its zone until another zone is worth
-20% more, and the bot moves along its rotation by itself when a zone runs dry. A row is the list of
-zones that are safe and worth trying at its levels, so a zone joins a row there.
+within two of the leader's (`tools/lib/rates.mjs`). The rates are rates alone: time outside tasks
+and errands counts, and time shared with other groups counts at the share of the zone the crowding
+model gives them (docs/plans/zone-crowding.md). Older time weighs less, halving every 24 hours. iqd
+keeps the rates in the db's meta key `zoneRates`, built once from `runs/live/*/samples.jsonl` and
+grown from every new sample. A zone with little time there ranks near the row's median, so it gets
+tried, and a zone other groups hunt in counts for its crowding factor. A group stays in its zone
+until another zone is worth 20% more, and the bot moves along its rotation by itself when a zone
+runs dry. A row is the list of zones that are safe and worth trying at its levels, so a zone joins
+a row there.
 
 The coordinator's tasks and zone changes are logged as interventions by `coordinator`, apart from
 manual ones, and the dashboard's Coordinator section shows its last pass.

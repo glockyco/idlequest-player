@@ -713,8 +713,7 @@ class Daemon {
     // Zone rotations by measured XP per hour. A tab given a task this pass keeps its rotation.
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
     const tasked = new Set(actions.map((a) => a.label));
-    const crowdFactor = await this.crowdFactors();
-    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, crowdFactor })) {
+    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, crowdFactor: this.crowdFactor })) {
       const tab = tabs.find((t) => t.label === z.label);
       const changed = await this.relay.evaluate(tab.targetId, call(applySettingsInPage, { s: { rotation: z.rotation } }), { timeout: 10000 }).catch(() => []);
       if (!changed?.length) continue;
@@ -722,7 +721,7 @@ class Daemon {
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, z.label, `zone: ${z.rotation.join(", ")} for ${tab.group}, ${z.why}`);
       this.log(`coordinator: ${z.label} zone: ${z.rotation.join(", ")}, ${z.why}`);
     }
-    metaSet(this.db, "rates", rates);
+    metaSet(this.db, "zoneRates", rates);
     // AA settings for each party, outside tasks, which may have another character active. The
     // window's state also names the active character's points, spent points and ranks, kept per
     // character in the meta key `aa` for the dashboard.
@@ -788,43 +787,48 @@ class Daemon {
   }
 
   /**
-   * The measured zone rates (tools/lib/rates.mjs), kept in the db's meta key `rates` and grown by
-   * `exportRows`. Without them, the first call reads every leader's recorded samples once, and a
-   * minute counts as alone when no other leader recorded samples in that zone in that minute.
+   * The measured zone rates alone (tools/lib/rates.mjs), kept in the db's meta key `zoneRates` and
+   * grown by `addRates`. Without them, the first call reads every character's recorded samples once
+   * and counts, for each minute and zone, the other roster groups that recorded samples there.
    */
   async loadRates() {
     this.zoneNames ??= await zoneNames();
+    this.crowdFactor ??= await this.crowdFactors();
     if (this.rates) return this.rates;
-    const saved = metaGet(this.db, "rates");
+    const saved = metaGet(this.db, "zoneRates");
     if (saved) return (this.rates = saved);
     const dir = join(this.runs, "live");
-    const read = async (leader) => {
+    const read = async (name) => {
       const out = [];
-      const text = await readFile(join(dir, leader, "samples.jsonl"), "utf8").catch(() => "");
+      const text = await readFile(join(dir, name, "samples.jsonl"), "utf8").catch(() => "");
       for (const line of text.split("\n")) {
         if (!line) continue;
         try {
           const s = JSON.parse(line);
-          out.push({ ses: s.ses, t: s.t, act: s.act, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone });
+          out.push({ ses: s.ses, t: s.t, act: s.act, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone, cid: s.cid });
         } catch {
           /* a line cut short by a crash */
         }
       }
       return out;
     };
-    const leaders = await readdir(dir).catch(() => []);
+    // A member that runs a quest step records under its own name, so groups count by roster group.
+    const names = await readdir(dir).catch(() => []);
+    const groupOf = rosterGroups();
     const minute = (s) => `${Math.floor(s.t / 60000)}:${s.zone}`;
-    const seen = new Map(); // minute and zone -> the leader seen there, or null for several
-    for (const leader of leaders) {
-      for (const s of await read(leader)) {
+    const there = new Map(); // minute and zone -> the groups that recorded samples there
+    for (const name of names) {
+      for (const s of await read(name)) {
         const k = minute(s);
-        if (!seen.has(k)) seen.set(k, leader);
-        else if (seen.get(k) !== leader) seen.set(k, null);
+        (there.get(k) ?? there.set(k, new Set()).get(k)).add(groupOf.get(name) ?? name);
       }
     }
     const rates = {};
-    for (const leader of leaders) accumulate(rates, await read(leader), { zoneOf: (id) => this.zoneNames.get(id), alone: (s) => seen.get(minute(s)) === leader });
-    this.log(`zone rates: read the samples of ${leaders.length} leaders`);
+    for (const name of names) {
+      const own = groupOf.get(name) ?? name;
+      accumulate(rates, await read(name), { zoneOf: (id) => this.zoneNames.get(id), others: (s) => [...(there.get(minute(s)) ?? [])].filter((g) => g !== own).length, factor: this.crowdFactor });
+    }
+    this.log(`zone rates: read the samples of ${names.length} characters`);
     return (this.rates = rates);
   }
 
@@ -1353,14 +1357,15 @@ class Daemon {
   }
 
   /**
-   * Add a tab's new samples to the zone rates, with the pair across two drains. The group counts as
-   * alone while no other tab's latest sample of the last two minutes lies in its zone.
+   * Add a tab's new samples to the zone rates, with the pair across two drains. The other groups
+   * in its zone are the other tabs whose latest sample of the last two minutes lies there, and the
+   * time counts at the share of the zone the crowding model gives the group with them.
    */
   addRates(tr, samples) {
     const last = samples.at(-1);
-    if (this.rates && this.zoneNames) {
+    if (this.rates && this.zoneNames && this.crowdFactor) {
       const others = [...this.trackers.values()].filter((o) => o !== tr && o.lastSample && last.t - o.lastSample.t < 120000).map((o) => o.lastSample.zone);
-      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), alone: (s) => !others.includes(s.zone) });
+      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), others: (s) => others.filter((z) => z === s.zone).length, factor: this.crowdFactor });
     }
     tr.lastSample = last;
   }
