@@ -1,7 +1,7 @@
 // Checks the attention rules of tools/iqd.mjs on fixture snapshots. No browser, no relay, no clock.
 // Run with `bun test`.
 import { expect, test } from "bun:test";
-import { openDb, raiseItem, renderStatus, resolveItem, stepSession, syncAttention } from "../tools/iqd.mjs";
+import { openDb, raiseItem, renderStatus, resolveItem, stepSession, sweepOrphans, syncAttention } from "../tools/iqd.mjs";
 
 const T0 = 1_800_000_000_000;
 const SEC = 1000;
@@ -247,6 +247,21 @@ test("a parked tab clears the items it had", () => {
   syncAttention(db, { label: "Tagu", res, now: T0 });
   const row = db.query("SELECT note FROM attention").get() as { note: string };
   expect(row.note).toBe("tab is parked");
+});
+
+test("items of a label no tab shows close: a condition at once, an event after its time to live, a decision never", () => {
+  const db = openDb(":memory:");
+  const notes = () => (db.query("SELECT session, kind, note FROM attention ORDER BY id").all() as { session: string; kind: string; note: string | null }[]).map((r) => [r.session, r.kind, r.note]);
+  raiseItem(db, { t: T0, severity: "act", kind: "stall", session: "Gone", key: "stall:Gone", text: "idle" });
+  raiseItem(db, { t: T0, severity: "info", kind: "levelup", session: "Gone", key: "levelup:1:12", text: "reached level 12" });
+  raiseItem(db, { t: T0, severity: "act", kind: "alert-task", session: "Gone", key: "alert-task:1:2", text: "quest failed" });
+  raiseItem(db, { t: T0, severity: "decide", kind: "trigger", session: "Gone", key: "trigger:1:46", text: "reached level 46" });
+  // A label a tab shows stays with syncAttention.
+  raiseItem(db, { t: T0, severity: "info", kind: "levelup", session: "Tagu", key: "levelup:2:30", text: "reached level 30" });
+  sweepOrphans(db, ["Tagu"], T0 + 11 * 60 * SEC);
+  expect(notes()).toEqual([["Gone", "stall", "no tab shows this label"], ["Gone", "levelup", "expired"], ["Gone", "alert-task", null], ["Gone", "trigger", null], ["Tagu", "levelup", null]]);
+  sweepOrphans(db, ["Tagu"], T0 + 61 * 60 * SEC);
+  expect(notes()[2]).toEqual(["Gone", "alert-task", "expired"]);
 });
 
 test("status stays within 40 lines with many open items", () => {

@@ -247,6 +247,21 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
   }
 }
 
+/**
+ * Close the open items of labels no tab shows anymore, such as a leader replaced in the roster or a
+ * character a tab played for a while: `syncAttention` runs only for a tab's own labels, so these
+ * never expired. A condition can no longer be evaluated and closes at once, and an event closes
+ * after its time to live. `labels` are the labels the tabs show now.
+ */
+export function sweepOrphans(db, labels, now = Date.now()) {
+  const live = new Set(labels);
+  for (const e of db.query("SELECT id, t, severity, kind, session FROM attention WHERE resolved IS NULL").all()) {
+    if (live.has(e.session)) continue;
+    if (CONDITION_KINDS.includes(e.kind)) resolveItem(db, e.id, "no tab shows this label", now);
+    else if (e.severity in EVENT_TTL_MS && now - e.t >= EVENT_TTL_MS[e.severity]) resolveItem(db, e.id, "expired", now);
+  }
+}
+
 // ---- In-page expressions ------------------------------------------------------------------------
 // Both read window.iq and window.iqBot and change nothing. They run inside the game page, so they
 // stay short.
@@ -1041,6 +1056,7 @@ class Daemon {
     // A failed version keeps the last one, so tabs stop updating: the log names why.
     if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch((e) => (this.log(`code version: ${e.message}`), this.code));
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
+    sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code });
     await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
     // A minute or so of downloads and checks, so it runs beside the cycles.
