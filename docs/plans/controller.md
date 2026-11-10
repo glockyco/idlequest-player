@@ -16,8 +16,11 @@ of a constant per symptom.
    times out. An errand's enemies are a priority inside hunting, not a filter that can leave the
    party with nothing to fight.
 3. Every second of every tab carries one label: fighting, approaching a target, recovering,
-   traveling, a task, dead, or idle with a reason. Idle time is a measured quantity. One table maps
-   each idle reason to its remedy, and a remedy that fails twice wakes a person.
+   traveling, a task, dead, or idle with a reason. The reason is the cause the page shows evidence
+   for, named where it is observed (the client's own stop lines, a failed zone load, a target
+   another player engaged, the bot's holds), and a stop without evidence is `unknown`. Idle time
+   is a measured quantity. One table maps each idle reason to its remedy, and a remedy that fails
+   twice wakes a person.
 4. Choices compare value per hour in one currency, the XP a tab earns in its time. Rates come from
    the live runs (`tools/calibrate.mjs`, `tools/fights.mjs`) and costs are known quantities, such
    as a leader death costing level squared times 666.67 XP. Thresholds follow from the model.
@@ -29,9 +32,11 @@ of a constant per symptom.
    most about 30 seconds and the script's process can die.
 7. Whatever several tabs share is decided in one place, the coordinator in `tools/iqd.mjs`: zones,
    lightstones, coin, experiments and deploys. It writes desired states and never plays.
-8. The adapter to the game client has no policy in it. It offers one snapshot of the world and
-   actions that check their own effect. `tools/check-client.mjs` checks it against every new
-   client release.
+8. The adapter to the game client has no policy in it. It offers one snapshot of the world,
+   actions that check their own effect, and one query that asks a slow server again for what only
+   reads. It compensates documented client defects in shims, each with the defect it answers and a
+   count of how often it stood in for the client. `tools/check-client.mjs` checks the adapter and
+   every shim's anchor against each new client release.
 9. Policy code is pure. It is tested on situations recorded in the live runs, and against
    invariants: no idle second without a remedy under way, the active character is the desired
    leader unless a lease says otherwise, and every task ends in hunting.
@@ -40,7 +45,8 @@ of a constant per symptom.
 
 | Part | Lives in | Owns |
 | --- | --- | --- |
-| Adapter | `src/bridge.js` | The world snapshot (party, zone, enemies and their targets, inventory, cursor, open windows, AutoLevel, coin) and the actions: start and stop hunting, travel, target enemies, trade with an NPC, switch the active character, move coin, sell, recover from death, close windows |
+| Adapter | `src/bridge.js` | The world snapshot (party, zone, enemies and their targets, inventory, cursor, open windows, AutoLevel, coin), the read-only query, the shims for client defects and the actions: start and stop hunting, travel, target enemies, trade with an NPC, switch the active character, move coin, sell, recover from death, close windows |
+| Page supervisor | `tools/lib/page.mjs`, run by `tools/iqd.mjs` | Each tab's page: signed in, with the current bridge and bot, within its memory and without a known client fault, through sign-ins spread over the fleet, installs and deploys, and reloads at a quiet moment |
 | Controller | `src/bot.js` | The loop: desired state and leases, the reconciler (leader, party, zone, AutoLevel and its limits, client options), the task runner, the safety decision, the bag and spell chores and the time labels |
 | Value model | shared by the page and the tools | Rates per level, zone and group, the death risk model, the costs of escapes, deaths, character switches and trips, and what gear is worth getting ([gear acquisition](gear-acquisition.md)) |
 | Coordinator | `tools/iqd.mjs` | Zone assignment from measured rates and spawn capacity, lightstone and coin allocation, task scheduling, experiments with frozen desired states during their blocks, versioned deploys, alerts and the decision log |

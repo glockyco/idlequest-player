@@ -2,8 +2,8 @@
 
 How the bot, the adapter and iqd handle what goes wrong in the server and the client, so each fault
 has one owner, one cure and a test, and the fixes of 2026-11-10 become one design instead of a
-stack of special cases. This plan extends the [controller design](controller.md) and changes two
-of its principles.
+stack of special cases. This plan extends the [controller design](controller.md), whose principles
+3 and 8 and page supervisor part follow from it.
 
 ## Why
 
@@ -133,22 +133,6 @@ totals, the zone rates, `analyze.mjs`, `calibrate.mjs`, `plan.mjs` and the bot's
 to a lower-level member showed as -22M XP per hour for group 1 and a switch back as 32M for group
 8. Samples recorded before the id fall back to the party's size and first companion.
 
-## Migration
-
-Each step deletes what it replaces, has tests on recorded situations, runs on one group first and
-then on all, measured with the idle causes per group-hour.
-
-1. The causes and the single AutoLevel owner, with rendering as a client option. Deletes the
-   `clientStop` marker, the starts outside the reconciler, the Try Again click in `watchConnection`
-   and iqd's `renderingOff`.
-2. The page supervisor. Deletes `recoverTab`'s timers, `recycleTab`, `recycleReason` and
-   `lootlessKills`.
-3. The shim section, with the loot preview moved into it and its check in `tools/check-client.mjs`.
-4. The query, used by the gear survey and the coordinator's searches. Deletes their own retries.
-5. The character id in samples, read by `tools/lib/minutes.mjs` and `tools/lib/rates.mjs`.
-6. `controller.md` updated: principle 3 names causes by their evidence, principle 8 as above, and a
-   part for the page supervisor.
-
 ## Decisions
 
 - A failed zone load is answered with Try Again, and a shim compensates the defect it leaves.
@@ -157,5 +141,3 @@ then on all, measured with the idle causes per group-hour.
 - The adapter compensates documented client defects in shims, and a fresh page cures what no shim
   covers.
 - Page recovery is one pure state machine in `tools/lib/page.mjs`, run by iqd.
-- The steps run in the order of the migration above, one commit each, before the readiness-recovery
-  work and the cleric chain.
