@@ -20,6 +20,8 @@ import { targetId } from "./lib/acquire.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
+import { pageStep } from "./lib/page.mjs";
+import { screenInPage } from "../src/install.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -31,58 +33,12 @@ export const THRESHOLDS = {
   idleSec: 120, // idle or dead without a bot pause or a raid
   noKillSec: 300, // no kill without a bot pause or a raid
   heapShare: 0.85, // share of the JS heap limit
-  recycleShare: 0.5, // share of the JS heap limit the heap's floor over `recycleMin` reaches before the page reloads
-  recycleMin: 10, // the window of that floor, longer than V8's collection sawtooth of a few minutes
-  recycleGapMin: 10, // at most one page reload in this many minutes, so one group at a time is down
-  lootlessKills: 25, // kills in a row without a "You loot" line before the page reloads; healthy play reaches about ten
   taskMin: 60, // a coordinator task running longer than this (the longest, a farm, runs 120 under its own errand)
   snapshotEverySec: 300, // a character's snapshot is written at least this often
 };
 
 /** Attention kinds that describe a state. They resolve themselves when the state ends. */
 export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap", "longtask"];
-
-/**
- * Kills in a row without a "You loot" line, carried from `prev` through a tab's new event rows.
- * Only a coin or item line ends a run: a client that lost its loot messages still shows lines
- * such as "Uncollected items remain on the corpse".
- */
-export function lootlessKills(prev, events) {
-  let n = prev;
-  for (const e of events) {
-    if (/^You have defeated /.test(e.text ?? "")) n++;
-    else if (e.type === "LOOT" && /^You loot /.test(e.text ?? "")) n = 0;
-  }
-  return n;
-}
-
-/**
- * Why the page of a tab should reload now, or null. A reload starts a fresh page and keeps the
- * tab's sessionStorage, which holds the bot's leader and settings, and `recoverTab` signs in and
- * installs the bridge and bot again. Two faults of the client ask for one:
- *
- * - It keeps memory it no longer needs, so a tab's JS heap grows over hours by an amount that
- *   depends on what the tab did (the bridge's own buffers are capped), until the page would run out
- *   of heap. `log` holds the tab's heap readings `{ t, used }` since its page loaded. The floor, the
- *   lowest reading over the last `recycleMin` minutes, counts, because the heap saws up and down by
- *   hundreds of MB between collections.
- * - A zone load that failed and was tried again leaves it without its loot messages until the page
- *   reloads (docs/client-internals.md, Loot messages): coin and items still arrive, but no "You
- *   loot" line shows and AutoLevel waits about six seconds after each kill. `lootless` counts the
- *   kills in a row without such a line (`lootlessKills`).
- *
- * The reload waits for a moment it loses little: no running task, raid, fight or zone load.
- */
-export function recycleReason({ log, lootless = 0, snap, now, thresholds = THRESHOLDS }) {
-  if (snap?.bot?.task?.status === "running" || snap?.raid || snap?.conn?.inCombat || snap?.conn?.zoneLoading || !snap?.conn?.worldReady) return null;
-  if (lootless >= thresholds.lootlessKills) return `the last ${lootless} kills brought no loot line, which the client loses in a failed zone load`;
-  const limit = snap.heap?.limit;
-  const since = now - thresholds.recycleMin * 60000;
-  if (!limit || !log.length || log[0].t > since) return null;
-  const floor = Math.min(...log.filter((r) => r.t >= since).map((r) => r.used));
-  if (floor < thresholds.recycleShare * limit) return null;
-  return `the page heap stayed above ${floor} of ${limit} MB for ${thresholds.recycleMin} min`;
-}
 
 // ---- Database -----------------------------------------------------------------------------------
 
@@ -368,6 +324,7 @@ export function snapshotInPage(a) {
     out.kills = { total: ks.length, last: ks.length ? ks.at(-1).t : null, lastEnemy: ks.length ? ks.at(-1).enemy : null, n30: n, xp30: xp, winMs: Math.min(1800000, t - firstT) };
     const m = performance.memory;
     out.heap = m ? { used: Math.round(m.usedJSHeapSize / 1048576), limit: Math.round(m.jsHeapSizeLimit / 1048576) } : null;
+    out.faults = iq.faults ?? null;
     out.bags = p?.id ? { ...iq.bagSpace(), reserve: window.iqBot?.config?.minFreeSlots ?? null } : null;
     out.rec = { ses: iq.session, seqS: iq.seqs?.sample ?? 0, seqE: iq.seqs?.event ?? 0 };
   } catch (e) {
@@ -1070,7 +1027,8 @@ class Daemon {
     if (!present) obs = { reachable: false, present: false, error: this.relay.connected ? null : "relay not connected" };
     else {
       try {
-        const snap = await this.relay.evaluate(tr.targetId, call(snapshotInPage, { session: tr.state.pageSession ?? null, after: tr.state.alertSeq ?? 0, sinceT: now - 900000 }), { timeout: 8000 });
+        // The page's screen comes with the snapshot, also for a page without the bridge.
+        const snap = await this.relay.evaluate(tr.targetId, `({ ...${call(snapshotInPage, { session: tr.state.pageSession ?? null, after: tr.state.alertSeq ?? 0, sinceT: now - 900000 })}, screen: (${screenInPage})() })`, { timeout: 8000 });
         obs = { reachable: true, present: true, snap };
       } catch (e) {
         obs = { reachable: false, present: true, error: String(e.message).slice(0, 100) };
@@ -1110,27 +1068,19 @@ class Daemon {
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
       this.saveSession(tr, snap, now);
       this.recordCharacters(tr, snap, now);
-      // The heap readings of the page since it loaded, over twice the recycle window.
-      if (tr.heapSession !== snap.pageSession) Object.assign(tr, { heapSession: snap.pageSession, heapLog: [] });
-      if (snap.heap) tr.heapLog = [...tr.heapLog.filter((r) => r.t >= now - 2 * THRESHOLDS.recycleMin * 60000), { t: now, used: snap.heap.used }];
     } else if (tr.rowId) {
       this.db.query("UPDATE sessions SET state = ? WHERE id = ?").run(JSON.stringify(tr.state), tr.rowId);
     }
     this.applyItems(tr, res, now, oldLabel);
-    // A tab without the bridge or the bot is recovered, and one that runs older code gets the new
-    // code, unless a raid runs, which a reinstall would end. A server restart signs every page out
-    // and leaves the bridge and bot in it, and the bot does not sign in, so a page off the game
-    // server for a minute is signed in again. The minute leaves the client time to resume by itself.
-    const stale = snap?.hasBridge && snap.hasBot && this.code && snap.code !== this.code && !snap.raid;
-    const install = Boolean(snap && (!snap.hasBridge || !snap.hasBot || stale));
-    const offline = Boolean(snap?.conn && (snap.conn.screen === "login" || snap.conn.connected === false));
-    tr.offlineSince = offline ? (tr.offlineSince ?? now) : null;
-    const signedOut = offline && now - tr.offlineSince >= 60000;
-    if (obs.reachable && snap && !snap.error && (install || signedOut)) await this.recoverTab(tr, now, { update: stale, install }).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
-    else if (snap?.hasBot && !stale) tr.state.recovery = null;
+    // Every recorded row goes to disk first, since a reload drops the page's buffers. Then the page
+    // supervisor (tools/lib/page.mjs) says what the page needs to keep playing.
     const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
-    // Only with every recorded row on disk, since a reload drops the page's buffers.
-    if (exported && this.recover && snap.hasBot && !stale) await this.recycleTab(tr, snap, now).catch((e) => this.log(`reload ${tr.label}: ${e.message}`));
+    if (this.recover) {
+      const step = pageStep({ obs, page: tr.page, fleet: this.fleet, now, code: this.code, exported: Boolean(exported) });
+      tr.page = step.page;
+      this.fleet = step.fleet;
+      if (step.action) await this.pageAction(tr, step.action, now).catch((e) => this.log(`page ${tr.label}: ${e.message}`));
+    }
   }
 
   /**
@@ -1156,19 +1106,6 @@ class Daemon {
     };
   }
 
-  /**
-   * Reload a tab's page when `recycleReason` asks for it, one tab per `recycleGapMin`. Needs
-   * `--recover`, which signs the reloaded page in and installs the bridge and bot again.
-   */
-  async recycleTab(tr, snap, now) {
-    const why = recycleReason({ log: tr.heapLog ?? [], lootless: tr.lootless ?? 0, snap, now });
-    if (!why || now - (this.lastRecycleAt ?? 0) < THRESHOLDS.recycleGapMin * 60000) return;
-    this.lastRecycleAt = now;
-    this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'iqd', ?)").run(now, tr.label, `reloaded the page: ${why}`);
-    this.log(`reload ${tr.label}: ${why}`);
-    await this.relay.evaluate(tr.targetId, "setTimeout(() => location.reload(), 200), true", { timeout: 5000 });
-  }
-
   saveSession(tr, snap, now) {
     const leader = snap.leader;
     const parked = snap.bot?.enabled === false ? 1 : 0;
@@ -1192,45 +1129,32 @@ class Daemon {
   }
 
   /**
-   * Bring a reachable game tab back to play (`--recover`): a page without the bridge or the bot, as
-   * a reload leaves it, or one a server restart signed out, which keeps both. It signs in with the
-   * stored login when the login form shows. A sign-in takes the page through loading to the
-   * character select, which can last longer than a cycle, so another sign-in waits two minutes.
-   * Then it installs the bridge and bot as the SDK does (src/install.mjs) where `install` asks for
-   * them, at most every two minutes, but at once when this recovery's sign-in reached the
-   * character select. A signed-out page that kept both needs only the sign-in. A page still loading
-   * counts as no attempt. The bot keeps its settings in the tab's sessionStorage, so a reloaded tab
-   * knows its leader. A tab that lost them gets its group's leader and members from
-   * data/roster.json, by the leader it showed before. The bot then enters the world as the leader
-   * from the character select and regroups by itself.
+   * Carry out the page supervisor's `action` in the tab (`pageStep` in tools/lib/page.mjs): sign in
+   * with the stored login, install the bridge and bot as the SDK does (src/install.mjs), or reload
+   * the page. The bot keeps its settings in the tab's sessionStorage, so a reloaded tab knows its
+   * leader, and a tab that lost them gets its group's leader and members from data/roster.json, by
+   * the leader it showed before. The bot then enters the world as the leader and regroups by itself.
    */
-  async recoverTab(tr, now, { update = false, install = true } = {}) {
-    if (!this.recover) return;
-    const r = (tr.state.recovery ??= { attempts: 0, at: 0, signedInAt: 0 });
-    const { installExpressions, screenInPage, signInInPage, storedLogin } = await import("../src/install.mjs");
+  async pageAction(tr, action, now) {
+    const { installExpressions, signInInPage, storedLogin } = await import("../src/install.mjs");
     const evaluate = (expression, timeout = 15000) => this.relay.evaluate(tr.targetId, expression, { timeout });
-    const screen = await evaluate(`(${screenInPage})()`);
     const note = (text) => {
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'iqd', ?)").run(now, tr.label, text);
-      this.log(`recovery ${tr.label}: ${text}`);
+      this.log(`page ${tr.label}: ${text}`);
     };
-    if (screen === "loading") return;
-    if (screen === "login") {
-      if (now - (r.signedInAt ?? 0) < 120000) return;
-      r.signedInAt = now;
-      r.attempts++;
+    if (action.kind === "signIn") {
       await evaluate(`(${signInInPage})(${JSON.stringify(await storedLogin())})`);
-      return note("signed in with the stored login");
+      return note(`signed in with the stored login (${action.why})`);
     }
-    if (!install) return;
-    if (now - r.at < 120000 && !((r.signedInAt ?? 0) > r.at)) return;
-    r.at = now;
-    r.attempts++;
+    if (action.kind === "reload") {
+      note(`reloaded the page: ${action.why}`);
+      return evaluate("setTimeout(() => location.reload(), 200), true", 5000);
+    }
     for (const e of await installExpressions()) await evaluate(e, 30000);
     const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
     const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;
-    if (update) return this.log(`deploy ${tr.label}: code ${this.code}`);
-    note(`installed the bridge and bot at ${screen}${set ? `, and set ${g.members[0]} as leader of ${g.id}` : ""}`);
+    if (action.update) return this.log(`deploy ${tr.label}: code ${this.code}`);
+    note(`installed the bridge and bot: ${action.why}${set ? `, and set ${g.members[0]} as leader of ${g.id}` : ""}`);
   }
 
   recordCharacters(tr, snap, now) {
@@ -1274,8 +1198,6 @@ class Daemon {
   async exportRows(tr, snap) {
     const dir = join(this.runs, "live", safeName(this.leaderOf(snap.leader.name)));
     await mkdir(dir, { recursive: true });
-    // Only a reload brings lost loot messages back, so the count starts again with each page.
-    if (tr.lootSession !== snap.pageSession) Object.assign(tr, { lootSession: snap.pageSession, lootless: 0 });
     // A page iqd has not exported in this run resumes after its rows already in the logs.
     const resume = (file) => {
       const c = tailCursor(join(dir, file));
@@ -1298,7 +1220,6 @@ class Daemon {
           const looted = lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) });
           recordProgress(this.db, looted, this.groups());
           this.keepCards(looted.map((r) => r.data.itemId));
-          tr.lootless = lootlessKills(tr.lootless, got.events);
         }
         if (!got.more) return true;
       }

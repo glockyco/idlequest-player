@@ -274,8 +274,11 @@
     if (log.entries.length > log.max) log.entries.splice(0, log.entries.length - log.max);
   };
   // Kill log built from the combat messages the server broadcasts, and the item ids of the loot
-  // packets by item name, which the loot lines printed from them lack (`lootOf`).
+  // packets by item name, which the loot lines printed from them lack (`lootOf`). `faults` names the
+  // client's faults the page supervisor reloads a page for (tools/lib/page.mjs): `lootless` counts
+  // the kills in a row without a "You loot" line, which a failed zone load can stop.
   const kills = window.iq?.kills ?? [];
+  const faults = window.iq?.faults ?? { lootless: 0 };
   const KILL_RE = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
   const lootIds = new Map();
   const origObserve = socket.observeIncomingOpcode.bind(socket);
@@ -284,7 +287,10 @@
       const data = JSON.parse(new TextDecoder().decode(payload));
       record("in", op, data);
       const m = opName[op] === "ChatMessageBroadcast" && KILL_RE.exec(data.text ?? "");
-      if (m) kills.push({ t: Date.now(), enemy: m[1], xp: Number(m[2]) });
+      if (m) {
+        kills.push({ t: Date.now(), enemy: m[1], xp: Number(m[2]) });
+        faults.lootless++;
+      }
       if (opName[op] === "LootGenerated") for (const it of data.items ?? []) lootIds.set(it.name, it.itemId);
     } catch {
       /* not JSON */
@@ -613,6 +619,9 @@
       const e = { ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text), ...lootOf(m.type, m.text) };
       events.push(e);
       noteStop(e);
+      // Only a coin or item line ends a run, because a client without its loot messages still shows
+      // lines such as "Uncollected items remain on the corpse".
+      if (e.type === "LOOT" && /^You loot /.test(e.text ?? "")) faults.lootless = 0;
       // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.
       if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
         lastSpellBuy = Date.now();
@@ -1498,6 +1507,7 @@
     surface: CLIENT_SURFACE,
     log,
     kills,
+    faults,
     samples,
     events,
     seqs,

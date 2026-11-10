@@ -408,25 +408,24 @@ zones that are safe and worth trying at its levels, so a zone joins a row there.
 The coordinator's tasks and zone changes are logged as interventions by `coordinator`, apart from
 manual ones, and the dashboard's Coordinator section shows its last pass.
 
-`run --recover` deploys the bridge and bot to every tab whose installed code differs from the
-repository's (`codeVersion` in `src/install.mjs`, outside raids), and brings back a game tab that is
-reachable but has lost the bridge or the bot, as a page reload does, or has been off the game
-server for a minute with both in place, as a server restart leaves every tab. It signs in with the
-stored login when the login form shows, at most every two minutes per tab because a sign-in
-outlasts a cycle. A server that refuses a burst of sign-ins ("Too many login attempts") gets the
-next one after those two minutes. Where the bridge or bot is missing, it installs both as `attach`
-does (`src/install.mjs`), at most every two minutes and at once when its sign-in reached the
-character select. A signed-out tab keeps its bot, which enters the world from the character select.
-The bot keeps its settings in the tab's sessionStorage, so it enters the world as its leader and
-regroups by itself, and a tab without them gets its group from `data/roster.json`. iqd reloads a
-page for two faults of the client (`recycleReason` in `tools/iqd.mjs`). The client keeps memory it
-no longer needs, so a tab's JS heap grows over hours, and a reload comes once its floor, the lowest
-reading over 10 minutes,
-stays at half the heap limit or more. A failed zone load can leave the client without its loot
-messages, which the bridge repairs in the page (docs/client-internals.md, Loot messages), and should
-they stop anyway, a reload comes after 25 kills in a row without a "You loot" line. It waits for a moment without a task, fight, raid or zone load, with
-every recorded row on disk, one tab at a time, and the recovery above brings it back. A crashed tab needs a new tab, which iqd cannot
-open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
+`run --recover` keeps every reachable game tab's page playing through the page supervisor
+(`tools/lib/page.mjs`), which looks at each page every cycle and gives at most one action. It signs
+in with the stored login when the login form shows, at once on a fresh page and after a minute on
+one that left the game, so the client can resume the session by itself first, at most every two
+minutes per tab, because a sign-in outlasts a cycle, and six times in the fleet per half minute,
+because the server refuses a burst ("Too many login attempts"). It installs the bridge and bot as
+`attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
+otherwise at most every two minutes, and deploys them to a tab whose installed code differs from
+the repository's (`codeVersion`, outside raids). A signed-out tab keeps its bot, which enters the
+world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
+enters the world as its leader and regroups by itself, and a tab without them gets its group from
+`data/roster.json`. The supervisor reloads a page for two faults of the client: a JS heap whose
+floor, the lowest reading over 10 minutes, stays at half its limit, because the client keeps memory
+it no longer needs, and 25 kills in a row without a "You loot" line, which a failed zone load can
+leave behind although the bridge repairs that in the page (docs/client-internals.md, Loot
+messages). A reload waits for a moment without a task, fight, raid or zone load, with every
+recorded row on disk, one tab of the fleet per 10 minutes. A crashed tab needs a new tab, which iqd
+cannot open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and

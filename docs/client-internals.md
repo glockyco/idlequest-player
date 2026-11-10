@@ -427,8 +427,8 @@ shows, and after each kill AutoLevel waits for the pending loot until its deadli
 labels `lootSettle` once the party is full. Later zone changes and sign-ins do not end it, and a page reload
 does. So the bridge wraps the scene runtime's preview (`watchLootPreview` in `src/bridge.js`) to call
 back within 1.5 seconds, by the scene or by the wrap, which runs only the client's own collection.
-Should loot lines stop anyway, iqd reloads a tab after `lootlessKills` kills in a row without one
-(`recycleReason` in `tools/iqd.mjs`).
+Should loot lines stop anyway, the page supervisor reloads a tab after 25 kills in a row without one,
+which the bridge counts (`faults.lootless`, tools/lib/page.mjs).
 
 ## Guard
 

@@ -85,21 +85,22 @@ world lifts it for its moment (`iqBot.render(seconds)`).
 
 Each tab's page has a desired state too: loaded, signed in, in the world, with the current bridge
 and bot, within its memory, and without a known client fault. One pure function in
-`tools/lib/page.mjs` takes a tab's observation, its supervisor state and the fleet's budgets and
-returns one action (none, sign in, install, reload, alert) with the new state:
+`tools/lib/page.mjs` takes a tab's look (the snapshot with the page's screen), its supervisor state
+and the fleet's budgets and returns one action (none, sign in, install, reload) with the new state:
 
 | Observed | Action | Limits |
 | --- | --- | --- |
 | Loading | None | |
-| Login form or socket down for a minute | Sign in | Every 2 minutes per tab, and a pause between any two sign-ins of the fleet |
-| Bridge or bot missing, or older code outside a raid | Install | Every 2 minutes per tab, at once after this tab's sign-in reached the character select |
-| Heap floor at half the limit for 10 minutes, or a page fault the bot reported | Reload at a quiet moment | One reload in the fleet per 10 minutes |
-| A tab not answering for a minute | Alert | |
+| Login form on a fresh page, or for a minute after the page left the game | Sign in | Every 2 minutes per tab, and six in the fleet per half minute: twelve sign-ins at once saw two or three refused, nine none |
+| Bridge or bot missing, or older code outside a raid | Install | Every 2 minutes per tab, at once after this tab's sign-in |
+| Heap floor at half the limit for 10 minutes, or 25 kills in a row without a loot line, which the bridge counts (`faults.lootless`) | Reload at a quiet moment with every row on disk | One reload in the fleet per 10 minutes |
 
-It replaces `recoverTab`'s timers, `recycleTab`, `recycleReason` and the lootless count, and the
-executor in iqd only evaluates the action in the tab. Its tests replay recorded situations: twelve
-tabs signed out at once, a reload whose first zone load fails, a tab that signs in while another
-reloads, a heap floor during a fight.
+A tab that does not answer stays with the attention rules (`gone`), since no action in it can help.
+The supervisor replaces `recoverTab`'s timers, `recycleTab`, `recycleReason` and iqd's lootless
+count, and the executor in iqd only carries out the action in the tab (`pageAction`). Its tests
+replay recorded situations: twelve tabs signed out at once, a reloaded page that signs in and
+installs, a reload that waits for its moment while another tab signs in, the loot fault and a heap
+dip.
 
 ### Client defects are shims
 
