@@ -995,8 +995,9 @@ class Daemon {
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
     const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
-    // The 40 best targets are all the hunts and the dashboard's list need.
-    this.targetWants = targets.slice(0, 40);
+    // Every target the plan values goes to the coordinator, which weighs it against every group's
+    // reach and rate, and the dashboard lists the best of them.
+    this.targetWants = targets;
     // The per-character report for the dashboard: the scores in `gearPlan`, and in `gearSheets` each
     // character's slots with the cards (name, icon, stats) of the items they name.
     const cards = {};
@@ -1010,7 +1011,7 @@ class Daemon {
     metaSet(this.db, "gearSheets", { t: now, sheets, items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
     metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
-    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
+    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
     return { moves };
   }
 

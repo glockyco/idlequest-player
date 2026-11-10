@@ -158,6 +158,14 @@ test("a target whose best group is busy goes to a free group that still gains, a
   expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G2", kind: "errand", status: expect.stringMatching(/^waits for G2, which is on a quest task/) });
 });
 
+test("a target only one group reaches waits for that group by its reach, and a weaker free group leaves it", () => {
+  const strong = { ...place(tab("A", "G1", 51), "velketor"), task: { kind: "hunt", status: "running" } };
+  const weak = place(tab("B", "G2", 36), "paw");
+  const { actions, targets } = decide({ now: NOW, tabs: [strong, weak], targets: [target("a broodling", "velketor", 125, 48)], hoursPerLevel, zoneShare: () => 0.9 });
+  expect(actions).toEqual([]);
+  expect(targets["target-velketor-a-broodling"].status).toMatch(/^waits for G1, the only group that reaches level 48, which is on a hunt task/);
+});
+
 test("each gear target says why it is not hunted", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
   const status = (targets: object[], extra = {}) => Object.values(decide({ now: NOW, tabs, targets, hoursPerLevel, ...extra }).targets).map((e: { status: string }) => e.status);
