@@ -1763,7 +1763,7 @@ test("a container on the cursor with every general slot taken sends the emptiest
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     handInPage(f, {}, { ok: true });
-    f.bot.config.keepNames = ["Rock"];
+    f.bot.config.demand = { 1: 100 };
     type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string; bagslots: number } };
     const bagWith = (slot: number, n: number): Row[] => [
       { bag: 0, slot, itemid: 900 + slot, itemInstanceId: 500 + slot, itemDetails: { Name: `Bag ${slot}`, bagslots: 8 } },
@@ -1858,13 +1858,13 @@ test("the reserve discards surplus without a price first, then sells surplus che
         return { success: true, data: { copperTotal: 1 } };
       },
     });
-    // The coordinator names a quest piece, and the gear plan needs one helm copy for a move.
-    Object.assign(f.bot.config, { autoBank: false, minFreeSlots: 8, targetFreeSlots: 8, keepNames: ["Power of Fire"], gearKeepInstances: [104] });
+    // The coordinator's demand wants a quest piece, and the gear plan needs one helm copy for a move.
+    Object.assign(f.bot.config, { autoBank: false, minFreeSlots: 8, targetFreeSlots: 8, demand: { 4: 1 }, gearKeepInstances: [104] });
     expect(f.bot.fates()).toMatchObject({ keep: [{ name: "Power of Fire" }, { name: "Small Bronze Helm", instanceId: 104 }], discard: [{ name: "Battle Plans" }, { name: "Shaded Torch" }] });
     // The account's demand keeps that many copies of an item it is short of, not more.
-    Object.assign(f.bot.config, { gearKeepInstances: [], demand: { 5: 1 } });
+    Object.assign(f.bot.config, { gearKeepInstances: [], demand: { 4: 1, 5: 1 } });
     expect(f.bot.fates().keep.filter((k) => k.name === "Small Bronze Helm")).toHaveLength(1);
-    Object.assign(f.bot.config, { gearKeepInstances: [104], demand: {} });
+    Object.assign(f.bot.config, { gearKeepInstances: [104], demand: { 4: 1 } });
     const clean = async () => {
       const run = f.bot.cleanup();
       for (let k = 0; k < 30; k++) {

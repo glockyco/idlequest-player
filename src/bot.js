@@ -60,7 +60,6 @@
     // many copies are kept.
     demand: {},
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
-    keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, kept in every copy
     keepSupply: { 14: 20, 15: 20 }, // food (item type 14) and drink (15): units kept, from the largest stacks, which the server feeds the character from
     sellPerTick: 8,
     cursorAlertSec: 60, // an item held on the cursor this long raises an alert
@@ -210,7 +209,7 @@
   /**
    * The fate of every carried item outside containers (docs/plans/items.md, "Fate"): kept up to its
    * demand, the rest surplus. Demand keeps up to `demand` copies of an item, every copy of
-   * `keepItemIds` and `keepNames`, the gear plan's `gearKeepInstances`, the reagents of the leader's
+   * `keepItemIds`, the gear plan's `gearKeepInstances`, the reagents of the leader's
    * class spells, and food and drink up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
    * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
@@ -230,7 +229,7 @@
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
       const wanted = config.gearKeepInstances.includes(r.itemInstanceId) || (demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true));
-      if (supply || wanted || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
+      if (supply || wanted || config.keepItemIds.includes(r.itemid) || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
     }

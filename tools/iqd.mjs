@@ -17,7 +17,7 @@ import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
-import { addDemand, chainDemand, loadItemModel, potionDemand, stepDemand } from "./lib/item-demand.mjs";
+import { addDemand, chainDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand } from "./lib/item-demand.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -682,17 +682,22 @@ class Daemon {
       const b = predicted(t.zone, level);
       return a > 0 && b > 0 ? a / b : 0;
     };
-    // What the hunts and errands are for is never sold, wherever it is looted.
-    const keepNames = [...new Set(opportunities.map((o) => o.item).filter(Boolean))].sort();
     // The account's demand (docs/plans/items.md, "Demand"): the last gear pass's copies, the class
     // epics' chain inputs from the quest graph, the items of the runnable chains in
-    // data/quests.json and the casino's boss potions. The model is read once, and the gear counts
-    // stay in the db meta key `gearKeep`, so a restart keeps them.
+    // data/quests.json, the copies the hunts and errands are for and the casino's boss potions.
+    // The model is read once, and the gear counts stay in the db meta key `gearKeep`, so a restart
+    // keeps them.
     this.itemModel ??= await loadItemModel();
     this.gearKeep ??= metaGet(this.db, "gearKeep") ?? { counts: {}, instances: [] };
     const epicHolders = new Set((await Promise.all(Object.values(this.itemModel.epics).flat().map((id) => carriers(this.itemModel.names.get(id))))).flat());
-    const demand = addDemand(this.gearKeep.counts, chainDemand({ ...this.itemModel, members, epicHolders }), stepDemand({ quests, holders, members, ids: this.itemModel.ids }), potionDemand(this.itemModel.bosses));
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames, demand, gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
+    const demand = addDemand(
+      this.gearKeep.counts,
+      chainDemand({ ...this.itemModel, members, epicHolders }),
+      stepDemand({ quests, holders, members, ids: this.itemModel.ids }),
+      opportunityDemand({ opportunities, need: (o) => piecesNeeded(o, { quests, holders, members }), ids: this.itemModel.ids }),
+      potionDemand(this.itemModel.bosses),
+    );
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand, gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
     const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });

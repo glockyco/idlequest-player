@@ -295,9 +295,9 @@ each item and gives it equipped to its receiver, or into the bags for a Bard's i
 the account's demand (`demand`, copies per item, `docs/plans/items.md`): the copies the gear plan is
 still short of, every input of the class epics' chains in the quest graph read from the content's
 quest scripts and recipes (`tools/lib/quest-graph.mjs`), the items of the runnable chains in
-`data/quests.json` and one of each casino boss potion. It also keeps the copies the plan's moves take
-(`gearKeepInstances`) and the names of what the coordinator's hunts and errands are for
-(`keepNames`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). After a
+`data/quests.json`, the copies of what the coordinator's hunts and errands are for that the roster
+still needs, and one of each casino boss potion. It also keeps the copies the plan's moves take
+(`gearKeepInstances`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). After a
 content update, `bun tools/quest-graph.mjs` lists the chain items the graph does not reach. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of each band row's zones (`zoneDrops` in

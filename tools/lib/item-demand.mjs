@@ -70,6 +70,16 @@ export function stepDemand({ quests, holders = {}, members, ids }) {
 }
 
 /**
+ * Copies of the items the coordinator's hunts and errands are for (`opportunities` of
+ * data/opportunities.json): `need(o)` copies of each opportunity's item, by its ids (`ids`).
+ */
+export function opportunityDemand({ opportunities, need, ids }) {
+  const out = {};
+  for (const o of opportunities) for (const id of ids.get(o.item) ?? []) out[id] = (out[id] ?? 0) + need(o);
+  return out;
+}
+
+/**
  * One copy of every casino boss potion (`bosses`, the client's casino table): a potion is LORE
  * and stays with the character that won it, so a tab never carries two of one boss.
  */

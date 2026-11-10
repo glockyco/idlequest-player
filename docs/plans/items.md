@@ -54,7 +54,7 @@ Hand-in rewards (XP, coin and items, read from the scripts) value the items a qu
 | Step | Change | Removes | Status |
 | --- | --- | --- | --- |
 | 1 | Quest graph, `data/epics.json`, chain and step demand, the casino table read from the client, all in one `demand` map. | `questItemIds`, `keepItemIdRange`, `gearKeepCounts`, `setGearKeepInPage`, `questKeepItems` and the chain part of `keepNames` | Done |
-| 2 | Each tab's share of the demand, by the copies the account holds elsewhere. | `keepNames`, `keepItemIds`, `data/quest-items.json` and `tools/quest-items.mjs` | Open |
+| 2 | The hunts' and errands' items in the demand, then each tab's share of the demand by the copies the account holds elsewhere. | `keepNames` (done), `keepItemIds`, `data/quest-items.json` and `tools/quest-items.mjs` | Under way |
 | 3 | One held-item routine in the bot, loot primitives in the bridge, raid loot given in the raid window. | The cursor handling of `clearCursorAfterTrade`, `collectLoot` and `giveItem` | Open |
 | 4 | The item task delivers kept copies and stores them. | Kept copies in the leader's bags | Open |
 | 5 | Hand-in reward values. | Hand-picked hand-ins such as lightstones | Open |
