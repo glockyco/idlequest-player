@@ -537,7 +537,11 @@ class tooltip lists them ("Shaman Buffs, Active while supplied, Supplied by ..."
 walks at the leader's speed, `baseSpeed * (1 + movementSpeedMod / 100)` (`CVE` 470134-470139), so
 a group without a Spirit of Wolf provider (Shaman 9, Druid 14, Ranger 30) or a Bard's travel song
 walks at base speed. Which buffs a group gets therefore follows from its classes, their levels
-and their scribed spells.
+and their scribed spells. Timed buffs and supplied ones are resolved together, largest sum of
+effects first: a later buff in a slot taken already stays only when the stacking check lets it
+overwrite (`V3`), and a timed buff that loses is listed in `suppressedTimedSpellIds` (release
+20261110T154736, `BpHyB6iC.js:20188-20240`, `20279-20286`). So a clicked run speed of 35, such as
+Traveler's Boots, loses to a supplied Spirit of Wolf of 45.
 
 ## Macro bar, account sharing and options
 
