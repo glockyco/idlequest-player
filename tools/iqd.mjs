@@ -1090,9 +1090,11 @@ class Daemon {
         tr.rowId = null;
         tr.state = {};
       }
-      // The relay may list the same page under a new target id after it restarted.
+      // The relay may list the same page under a new target id after it restarted. Pages installed
+      // within one millisecond before the bridge's ids had a random part share a session id, so the
+      // same page also has the same leader.
       for (const [id, other] of this.trackers) {
-        if (other !== tr && other.state.pageSession === snap.pageSession) {
+        if (other !== tr && other.state.pageSession === snap.pageSession && other.snap?.leader?.id === snap.leader?.id) {
           if (other.rowId) this.db.query("UPDATE sessions SET ended = ? WHERE id = ?").run(now, other.rowId);
           this.trackers.delete(id);
         }

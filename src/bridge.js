@@ -320,7 +320,9 @@
   const events = window.iq?.events ?? [];
   const seqs = window.iq?.seqs ?? { sample: 0, event: 0 };
   // Changes whenever the page reloads, because the buffers and the sequence numbers restart then.
-  const session = window.iq?.session ?? Date.now();
+  // The supervisor installs several pages within one millisecond, so a random part keeps their
+  // sessions apart, and the id still sorts by install time.
+  const session = window.iq?.session ?? Date.now() * 1000 + Math.floor(Math.random() * 1000);
   // Rows kept by an older install of this bridge carry no session. Give them one that sorts before
   // this install's, so an exporter whose file holds rows from an earlier page still collects them.
   for (const r of samples) r.ses ??= session - 1;
