@@ -306,9 +306,9 @@ still needs, and one of each casino boss potion. It also keeps the copies the pl
 (`gearKeepInstances`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). After a
 content update, `bun tools/quest-graph.mjs` lists the chain items the graph does not reach. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
-The plan also lists the gear that enemies of each band row's zones (`zoneDrops` in
-`tools/lib/gear-data.mjs`) and the named droppers of `data/gear-picks.json` drop, where it beats what
-a character wears, and ranks the enemies by the value an hour of hunting them brings to the account
+The plan also lists the gear that enemies of every live zone drop (`liveDrops` in
+`tools/lib/gear-data.mjs`), where it beats what a character wears, and ranks the enemies by the
+value an hour of hunting them brings to the account
 (`targets`). Each coordinator pass gives the free groups the targets whose best way of hunting earns
 most, best pair of group and target first: an errand inside normal hunting when the zone is in the
 group's rotation, a camp or a short visit when it is not. Any group may hunt for any character,

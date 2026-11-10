@@ -393,7 +393,11 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // Characters who would still take a virtual copy after the moves mean the account is short of the
   // item, because a free copy would have been moved: that many looted copies are kept until the next pass.
   const virtual = (itemId) => ({ characterName: null, itemId, itemName: items.get(itemId).Name, itemInstanceId: `drop:${itemId}` });
-  const takers = (itemId) => people.filter((p) => offer(virtual(itemId), p).length > 0).length;
+  // What each character would take of one copy, computed once per item: the drops list an item for
+  // every enemy that drops it, about 18 rows per item across the live zones.
+  const offersOf = new Map();
+  const offersFor = (itemId) => offersOf.get(itemId) ?? offersOf.set(itemId, people.map((p) => [p, offer(virtual(itemId), p)])).get(itemId);
+  const takers = (itemId) => offersFor(itemId).filter(([, o]) => o.length > 0).length;
   const counts = {};
   for (const [id, n] of bought) counts[id] = n;
   for (const id of new Set([...candidates, ...drops.filter((d) => items.has(d.itemId)).map((d) => d.itemId)])) {
@@ -408,8 +412,8 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   for (const d of drops) {
     if (!items.has(d.itemId)) continue;
     const r = virtual(d.itemId);
-    for (const p of people) {
-      for (const o of offer(r, p)) {
+    for (const [p, offers] of offersFor(d.itemId)) {
+      for (const o of offers) {
         if (o.gain < 2 * minGain) continue;
         const k = `${p.name}:${o.slot}`;
         // Hours per copy at the account's typical kill rate (`copyHours`), and the respawns' bound

@@ -332,13 +332,12 @@ const dropRow = (itemId, s) => {
 };
 
 /**
- * The gear enemies drop in the band rows' zones (data/band-rotations.json), for the roster gear
- * plan's `drops` (`dropRow`). Only enemies up to five levels above a row that hunts their zone and
- * items that fit a slot and carry stats, armor or damage count. Resolves with `{ drops, items }`.
+ * The gear enemies drop in every live zone, for the roster gear plan's `drops` (`dropRow`): items
+ * that fit a slot and carry stats, armor or damage. Which enemies a group can kill is decided per
+ * group and enemy (docs/plans/gear-acquisition.md, "Kill chance"), not here. Resolves with
+ * `{ drops, items }`.
  */
-export async function zoneDrops(root, bandRows) {
-  const sorted = [...bandRows].sort((a, b) => a[0] - b[0]);
-  const bands = sorted.map(([, zones], k) => ({ max: (sorted[k + 1]?.[0] ?? 61) - 1, zones }));
+export async function liveDrops(root) {
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
   const items = new Map();
   for await (const i of rows("items", root)) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
@@ -346,31 +345,7 @@ export async function zoneDrops(root, bandRows) {
   const drops = [];
   for (const [itemId, list] of sources) {
     for (const s of list) {
-      if (!bands.some((b) => b.zones.includes(s.zoneShort) && s.level <= b.max + 5)) continue;
       const row = dropRow(itemId, s);
-      if (row) drops.push(row);
-    }
-  }
-  return { drops, items };
-}
-
-/**
- * The gear picks of data/gear-picks.json (`[{ item, zone, keep }]`), sources outside the band
- * rotations, as drops for the roster gear plan (`dropRow`): for each pick the source in its zone
- * whose enemy matches `keep` with the fewest hours per copy. A pick without such a source is left
- * out. Resolves with `{ drops, items }`, items by id.
- */
-export async function pickDrops(root, picks) {
-  const names = new Set(picks.map((o) => o.item));
-  const items = new Map();
-  for await (const i of rows("items", root)) if (names.has(i.Name) && i.slots > 0) items.set(i.id, i);
-  const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
-  const drops = [];
-  for (const o of picks) {
-    const keep = new RegExp(o.keep.replace(/ /g, "[ _]"), "i");
-    for (const [itemId, i] of items) {
-      if (i.Name !== o.item) continue;
-      const row = (sources.get(itemId) ?? []).filter((x) => x.zoneShort === o.zone && keep.test(x.npc)).map((s) => dropRow(itemId, s)).filter(Boolean).sort((a, b) => a.hours - b.hours)[0];
       if (row) drops.push(row);
     }
   }

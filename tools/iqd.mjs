@@ -947,18 +947,16 @@ class Daemon {
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
     recordWear(this.db, survey, now);
-    const { attachEffects, merchantGoods, pickDrops, zoneDrops } = await import("./lib/gear-data.mjs");
+    const { attachEffects, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
     const { contentRoot, rows } = await import("./lib/content.mjs");
-    // The merchant goods, the drops of the band rotations and of the gear picks (data/gear-picks.json,
-    // sources outside the rotations), and their item rows, read once.
+    // The merchant goods, the gear every live zone's enemies drop, and their item rows, read once.
     if (!this.shop) {
       const goods = await merchantGoods(contentRoot());
       this.shop = goods.shop;
       this.items = goods.items;
-      const dropped = await zoneDrops(contentRoot(), JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8")));
-      const picked = await pickDrops(contentRoot(), JSON.parse(await readFile(join(REPO, "data/gear-picks.json"), "utf8")));
-      this.drops = [...dropped.drops, ...picked.drops];
-      for (const [id, i] of [...dropped.items, ...picked.items]) this.items.set(id, i);
+      const dropped = await liveDrops(contentRoot());
+      this.drops = dropped.drops;
+      for (const [id, i] of dropped.items) this.items.set(id, i);
     }
     const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows("items", contentRoot())) if (missing.has(i.id)) this.items.set(i.id, i);
