@@ -1,0 +1,4 @@
+{
+  "about": "The raid bosses the account's goal asks to kill, by the names docs/plans/raid-roster.md gives them. A raid kill counts for the goal when the boss's name matches one of these, ignoring case, spaces, punctuation and a leading \"the\" (tools/lib/progress.mjs, goalBoss).",
+  "bosses": ["Nanzata the Warder", "Ventani the Warder", "Tukaarak the Warder", "Hraashna the Warder", "Cazic-Thule", "Lord Yelinak", "Tunare", "Vulak`Aerr", "The Avatar of War"]
+}

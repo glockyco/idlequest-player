@@ -18,6 +18,7 @@ import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
+import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -96,6 +97,7 @@ export function openDb(path) {
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
   db.run(WEAR_SCHEMA);
+  db.run(PROGRESS_SCHEMA);
   return db;
 }
 
@@ -200,12 +202,7 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   }
 
   const leader = snap.leader;
-  const roster = [...(leader ? [leader] : []), ...(snap.party ?? []).filter((m) => m.type === 2 && m.id != null)];
-  const chars = [...new Map(roster.map((c) => [c.id, c])).values()];
-  for (const c of chars) {
-    const prev = levels[c.id];
-    if (prev != null && c.level > prev) item("info", "levelup", `levelup:${c.id}:${c.level}`, `${c.name}${c.class ? ` (${c.class})` : ""} reached level ${c.level}`);
-  }
+  for (const c of levelUps(snap, levels)) item("info", "levelup", `levelup:${c.id}:${c.level}`, `${c.name}${c.class ? ` (${c.class})` : ""} reached level ${c.level}`);
   if (leader && levels[leader.id] != null) {
     for (const tr of triggers) {
       if (levels[leader.id] < tr.level && leader.level >= tr.level) {
@@ -282,6 +279,7 @@ export function snapshotInPage(a) {
       const same = iq && iq.session === a.session;
       const after = same ? a.after : 0;
       const since = same ? 0 : a.sinceT;
+      // The raid alert of a kill names its boss (`killed`) for the progress feed.
       const wake = st.alerts.filter((x) => x.seq > after && x.t >= since && x.wake);
       out.bot = {
         enabled: bot.config.enabled,
@@ -293,7 +291,7 @@ export function snapshotInPage(a) {
         task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
-        alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400) })),
+        alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
       };
     }
     if (!out.hasBridge) return out;
@@ -448,8 +446,8 @@ export function applySettingsInPage(a) {
  * request. The server refuses both below the unlock level (46), so the allocation covers the
  * characters past it and the rule waits for the host to reach it. The allocation goes first,
  * because the window does not allocate while the rule pauses a character. Returns what it changed
- * and the active character's AA state: `{ done, state: { name, level, points, spent, ranks, maxRanks, allocation } }`,
- * where `maxRanks` sums the catalog's maximum ranks.
+ * and the active character's AA state: `{ done, state: { name, level, points, spent, ranks, names, maxRanks, allocation } }`,
+ * where `names` maps ability ids to names and `maxRanks` sums the catalog's maximum ranks.
  */
 export async function aaInPage(a) {
   const host = window.iq.stores.character.getState().characterProfile.id;
@@ -472,7 +470,7 @@ export async function aaInPage(a) {
     done.push(`${scope} paused below ${a.level}`);
   }
   const s = r.state;
-  return { done, state: { name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null } };
+  return { done, state: { name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null } };
 }
 
 /** Give the bot what the roster gear plan needs kept: copies per item the account is short of, and the copies its moves take. */
@@ -596,6 +594,9 @@ class Daemon {
     const holders = {};
     const started = {};
     const have = {};
+    // The copies of each piece a chain's needers still lack past the free copies of others, which
+    // makes a looted copy progress (`recordPassProgress`).
+    const lacking = {};
     const members = tabs.flatMap((t) => t.members);
     const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
@@ -611,6 +612,10 @@ class Daemon {
       const needers = chainNeeders(id, { quests, holders, members });
       const rows = await Promise.all(q.needs.map(async (n) => (await search(n)).filter((m) => m.item === n)));
       q.needs.forEach((n, k) => (have[n] = Math.min(have[n] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0))));
+      q.needs.forEach((n, k) => {
+        const free = rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0);
+        lacking[n] = Math.max(lacking[n] ?? 0, needers.filter((who) => !rows[k].some((m) => m.who === who)).length - free);
+      });
       started[id].push(...needers.filter((who) => rows.every((r) => r.some((m) => m.who === who))));
     }
     const missing = {};
@@ -733,6 +738,7 @@ class Daemon {
     // window's state also names the active character's points, spent points and ranks, kept per
     // character in the meta key `aa` for the dashboard.
     const aa = metaGet(this.db, "aa") ?? {};
+    const aaBefore = structuredClone(aa);
     for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
       const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 20000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
       if (r?.state) aa[r.state.name] = { ...r.state, t: now };
@@ -741,10 +747,32 @@ class Daemon {
       this.log(`coordinator: ${t.label} aa: ${r.done.join("; ")}`);
     }
     metaSet(this.db, "aa", aa);
+    const chains = chainSummary({ quests, holders, started, members });
+    this.recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore: state.last?.chains, chains, aaBefore, aa });
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, missing, chains: chainSummary({ quests, holders, started, members }), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, chains, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
     metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
+  }
+
+  /**
+   * The progress one coordinator pass shows (tools/lib/progress.mjs): chains finished and started
+   * against the last pass's summary, and AA ranks and points against the AA states before this
+   * pass. It also keeps what the account still wants, for the loot lines (`itemFor`): a chain's
+   * piece its needers lack copies of (`lacking`), and an opportunity's item with copies missing
+   * (`missing`), without the items that mark a chain done or under way, which the chain summary
+   * reports. A copy beyond those is surplus, not progress. The meta key `wanted` keeps them for
+   * the loot that a restart exports before its first pass.
+   */
+  recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore, chains, aaBefore, aa }) {
+    recordProgress(this.db, [...chainChanges(chainsBefore, chains, now), ...aaChanges(aaBefore, aa, now)], this.groups());
+    const label = (q) => `the ${q.class} chain for ${q.reward}`;
+    const pieceFor = new Map();
+    for (const q of Object.values(quests)) for (const n of q.needs ?? []) if (lacking[n] > 0 && !pieceFor.has(n)) pieceFor.set(n, label(q));
+    for (const o of opportunities) if (missing[o.id] > 0 && !pieceFor.has(o.item)) pieceFor.set(o.item, quests[o.quest] ? label(quests[o.quest]) : null);
+    for (const id of Object.keys(quests)) for (const item of [...doneItems(id, quests), ...progressItems(quests[id])]) pieceFor.delete(item);
+    this.pieceFor = pieceFor;
+    metaSet(this.db, "wanted", Object.fromEntries(pieceFor));
   }
 
   /**
@@ -938,8 +966,13 @@ class Daemon {
     // with the cards (name, icon, stats) of the items they name.
     const cards = {};
     for (const c of characters) for (const s of c.slots) for (const id of [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]) if (id != null && !cards[id] && this.items.has(id)) cards[id] = itemCard(this.items.get(id));
+    // The upgrades worn since the last pass, for the progress feed, before this pass's report replaces it.
+    const scores = (list) => Object.fromEntries((list ?? []).map((c) => [c.name, c.score]));
+    const sheets = Object.fromEntries(characters.map((c) => [c.name, c.slots]));
+    const before = { sheets: metaGet(this.db, "gearSheets")?.sheets, scores: scores(metaGet(this.db, "gearPlan")?.characters) };
+    recordProgress(this.db, gearChanges({ before, after: { sheets, scores: scores(characters) }, t: now }), this.groups());
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
-    metaSet(this.db, "gearSheets", { t: now, sheets: Object.fromEntries(characters.map((c) => [c.name, c.slots])), items: cards });
+    metaSet(this.db, "gearSheets", { t: now, sheets, items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
     metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
@@ -1019,10 +1052,14 @@ class Daemon {
       }
     }
 
-    const res = stepSession({ state: tr.state, obs, now, label: tr.label, levels: this.levels(), triggers });
+    // The levels stored before this look, which the attention rules and the progress feed compare with.
+    const levels = this.levels();
+    const res = stepSession({ state: tr.state, obs, now, label: tr.label, levels, triggers });
     tr.state = res.state;
 
     if (usable) {
+      // What this look shows of the goal's progress: level-ups and raid kills.
+      recordProgress(this.db, snapshotProgress({ snap, levels, now, goal: this.raidGoal() }), this.groups());
       tr.state.pageSession = snap.pageSession;
       tr.snap = snap;
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
@@ -1218,6 +1255,7 @@ class Daemon {
       if (got.events.length) {
         await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
+        recordProgress(this.db, lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) }), this.groups());
       }
       if (!got.more) return true;
     }
@@ -1231,15 +1269,46 @@ class Daemon {
    */
   addMinutes(leader, samples) {
     const now = Date.now();
-    if (!this.groupOf || now - this.groupOfAt > 600000) {
-      this.groupOf = rosterGroups();
-      this.groupOfAt = now;
-    }
-    (this.minutes ??= new MinuteFolder(this.db)).add(this.groupOf.get(leader) ?? leader, samples);
+    (this.minutes ??= new MinuteFolder(this.db)).add(this.groups().get(leader) ?? leader, samples);
     if (!this.prunedAt || now - this.prunedAt > 3600000) {
       this.prunedAt = now;
       pruneMinutes(this.db, now);
     }
+  }
+
+  /** The roster group of each character name (data/roster.json), read again at most every ten minutes. */
+  groups() {
+    const now = Date.now();
+    if (!this.groupOf || now - this.groupOfAt > 600000) {
+      this.groupOf = rosterGroups();
+      this.groupOfAt = now;
+    }
+    return this.groupOf;
+  }
+
+  /** The bosses of the raid goal (data/raid-goal.json), read once. */
+  raidGoal() {
+    if (!this.raidBosses) {
+      try {
+        this.raidBosses = JSON.parse(readFileSync(join(REPO, "data/raid-goal.json"), "utf8")).bosses ?? [];
+      } catch {
+        this.raidBosses = [];
+      }
+    }
+    return this.raidBosses;
+  }
+
+  /**
+   * What a looted item is for, for the progress feed: a chain piece (`pieceFor` of the last
+   * coordinator pass, or the meta key `wanted` before the first), or a gear target's taker. Null
+   * for an item nobody wants.
+   */
+  itemFor(item) {
+    this.pieceFor ??= new Map(Object.entries(metaGet(this.db, "wanted") ?? {}));
+    if (this.pieceFor.has(item)) return { for: this.pieceFor.get(item), piece: true };
+    this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
+    const to = this.targetWants.flatMap((x) => x.items ?? []).find((w) => w.item === item)?.to;
+    return to ? { for: to, piece: false } : null;
   }
 
   /**
@@ -1372,6 +1441,10 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
     const cells = byGroup.get(g).map((c) => `${c.name} ${(c.class ?? "?").toLowerCase()} ${c.level ?? `~${c.roster_level ?? "?"}`}`);
     out.push(cut(`  ${g} ${cells.join(", ")}`, 150));
   }
+
+  const c = progressCounts(db, now - 86400000);
+  const ms = db.query("SELECT t, grp, text FROM progress WHERE sig >= 2 ORDER BY t DESC LIMIT 1").get();
+  out.push(cut(`Progress (24 h): ${c.level} levels, ${c.gear} gear slots, ${c.item} items, ${c.chain} chains, ${c.aa} AA ranks, ${c.raid} raid kills${ms ? ` | latest milestone ${dur(now - ms.t)} ago: ${ms.grp ? `${ms.grp} ` : ""}${ms.text}` : ""}`, 150));
 
   const items = db.query("SELECT * FROM attention WHERE resolved IS NULL ORDER BY id").all();
   const urgent = items.filter((a) => a.severity !== "info");

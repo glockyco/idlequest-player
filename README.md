@@ -335,8 +335,10 @@ adds an intervention with actor `sdk`, the leader and the call's arguments.
 
 The dashboard at <http://127.0.0.1:4790/> answers, in this order, whether anything needs a person,
 how far the account is toward the goal and what the system does (`docs/plans/dashboard.md`): a
-status line, the items no mechanism handles, one bar per success criterion, one row per group
-(click for its party, bags, rotation and task history), the coordinator's tasks and decisions, a
+status line, the items no mechanism handles, one bar per success criterion with what moved it in
+the last 24 hours, one row per group (click for its party, bags, rotation, progress and task
+history), the progress feed of what moved the bars in the last two days (the `progress` table,
+`tools/lib/progress.mjs`), the coordinator's tasks and decisions, a
 gear section with a character sheet per roster character (each slot's worn item beside the best one
 the account's items, merchants and wanted drops give, with the game's icons and item tooltips, from
 the gear pass's meta keys `gearPlan` and `gearSheets`, and the most wanted enemies), and folded sections for engineering health,

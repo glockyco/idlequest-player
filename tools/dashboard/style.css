@@ -84,6 +84,32 @@ code { font-size: 12px; }
 .meter { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 3px; }
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 .meter.unknown { background: repeating-linear-gradient(135deg, var(--border) 0 6px, transparent 6px 12px); border: 1px dashed var(--border); }
+.up { color: var(--good); font-weight: 600; margin-left: 4px; white-space: nowrap; }
+.latest { margin-top: 4px; }
+
+/* Progress: what moved the goal bars, newest first, one row per event. */
+#progress { margin-bottom: 14px; }
+#progress .head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.fchip { font: inherit; font-size: 12px; padding: 1px 9px; border-radius: 12px; border: 1px solid var(--border); background: var(--card); color: var(--fg); cursor: pointer; }
+.fchip b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.feed { max-height: 28em; overflow-y: auto; font-size: 13px; }
+.pday { position: sticky; top: 0; background: var(--card); font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 0 2px; border-bottom: 1px solid var(--border); }
+.prow { display: grid; grid-template-columns: 3.2em 3.6em 3.6em minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 2px 0; }
+.prow .ptxt { overflow-wrap: anywhere; }
+.prow summary { cursor: pointer; }
+.prow summary::marker { color: var(--muted); }
+.plainlist.parts { margin: 2px 0 4px 14px; font-size: 12px; font-weight: 400; color: var(--fg); }
+.prow.ms .ptxt, .plainlist.progress li.ms { font-weight: 600; }
+.prow.minor, .plainlist.progress li.minor { color: var(--muted); }
+.ktag { font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 4px; color: #fff; text-align: center; }
+.k-level { background: var(--accent); }
+.k-gear { background: var(--move); }
+.k-item { background: var(--recover); }
+.k-chain { background: var(--good); }
+.k-aa { background: var(--warn); }
+.k-raid { background: var(--bad); }
 
 /* Groups: one row each with the same columns. */
 #groups { margin-bottom: 14px; }
@@ -146,11 +172,11 @@ tr.drow td { background: var(--bg); padding: 10px 14px 14px; }
 .trio { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .note { border: 1px dashed var(--border); border-radius: 6px; padding: 14px; color: var(--muted); font-size: 13px; }
 
-/* Folded sections */
-details { margin-bottom: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; }
-details > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
-details[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
-details[open] { padding-bottom: 12px; }
+/* Folded sections of the page */
+main > details { margin-bottom: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; }
+main > details > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+main > details[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+main > details[open] { padding-bottom: 12px; }
 
 .roster { display: grid; grid-template-columns: 44px repeat(6, minmax(120px, 1fr)); gap: 4px; }
 .roster .g { font-weight: 600; align-self: center; }

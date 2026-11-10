@@ -38,11 +38,12 @@ From top to bottom:
 1. A status line that stays at the top: collector, relay, groups playing out of 12, account XP per hour now and over 24 hours, idle share of the last hour, the number of items that need a person, and the largest tab memory. Each turns amber or red at a threshold, and the line stays calm while everything works.
 2. Side by side, "Needs you" and "Goal progress".
    - "Needs you" lists only what a person must decide or fix. Failures that a mechanism retries or ends by itself are one muted summary line under it.
-   - "Goal progress" shows one bar per success criterion with its numbers: levels (XP share, characters at 60, the estimate for the slowest group), gear, AA, epics and raids.
-3. Groups, one row per group with the same columns, so the twelve compare at a glance: level bar, zone, what the group does now and for how long, a timeline of the last two hours with one cell per minute coloured by activity, task spans and deaths, XP per hour, idle share with its main cause, and the current task or next retry. A click on a row opens the party with levels, bags, memory, rotation, crowded zones, the bot's recent lines and this group's task history.
-4. Gear, current against target: one row per group with a bar per character, the share of its slot score it wears against what the account's items and the wanted drops would give it. A click opens the character's slots: what it wears, the next move the gear plan queued for that slot (from whom, or bought where), and the best wanted drop for it (zone, enemy, expected hours). This answers how far each character is from the best gear the account can give it, and what moves it there.
-5. Side by side, "Coordinator" (running tasks, next retries, the running experiment, recent outcomes with their reason) and "Where time goes" (24 hourly bars of all groups' time by activity and idle cause, the view for criterion 5).
-6. Folded away until opened: engineering health, the roster grid, the level trend chart, experiments and jobs, and the alert history.
+   - "Goal progress" shows one bar per success criterion with its numbers: levels (XP share, characters at 60, the estimate for the slowest group), gear, AA, epics and raids. Beside each bar's value, in green, is what moved it in the last 24 hours, and a line under the bars names the latest milestone.
+3. Groups, one row per group with the same columns, so the twelve compare at a glance: level bar, zone, what the group does now and for how long, a timeline of the last two hours with one cell per minute coloured by activity, task spans and deaths, XP per hour, idle share with its main cause, and the current task or next retry. A click on a row opens the party with levels, bags, memory, rotation, crowded zones, the group's progress of the last two days, the bot's recent lines and this group's task history.
+4. Progress: what moved the goal bars in the last two days, newest first under day headings, with a filter per kind and one for milestones ("Progress" below).
+5. Gear, current against target: one row per group with a bar per character, the share of its slot score it wears against what the account's items and the wanted drops would give it. A click opens the character's slots: what it wears, the next move the gear plan queued for that slot (from whom, or bought where), and the best wanted drop for it (zone, enemy, expected hours). This answers how far each character is from the best gear the account can give it, and what moves it there.
+6. Side by side, "Coordinator" (running tasks, next retries, the running experiment, recent outcomes with their reason) and "Where time goes" (24 hourly bars of all groups' time by activity and idle cause, the view for criterion 5).
+7. Folded away until opened: engineering health, the roster grid, the level trend chart, experiments and jobs, and the alert history.
 
 The page uses the full width of the window, keeps the activity colours of today's page for the same meaning everywhere, shows item and quest names instead of ids, and gives times as "3m ago" with the clock time on hover.
 
@@ -54,7 +55,27 @@ Removed: the fixed criteria table, the separate hours-to-level table (the estima
 2. The outcome of each coordinator task (status and reason) in its history, as iqd already copies the retry time and duration.
 3. A summary of quest chains (holders, started, needers) and of the gear pass per pass, for the goal bars.
 4. The gear pass's slot plan per character (worn item, queued move, wanted drop, scores now and at target), saved with each pass.
-5. AA ranks and raid kills, once the collector reads them.
+5. AA ranks, from the AA window of each tab's active character.
+6. The progress record ("Progress" below).
+
+## Progress
+
+Progress is a change in the state a goal bar measures. iqd records each change once, where it observes that state, in the `progress` table (`tools/lib/progress.mjs`), so the feed explains the bars and cannot disagree with them.
+
+| Kind | Source | Milestone |
+| --- | --- | --- |
+| level | A tab snapshot shows a character above its last stored level, one event per level gained. | Levels 46, 50, 55 and 60, which open AA and raids, higher spells and the cap. |
+| gear | Two gear passes: a slot holds an item the earlier pass queued for it, or the character's set score rose. | None. |
+| item | A loot line of an item the account still wants: a chain piece its needers lack copies of, an opportunity item with copies missing, or a gear target. | None. |
+| chain | Two coordinator passes: a character became a holder of a chain's reward, or started a chain. | A finished chain. Starting one is a minor step. |
+| aa | Two AA states of a character: a trained rank, or earned points. | None. Earned points are a minor step. |
+| raid | The bot's raid alert of a kill. | A boss of `data/raid-goal.json`, whose count the raid bar shows. |
+
+- An item counts from its loot line, because Inventory Search cannot tell a new copy from a search that missed one. A copy beyond what the account lacks is surplus and does not count.
+- A character whose party a gear pass cannot read keeps its last worn items (README, gear plan), so a party that reappears is not counted as new gear.
+- A group's ordinary level-ups of one day share a row, and so do the upgrades of one gear pass, because twelve parties level about hourly and a pass upgrades a dozen characters. A click opens the row's events. A group's level-ups to one milestone share a row within half an hour.
+- The bars' green numbers count levels, gear slots, wanted items, finished chains, AA ranks and raid kills. Minor steps do not count.
+- `iqd status` prints the same 24-hour counts and the latest milestone.
 
 ## Order of work
 

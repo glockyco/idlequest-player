@@ -1265,7 +1265,7 @@ test("a raid task buys time when none is left, recruits, sets its orders, kills 
     expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "effect slow", "effect debuff", "end"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2, deaths: 0, orders: [{ kind: "slow", spell: "Drowsy", kept: true }, { kind: "debuff", error: "no raid member has resistance debuffs" }] } });
     expect(f.bot.state.task.fight.trace.length).toBeGreaterThan(0);
-    expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toHaveLength(1);
+    expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toMatchObject([{ killed: expect.stringContaining("Nagafen") }]);
   } finally {
     vi.useRealTimers();
   }

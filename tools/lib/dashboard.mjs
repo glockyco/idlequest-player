@@ -7,6 +7,7 @@ import { MINUTE_MS } from "./minutes.mjs";
 import { targetId, targetRetryMin } from "./acquire.mjs";
 import { retryTime, worldHold } from "./coordinator.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
+import { progressCounts } from "./progress.mjs";
 
 const DAY = 86400000;
 /** Actors whose interventions a person or an agent started by hand, as the SDK and `iqd note` log them. */
@@ -531,6 +532,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
         crowded: Object.entries(v?.bot.crowdedAt ?? {}).filter(([z]) => !(v.bot.rotation ?? []).includes(z)).map(([z, at]) => ({ zone: zoneName(catalog, z), crowdedMs: now - at })),
         lines,
         history: mine.slice(0, 12).map((h) => ({ t: h.t, kind: h.kind, name: taskLabel(catalog, h), ms: h.ms ?? null, retryAt: retryAt(catalog, h, { history, code }), outcome: outcomeOf(h) })),
+        progress: progressRows(db, now - 2 * DAY, { group: g.id, limit: 8 }),
       },
     };
   });
@@ -575,9 +577,11 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
 
 /**
  * One entry per success criterion of the goal (docs/plans/leveling-plan.md): `share` is its bar
- * from 0 to 1 and null where nothing measures it yet, with the numbers the collector has.
+ * from 0 to 1 and null where nothing measures it yet, with the numbers the collector has. `recent`
+ * is what moved the bars in the last 24 hours (`progressCounts`). The raid bar is the share of the
+ * goal's bosses (`raidGoal`, data/raid-goal.json) that a raid task has killed.
  */
-export function goalView(db, { roster, plan, groupOf, catalog }) {
+export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [] }) {
   const members = roster.groups.flatMap((g) => g.members);
   const eta = (plan?.groups ?? []).filter((g) => g.eta?.[roster.target]).map((g) => ({ group: groupOf.get(g.leader) ?? null, leader: g.leader, ...g.eta[roster.target], slowest: g.slowest }));
   const slowest = eta.sort((a, b) => b.hours - a.hours)[0] ?? null;
@@ -589,12 +593,15 @@ export function goalView(db, { roster, plan, groupOf, catalog }) {
   const missing = coordinator?.last?.missing ?? {};
   const wanted = questPieces.filter((o) => (missing[o.id] ?? 0) > 0);
   const reached = members.filter((m) => (m.level ?? 0) >= AA_LEVEL).length;
+  const kills = db.query("SELECT t, name, text, data FROM progress WHERE kind = 'raid' ORDER BY t").all().map((r) => ({ t: r.t, by: r.name, text: r.text, ...JSON.parse(r.data ?? "{}") }));
+  const killed = [...new Set(kills.map((k) => k.goal).filter(Boolean))];
   return {
+    recent: progressCounts(db, now - DAY),
     levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null },
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
-    raids: { share: null, level: AA_LEVEL, reached, characters: roster.characters },
+    raids: { share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters },
   };
 }
 
@@ -625,6 +632,93 @@ export function epicsView(coordinator) {
   const holders = list.reduce((a, c) => a + c.holders.length, 0);
   const needers = list.reduce((a, c) => a + c.needers.length, 0);
   return { chains: list, holders, needers, started: list.reduce((a, c) => a + c.started.length, 0), share: holders + needers ? holders / (holders + needers) : null };
+}
+
+// ---- Progress --------------------------------------------------------------------------------------
+
+// A group's level-ups to one milestone level this close together share a row, as a party levels together.
+const MILESTONE_MERGE_MS = 30 * 60000;
+
+/** "A", "A and B" or "A, B and C". */
+const nameList = (list) => (list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : (list[0] ?? ""));
+
+/**
+ * The row an event shares with others, or null for one that stands alone. Twelve parties level
+ * about once an hour each and a gear pass upgrades a dozen characters, so a group's ordinary
+ * level-ups of one day share a row, and so do the upgrades of one gear pass. A group's level-ups
+ * to one milestone level share a row within half an hour.
+ */
+function mergeKey(r, data) {
+  if (r.kind === "level") return r.sig >= 2 ? `level:${r.grp}:${data.level}` : `levels:${r.grp}:${new Date(r.t).toDateString()}`;
+  if (r.kind === "gear") return `gear:${r.t}`;
+  return null;
+}
+
+/**
+ * The progress record (`progress`, tools/lib/progress.mjs) since `since`, newest first and of one
+ * group if `group` names it, as rows for the page: `{ key, t, kind, sig, group, text, detail,
+ * parts }`. A row of several events (`mergeKey`) sums them up in `text` and lists them earliest
+ * first in `parts`, each `{ group, text }`.
+ */
+export function progressRows(db, since, { group = null, limit = 150 } = {}) {
+  const raw = db.query(`SELECT t, kind, sig, name, grp, text, data, key FROM progress WHERE t >= ?${group ? " AND grp = ?" : ""} ORDER BY t DESC, id DESC`).all(...(group ? [since, group] : [since]));
+  const rows = [];
+  const open = new Map(); // merge key -> row
+  for (const r of raw) {
+    const e = { ...r, data: r.data ? JSON.parse(r.data) : {} };
+    const mk = mergeKey(r, e.data);
+    const row = mk ? open.get(mk) : null;
+    if (row && !(r.kind === "level" && r.sig >= 2 && row.events[0].t - r.t > MILESTONE_MERGE_MS)) {
+      // The events come newest first, so an earlier one goes to the front of its row.
+      row.events.unshift(e);
+      continue;
+    }
+    const next = { key: mk ?? r.key, events: [e] };
+    rows.push(next);
+    if (mk) open.set(mk, next);
+  }
+  return rows.slice(0, limit).map(rowView);
+}
+
+/** A row of `progressRows` from its events, earliest first. */
+function rowView({ key, events }) {
+  const last = events.at(-1);
+  const groups = [...new Set(events.map((e) => e.grp))];
+  const row = { key, t: last.t, kind: last.kind, sig: Math.max(...events.map((e) => e.sig)), group: groups.length === 1 ? groups[0] : null, parts: [] };
+  if (events.length === 1) return { ...row, text: last.text, detail: detailOf(last.kind, last.data) };
+  const names = [...new Set(events.map((e) => e.name).filter(Boolean))];
+  // Up to three names read as a list, and a party's day as a count, since the row opens to the names.
+  const who = names.length > 3 ? `${names.length} characters` : nameList(names);
+  const parts = events.map((e) => ({ group: e.grp, text: e.text }));
+  if (last.kind === "level") {
+    const levels = events.map((e) => e.data.level);
+    const [low, top] = [Math.min(...levels), Math.max(...levels)];
+    return { ...row, parts, text: `${who} reached ${low === top ? `level ${top}` : `levels ${low} to ${top}`}`, detail: low === top ? null : `${events.length} levels` };
+  }
+  const slots = events.reduce((a, e) => a + (e.data.slots?.length ?? 1), 0);
+  const gain = events.reduce((a, e) => a + (e.data.slots ?? []).reduce((b, s) => b + (s.gain > 0 ? s.gain : 0), 0), 0);
+  return { ...row, parts, text: `${who} ${names.length === 1 ? "wears" : "wear"} ${slots} upgrade${slots === 1 ? "" : "s"}`, detail: gain > 0 ? `slot score +${Math.round(10 * gain) / 10}` : null };
+}
+
+/**
+ * The detail a row of one event shows beside its text: for gear, the slot score the planned items
+ * add (`gain`, as the gear sheet gives it) and the set score before and after, and for a raid kill
+ * whether the boss is one of the goal's.
+ */
+function detailOf(kind, data) {
+  if (kind === "gear") {
+    const gain = (data.slots ?? []).reduce((a, s) => a + (s.gain > 0 ? s.gain : 0), 0);
+    const score = data.score?.target > 0 ? `set ${Math.round((100 * data.score.before) / data.score.target)}% to ${Math.round((100 * data.score.after) / data.score.target)}% of target` : null;
+    return [gain > 0 ? `slot score +${Math.round(10 * gain) / 10}` : null, score].filter(Boolean).join(", ") || null;
+  }
+  if (kind === "raid") return data.goal ? "a boss of the goal" : null;
+  return null;
+}
+
+/** The progress section: the last two days' rows, the 24-hour counts and the latest milestone. */
+export function progressView(db, now, { hours = 48 } = {}) {
+  const rows = progressRows(db, now - hours * 3600000);
+  return { hours, rows, counts: progressCounts(db, now - DAY), latest: rows.find((r) => r.sig >= 2) ?? null };
 }
 
 // ---- Gear -----------------------------------------------------------------------------------------

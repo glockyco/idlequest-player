@@ -167,8 +167,10 @@
     const i = iq();
     if (i?.events && i.seqs) i.events.push({ ses: i.session, seq: ++i.seqs.event, t: now(), type: "bot", text: `[bot] ${text}` });
   };
-  const alert = (kind, text, wake = false) => {
-    state.alerts.push({ seq: ++state.alertSeq, t: now(), kind, wake, text });
+  // `extra` carries what the collector reads without parsing the text: `killed`, the boss a raid
+  // killed (the progress feed, tools/lib/progress.mjs).
+  const alert = (kind, text, wake = false, extra = {}) => {
+    state.alerts.push({ seq: ++state.alertSeq, t: now(), kind, wake, text, ...extra });
     if (state.alerts.length > 300) state.alerts.splice(0, 100);
     log(`${wake ? "alert" : "note"} ${kind}: ${text}`);
   };
@@ -1716,7 +1718,7 @@
       }, task.minutes * 60000 + 60000);
       Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
       task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
-      if (outcome === "killed") alert("raid", `killed ${boss.name}`, true);
+      if (outcome === "killed") alert("raid", `killed ${boss.name}`, true, { killed: boss.name });
     } finally {
       // An end that has to stop a fight waits for the server, so it gets a second try. A raid left
       // on keeps the group from leveling.

@@ -73,27 +73,37 @@ function barRow(title, share, bar, text, after = null) {
   return `<div class="goalrow"><div class="gl"><span class="gt">${esc(title)}</span><span class="gv">${bar}</span></div>${share == null ? `<div class="meter unknown"></div>` : meter(share, "", after)}<div class="gx">${text}</div></div>`;
 }
 
+/** What moved a goal bar in the last 24 hours, as a green "+N unit" beside its value. */
+const delta = (n, unit) => (n > 0 ? ` <span class="up" title="in the last 24 hours, listed under Progress">+${n} ${unit}</span>` : "");
+
 function renderGoal(s) {
   const g = s.goal;
   const L = g.levels;
+  const r = g.recent ?? {};
   const eta = L.slowest
     ? `The slowest group (${esc(L.slowest.group ?? "?")}, ${esc(L.slowest.leader)}) needs about ${hours(L.slowest.hours)} to level ${L.target}, range ${hours(L.slowest.low)} to ${hours(L.slowest.high)}.`
     : s.reports.plan
       ? "No estimate for the slowest group."
       : "The estimate for the slowest group is not ready yet.";
   const none = (what) => `<span class="muted">not measured yet</span>`;
+  const R = g.raids;
+  const raidLast = R.last ? ` The last, ${ago(s.now, R.last.t)}: ${esc(R.last.text)}.` : "";
+  const latest = s.progress?.latest;
   $("goal-bars").innerHTML = [
-    barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP`, `${L.atTarget} of ${L.characters} characters at ${L.target}. Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}, mean ${L.meanLevel?.toFixed(1) ?? "-"}. ${eta}`),
+    barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP${delta(r.level, "levels")}`, `${L.atTarget} of ${L.characters} characters at ${L.target}. Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}, mean ${L.meanLevel?.toFixed(1) ?? "-"}. ${eta}`),
     g.gear.share == null
       ? barRow("Gear", null, none(), `The gear pass has not saved its report yet. The pass runs once an hour.`)
-      : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target score`, `The average character of ${g.gear.characters} wears ${pct(g.gear.share)} of the armor and jewelry score that the account's items, merchants and wanted drops give it, and ${pct(g.gear.afterMoves)} once the ${g.gear.moves ?? "?"} queued moves are done. ${g.gear.drops ?? "?"} wanted drops are listed. Pass ${ago(s.now, g.gear.passT)}.`, g.gear.afterMoves),
+      : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target score${delta(r.gear, "slots")}`, `The average character of ${g.gear.characters} wears ${pct(g.gear.share)} of the armor and jewelry score that the account's items, merchants and wanted drops give it, and ${pct(g.gear.afterMoves)} once the ${g.gear.moves ?? "?"} queued moves are done. ${g.gear.drops ?? "?"} wanted drops are listed. Pass ${ago(s.now, g.gear.passT)}.`, g.gear.afterMoves),
     g.aa.share == null
       ? barRow("AA ranks", null, none(), `No character past level ${g.aa.level} has been recorded yet. ${g.aa.reached} of ${g.aa.characters} characters have reached it, where AA opens.`)
-      : barRow("AA ranks", g.aa.share, `${g.aa.trained} of ${g.aa.possible} ranks`, `${g.aa.recorded} recorded characters past level ${g.aa.level} have trained ${g.aa.trained} of the catalog's ${g.aa.possible} ranks and hold ${g.aa.points} unspent points. Their XP goes to AA only from level 60. ${g.aa.reached} of ${g.aa.characters} characters have reached ${g.aa.level}. Pass ${ago(s.now, g.aa.passT)}.`),
+      : barRow("AA ranks", g.aa.share, `${g.aa.trained} of ${g.aa.possible} ranks${delta(r.aa, "ranks")}`, `${g.aa.recorded} recorded characters past level ${g.aa.level} have trained ${g.aa.trained} of the catalog's ${g.aa.possible} ranks and hold ${g.aa.points} unspent points. Their XP goes to AA only from level 60. ${g.aa.reached} of ${g.aa.characters} characters have reached ${g.aa.level}. Pass ${ago(s.now, g.aa.passT)}.`),
     g.epics.share == null
       ? barRow("Epics", null, none(), `The coordinator has not saved its chain summary yet. The last pass ${g.epics.passT ? ago(s.now, g.epics.passT) : "never"} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`)
-      : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps`, `${g.epics.holders} characters hold an epic chain's item, ${g.epics.started} have started one and ${g.epics.needers} still need one, over ${g.epics.chains} chains (characters of the class at the chain's level). ${g.epics.missingCopies} copies of ${g.epics.missingPieces} chain pieces are still missing. Pass ${ago(s.now, g.epics.passT)}.`),
-    barRow("Raid kills", null, none(), `Kills are not collected. Raids open at level ${g.raids.level}, reached by ${g.raids.reached} of ${g.raids.characters} characters.`),
+      : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps${delta(r.chain, "steps")}`, `${g.epics.holders} characters hold an epic chain's item, ${g.epics.started} have started one and ${g.epics.needers} still need one, over ${g.epics.chains} chains (characters of the class at the chain's level). ${g.epics.missingCopies} copies of ${g.epics.missingPieces} chain pieces are still missing. Pass ${ago(s.now, g.epics.passT)}.`),
+    R.share == null
+      ? barRow("Raid kills", null, none(), `The raid goal lists no bosses (data/raid-goal.json). Raids open at level ${R.level}, reached by ${R.reached} of ${R.characters} characters.`)
+      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(r.raid, "kills")}`, `${R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : "No boss of the goal killed yet."} ${R.kills} raid kills recorded.${raidLast} Raids open at level ${R.level}, reached by ${R.reached} of ${R.characters} characters.`),
+    latest ? `<p class="gx latest">Latest milestone ${ago(s.now, latest.t)}: ${latest.group ? `<span class="grp">${esc(latest.group)}</span> ` : ""}${esc(latest.text)}</p>` : "",
   ].join("");
 }
 
@@ -153,6 +163,7 @@ function details(s, g) {
     ...(d.errand ? [["Errand", `${esc(d.errand.item ?? d.errand.keep ?? "")} in ${esc(d.errand.zone)}`]] : []),
   ];
   const lines = d.lines.length ? d.lines.map((x) => `<li>${ago(s.now, x.t)} <span class="src">${esc(x.source)}</span> ${esc(x.text)}</li>`).join("") : `<li class="muted">nothing recorded</li>`;
+  const progress = d.progress?.length ? d.progress.map((p) => `<li class="${progressClass(p)}">${ago(s.now, p.t)} ${kindTag(p.kind)} ${esc(p.text)}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}</li>`).join("") : `<li class="muted">nothing in two days</li>`;
   const hist = d.history.length
     ? d.history
         .map((h) => {
@@ -162,11 +173,45 @@ function details(s, g) {
         .join("")
     : `<li class="muted">no tasks recorded</li>`;
   return `<div class="detail">
-    <div><h4>Party</h4><ul class="plainlist">${party}</ul></div>
+    <div><h4>Party</h4><ul class="plainlist">${party}</ul><h4>Progress</h4><ul class="plainlist lines progress">${progress}</ul></div>
     <div><h4>Tab</h4><dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
     <div><h4>Recent decisions and alerts</h4><ul class="plainlist lines">${lines}</ul></div>
     <div><h4>Task history</h4><ul class="plainlist lines">${hist}</ul></div>
   </div>`;
+}
+
+// ---- Progress ----------------------------------------------------------------------------------
+
+/** The page's names for the progress kinds (tools/lib/progress.mjs), in the goal's order. */
+const PROGRESS_LABELS = { level: "Levels", gear: "Gear", item: "Items", chain: "Chains", aa: "AA", raid: "Raids" };
+const kindTag = (k) => `<span class="ktag k-${esc(k)}">${k === "aa" ? "AA" : esc(k)}</span>`;
+/** Milestones stand out and minor steps recede. */
+const progressClass = (p) => (p.sig >= 2 ? "ms" : p.sig === 0 ? "minor" : "");
+let progressFilter = "all";
+// The merged rows open on the page, by key, so a refresh keeps them open.
+const openProgress = new Set();
+
+/** A row's text and detail, and for a row of several events a list of them that opens on a click. */
+function progressText(p) {
+  const head = `${esc(p.text)}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}`;
+  if (!p.parts?.length) return head;
+  const parts = p.parts.map((x) => `<li>${x.group && x.group !== p.group ? `<span class="grp">${esc(x.group)}</span> ` : ""}${esc(x.text)}</li>`).join("");
+  return `<details data-key="${esc(p.key)}"${openProgress.has(p.key) ? " open" : ""}><summary>${head}</summary><ul class="plainlist parts">${parts}</ul></details>`;
+}
+
+function renderProgress(s) {
+  const P = s.progress;
+  if (!P) return;
+  const filters = [["all", "All", () => true], ["ms", "Milestones", (p) => p.sig >= 2], ...Object.entries(PROGRESS_LABELS).map(([k, label]) => [k, label, (p) => p.kind === k])];
+  $("progress-filters").innerHTML = filters.map(([k, label, f]) => `<button type="button" class="fchip${progressFilter === k ? " on" : ""}" data-k="${k}">${label} <b>${P.rows.filter(f).length}</b></button>`).join("");
+  const shown = P.rows.filter(filters.find(([k]) => k === progressFilter)?.[2] ?? (() => true));
+  const out = [];
+  let day = null;
+  for (const p of shown) {
+    if (dayName(p.t) !== day) out.push(`<div class="pday">${esc((day = dayName(p.t)))}</div>`);
+    out.push(`<div class="prow ${progressClass(p)}"><span class="when" title="${esc(`${dayName(p.t)} ${clock(p.t)}`)}">${hhmm(p.t)}</span><span>${p.group ? `<span class="grp">${esc(p.group)}</span>` : ""}</span>${kindTag(p.kind)}<span class="ptxt">${progressText(p)}</span></div>`);
+  }
+  $("progress-list").innerHTML = out.join("") || `<p class="muted">${P.rows.length ? "Nothing of this kind" : "Nothing recorded"} in the last ${P.hours} hours.</p>`;
 }
 
 function renderGroups(s) {
@@ -379,6 +424,7 @@ async function refresh() {
     renderNeeds(s);
     renderGoal(s);
     renderGroups(s);
+    renderProgress(s);
     renderGear(s);
     renderCoordinator(s);
     renderEpics(s);
@@ -400,6 +446,23 @@ $("group-table").addEventListener("keydown", (e) => {
     toggleGroup(e.target.closest("tr.grow"));
   }
 });
+$("progress-filters").addEventListener("click", (e) => {
+  const b = e.target.closest("button.fchip");
+  if (!b) return;
+  progressFilter = b.dataset.k;
+  if (lastState) renderProgress(lastState);
+});
+// A toggle event does not bubble, so the list listens in the capture phase.
+$("progress-list").addEventListener(
+  "toggle",
+  (e) => {
+    const k = e.target.dataset?.key;
+    if (!k) return;
+    if (e.target.open) openProgress.add(k);
+    else openProgress.delete(k);
+  },
+  true,
+);
 initGear();
 $("trend-hours").addEventListener("change", renderTrends);
 $("d-trends").addEventListener("toggle", renderTrends);
