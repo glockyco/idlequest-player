@@ -133,11 +133,11 @@ test("two targets for one taker's slot send one group, and a second camp in a zo
   // Both drops would fill X1's waist, so the better target goes and the other waits.
   const same = decide({ now: NOW, tabs, targets: [target("a fiend", "unrest", 75, 30, "waist"), target("a ghoul", "unrest", 60, 30, "waist")], hoursPerLevel, zoneShare: () => 0.9 });
   expect(same.actions.map((a) => a.id)).toEqual(["target-unrest-a-fiend"]);
-  expect(same.targets["target-unrest-a-ghoul"].status).toBe("its takers' slots are served by targets other groups hunt");
+  expect(same.targets["target-unrest-a-ghoul"]).toMatchObject({ state: "covered", by: ["a fiend"] });
   // Two slots in one zone: the first camp costs 0.1 of its hours, the second 0.1 + 0.4, which a
   // copy worth 0.6 hours still pays for.
   const two = decide({ now: NOW, tabs, targets: [target("a fiend", "unrest", 75, 30, "waist"), target("a ghoul", "unrest", 60, 30, "neck")], hoursPerLevel, zoneShare: () => 0.9 });
-  expect(two.targets["target-unrest-a-ghoul"].cost).toBeCloseTo(0.5);
+  expect(two.targets["target-unrest-a-ghoul"].plan.cost).toBeCloseTo(0.5);
 });
 
 test("a group an experiment holds still camps outside its rotation, but runs no errand", () => {
@@ -154,11 +154,11 @@ test("a target whose best group is busy goes to a free group that still gains, a
   // A trip zone that pays 90% of G1's XP makes the camp pay.
   const paid = decide({ now: NOW, tabs, targets, hoursPerLevel, zoneShare: () => 0.9 });
   expect(paid.actions).toMatchObject([{ label: "A", kind: "hunt", spec: { zone: "unrest", minutes: 30, waitMin: 0 } }]);
-  expect(paid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G1", kind: "camp" });
+  expect(paid.targets["target-unrest-a-fiend"]).toMatchObject({ state: "queued", plan: { group: "G1", kind: "camp" } });
   // A trip that earns no XP costs G1 more than the copy adds, so the fiend waits for G2.
   const unpaid = decide({ now: NOW, tabs, targets, hoursPerLevel });
   expect(unpaid.actions).toEqual([]);
-  expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ group: "G2", kind: "errand", status: expect.stringMatching(/^waits for G2, which is on a quest task/) });
+  expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ state: "busy", group: "G2", only: false, on: { kind: "quest" }, plan: { group: "G2", kind: "errand" } });
 });
 
 test("a target only one group reaches waits for that group by its reach, and a weaker free group leaves it", () => {
@@ -166,31 +166,31 @@ test("a target only one group reaches waits for that group by its reach, and a w
   const weak = place(tab("B", "G2", 36), "paw");
   const { actions, targets } = decide({ now: NOW, tabs: [strong, weak], targets: [target("a broodling", "velketor", 125, 48)], hoursPerLevel, zoneShare: () => 0.9 });
   expect(actions).toEqual([]);
-  expect(targets["target-velketor-a-broodling"].status).toMatch(/^waits for G1, the only group that reaches level 48, which is on a hunt task/);
+  expect(targets["target-velketor-a-broodling"]).toMatchObject({ state: "busy", group: "G1", only: true, on: { kind: "hunt" } });
 });
 
 test("each gear target says why it is not hunted", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
-  const status = (targets: object[], extra = {}) => Object.values(decide({ now: NOW, tabs, targets, hoursPerLevel, ...extra }).targets).map((e: { status: string }) => e.status);
-  expect(status([target("a broodling", "velketor", 125, 34)])).toEqual([expect.stringMatching(/^too strong for every group/)]);
-  expect(status([target("a king", "soldunga", 75)], { crowded: new Set(["soldunga"]) })).toEqual(["zone crowded by other players"]);
+  const state = (targets: object[], extra = {}) => Object.values(decide({ now: NOW, tabs, targets, hoursPerLevel, ...extra }).targets).map((e: { state: string }) => e.state);
+  expect(Object.values(decide({ now: NOW, tabs, targets: [target("a broodling", "velketor", 125, 34)], hoursPerLevel }).targets)).toMatchObject([{ state: "tooStrong", level: 34 }]);
+  expect(state([target("a king", "soldunga", 75)], { crowded: new Set(["soldunga"]) })).toEqual(["crowded"]);
   // A camp worth 0.5 hours a copy against a whole hour of G1's XP does not pay.
-  expect(status([target("a warder", "nurga", 50)])).toEqual([expect.stringMatching(/^not worth it yet/)]);
-  expect(status([target("a goo", "paw", 38)], { held: new Set(["G1"]) })).toEqual([expect.stringMatching(/^waits for an experiment to end/)]);
+  expect(state([target("a warder", "nurga", 50)])).toEqual(["notWorth"]);
+  expect(state([target("a goo", "paw", 38)], { held: new Set(["G1"]) })).toEqual(["experiment"]);
   const last = [{ t: NOW - 30 * 60000, label: "A", kind: "errand", id: "target-paw-a-goo", nextAt: NOW + 60000 }];
-  expect(status([target("a goo", "paw", 38)], { history: last })).toEqual([expect.stringMatching(/^waits for its retry/)]);
+  expect(Object.values(decide({ now: NOW, tabs, targets: [target("a goo", "paw", 38)], hoursPerLevel, history: last }).targets)).toMatchObject([{ state: "retry", at: NOW + 60000 }]);
   // A group on the target's errand hunts it.
   const on = [{ ...tabs[0], errand: { zone: "paw", keep: "a goo" } }];
-  expect(Object.values(decide({ now: NOW, tabs: on, targets: [target("a goo", "paw", 38)], hoursPerLevel }).targets)).toMatchObject([{ status: "hunting: G1" }]);
+  expect(Object.values(decide({ now: NOW, tabs: on, targets: [target("a goo", "paw", 38)], hoursPerLevel }).targets)).toMatchObject([{ state: "hunting", group: "G1" }]);
   // A camp marks only the target it was queued for, not every target in its zone.
   const camping = [{ ...tabs[0], zone: "unrest", task: { id: "k1", kind: "hunt", status: "running" } }];
   const queued = [{ t: NOW - 60000, label: "A", kind: "hunt", id: "target-unrest-a-fiend", task: "k1", nextAt: NOW + 3600000 }];
   const both = decide({ now: NOW, tabs: camping, targets: [target("a fiend", "unrest", 75), target("a ghoul", "unrest", 60)], hoursPerLevel, history: queued }).targets;
-  expect([both["target-unrest-a-fiend"].status, both["target-unrest-a-ghoul"].status.startsWith("hunting")]).toEqual(["hunting: G1", false]);
-  // Without its group's measured pace a copy's worth is unknown, which the status says.
-  expect(status([target("a goo", "paw", 38)], { hoursPerLevel: {} })).toEqual([expect.stringMatching(/^waits for a measured pace of X1's group/)]);
+  expect([both["target-unrest-a-fiend"].state, both["target-unrest-a-ghoul"].state === "hunting"]).toEqual(["hunting", false]);
+  // Without its group's measured pace a copy's worth is unknown.
+  expect(state([target("a goo", "paw", 38)], { hoursPerLevel: {} })).toEqual(["noPace"]);
   // A night spawn waits for the night, by the tab's game hour (12 here).
-  expect(status([{ ...target("a dread wolf", "paw", 38), when: "night" }])).toEqual(["waits for the night, when it spawns"]);
+  expect(Object.values(decide({ now: NOW, tabs, targets: [{ ...target("a dread wolf", "paw", 38), when: "night" }], hoursPerLevel }).targets)).toMatchObject([{ state: "time", when: "night" }]);
   expect(decide({ now: NOW, tabs: [{ ...tabs[0], gameHour: 22 }], targets: [{ ...target("a dread wolf", "paw", 38), when: "night" }], hoursPerLevel }).actions).toMatchObject([{ kind: "errand" }]);
 });
 

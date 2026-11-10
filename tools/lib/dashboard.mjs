@@ -216,19 +216,26 @@ export function retryAt(catalog, h, { history = [], code = null } = {}) {
   return retryTime(h, catalog.opportunities.get(h.id)?.retryMin ?? (h.id.startsWith("target-") ? targetRetryMin(h.kind) : 30), code);
 }
 
+/** An enemy's name as the game shows it: the content marks named enemies with a leading "#" and spaces with "_". */
+export const npcName = (name) => String(name ?? "").replace(/^#/, "").replace(/_/g, " ");
+
 /**
  * The gear pass's most wanted enemies for the dashboard, best first: zone names in full, the
- * coordinator's evaluation by `targetId` (`evaluations`, from `decide`), whose `status` says which
- * group would hunt it for whom, what a copy takes, adds and costs, and why it is or is not hunted,
- * and each item with its taker and the taker's group. `limit` caps the rows.
+ * coordinator's reason by `targetId` (`evaluations`, from `decide`: a `state` with its facts and
+ * the best `plan`), and each item with its taker and the taker's group. `limit` caps the rows.
  */
 export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluations = {}, limit = 15 }) {
-  return targets.slice(0, limit).map((t) => ({
-    npc: t.npc,
-    zone: zoneName(catalog, t.zone),
-    status: evaluations[targetId(t)]?.status ?? null,
-    items: t.items.map((w) => ({ item: w.item, itemId: w.itemId, to: w.to, group: groupOf.get(w.to) ?? null, slot: w.slot, gain: w.gain / 10, hours: w.hours, takers: w.takers ?? 1 })),
-  }));
+  return targets.slice(0, limit).map((t) => {
+    const { plan = null, ...why } = evaluations[targetId(t)] ?? {};
+    return {
+      npc: npcName(t.npc),
+      zone: zoneName(catalog, t.zone),
+      level: t.npcLevel ?? null,
+      why: why.state ? { ...why, ...(why.by ? { by: why.by.map(npcName) } : {}) } : null,
+      plan,
+      items: t.items.map((w) => ({ item: w.item, itemId: w.itemId, to: w.to, group: groupOf.get(w.to) ?? null, slot: w.slot, gain: w.gain / 10, hours: w.hours, takers: w.takers ?? 1 })),
+    };
+  });
 }
 
 const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped" };

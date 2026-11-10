@@ -78,6 +78,20 @@ Progress is a change in the state a goal bar measures. iqd records each change o
 - The bars' green numbers count levels, gear slots, wanted items, finished chains, AA ranks and raid kills. Minor steps do not count.
 - `iqd status` prints the same 24-hour counts and the latest milestone.
 
+## Text on the page
+
+The page is read at a glance, so its text follows these guidelines. They hold until a better way turns up, here or while a panel is built, and then they change.
+
+1. Each panel answers one question, and an element stays only if it helps answer it.
+2. A state is a short tag ("G1 next", "after G1's hunt", "too strong (level 56)"). The reasoning behind it goes into the tag's hover, if it helps at all.
+3. Numbers show as bars, chips or colours where a glance compares them. Text carries only what a picture cannot.
+4. Repeated facts collapse: one card for one problem on several tabs.
+5. Small things shrink: an upgrade under 1% shows as an icon, not a line.
+6. Names as the game shows them: zone names in full, no `#` on named enemies, no cause ids such as `clientPause`, no file paths or commands.
+7. No footnotes. A panel that needs one has the wrong labels.
+
+The coordinator and the bot hand the page states with their facts, and the page words them in one place per panel, so a wording changes in one place.
+
 ## Order of work
 
 1. The new layout on today's data: status line, needs-you split, goal bars with the estimate, one row per group, coordinator names and folded sections.
@@ -93,3 +107,4 @@ Each stage tests its views on a database built in memory, is checked in the brow
 - The timeline covers two hours at one cell per minute, which fits a row and shows a stall while it still matters. Longer spans belong to the hourly "Where time goes" bars.
 - "Needs you" holds only what no mechanism handles: a decision, a sign-in, a stall longer than ten minutes, a `bags` alert. Items a mechanism retries or ends show as one muted line.
 - All stages are built in order, each checked with screenshots of the real page and committed on its own. A visible choice that remains open is shown on the real page with screenshots, never as a mockup.
+- Most wanted is a short table: the enemy and its zone, a tag for its state with the reasoning in the hover, and its drops with whom each is for and how much it adds. It leaves out targets whose drops another hunt already covers.

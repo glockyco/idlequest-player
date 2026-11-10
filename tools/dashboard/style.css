@@ -211,6 +211,15 @@ svg .grid { stroke: var(--border); }
 @media (max-width: 880px) {
   .pair, .trio, .split { grid-template-columns: 1fr; }
 }
+@media (max-width: 600px) {
+  /* The status line wraps to several rows on a phone, so it scrolls away instead of covering the page. */
+  .status { position: static; }
+  /* Most wanted rows stack: the enemy and its tag on one line, the drops under them. */
+  table.wanted thead { display: none; }
+  table.wanted tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  table.wanted td { display: inline-block; border: 0; padding: 0 8px 0 0; vertical-align: top; }
+  table.wanted td:last-child { display: block; margin-top: 4px; }
+}
 
 /* Gear: a summary per group and a character sheet with the paper doll. */
 #gear { margin-bottom: 14px; }
@@ -288,3 +297,11 @@ table.totals td.down { color: var(--bad); }
 .ichip .noicon { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; }
 .ichip.empty { width: 16px; height: 16px; border: 1px dashed var(--muted); border-radius: 3px; }
 .swap { margin: 0 5px; color: var(--muted); }
+
+/* Most wanted: a state tag per enemy, coloured while the enemy is hunted or next. */
+.why { font-size: 12px; padding: 1px 7px; border-radius: 10px; white-space: nowrap; border: 1px solid var(--border); color: var(--muted); }
+.why-now { color: var(--good); border-color: var(--good); }
+.why-next { color: var(--accent); border-color: var(--accent); }
+.gain { font-size: 12px; font-weight: 600; color: var(--good); }
+.drop { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-right: 12px; }
+.drop > * { flex: none; }

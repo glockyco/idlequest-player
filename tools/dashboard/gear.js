@@ -201,16 +201,48 @@ function renderGear(s) {
   loadSheet();
 }
 
-/** The most wanted enemies: one row each, with every wanted item, its taker and its gain. */
-function renderWanted(rows, cards) {
-  const head = `<thead><tr><th>Enemy</th><th>Zone</th><th>Status</th><th>Items (best taker, gain, hours per copy, characters it would serve)</th></tr></thead>`;
-  const hours = (h) => (h >= 10 ? `${Math.round(h)} h` : `${h.toFixed(1)} h`);
-  const body = rows.length
-    ? rows
-        .map((t) => `<tr><td>${esc(t.npc)}</td><td>${esc(t.zone)}</td><td class="${/^(hunting|errand|camp|visit)/.test(t.status ?? "") ? "" : "muted"}">${esc(t.status ?? "not weighed yet")}</td><td>${t.items.map((w) => `${itemChip(cards[w.itemId], w.item)} <span class="muted">(${esc(w.to)}${w.group ? ` ${esc(w.group)}` : ""}, ${w.gain.toFixed(1)}%, ${hours(w.hours)}${w.takers > 1 ? `, ${w.takers} characters` : ""})</span>`).join("<br>")}</td></tr>`)
-        .join("")
-    : `<tr><td colspan="4" class="muted">No wanted drops in the last gear pass.</td></tr>`;
-  $("wanted").innerHTML = head + `<tbody>${body}</tbody>`;
+const TASK_NOUN = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid" };
+/**
+ * Why a wanted enemy is or isn't hunted, in a few words for its row, and a sentence for its hover
+ * where the few words leave a question open. `kind` sorts the rows: now, next, wait or out.
+ */
+function reasonOf(t, now) {
+  const w = t.why ?? {};
+  const p = t.plan;
+  const mins = (h) => (h * 60 < 1 ? "under a minute" : h < 1.5 ? `${Math.round(h * 60)} min` : `${h.toFixed(1)} h`);
+  const how = p && (p.kind === "visit" ? `a ${mins(p.hours)} visit finds it up ${Math.round(100 * (p.up ?? 0))}% of the time` : `one drop takes about ${mins(p.hours)} of ${p.kind === "camp" ? "camping" : "hunting"}`);
+  const planTip = p && `${how}, worth ${mins(p.value)} of ${p.taker}'s group's leveling.`;
+  switch (w.state) {
+    case "hunting": return { kind: "now", text: `${w.group} hunting`, tip: planTip };
+    case "queued": return { kind: "next", text: `${p.group} next`, tip: planTip };
+    case "busy": return { kind: "wait", text: `after ${w.group}'s ${TASK_NOUN[w.on?.kind] ?? "task"}`, tip: `${w.only ? `Only ${w.group} is strong enough. ` : ""}${planTip ?? ""}` };
+    case "retry": return { kind: "wait", text: `again ${w.at - now <= 0 ? "now" : `in ${Math.max(1, Math.round((w.at - now) / 60000))} min`}`, tip: "The last hunt found nothing." };
+    case "outbid": return { kind: "wait", text: "groups on better targets" };
+    case "experiment": return { kind: "wait", text: `${w.group} in an experiment` };
+    case "notWorth": return { kind: "out", text: "not worth a trip yet", tip: planTip };
+    case "tooStrong": return { kind: "out", text: `too strong${w.level ? ` (level ${w.level})` : ""}`, tip: "No playing group is within three levels of it." };
+    case "time": return { kind: "out", text: `${w.when} only` };
+    case "crowded": return { kind: "out", text: "zone crowded" };
+    case "noPace": return { kind: "out", text: `no XP rate for ${w.taker}'s group yet` };
+    case "covered": return { kind: "covered", text: `covered by ${w.by.join(", ")}` };
+    default: return { kind: "out", text: "not planned yet" };
+  }
+}
+
+const reasonTag = (r) => `<span class="why why-${r.kind}"${r.tip ? ` title="${esc(r.tip)}"` : ""}>${esc(r.text)}</span>`;
+const gainTag = (g) => `<span class="gain">+${g >= 10 ? Math.round(g) : g.toFixed(1)}%</span>`;
+// An item with the character it is for and how much it adds to that character's output.
+const dropLine = (w, cards) => `<span class="drop">${itemChip(cards[w.itemId], w.item)} <span class="muted">for ${esc(w.to)}</span> ${gainTag(w.gain)}</span>`;
+const ORDER = { now: 0, next: 1, wait: 2, out: 3, covered: 4 };
+
+/** The most wanted enemies, hunted first, without those whose drops another hunt covers. */
+function renderWanted(rows, cards, now = Date.now()) {
+  const el = $("wanted");
+  const shown = rows.map((t) => ({ ...t, r: reasonOf(t, now) })).filter((t) => t.r.kind !== "covered").sort((a, b) => ORDER[a.r.kind] - ORDER[b.r.kind]);
+  if (!shown.length) return void (el.innerHTML = `<p class="muted">No wanted drops in the last gear pass.</p>`);
+  el.innerHTML = `<table class="wanted"><thead><tr><th>Enemy</th><th>Status</th><th>Drops</th></tr></thead><tbody>${shown
+    .map((t) => `<tr><td>${esc(t.npc)}<div class="muted small">${esc(t.zone)}</div></td><td>${reasonTag(t.r)}</td><td>${t.items.map((w) => dropLine(w, cards)).join("<br>")}</td></tr>`)
+    .join("")}</tbody></table>`;
 }
 
 function initGear() {
