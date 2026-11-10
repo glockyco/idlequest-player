@@ -77,8 +77,9 @@
       autoPlace: ["Auto-placing"], // puts the cursor item into the bags
       zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
       raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
-      // What a click on an NPC sends, (npcId, name). Bun reformats the sources it loads, so the pattern allows spaces.
-      hail: /^function [\w$]+\(\s*e,\s*t,\s*n\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*e,\s*t,\s*n\s*\);?\s*\}$/,
+      // What a click on an NPC sends, (npcId, name), a function that passes its three parameters on.
+      // Releases rename the parameters, and Bun reformats the sources it loads, so the pattern allows both.
+      hail: /^function [\w$]+\(\s*([\w$]+),\s*([\w$]+),\s*([\w$]+)\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*\1,\s*\2,\s*\3\s*\);?\s*\}$/,
       // The control state of an entity from its active effects, ({ effects }) => { isRooted, ... }:
       // the readiness wait's root test ("Waiting for root to wear off the party").
       rootState: /^function [\w$]+\(\s*\w+\s*\)\s*\{[\s\S]{0,500}remainingTicks[\s\S]{0,300}stunMs[\s\S]{0,200}hardControlled[\s\S]{0,100}feignDeath[\s\S]{0,40}\}$/,
