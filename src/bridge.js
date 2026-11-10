@@ -485,21 +485,29 @@
   // `kind` "melee" or "spell" for the member's own, which its gear raises, "pet" for its pet's and
   // "shield" for a damage shield it wears, which come from the pet's own power and from buffs. Pets
   // carry generated names that change at each summon, so the owner is looked up as the line arrives.
-  const DAMAGE_LINES = [
-    [/^(You|[A-Z][\w`']*) [a-z]+(?: on)? .+? for (\d+) damage\.$/, "melee"],
-    [/^.+? has taken (\d+) damage from (your|[A-Z][\w`']*'s) spell\.$/, "spell"],
-    [/^(Your|[A-Z][\w`']*'s) damage shield [a-z]+ .+? for (\d+) points\.$/, "shield"],
-  ];
-  const damageOf = (text) => {
-    for (const [re, kind] of DAMAGE_LINES) {
+  // Melee, damage over time and shields come as COMBAT_OUTGOING lines, and a direct-damage spell as
+  // a SPELL_CAST line ("Hufiazun's Ice Shock hit gnomish_miner for 310 points of damage."), a type
+  // other casters' lines share, so those count only for the party.
+  const DAMAGE_LINES = {
+    COMBAT_OUTGOING: [
+      [/^(You|[A-Z][\w`']*) [a-z]+(?: on)? .+? for (\d+) damage\.$/, "melee"],
+      [/^.+? has taken (\d+) damage from (your|[A-Z][\w`']*'s) spell\.$/, "spell"],
+      [/^(Your|[A-Z][\w`']*'s) damage shield [a-z]+ .+? for (\d+) points\.$/, "shield"],
+    ],
+    SPELL_CAST: [[/^(Your|[A-Z][\w`']*'s) .+? hit .+? for (\d+) points of damage\.$/, "spell"]],
+  };
+  const damageOf = (type, text) => {
+    for (const [re, kind] of DAMAGE_LINES[type] ?? []) {
       const m = re.exec(text);
       if (!m) continue;
-      const [who, n] = kind === "spell" ? [m[2], m[1]] : [m[1], m[2]];
+      const [who, n] = /has taken/.test(re.source) ? [m[2], m[1]] : [m[1], m[2]];
       const me = stores.character.getState().characterProfile;
+      const companions = stores.companions.getState().companions ?? [];
       const name = /^(You|your|Your)$/.test(who) ? me?.name : who.replace(/'s$/, "");
-      const pet = (stores.companions.getState().companions ?? []).find((c) => c.name === name && c.petOwnerId);
+      if (type === "SPELL_CAST" && name !== me?.name && !companions.some((c) => c.name === name)) return null;
+      const pet = companions.find((c) => c.name === name && c.petOwnerId);
       if (!pet) return { by: name, kind, dmg: Number(n) };
-      const owner = pet.petOwnerCharacterId === me?.id ? me?.name : (stores.companions.getState().companions ?? []).find((c) => c.id === pet.petOwnerId)?.name;
+      const owner = pet.petOwnerCharacterId === me?.id ? me?.name : companions.find((c) => c.id === pet.petOwnerId)?.name;
       return owner ? { by: owner, kind: "pet", dmg: Number(n) } : null;
     }
     return null;
@@ -513,7 +521,7 @@
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
-      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...(m.type === "COMBAT_OUTGOING" ? damageOf(m.text) : null) });
+      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text) });
       // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.
       if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
         lastSpellBuy = Date.now();
