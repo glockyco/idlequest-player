@@ -35,6 +35,16 @@ test("each carried item goes to the character it adds most to, once", () => {
   expect(both.keep).toEqual({ counts: {}, instances: [2, 3] });
 });
 
+test("a move of a lore item names the other characters that carry one, which a gear task's leader must not be", () => {
+  const lore = new Map([...items, item(8, "Lore Cloak", { slots: 1 << 8, ac: 10, asta: 5, attack: 12, loregroup: -1 })]);
+  const people = [
+    { name: "Pal", cls: "paladin", level: 20, race: "" },
+    { name: "Lead", cls: "warrior", level: 20, race: "" },
+  ];
+  const survey = [{ ...row("Lead", 2, "Equipped", 8, 1), itemId: 8, itemName: "Lore Cloak" }, { ...row("Holder", 2, "Carried", 25, 2), itemId: 8, itemName: "Lore Cloak" }];
+  expect(planGear({ survey, items: lore, people }).moves).toMatchObject([{ item: "Lore Cloak", from: "Holder", to: "Pal", loreHolders: ["Lead"] }]);
+});
+
 test("a main hand moves by damage over delay, to a Monk too, and a two-hander only beside an empty off hand", () => {
   const people = [
     { name: "War", cls: "warrior", level: 30, race: "" },

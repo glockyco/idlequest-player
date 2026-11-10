@@ -273,10 +273,16 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
 
   // Gear moves come before gear hunts: one gear task carries out every move of the plan, its
   // largest gains, in minutes, with no character switch and at most one trip to a merchant's city.
-  // It goes to the free tab with the lowest levels, whose hunting the minutes cost least.
+  // The task pulls each item to its tab's leader, which refuses a lore item it carries already
+  // (`loreHolders` of a move), so such moves wait for a later task on another tab. It goes to the
+  // free tab whose leader blocks the fewest moves, then to the one with the lowest levels, whose
+  // hunting the minutes cost least.
   if (gear?.moves?.length) {
-    const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => mean(a) - mean(b))[0];
-    if (t) out.push({ label: t.label, kind: "gear", spec: { moves: gear.moves }, why: `${gear.moves.length} gear moves for ${new Set(gear.moves.map((m) => m.to)).size} characters` });
+    const blocks = (t, m) => (m.loreHolders ?? []).includes(t.members[0]?.name);
+    const blocked = (t) => gear.moves.filter((m) => blocks(t, m)).length;
+    const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => blocked(a) - blocked(b) || mean(a) - mean(b))[0];
+    const moves = t ? gear.moves.filter((m) => !blocks(t, m)) : [];
+    if (moves.length) out.push({ label: t.label, kind: "gear", spec: { moves }, why: `${moves.length} gear moves for ${new Set(moves.map((m) => m.to)).size} characters` });
   }
 
   // Gear targets (docs/plans/gear-acquisition.md): any group may hunt for any character, because a

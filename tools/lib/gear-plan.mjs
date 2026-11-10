@@ -28,6 +28,8 @@ const TWO_HANDED = new Set([1, 4, 35]);
 const OFFHAND_WEAPONS = new Set([0, 2, 3, 36]);
 const SHIELD = 8;
 const PIERCING = 2;
+/** Whether a content row is a lore item, one per character: any `loregroup` (-1 for the item alone), the lore flag, or a lore text marked "*". */
+const isLore = (i) => Boolean(i && ((i.loregroup ?? 0) !== 0 || i.loreflag || String(i.lore ?? "").startsWith("*")));
 // A Monk's fists by level (`di` in the client, docs/client-internals.md, Off hand and dual wield):
 // the levels at which the damage and the delay change, the damage, and the delay of every race but
 // Iksar and of Iksar, which gets each delay step one level step later.
@@ -228,7 +230,7 @@ export function itemCard(i) {
   for (const k of ["ac", "hp", "mana", "endur", "astr", "asta", "aagi", "adex", "awis", "aint", "acha", "mr", "fr", "cr", "dr", "pr", "attack", "haste", "regen", "manaregen", "damage", "delay", "weight", "bardtype", "bardvalue", "damageshield", "avoidance", "accuracy"]) put(k, i[k]);
   const flags = [];
   if (i.nodrop === 0) flags.push("NO DROP");
-  if (i.loregroup && i.loregroup !== 0) flags.push("LORE");
+  if (isLore(i)) flags.push("LORE");
   if (i.magic === 1) flags.push("MAGIC");
   if (i.artifactflag) flags.push("ARTIFACT");
   if (flags.length) out.flags = flags;
@@ -294,9 +296,8 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
-    // A lore item (loregroup -1 in the content rows) is one per character, so a second copy is refused.
-    const lore = item.loregroup === -1 || item.loreflag || String(item.lore ?? "").startsWith("*");
-    if (lore && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
+    // A lore item is one per character, so a second copy is refused.
+    if (isLore(item) && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
     const out = [];
     const gainIn = (slot) => value(p, new Map([...mine, [slot, item]])) - value(p, mine);
@@ -370,7 +371,10 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     const { r, p, slot, gain } = best;
     const toBags = slot === "bags";
     const replaced = toBags ? null : (worn.get(p.name).get(slot) ?? null);
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    // A gear task pulls the item to its tab's leader first, which a leader carrying a lore copy
+    // already refuses, so the move names the characters that carry one.
+    const loreHolders = isLore(items.get(r.itemId)) ? [...owned].filter(([n, ids]) => n !== r.characterName && ids.has(r.itemId)).map(([n]) => n) : [];
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;

@@ -304,6 +304,18 @@ test("gear moves go to the free tab with the lowest levels", () => {
   expect(decide({ now: NOW, tabs: one, gear: { moves }, targets: [target("a goo", "paw", 38)], hoursPerLevel }).actions).toMatchObject([{ label: "A", kind: "gear" }]);
 });
 
+test("a gear task goes to a leader that can take every lore item it moves, and a move no free leader can take waits", () => {
+  const tabs = [tab("A", "G1", 41), tab("C", "G9", 13)];
+  const cloak = { item: "Cloak", from: "X", to: "Y", slot: "back" };
+  // C's leader carries a lore Ring already, so the task goes to A despite C's lower levels.
+  const ring = { item: "Ring", from: "Z", to: "Y", slot: "finger", loreHolders: ["C0"] };
+  expect(decide({ now: NOW, tabs, gear: { moves: [cloak, ring] } }).actions).toMatchObject([{ label: "A", kind: "gear", spec: { moves: [cloak, ring] } }]);
+  // A ring both leaders carry waits, and the cloak goes with the lowest group.
+  const both = { ...ring, loreHolders: ["A0", "C0"] };
+  expect(decide({ now: NOW, tabs, gear: { moves: [cloak, both] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
+});
+
+
 test("a quest chain takes a tab before a camp would", () => {
   const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
