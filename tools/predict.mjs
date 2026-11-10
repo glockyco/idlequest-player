@@ -44,8 +44,9 @@
 // time in stretches of 20 minutes or more, 13% at levels 1 to 4 in tools/fights.mjs), spawn conditions and
 // content flags, zone line travel and the time to reach the zone. The calibration runs are in the README and
 // tools/calibrate.mjs measures the model against every live run, per level band and zone.
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { liveSpawnRows, rows as contentRows } from "./lib/content.mjs";
 
 const args = process.argv.slice(2);
 const has = (n) => args.includes(`--${n}`);
@@ -214,10 +215,7 @@ function spellEffectivenessRaw(npcLevel, casterLevel, stat) {
 }
 
 // ---------------------------------------------------------------- content loading
-async function* rows(table) {
-  const dir = `${content}/data/${table}`;
-  for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
-}
+const rows = (table) => contentRows(table, content);
 const norm = (s) => s.replace(/^the\s+/i, "").replace(/[`']/g, "").trim().toLowerCase();
 // The client reads 19 as melee immunity and 23 as immunity to non-magical melee (main.pretty.js:62126-62127,
 // 63336-63341). It never reads 22. Magic immunity (20) follows EQEmu's numbering and is not checked in the client.
@@ -246,16 +244,16 @@ export async function loadZones(pattern) {
     zones.set(z.short_name, { short: z.short_name, id: z.zoneidnumber, name: z.long_name, zem: Number(z.zone_exp_multiplier), safe: { x: z.safe_x, y: z.safe_y }, points: [] });
   }
   const groups = new Map(); // group -> points
-  for await (const s of rows("spawn2")) {
-    if (s.version !== 0 || !zones.has(s.zone)) continue;
+  for await (const s of liveSpawnRows("spawn2", content)) {
+    if (!zones.has(s.zone)) continue;
     const p = { x: s.x, y: s.y, respawn: s.respawntime, members: [] };
     zones.get(s.zone).points.push(p);
     (groups.get(s.spawngroupID) ?? groups.set(s.spawngroupID, []).get(s.spawngroupID)).push(p);
   }
   const ids = new Set();
-  for await (const e of rows("spawnentry")) {
+  for await (const e of liveSpawnRows("spawnentry", content)) {
     const pts = groups.get(e.spawngroupID);
-    if (!pts || e.chance <= 0) continue;
+    if (!pts) continue;
     for (const p of pts) p.members.push({ id: e.npcID, chance: e.chance });
     ids.add(e.npcID);
   }

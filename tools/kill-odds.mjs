@@ -19,7 +19,7 @@ import { Database } from "bun:sqlite";
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { casinoBosses } from "./lib/client-tables.mjs";
-import { rows } from "./lib/content.mjs";
+import { liveSpawnRows, rows } from "./lib/content.mjs";
 import { npcKey } from "./lib/fight-record.mjs";
 import { fitPrior, priorOf } from "./lib/kill-prior.mjs";
 import { accountRoster } from "./raidsim/account.mjs";
@@ -63,13 +63,13 @@ const wanted = new Set([...(daily.bosses ?? []).map((b) => b.name), ...targets.m
 const named = new Map();
 for await (const n of rows("npc_types")) if (wanted.has(npcKey(n.name))) named.set(n.id, n);
 const groupsOf = new Map();
-for await (const e of rows("spawnentry")) {
+for await (const e of liveSpawnRows("spawnentry")) {
   const npc = e.npcID ?? e.npc_id;
   const group = e.spawngroupID ?? e.spawngroup_id;
   if (named.has(npc)) (groupsOf.get(group) ?? groupsOf.set(group, []).get(group)).push(npc);
 }
 const spawnsIn = new Map();
-for await (const s of rows("spawn2")) for (const id of groupsOf.get(s.spawngroupID ?? s.spawngroup_id) ?? []) (spawnsIn.get(id) ?? spawnsIn.set(id, new Set()).get(id)).add(s.zone);
+for await (const s of liveSpawnRows("spawn2")) for (const id of groupsOf.get(s.spawngroupID ?? s.spawngroup_id) ?? []) (spawnsIn.get(id) ?? spawnsIn.set(id, new Set()).get(id)).add(s.zone);
 const npcOf = (e) => e.npcId ?? [...named.values()].find((n) => npcKey(n.name) === npcKey(e.name) && spawnsIn.get(n.id)?.has(e.zone))?.id ?? null;
 // Results written before an entry carried its enemy's level and hit points get them from the content.
 for (const e of Object.values(odds)) {

@@ -7,8 +7,9 @@
 // `npc_types`. This is the static spawn table: no wandering, no script spawns, no content flags,
 // so treat counts as approximate and check against a live scout once (Blackburrow at level 5 scouts
 // at 86 candidates and nn 34).
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { liveSpawnRows, rows as contentRows } from "./lib/content.mjs";
 
 const args = process.argv.slice(2);
 const pos = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--data");
@@ -19,10 +20,7 @@ if (!outDir || !patterns.length) {
   console.error("usage: bun tools/zone-snapshots.mjs <out dir> <zone regex>... [--data dir]");
   process.exit(2);
 }
-async function* rows(table) {
-  const dir = `${root}/data/${table}`;
-  for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson"))) for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
-}
+const rows = (table) => contentRows(table, root);
 const res = patterns.map((p) => new RegExp(p, "i"));
 const zones = new Map(); // short -> row
 for await (const z of rows("zone")) if (res.some((r) => r.test(z.short_name) || r.test(z.long_name)) && !zones.has(z.short_name)) zones.set(z.short_name, z);
@@ -31,14 +29,14 @@ if (!zones.size) {
   process.exit(1);
 }
 const points = new Map(); // group -> [{zone,x,y}]
-for await (const s of rows("spawn2")) {
-  if (!zones.has(s.zone) || s.version !== 0) continue;
+for await (const s of liveSpawnRows("spawn2", root)) {
+  if (!zones.has(s.zone)) continue;
   (points.get(s.spawngroupID) ?? points.set(s.spawngroupID, []).get(s.spawngroupID)).push({ zone: s.zone, x: s.x, y: s.y });
 }
 const members = new Map(); // group -> [{npcID, chance}]
 const npcIds = new Set();
-for await (const e of rows("spawnentry")) {
-  if (!points.has(e.spawngroupID) || e.chance <= 0) continue;
+for await (const e of liveSpawnRows("spawnentry", root)) {
+  if (!points.has(e.spawngroupID)) continue;
   (members.get(e.spawngroupID) ?? members.set(e.spawngroupID, []).get(e.spawngroupID)).push({ npcID: e.npcID, chance: e.chance });
   npcIds.add(e.npcID);
 }

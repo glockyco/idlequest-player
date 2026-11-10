@@ -14,6 +14,27 @@ export async function* rows(table, root) {
   }
 }
 
+// The expansion the live server plays, Classic through Velious: a spawn row that needs a later
+// expansion does not appear.
+export const LIVE_EXPANSION = 2;
+
+/**
+ * The rows of spawn table `table` (`spawn2` or `spawnentry`) the live server uses: inside the live
+ * expansion's range, for spawn points the zone's base version, since a higher version belongs to an
+ * instanced copy of the zone, and for spawn entries a weight above 0, since an entry at weight 0
+ * counts as never spawning (docs/plans/epics.md, rule 11). A spawn point's zone comes in lower
+ * case, since the server's database compares zone names without case and Everfrost's points name it
+ * "Everfrost". Every reader of the spawn tables goes through this.
+ */
+export async function* liveSpawnRows(table, root) {
+  for await (const r of rows(table, root)) {
+    if (r.version > 0) continue;
+    if (table === "spawnentry" && !(r.chance > 0)) continue;
+    if (r.min_expansion > LIVE_EXPANSION || (r.max_expansion >= 0 && r.max_expansion < LIVE_EXPANSION)) continue;
+    yield typeof r.zone === "string" && r.zone !== r.zone.toLowerCase() ? { ...r, zone: r.zone.toLowerCase() } : r;
+  }
+}
+
 /**
  * When a spawn point spawns: a point with a `_condition` spawns only while that zone condition is
  * on, such as Kithicor's night (spawn_conditions, switched by spawn_events). Resolves with
@@ -41,8 +62,8 @@ export async function spawnPoints(queries, root) {
   const npcs = queries.map(() => new Set());
   for await (const n of rows("npc_types", root)) res.forEach((re, k) => re.test(n.name) && npcs[k].add(n.id));
   const groups = queries.map(() => new Set());
-  for await (const s of rows("spawnentry", root)) npcs.forEach((set, k) => set.has(s.npcID) && groups[k].add(s.spawngroupID));
+  for await (const s of liveSpawnRows("spawnentry", root)) npcs.forEach((set, k) => set.has(s.npcID) && groups[k].add(s.spawngroupID));
   const points = queries.map(() => []);
-  for await (const p of rows("spawn2", root)) queries.forEach((q, k) => p.zone === q.zone && groups[k].has(p.spawngroupID) && points[k].push(p.id));
+  for await (const p of liveSpawnRows("spawn2", root)) queries.forEach((q, k) => p.zone === q.zone && groups[k].has(p.spawngroupID) && points[k].push(p.id));
   return points;
 }

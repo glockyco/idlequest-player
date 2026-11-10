@@ -3,7 +3,7 @@
 // a merchant) in the zones the live game has, with the time it takes to farm a copy.
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { rows, spawnTimes } from "./content.mjs";
+import { liveSpawnRows, rows, spawnTimes } from "./content.mjs";
 import { effectValue, spellEffects } from "./spell-value.mjs";
 
 export const BIT = { warrior: 1, cleric: 2, paladin: 4, ranger: 8, shadowknight: 16, druid: 32, monk: 64, bard: 128, rogue: 256, shaman: 512, necromancer: 1024, wizard: 2048, magician: 4096, enchanter: 8192 };
@@ -256,7 +256,7 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   const groups = new Map(); // npc id -> [{group, chance}]
   const groupTotal = new Map();
   const needGroups = new Set();
-  for await (const s of rows("spawnentry", root)) {
+  for await (const s of liveSpawnRows("spawnentry", root)) {
     groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
     if (npcsOfLt.has(s.npcID) || merchantNpcs.has(s.npcID)) {
       (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push({ g: s.spawngroupID, chance: s.chance });
@@ -265,9 +265,8 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   }
   const timeOf = await spawnTimes(root);
   const pointsOf = new Map(); // group -> {zone -> {n, respawn, when}}
-  for await (const sp of rows("spawn2", root)) {
-    // Spawn points with a version above 0 belong to instanced copies of the zone, not to the zone itself.
-    if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone) || sp.version > 0) continue;
+  for await (const sp of liveSpawnRows("spawn2", root)) {
+    if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone)) continue;
     const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
     const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity, when: new Set() }).get(sp.zone);
     r.n++;
@@ -281,7 +280,7 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
       const z = byZone.get(zone) ?? byZone.set(zone, { n: 0, respawn: Infinity, spawn: 0, when: new Set() }).get(zone);
       z.n += r.n;
       z.respawn = Math.min(z.respawn, r.respawn);
-      z.spawn = Math.max(z.spawn, groupTotal.get(g) ? chance / groupTotal.get(g) : 1);
+      z.spawn = Math.max(z.spawn, chance / groupTotal.get(g));
       for (const w of r.when) z.when.add(w);
     }
     for (const [zone, z] of byZone) for (const [item, p] of itemsOfLt.get(npc.lt)) {

@@ -27,6 +27,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Database } from "bun:sqlite";
+import { liveSpawnRows, rows as contentRows } from "./lib/content.mjs";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 
 const args = process.argv.slice(2);
@@ -98,11 +99,7 @@ const normName = (s) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-async function* rows(table) {
-  const dir = `${content}/data/${table}`;
-  for (const f of (await readdir(dir)).filter((f) => f.endsWith(".ndjson")))
-    for (const l of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) if (l) yield JSON.parse(l);
-}
+const rows = (table) => contentRows(table, content);
 /** zone id -> { short, mobs: Map(normalised name -> [{ level, hp, min, max, delay }]) } for the zone ids asked for. */
 async function loadNpcs(zoneIds) {
   const zones = new Map(); // id -> short
@@ -113,11 +110,11 @@ async function loadNpcs(zoneIds) {
     byShort.set(z.short_name, { id: z.zoneidnumber, short: z.short_name, long: z.long_name, mobs: new Map() });
   }
   const groupZone = new Map();
-  for await (const s of rows("spawn2")) if (s.version === 0 && byShort.has(s.zone)) groupZone.set(s.spawngroupID, s.zone);
+  for await (const s of liveSpawnRows("spawn2", content)) if (byShort.has(s.zone)) groupZone.set(s.spawngroupID, s.zone);
   const npcZones = new Map(); // npc id -> Set(zone short)
-  for await (const e of rows("spawnentry")) {
+  for await (const e of liveSpawnRows("spawnentry", content)) {
     const z = groupZone.get(e.spawngroupID);
-    if (!z || e.chance <= 0) continue;
+    if (!z) continue;
     (npcZones.get(e.npcID) ?? npcZones.set(e.npcID, new Set()).get(e.npcID)).add(z);
   }
   for await (const n of rows("npc_types")) {
