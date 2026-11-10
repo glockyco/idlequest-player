@@ -7,8 +7,6 @@ import { ACQUIRE, bestWay, describeWay, netRate, targetId, targetRetryMin } from
 import { estimate } from "./rates.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
-/** XP Smith Tv`ysa pays for each stone (docs/guide.md). */
-export const STONE_XP = { "Greater Lightstone": 274400, Lightstone: 137200 };
 
 export const DEFAULTS = {
   // A hand-in costs each member about a minute of the group's hunting, so a batch waits until it
@@ -152,6 +150,7 @@ export function worldHold(history, id, code = null) {
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
+ * - `stoneXp`: the XP Smith Tv`ysa's script pays for one of each stone, by name (`handInDemand`).
  * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
  *   epic and quest pieces, where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false, when it fights them through Enemy Targets wherever they stand.
@@ -176,7 +175,7 @@ export function worldHold(history, id, code = null) {
  * where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and `targets`, by
  * `targetId`, the group each target pays most for, its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
@@ -398,7 +397,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   if (target && total >= cfg.minStonesPerMember * target.members.length) {
     const levels = Object.fromEntries(target.members.map((m) => [m.name, m.level]));
     const members = stoneShares(target.members.map((m) => m.name), levels, stock);
-    const xp = STONES.reduce((a, s) => a + (stock[s] ?? 0) * STONE_XP[s], 0);
+    const xp = STONES.reduce((a, s) => a + (stock[s] ?? 0) * (stoneXp[s] ?? 0), 0);
     out.push({ label: target.label, kind: "handIn", spec: { members }, why: `${total} stones (${Math.round(xp / 1000)}k XP) to the lowest group, mean level ${mean(target).toFixed(1)}` });
   }
   return { actions: out, targets: targetEval };

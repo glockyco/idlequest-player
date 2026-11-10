@@ -35,9 +35,6 @@
     targetFreeSlots: 16,
     autoBank: true, // making room starts with the game's Auto Bank, which sends ingredients and spell scrolls to the account banks
     discard: true, // surplus the client cannot sell (no price, NO DROP or NO RENT) is destroyed; false leaves it in the bags
-    // Kept in every copy, besides the reagents of the leader's own spells. Lightstones (10300) and
-    // Greater Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
-    keepItemIds: [10015, 10300, 10400],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
@@ -208,9 +205,9 @@
 
   /**
    * The fate of every carried item outside containers (docs/plans/items.md, "Fate"): kept up to its
-   * demand, the rest surplus. Demand keeps up to `demand` copies of an item, every copy of
-   * `keepItemIds`, the gear plan's `gearKeepInstances`, the reagents of the leader's
-   * class spells, and food and drink up to `keepSupply` units of each type, from the largest stacks.
+   * demand, the rest surplus. Demand keeps up to `demand` copies of an item, every copy of the gear
+   * plan's `gearKeepInstances` and of the reagents of the leader's class spells, and food and drink
+   * up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
    * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
    */
@@ -229,7 +226,7 @@
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
       const wanted = config.gearKeepInstances.includes(r.itemInstanceId) || (demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true));
-      if (supply || wanted || config.keepItemIds.includes(r.itemid) || reagents.has(r.itemid)) out.keep.push(row);
+      if (supply || wanted || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
     }

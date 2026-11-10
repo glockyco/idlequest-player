@@ -2,7 +2,7 @@
 // demand sources and the client table reader. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { arrayLiteral } from "../tools/lib/client-tables.mjs";
-import { addDemand, chainDemand, potionDemand, stepDemand, tabShares } from "../tools/lib/item-demand.mjs";
+import { ALL_COPIES, addDemand, chainDemand, handInDemand, potionDemand, stepDemand, tabShares } from "../tools/lib/item-demand.mjs";
 import { needFor, scriptEdges } from "../tools/lib/quest-graph.mjs";
 
 const FORPAR = `function event_say(e)
@@ -95,4 +95,20 @@ test("each leader keeps its carried copies up to the need left after others' cop
   const shares = tabShares({ need: { 1: 3, 2: 2, 3: 1 }, short: { 7: 2 }, rows, leaders: ["A", "B"] });
   // Item 3 is short everywhere, and the gear plan's two copies of item 7 go to every leader.
   expect(shares).toEqual({ A: { 1: 1, 2: 1, 3: 1, 7: 2 }, B: { 2: 1, 3: 1, 7: 2 } });
+});
+
+test("every copy of an item the hand-in NPC takes alone for XP is kept, and nothing it takes in sets or for no XP", () => {
+  const edge = (npc: string, inputs: Record<number, number>, exp: number) => ({ kind: "handin", npc, zone: "sro", inputs, outputs: [], exp, spawns: [] });
+  const edges = [
+    edge("Smith Tv-ysa", { 10300: 1 }, 137200),
+    // A second branch for the same stone pays more, and the larger reward counts.
+    edge("Smith Tv-ysa", { 10300: 1 }, 140000),
+    // Two of one item, a set of two items, and a hand-in without XP are no repeatable XP hand-ins.
+    edge("Smith Tv-ysa", { 10400: 2 }, 274400),
+    edge("Smith Tv-ysa", { 10015: 1, 10016: 1 }, 5000),
+    edge("Smith Tv-ysa", { 13077: 1 }, 0),
+    // Another NPC's hand-in is not the task's.
+    edge("Mrysila", { 10500: 1 }, 14500),
+  ];
+  expect(handInDemand(edges, "Smith Tv-ysa")).toEqual({ demand: { 10300: ALL_COPIES }, xp: { 10300: 140000 } });
 });

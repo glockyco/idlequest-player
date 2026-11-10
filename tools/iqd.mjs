@@ -17,7 +17,7 @@ import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
-import { addDemand, chainDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
+import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -690,11 +690,15 @@ class Daemon {
     this.itemModel ??= await loadItemModel();
     this.gearKeep ??= metaGet(this.db, "gearKeep") ?? { counts: {}, instances: [] };
     const epicHolders = new Set((await Promise.all(Object.values(this.itemModel.epics).flat().map((id) => carriers(this.itemModel.names.get(id))))).flat());
+    // The lightstone hand-ins the coordinator runs (`STONES`), read from Smith Tv`ysa's script.
+    const stones = handInDemand(this.itemModel.edges, "Smith Tv-ysa");
+    const stoneXp = Object.fromEntries(Object.entries(stones.xp).map(([id, xp]) => [this.itemModel.names.get(Number(id)), xp]));
     const need = addDemand(
       chainDemand({ ...this.itemModel, members, epicHolders }),
       stepDemand({ quests, holders, members, ids: this.itemModel.ids }),
       opportunityDemand({ opportunities, need: (o) => piecesNeeded(o, { quests, holders, members }), ids: this.itemModel.ids }),
       potionDemand(this.itemModel.bosses),
+      stones.demand,
     );
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
@@ -702,7 +706,7 @@ class Daemon {
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     for (const a of actions) {

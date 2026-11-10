@@ -78,7 +78,7 @@ bot first, because it starts AutoLevel again a minute after it stops.
 ```js
 const r = await iq.watch({ minutes: 50, sinceSeq: 0, exportDir: "runs/my-run" });
 await iq.pauseBot(30, "playing by hand");   // AutoLevel may stay off for 30 minutes
-await iq.setBot({ minFreeSlots: 10, keepItemIds: [10015, 13077] });  // settings persist in this tab across reloads
+await iq.setBot({ minFreeSlots: 10, targetFreeSlots: 16 });  // settings persist in this tab across reloads
 ```
 
 Hunting grounds: `scoutZones` saves each zone's spawn list once, and `tools/zones.mjs` ranks zones

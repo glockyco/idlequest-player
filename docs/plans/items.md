@@ -35,7 +35,7 @@ An item that no edge produces is a leaf: a drop, a merchant item or a ground spa
 
 ### Demand (coordinator)
 
-`demand[itemId]` is the copies the account needs: one epic reward per class member and one chain input per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), the copies the hunts and errands are for (`opportunityDemand`), one of each boss potion (the client's casino table) and the gear plan's copies still to acquire. Hand-in items whose reward pays (lightstones today) are still `keepItemIds` until step 5 values them. Each tab gets its leader's share (`tabShares`), because the bag reserve acts on the active leader's carried items only. Copies worn or carried by others count first. Each leader then keeps the carried copies the account still needs, and every leader keeps the shortfall and the gear plan's copies, because any tab may loot the missing one. The shares come from the last gear pass's survey, so a copy looted since then can be kept twice until the next pass. The gear plan's moves add the instances they take (`gearKeepInstances`).
+`demand[itemId]` is the copies the account needs: one epic reward per class member and one chain input per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), the copies the hunts and errands are for (`opportunityDemand`), one of each boss potion (the client's casino table), every copy of the items a coordinator hand-in task pays XP for (`handInDemand`, Smith Tv`ysa's lightstones) and the gear plan's copies still to acquire. Each tab gets its leader's share (`tabShares`), because the bag reserve acts on the active leader's carried items only. Copies worn or carried by others count first. Each leader then keeps the carried copies the account still needs, and every leader keeps the shortfall and the gear plan's copies, because any tab may loot the missing one. The shares come from the last gear pass's survey, so a copy looted since then can be kept twice until the next pass. The gear plan's moves add the instances they take (`gearKeepInstances`).
 
 ### Fate (bot)
 
@@ -47,7 +47,7 @@ The gear task becomes the item task. It moves gear to be worn, and kept copies t
 
 ### Value
 
-Hand-in rewards (XP, coin and items, read from the scripts) value the items a quest takes.
+Hand-in rewards (XP, coin and items) are read from the scripts. An item a hand-in pays for is kept in every copy while a coordinator task hands it in, because without the task the copies only fill bags. The XP the coordinator reports for a lightstone batch comes from the same edges.
 
 Gear has two kits, because leveling value (XP rate) and raid value (a boss fight's outcome) have no measured exchange rate. The leveling kit is scored by `xpGain` and worn while hunting. The raid kit is scored by the raid simulator, which runs the client's own code for clicks, procs, focus effects and resists that the leveling score leaves out: kill chance first, then mean kill time. Its target is the coordinator's next planned raid, and until raid planning exists, the goal bosses the simulator says are closest to a kill. The demand keeps both kits' copies. The item task swaps the raid kit in before a raid and back after it, only when the simulator says the raid kit changes the outcome.
 
@@ -59,7 +59,7 @@ Gear has two kits, because leveling value (XP rate) and raid value (a boss fight
 | 2 | The hunts' and errands' items in the demand, and each tab's share of it. | `keepNames`, `data/quest-items.json` and `tools/quest-items.mjs` | Done |
 | 3 | One held-item routine in the bot (`settleHeld`), cursor primitives in the bridge (`placeCursor`, `giveCursor`), passed to the bridge's actions as `settle`, and the raid loot step on the same routine. | `clearCursorAfterTrade`, the auto-place in `giveItem` and `craftItem`, and `collectLoot`'s placement | Under way |
 | 4 | The item task delivers kept copies and stores them, and gives raid loot straight to its recipient with the raid window's Give Item and Equip Item. | Kept copies in the leader's bags | Open |
-| 5 | Hand-in reward values. | `keepItemIds` (the lightstones) | Open |
+| 5 | Hand-in reward values from the scripts, for the hand-ins a coordinator task runs. | `keepItemIds`, the coordinator's hand-written `STONE_XP` | Done |
 | 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
 
 ## Checks

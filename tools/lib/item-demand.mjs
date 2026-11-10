@@ -114,6 +114,24 @@ export function tabShares({ need, short = {}, rows, leaders }) {
   return out;
 }
 
+/** A count no bag reaches, for an item whose every copy is kept. */
+export const ALL_COPIES = 1_000_000;
+
+/**
+ * Every copy of the items NPC `npc` takes one at a time for XP (`edges` of the quest graph, by the
+ * NPC's script file name), because each copy pays its reward again and a coordinator task hands
+ * them in: Smith Tv`ysa's lightstones today. Returns `{ demand, xp }`, `xp` mapping each item id to
+ * the XP one copy pays.
+ */
+export function handInDemand(edges, npc) {
+  const xp = {};
+  for (const e of edges) {
+    const ids = Object.keys(e.inputs);
+    if (e.kind === "handin" && e.npc === npc && e.exp > 0 && ids.length === 1 && e.inputs[ids[0]] === 1) xp[ids[0]] = Math.max(xp[ids[0]] ?? 0, e.exp);
+  }
+  return { demand: Object.fromEntries(Object.keys(xp).map((id) => [id, ALL_COPIES])), xp };
+}
+
 /**
  * One copy of every casino boss potion (`bosses`, the client's casino table): a potion is LORE
  * and stays with the character that won it, so a tab never carries two of one boss.
