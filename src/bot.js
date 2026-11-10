@@ -250,9 +250,9 @@
   };
   /**
    * The bag reserve: below `minFreeSlots` free slots, Auto Bank (at most every ten minutes, it is a
-   * slow courier), then surplus sold cheapest first, then surplus discarded, until `targetFreeSlots`.
-   * When kept items alone leave too little room, one alert an hour lists them, because only a
-   * decision about what the account keeps can help.
+   * slow courier), then the cheapest loss first until `targetFreeSlots`: surplus without a price,
+   * which nothing buys, then surplus sold cheapest first. When kept items alone leave too little
+   * room, one alert an hour lists them, because only a decision about what the account keeps can help.
    */
   const keepReserve = async (i, force = false, withCursor = false) => {
     let space = i.bagSpace();
@@ -275,7 +275,9 @@
     let copper = 0;
     const sold = [];
     const gone = [];
-    for (const s of [...f.sell.map((x) => ({ ...x, sell: true })), ...(config.discard ? f.discard : [])]) {
+    // Sales first left every discard behind for as long as sellable loot kept coming.
+    const queue = [...(config.discard ? f.discard : []), ...f.sell.map((x) => ({ ...x, sell: true }))];
+    for (const s of queue) {
       if (free >= config.targetFreeSlots || acted >= config.sellPerTick) break;
       // The client acts on whatever sits at (bag, slot) when the call runs, so check it is still ours.
       if (rowAt(i, s)?.itemInstanceId !== s.instanceId) break;
@@ -301,7 +303,7 @@
     }
     if (sold.length) log(`sold ${sold.length} surplus item(s) for ${copper} copper (${sold.join(", ")}); ${i.bagSpace().free} slots free`);
     if (gone.length) log(`discarded ${gone.length} surplus item(s) without a sale price (${gone.join(", ")}); ${i.bagSpace().free} slots free`);
-    if (!acted && i.bagSpace().free < config.minFreeSlots && now() - (state.keptFullAlertAt ?? 0) > 3600000) {
+    if (!queue.length && i.bagSpace().free < config.minFreeSlots && now() - (state.keptFullAlertAt ?? 0) > 3600000) {
       state.keptFullAlertAt = now();
       alert("bags", `${i.bagSpace().free} bag slots free and only kept items left: ${f.keep.map((k) => k.name).join(", ")}`, true);
     }

@@ -1753,7 +1753,7 @@ test("a container on the cursor with every general slot taken sends the emptiest
   }
 });
 
-test("the reserve sells surplus cheapest first, then discards surplus without a price, and never touches kept items", async () => {
+test("the reserve discards surplus without a price first, then sells surplus cheapest first, and never touches kept items", async () => {
   vi.useFakeTimers();
   try {
     const f = await install();
@@ -1799,13 +1799,28 @@ test("the reserve sells surplus cheapest first, then discards surplus without a 
     Object.assign(f.bot.config, { gearKeepInstances: [], gearKeepCounts: { 5: 1 } });
     expect(f.bot.fates().keep.filter((k) => k.name === "Small Bronze Helm")).toHaveLength(1);
     Object.assign(f.bot.config, { gearKeepInstances: [104], gearKeepCounts: {} });
-    const run = f.bot.cleanup();
-    for (let k = 0; k < 30; k++) {
-      vi.advanceTimersByTime(500);
-      await flush();
-    }
-    await run;
-    expect(acts).toEqual(["sell Rusty Mace", "sell Fine Cloak", "sell Small Bronze Helm", "discard Battle Plans", "discard Shaded Torch"]);
+    const clean = async () => {
+      const run = f.bot.cleanup();
+      for (let k = 0; k < 30; k++) {
+        vi.advanceTimersByTime(500);
+        await flush();
+      }
+      await run;
+    };
+    // A pass that needs two slots takes the two that nothing buys.
+    Object.assign(f.bot.config, { minFreeSlots: 6, targetFreeSlots: 5 });
+    await clean();
+    expect(acts).toEqual(["discard Battle Plans", "discard Shaded Torch"]);
+    // A sale the server does not confirm leaves surplus behind, which is no reason for the kept-items alert.
+    const page = f.iq as unknown as { clientFn: (name: string) => unknown };
+    const sell = page.clientFn;
+    page.clientFn = (name) => (name === "sell" ? () => ({ success: false, message: "Sale confirmation was interrupted." }) : sell(name));
+    Object.assign(f.bot.config, { minFreeSlots: 8, targetFreeSlots: 8 });
+    await clean();
+    expect(f.bot.state.alerts.filter((a) => a.kind === "bags")).toEqual([]);
+    page.clientFn = sell;
+    await clean();
+    expect(acts).toEqual(["discard Battle Plans", "discard Shaded Torch", "sell Rusty Mace", "sell Fine Cloak", "sell Small Bronze Helm"]);
     expect(inv.map((r) => r.itemInstanceId)).toEqual([103, 104]);
     // With only kept items left and the reserve still short, one alert lists them.
     f.bot.config.minFreeSlots = 9;

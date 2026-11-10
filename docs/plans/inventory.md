@@ -27,7 +27,7 @@ Twelve fixes since Nov 9 03:19 each adjusted one rule: Auto-Sell off, a protecte
 1. The property is a reserve: between fights the leader's bags keep at least `minFreeSlots` free, so a drop always fits. Every rule below serves it, and an alert fires only when it cannot hold.
 2. One owner. The bot decides each item's fate. The server's Auto-Sell and Delete Clutter act only on full bags, too late for the drop, and by rules that do not know what the account needs. With both off, no item's fate depends on the bag it lies in.
 3. Kept by demand, not by category. An item stays because someone needs that many copies: the gear plan's copies still missing on the account, the items a hunt, errand or quest chain is for, the reagents of the leader's spells, lightstones. Categories such as quest item, has an effect or research page say nothing about demand.
-4. Every class has a way out, cheapest loss first: the tradeskill and spell banks (nothing lost), selling (coin), discarding unwanted items without a price (nothing lost), delivery to the character an item is for.
+4. Every class has a way out, cheapest loss first: the tradeskill and spell banks and discarding unwanted items without a price (nothing lost), selling (coin), delivery to the character an item is for.
 5. Wanted items that alone break the reserve are the one case that needs a decision, so that raises one alert listing them. Nothing sells or discards a wanted item to make room.
 
 ## Design
@@ -35,7 +35,7 @@ Twelve fixes since Nov 9 03:19 each adjusted one rule: Auto-Sell off, a protecte
 Bot (`src/bot.js`):
 - `fate(row)` returns keep, sell or discard. Copies of an item up to its demand are kept. Copies beyond it are sold when the client can sell them (a price, not NO DROP, not NO RENT) and discarded otherwise. Containers and equipped items are outside it.
 - Demand: `gearKeep` (item id to copies, from the coordinator), `keepNames` (every copy, from the coordinator), `keepItemIds` (every copy), the reagents of the leader's class spells (every copy), and `keepSupply` units of food and of drink, taken from the largest stacks, because the server feeds the character from any carried meal and drink.
-- `keepReserve()` runs each tick out of combat, before a task that needs room, and between the fights of a hunt task, whose pause keeps the tick's call away while the leader loots for up to half an hour. Below `minFreeSlots` it runs Auto Bank (at most every ten minutes), then sells surplus cheapest first, then discards surplus, until `targetFreeSlots` are free. If wanted items alone leave less, it raises the alert of principle 5.
+- `keepReserve()` runs each tick out of combat, before a task that needs room, and between the fights of a hunt task, whose pause keeps the tick's call away while the leader loots for up to half an hour. Below `minFreeSlots` it runs Auto Bank (at most every ten minutes), then discards surplus without a price and then sells surplus cheapest first, until `targetFreeSlots` are free, because sales first left the discards behind while sellable loot kept coming. If wanted items alone leave less, it raises the alert of principle 5.
 - Client options held: Auto-Sell off and Delete Clutter off.
 - Removed: `keepBag` and its No Sell and No Declutter marks, the single and last-resort sale tiers, `keepCopies`, `keepNamePattern`, the effect, food and quest-item exceptions, and the rule that a No Sell bag's contents count as kept.
 
