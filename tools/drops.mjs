@@ -4,8 +4,8 @@
 //   bun tools/drops.mjs item --list <names.json> [--json]   exact item names from a JSON array, such as a gear list
 //   bun tools/drops.mjs npc  <name regex> [--data <repo dir>] [--max-expansion N] [--limit N] [--json]
 //
-// The data directory defaults to $IQ_CONTENT, then ~/src/github.com/brynnb/idlequest-content.
-// Join: item -> lootdrop_entries -> loottable_entries -> npc_types -> spawnentry -> spawn2 -> zone.
+// The data directory defaults to $IQ_CONTENT, then ~/src/github.com/brynnb/idlequest-content. The
+// join is `loadSources` in tools/lib/gear-data.mjs, which the gear plan uses too.
 //
 // Numbers are approximate. They come from a development snapshot and ignore content flags, the
 // server's own loot rules and quest-only drops.
@@ -13,9 +13,10 @@
 //   spawn%    chance that a spawn point of the group puts this NPC up when it respawns
 //   points    spawn points that can hold the NPC in the zone
 //   respawn   seconds between respawns at a spawn point (smallest seen)
-//   when      always, or night or day for points that spawn only then (iq.gameHour() gives the game's hour, night is 20 to 5)
+//   when      night or day for an NPC whose points spawn only then (iq.gameHour() gives the game's hour, night is 20 to 5)
 //   rare      spawn% under 20 (the NPC shares a group with more common ones) or a `#` named NPC
-import { contentRoot, rows as contentRows, spawnTimes } from "./lib/content.mjs";
+import { contentRoot, rows as contentRows } from "./lib/content.mjs";
+import { loadSources } from "./lib/gear-data.mjs";
 
 const args = process.argv.slice(2);
 const [mode, pattern] = args.filter((a) => !a.startsWith("--"));
@@ -33,108 +34,36 @@ if (!["item", "npc"].includes(mode) || (!pattern && !list)) {
   process.exit(2);
 }
 const re = list ? { test: (name) => list.has(name) } : new RegExp(pattern.replace(/ /g, "[ _]"), "i");
-
 const rows = (table) => contentRows(table, root);
 
 const zoneName = new Map();
-const zoneExp = new Map();
-for await (const z of rows("zone")) {
-  zoneName.set(z.short_name, z.long_name);
-  zoneExp.set(z.short_name, z.expansion);
-}
-
-// ---- Start from items or NPCs ----------------------------------------------------------------
-const items = new Map(); // id -> name
-for await (const it of rows("items")) if (mode === "item" && re.test(it.Name)) items.set(it.id, it.Name);
-if (mode === "item" && !items.size) {
+for await (const z of rows("zone")) if ((z.expansion ?? 0) <= maxExpansion && !zoneName.has(z.short_name)) zoneName.set(z.short_name, z.long_name);
+// Item mode asks for the matching items, NPC mode for every item of the matching NPCs.
+const itemNames = new Map();
+for await (const it of rows("items")) if (mode === "npc" || re.test(it.Name)) itemNames.set(it.id, it.Name);
+if (mode === "item" && !itemNames.size) {
   console.log("no item matches");
   process.exit(0);
 }
+const { sources } = await loadSources(root, { itemIds: new Set(itemNames.keys()), maxNpcLevel: maxLevel, zoneName, skipNpc: mode === "npc" ? (n) => !re.test(n.name) : () => false });
 
-const npcs = new Map(); // id -> {id,name,level,lt}
-for await (const n of rows("npc_types")) {
-  if (mode === "npc" ? re.test(n.name) : n.loottable_id > 0) npcs.set(n.id, { id: n.id, name: n.name, level: n.level, lt: n.loottable_id });
-}
-
-// loottable -> lootdrops, lootdrop -> items
-const ltEntries = new Map(); // loottable_id -> [{drop, prob, mult}]
-for await (const e of rows("loottable_entries")) (ltEntries.get(e.loottable_id) ?? ltEntries.set(e.loottable_id, []).get(e.loottable_id)).push({ drop: e.lootdrop_id, prob: e.probability, mult: e.multiplier });
-const dropItems = new Map(); // lootdrop_id -> [{item, chance, mult}]
-for await (const e of rows("lootdrop_entries")) {
-  if (e.chance <= 0) continue;
-  (dropItems.get(e.lootdrop_id) ?? dropItems.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ item: e.item_id, chance: e.chance, mult: e.multiplier || 1 });
-}
-const itemNames = new Map(items);
-if (mode === "npc") for await (const it of rows("items")) itemNames.set(it.id, it.Name);
-
-// NPC -> [{item, p}]
-const pOf = (prob, chance, mult) => (prob / 100) * (1 - (1 - chance / 100) ** mult);
-function dropsOfNpc(npc) {
-  const out = new Map();
-  for (const lt of ltEntries.get(npc.lt) ?? []) {
-    for (const d of dropItems.get(lt.drop) ?? []) {
-      if (mode === "item" && !items.has(d.item)) continue;
-      out.set(d.item, 1 - (1 - (out.get(d.item) ?? 0)) * (1 - pOf(lt.prob, d.chance, d.mult)));
-    }
-  }
-  return out;
-}
-
-const wanted = new Map(); // npc id -> drops
-for (const n of npcs.values()) {
-  if (n.level > maxLevel) continue;
-  const d = dropsOfNpc(n);
-  if (d.size) wanted.set(n.id, d);
-}
-
-// ---- Spawns ------------------------------------------------------------------------------------
-const groupTotal = new Map();
-const groupsOf = new Map(); // npc id -> [{group, chance}]
-const groupsNeeded = new Set();
-for await (const s of rows("spawnentry")) {
-  groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
-  if (wanted.has(s.npcID)) {
-    (groupsOf.get(s.npcID) ?? groupsOf.set(s.npcID, []).get(s.npcID)).push({ group: s.spawngroupID, chance: s.chance });
-    groupsNeeded.add(s.spawngroupID);
-  }
-}
-const timeOf = await spawnTimes(root);
-const points = new Map(); // group -> [{zone, respawn, when}]
-for await (const sp of rows("spawn2")) if (groupsNeeded.has(sp.spawngroupID)) (points.get(sp.spawngroupID) ?? points.set(sp.spawngroupID, []).get(sp.spawngroupID)).push({ zone: sp.zone, respawn: sp.respawntime, when: timeOf(sp.zone, sp._condition) });
-
-// ---- Report ------------------------------------------------------------------------------------
-const agg = new Map(); // item|npc name|zone -> merged row, so level variants of one NPC type show once
-for (const [npcId, drops] of wanted) {
-  const npc = npcs.get(npcId);
-  const byZone = new Map();
-  for (const { group, chance } of groupsOf.get(npcId) ?? []) {
-    for (const p of points.get(group) ?? []) {
-      const z = byZone.get(p.zone) ?? { points: 0, respawn: Infinity, spawn: 0, when: new Set() };
-      z.points++;
-      z.respawn = Math.min(z.respawn, p.respawn);
-      z.when.add(p.when ?? "always");
-      // A group whose entries all have chance 0 always spawns its single NPC.
-      z.spawn = Math.max(z.spawn, groupTotal.get(group) ? chance / groupTotal.get(group) : 1);
-      byZone.set(p.zone, z);
-    }
-  }
-  for (const [zone, z] of byZone) {
-    if ((zoneExp.get(zone) ?? 0) > maxExpansion) continue;
-    for (const [item, p] of drops) {
-      const key = `${item}|${npc.name}|${zone}`;
-      const r = agg.get(key);
-      const row = { item: itemNames.get(item) ?? item, npc: npc.name, lo: npc.level, hi: npc.level, zone: zoneName.get(zone) ?? zone, drop: p, spawn: z.spawn, points: z.points, respawn: z.respawn, when: new Set(z.when), rare: z.spawn < 0.2 || npc.name.startsWith("#") };
-      if (!r) agg.set(key, row);
-      else {
-        r.lo = Math.min(r.lo, row.lo);
-        r.hi = Math.max(r.hi, row.hi);
-        r.points += row.points;
-        r.drop = Math.max(r.drop, row.drop);
-        r.spawn = Math.max(r.spawn, row.spawn);
-        r.respawn = Math.min(r.respawn, row.respawn);
-        for (const w of row.when) r.when.add(w);
-        r.rare ||= row.rare;
-      }
+// Level variants of one NPC type show once per item and zone.
+const agg = new Map();
+for (const [item, list] of sources) {
+  for (const s of list) {
+    const key = `${item}|${s.npc}|${s.zoneShort}`;
+    const r = agg.get(key);
+    const when = s.when ?? "always";
+    if (!r) agg.set(key, { item: itemNames.get(item) ?? item, npc: s.npc, lo: s.level, hi: s.level, zone: s.zone, drop: s.drop, spawn: s.spawn, points: s.points, respawn: s.respawn, when: new Set([when]), rare: s.spawn < 0.2 || s.npc.startsWith("#") });
+    else {
+      r.lo = Math.min(r.lo, s.level);
+      r.hi = Math.max(r.hi, s.level);
+      r.points += s.points;
+      r.drop = Math.max(r.drop, s.drop);
+      r.spawn = Math.max(r.spawn, s.spawn);
+      r.respawn = Math.min(r.respawn, s.respawn);
+      r.when.add(when);
+      r.rare ||= s.spawn < 0.2 || s.npc.startsWith("#");
     }
   }
 }
@@ -150,7 +79,7 @@ console.log("item".padEnd(30) + "npc".padEnd(30) + "lvl".padStart(7) + "  zone".
 for (const l of lines.slice(0, limit)) {
   const lvl = l.lo === l.hi ? String(l.lo) : `${l.lo}-${l.hi}`;
   console.log(
-    String(l.item).slice(0, 29).padEnd(30) + l.npc.replace(/_/g, " ").slice(0, 29).padEnd(30) + lvl.padStart(7) + ("  " + l.zone).slice(0, 33).padEnd(34) +
+    String(l.item).slice(0, 29).padEnd(30) + l.npc.slice(0, 29).padEnd(30) + lvl.padStart(7) + ("  " + l.zone).slice(0, 33).padEnd(34) +
       (l.drop * 100).toFixed(1).padStart(7) + (l.spawn * 100).toFixed(0).padStart(8) + String(l.points).padStart(7) + String(Number.isFinite(l.respawn) ? l.respawn : "-").padStart(8) + ("  " + [...l.when].sort().join("/")).padEnd(14) + (l.rare ? "yes" : ""),
   );
 }
