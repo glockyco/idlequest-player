@@ -106,16 +106,18 @@
 // Every fight runs in a fresh process (tools/raidsim/worker.mjs), because the client keeps combat
 // state in module-level stores and a second fight in the same process would start from the first
 // one's leftovers. A fight of several virtual minutes takes a few seconds.
+// This file reads the options and prints. The fights run in `simulate` (tools/raidsim/run.mjs), which
+// tools/raid-kit.mjs calls as well.
 import { readFile } from "node:fs/promises";
 import { resolveBossList, resolveClient } from "./raidsim/clients.mjs";
 import { CLASS_NAMES } from "./raidsim/classes.mjs";
 import { accountRoster } from "./raidsim/account.mjs";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
-import { DEFAULT_FARM_HOURS, GEAR_POLICIES, normalizeEntries, rosterEntries } from "./raidsim/roster.mjs";
-import { compactSpells } from "./raidsim/spells.mjs";
+import { DEFAULT_FARM_HOURS, GEAR_POLICIES, rosterEntries } from "./raidsim/roster.mjs";
 import { byId } from "./raidsim/content.mjs";
-import { DEFAULT_JOBS, runJobs } from "./raidsim/pool.mjs";
-import { fightLines, gearReport, memberTable, summarize, sweepTable, traceLines } from "./raidsim/report.mjs";
+import { DEFAULT_JOBS } from "./raidsim/pool.mjs";
+import { DPS_MODES, HEAL_MODES, simulate } from "./raidsim/run.mjs";
+import { fightLines, gearReport, memberTable, sweepTable, traceLines } from "./raidsim/report.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -127,9 +129,6 @@ const fail = (message) => {
   console.error(`raidsim: ${message}`);
   process.exit(1);
 };
-
-const DPS_MODES = ["dps-balanced", "dps-all-out", "all-all-out"];
-const HEAL_MODES = ["clr-balanced", "all-balanced", "clr-all-out", "all-all-out", "off"];
 
 if (!opt("boss") || !opt("roster")) fail("usage: bun tools/raidsim.mjs --boss <npc id|name> --roster <file.json> [--seeds 20] [--max-sec 900] [--client <release>] [--gear merchant|farm] [--farm-hours 4] [--gear-report] [--json] [--class-sweep --slot <name|index>]");
 const seeds = Number(opt("seeds", 20));
@@ -187,38 +186,31 @@ if (flag("class-sweep")) {
   }
 }
 
-let normalized;
+let results;
 try {
-  const gear = opt("gear") ?? fileGear;
-  const usesFarm = gear === "farm" || entries.some((e) => e.gear === "farm");
-  const options = { gear, farmHours, resolve: usesFarm ? await resolveBossList(client) : undefined };
-  normalized = await Promise.all(variants.map((v) => normalizeEntries(v.entries, level, options)));
+  results = await simulate({
+    boss,
+    variants,
+    level,
+    gear: opt("gear") ?? fileGear,
+    farmHours,
+    resolve: (opt("gear") ?? fileGear) === "farm" || entries.some((e) => e.gear === "farm") ? await resolveBossList(client) : undefined,
+    seeds,
+    seedBase,
+    maxSec,
+    dpsMode,
+    healMode,
+    jobs,
+    onProgress: progress,
+    trace: opt("trace"),
+  });
 } catch (error) {
   fail(error.message);
 }
-
-// Everything the workers need from the content snapshot, read once here.
-const compact = JSON.stringify(await compactSpells());
-const itemRows = await byId("items");
-const items = {};
-for (const roster of normalized) for (const m of roster) for (const id of Object.values(m.equipped)) items[id] ??= itemRows.get(id);
-const traceIndex = opt("trace") === undefined ? undefined : /^\d+$/.test(opt("trace")) ? Number(opt("trace")) : normalized[0].findIndex((m) => m.name === opt("trace"));
-if (opt("trace") !== undefined && !normalized[0][traceIndex]) fail(`no roster member ${JSON.stringify(opt("trace"))} for --trace`);
-const queue = [];
-for (const [v, roster] of normalized.entries()) {
-  for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members: roster, boss, items, compact, seed: seedBase + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode, trace: v === 0 && s === 0 ? traceIndex : undefined } });
-}
-
-let fights;
-try {
-  fights = await runJobs(queue.map((q) => q.job), jobs, progress);
-} catch (error) {
-  fail(`a fight did not run: ${error.message}`);
-}
 if (!json && process.stderr.isTTY) process.stderr.write("\r");
 
-const byVariant = variants.map((v, i) => ({ label: v.label, fights: fights.filter((_, k) => queue[k].variant === i) }));
-const results = byVariant.map((v) => ({ label: v.label, summary: summarize(v.fights, maxSec), fights: v.fights }));
+const normalized = results.map((r) => r.roster);
+const traceIndex = opt("trace") === undefined ? undefined : /^\d+$/.test(opt("trace")) ? Number(opt("trace")) : normalized[0].findIndex((m) => m.name === opt("trace"));
 const baseline = results[0].summary;
 const meta = { client: client.id, boss: { id: boss.row.id, name: boss.row.name, level: boss.row.level, hp: Number(boss.row.hp) }, seeds, seedBase, maxSec, dpsMode, healMode, level };
 

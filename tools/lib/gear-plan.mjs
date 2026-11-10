@@ -21,15 +21,15 @@ import { copyHours, elasticity } from "./acquire.mjs";
 import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
-const PRIMARY = 13;
-const SECONDARY = 14;
-const TWO_HANDED = new Set([1, 4, 35]);
+export const PRIMARY = 13;
+export const SECONDARY = 14;
+export const TWO_HANDED = new Set([1, 4, 35]);
 // Item types a character with Dual Wield may hold in the off hand.
 const OFFHAND_WEAPONS = new Set([0, 2, 3, 36]);
 const SHIELD = 8;
 const PIERCING = 2;
 /** Whether a content row is a lore item, one per character: any `loregroup` (-1 for the item alone), the lore flag, or a lore text marked "*". */
-const isLore = (i) => Boolean(i && ((i.loregroup ?? 0) !== 0 || i.loreflag || String(i.lore ?? "").startsWith("*")));
+export const isLore = (i) => Boolean(i && ((i.loregroup ?? 0) !== 0 || i.loreflag || String(i.lore ?? "").startsWith("*")));
 // A Monk's fists by level (`di` in the client, docs/client-internals.md, Off hand and dual wield):
 // the levels at which the damage and the delay change, the damage, and the delay of every race but
 // Iksar and of Iksar, which gets each delay step one level step later.
@@ -237,7 +237,8 @@ export function itemCard(i) {
   return out;
 }
 
-const fits = (item, p, slot) =>
+/** Whether `item` may be worn in `slot` by a person (`{ cls, level, race? }`, `cls` and `race` as `BIT` and `RACE` name them): slot, class, race and level, and not a bag. */
+export const fits = (item, p, slot) =>
   item && item.slots & (1 << slot) && !(item.bagslots > 0) && item.classes & BIT[p.cls] && (!p.race || !RACE[p.race] || item.races & RACE[p.race]) && (item.reqlevel ?? 0) <= p.level;
 
 /**

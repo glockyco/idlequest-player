@@ -213,6 +213,12 @@ bun tools/raidsweep.mjs --name size-check --bosses resolve --levels 46,55,60 --e
 bun tools/raidsweep.mjs --name heal-mode --bosses 127098 --levels 60 --extra 3 -- --heal-mode all-balanced
 ```
 
+`tools/raid-kit.mjs` finds the gear swaps among the roster's carried items that make a boss fight go better in the simulator: a higher kill chance, then a shorter mean kill time, then less boss hit points left. It writes the kit to `runs/state/raid-kit.json` (needs a gear survey, `runs/state/account-items.json`) and prints a table. Without `--boss` it takes the goal boss that is closest to a kill. A full run takes up to `--budget` minutes, and the header of the file lists the options and how the search works.
+
+```sh
+bun tools/raid-kit.mjs --boss 72003 --seeds 6   # Cazic-Thule
+```
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's

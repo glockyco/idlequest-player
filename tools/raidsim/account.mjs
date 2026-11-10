@@ -13,6 +13,8 @@ export function accountRoster(rows, { leader, names = null }) {
   for (const r of rows) {
     if (names && !names.includes(r.characterName)) continue;
     if (!chars.has(r.characterName)) chars.set(r.characterName, { name: r.characterName, class: r.class, race: r.race, level: r.level, items: {} });
+    // Only equipped rows carry the race, so a character's first row may lack it.
+    chars.get(r.characterName).race ??= r.race;
     if (r.location === "Equipped") chars.get(r.characterName).items[r.slot] = r.itemId;
   }
   const lead = chars.get(leader);
