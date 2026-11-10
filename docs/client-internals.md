@@ -71,6 +71,12 @@ game server, so the client only sends a request.
   and `session.enterWorld` enters as the character its `selector` names, then waits until the
   world is ready (`B7YhzEJy.js:3322-3360`, `3417-3424`). A selector of digits picks by position in
   the character list, not by id, so the bot's switch (`switchTo` in `src/bot.js`) passes the name.
+- A camp the server does not confirm ends the session: the client closes the socket and shows the
+  login form with "Could not confirm camping. Please sign in again." (`camp confirmation failed`,
+  `B7YhzEJy.js`). The character list stays empty until the client resumes the session, so the
+  bot's switch waits for a connected page in the world or at character select with the list
+  loaded (`switchable` in `src/bot.js`), and only such a list can say that a character does not
+  exist.
 - After entering, the party holds no account characters. `requestAccountCharacterAvailability()`
   and `controlAccountCharacter(id)` bring them back, which the bot's `partyIds` repeats.
 - The client has one command dispatcher for its UI (`Fa`, `C8.pretty.js:2463-2718`), exposed by

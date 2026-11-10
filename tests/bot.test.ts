@@ -238,7 +238,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, played, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, loadFailure, sheet, screen, commands, commandReply, activity };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, played, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, loadFailure, sheet, screen, roster, commands, commandReply, activity };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -1538,6 +1538,47 @@ test("a quest runs its steps in order for each member and stops at a step whose 
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done" });
     expect(talks).toEqual(["Edroun Oknoggin Stonesmacker "]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a camping the server could not confirm signs the page out, and the quest's switch waits until the page is back", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const held = (f.iq as unknown as { carried: (i: string) => number }).carried;
+    let note = 0;
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Wax Sealed Note" ? note : held(item)),
+      talkToNpc: async () => {
+        note = 1;
+      },
+    });
+    // As the client does: the socket closes and the page shows the login form with no characters,
+    // until the client resumes the session 80 s later at the character select.
+    const socket = (f.iq as unknown as { socket: { isConnected: boolean } }).socket;
+    const enter = f.iq.command;
+    let campFails = 1;
+    f.iq.command = async (c: { type: string; selector?: string }) => {
+      if (c.type !== "session.camp" || campFails-- <= 0) return enter(c);
+      f.commands.push("session.camp refused");
+      const list = f.roster.characters.splice(0);
+      Object.assign(socket, { isConnected: false });
+      f.screen.currentScreen = "login";
+      setTimeout(() => {
+        f.roster.characters.push(...list);
+        Object.assign(socket, { isConnected: true });
+        f.screen.currentScreen = "characterSelect";
+      }, 80000);
+      return { ok: false, message: "Could not confirm camping. Please sign in again." };
+    };
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "freporte", npc: "Kargek Redblade", say: ["favor"], expect: "Wax Sealed Note" }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", members: [{ name: "Tagujazolu", done: true }] });
+    expect(f.commands.slice(0, 2)).toEqual(["session.camp refused", "session.enterWorld Tagujazolu"]);
   } finally {
     vi.useRealTimers();
   }

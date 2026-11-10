@@ -1171,6 +1171,26 @@
   const SWITCH_TIMEOUT_MS = 180000;
   const characters = (i) => i.stores.roster?.getState?.().characters ?? [];
   const findCharacter = (i, who) => characters(i).find((c) => (typeof who === "number" ? Number(c.id) === who : String(c.name).toLowerCase() === String(who).toLowerCase())) ?? null;
+  // Only a loaded list of the account's characters can say that one does not exist: a page that
+  // left the game, as a camping the server could not confirm leaves it, lists none.
+  const rosterLoaded = (i) => characters(i).length > 0 && !i.stores.roster?.getState?.().isLoading;
+  const accountCharacter = (i, who) => {
+    const c = findCharacter(i, who);
+    if (!c) throw new Error(rosterLoaded(i) ? `no account character ${who}` : "the account's characters are not loaded");
+    return c;
+  };
+  // A switch starts from a connected page in the world or at the character select.
+  const switchable = (i) => Boolean(i.socket?.isConnected) && ["game", "characterSelect"].includes(i.stores.screen.getState().currentScreen) && rosterLoaded(i);
+  // A page out of the game comes back by the client's own resume, in about 80 s, or by the page
+  // supervisor's sign-in after a minute (tools/lib/page.mjs), so a task's switch waits for it.
+  const PAGE_BACK_MS = 150000;
+  const untilSwitchable = async (i) => {
+    const end = now() + PAGE_BACK_MS;
+    while (!switchable(i)) {
+      if (now() > end) throw new Error("the page did not come back to the game");
+      await sleep(1000);
+    }
+  };
   const command = (i, cmd, ms) => Promise.race([Promise.resolve(i.command(cmd)), sleep(ms).then(() => ({ ok: false, message: `${cmd.type} timed out` }))]);
   const switchSteps = async (i, target, { rejoin = false } = {}) => {
     const screen = () => i.stores.screen.getState().currentScreen;
@@ -1194,7 +1214,7 @@
     const job = state.switching;
     if (job && !job.done && now() - job.startedAt < SWITCH_TIMEOUT_MS) return job;
     const target = findCharacter(i, who);
-    if (!target) return (state.switching = { id: null, name: String(who), startedAt: now(), done: true, ok: false, message: `no account character ${who}` });
+    if (!target) return (state.switching = { id: null, name: String(who), startedAt: now(), done: true, ok: false, message: rosterLoaded(i) ? `no account character ${who}` : "the account's characters are not loaded" });
     const next = (state.switching = { id: Number(target.id), name: target.name, startedAt: now(), done: false, ok: null, message: "switching" });
     log(`${rejoin ? "rejoining as" : "switching to"} ${target.name}`);
     switchSteps(i, target, { rejoin })
@@ -1234,7 +1254,7 @@
     } else if (screen !== "characterSelect") {
       return false; // a login or loading screen is not the bot's to drive
     }
-    if (now() < state.switchRetryAt) return true;
+    if (now() < state.switchRetryAt || !switchable(i)) return true;
     switchTo(i, Number(want));
     return true;
   };
@@ -1258,6 +1278,7 @@
   const becomeLeader = async (i) => {
     const id = Number(config.leaderId);
     for (let k = 0; k < 2 && Number(i.stores.character.getState().characterProfile?.id) !== id; k++) {
+      await untilSwitchable(i);
       const job = switchTo(i, id);
       while (!job.done) await sleep(1000);
       if (!job.ok) throw new Error(job.message);
@@ -1275,6 +1296,7 @@
   const becomeActive = async (i, name) => {
     // A switch already under way for someone else finishes first.
     for (let k = 0; k < 2 && activeName(i) !== name; k++) {
+      await untilSwitchable(i);
       const job = switchTo(i, name);
       while (!job.done) await sleep(1000);
       if (!job.ok) throw new Error(job.message);
@@ -1297,8 +1319,7 @@
     for (const mv of task.moves) {
       if (mv.done || mv.error) continue;
       try {
-        const to = findCharacter(i, mv.to);
-        if (!to) throw new Error(`no account character ${mv.to}`);
+        const to = accountCharacter(i, mv.to);
         if (mv.buy && i.carried(mv.item) < 1) {
           if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
           if (i.bagSpace().free < 1) await keepReserve(i, true);
@@ -1799,7 +1820,7 @@
   const startQuest = (kind, members, name = kind) => {
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (!members.length) throw new Error(`a ${kind} needs members`);
-    for (const m of members) if (!findCharacter(iq(), m.name)) throw new Error(`no account character ${m.name}`);
+    for (const m of members) accountCharacter(iq(), m.name);
     state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
     return { ...runTask(state.task) };
   };
@@ -2396,7 +2417,7 @@
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (!members?.length) throw new Error("a raid needs members");
-      for (const m of members) if (!findCharacter(iq(), m)) throw new Error(`no account character ${m}`);
+      for (const m of members) accountCharacter(iq(), m);
       if (target) new RegExp(target);
       state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
       log(`task raid: ${target ?? bossKey}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
