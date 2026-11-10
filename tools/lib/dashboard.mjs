@@ -493,7 +493,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     // Task spans: finished tasks from the coordinator's history (queued at `t`, took `ms`) and the task running now.
     const spans = [
       ...mine.filter((h) => h.ms).map((h) => ({ from: h.t, to: h.t + h.ms, name: taskLabel(catalog, h), status: h.status ?? "done" })),
-      ...(task?.status === "running" && v.bot.task.startedAt ? [{ from: v.bot.task.startedAt, to: now, name: task.name, status: "running" }] : []),
+      ...(task?.status === "running" && v?.bot?.task?.startedAt ? [{ from: v.bot.task.startedAt, to: now, name: task.name, status: "running" }] : []),
     ];
     const lines = [
       ...tail("SELECT t, actor AS source, text FROM interventions WHERE session = ? ORDER BY id DESC LIMIT 8", leader),
