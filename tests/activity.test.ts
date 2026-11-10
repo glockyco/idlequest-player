@@ -50,6 +50,8 @@ test("AutoLevel off takes the cause of the latest evidence since it last ran", (
 
 test("only the client's own system lines stop AutoLevel", () => {
   expect(rules.stopCause({ type: "SYSTEM_ERROR", text: "AutoLevel paused: The server has not confirmed combat. Check your connection, then try again." })).toBe("clientPause");
+  // A pause that asks for a camp and a new entry has a cure of its own.
+  expect(rules.stopCause({ type: "SYSTEM_ERROR", text: "AutoLevel paused: a spell's server result is unconfirmed. Camp and re-enter your character, or reload, before trying again." })).toBe("clientRejoin");
   expect(rules.stopCause({ type: "SYSTEM", text: "A gnoll pup is engaged by another player. Looking for another target." })).toBe("contested");
   expect(rules.stopCause({ type: "SYSTEM", text: "No available enemies found in this zone." })).toBe("noEnemies");
   // The bot's log and a player's shout that quote such a line are not the client's.

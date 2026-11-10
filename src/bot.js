@@ -716,6 +716,9 @@
     held: { afterSec: 0, rungs: ["start"] },
     contested: { afterSec: 0, rungs: ["start"] },
     clientPause: { afterSec: 5, rungs: ["start"] },
+    // A pause that names its cure, a camp and a new entry, gets that cure, and the switch's hold
+    // then starts AutoLevel ("held").
+    clientRejoin: { afterSec: 0, rungs: ["rejoin"] },
     off: {
       get afterSec() {
         return config.restartAfterSec;
@@ -779,6 +782,12 @@
       if (!state.errand) return null;
       endErrand(i, why, true);
       return "ended the errand";
+    },
+    rejoin: (i) => {
+      const me = i.stores.character.getState().characterProfile;
+      if (!me?.id) return null;
+      switchTo(i, Number(me.id), { rejoin: true });
+      return `camped ${me.name} to enter the world again, as the client asked`;
     },
     // The Loading Failed window's TRY AGAIN, which loads the zone again.
     tryAgain: (i) => {
@@ -1910,7 +1919,7 @@
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
   // Seconds that are not the zone's: a task, travel, a hold of the bot, the client's pause, a stop
   // nothing explains, a failed zone load, and a page signed out, which records no seconds at all.
-  const NOT_PLAY = /^(task|unknown|travel(\/.*)?|idle\/(held|clientPause|off|loadFailed|unknown))$/;
+  const NOT_PLAY = /^(task|unknown|travel(\/.*)?|idle\/(held|clientPause|clientRejoin|off|loadFailed|unknown))$/;
   // The kills' XP over the last 10 minutes per hour of the party's play in them (`activitySeconds`
   // of src/bridge.js), or null below five minutes of play, which leaves too little to judge.
   const playRate = (i) => {

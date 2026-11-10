@@ -26,7 +26,7 @@ const ACT = [
   ["task", "var(--task)", (k) => k === "task"],
 ];
 // Idle time in the hourly bars is split by cause, in shades of the idle colour.
-const IDLE_COLORS = { noTarget: "#d9822b", crowded: "#e8b64f", afterKill: "#f0d08c", lootSettle: "#e6c27a", off: "#8d5a1f", held: "#7b6a55", clientPause: "#d0562c", contested: "#dca15e", readyWait: "#c46f3a", waitAttack: "#b9946a", noEnemies: "#a8431f", loadFailed: "#8f2d16", unknown: "#9a9a9a", other: "#c9b08a" };
+const IDLE_COLORS = { noTarget: "#d9822b", crowded: "#e8b64f", afterKill: "#f0d08c", lootSettle: "#e6c27a", off: "#8d5a1f", held: "#7b6a55", clientPause: "#d0562c", clientRejoin: "#b8441f", contested: "#dca15e", readyWait: "#c46f3a", waitAttack: "#b9946a", noEnemies: "#a8431f", loadFailed: "#8f2d16", unknown: "#9a9a9a", other: "#c9b08a" };
 const idleColor = (cause) => IDLE_COLORS[cause] ?? IDLE_COLORS.other;
 const actColor = (act) => ACT.find(([, , t]) => t(act))?.[1] ?? "var(--task)";
 const groupColor = (i, n) => `hsl(${Math.round((360 * i) / n)} 65% 50%)`;

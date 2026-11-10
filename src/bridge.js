@@ -348,6 +348,8 @@
   //     loadFailed   a zone load failed and its Loading Failed window is open, so nothing plays
   //     held         AutoLevel off since one of the bot's holds (`autoLevelHold` in src/bot.js)
   //     clientPause  AutoLevel off since the client paused it ("AutoLevel paused: ...")
+  //     clientRejoin AutoLevel off since the client paused it until the character camps and enters
+  //                  again ("... Camp and re-enter your character, or reload, before trying again.")
   //     contested    AutoLevel off since the client gave up a target another player holds
   //     noEnemies    AutoLevel off since the client found no enemy within its limits in the zone
   //     off          AutoLevel off with none of these since it last ran
@@ -368,6 +370,7 @@
     // approach's abandon when AutoLevel had stopped or fought a single target (while AutoLevel
     // runs, the client tries another target after 500 ms), and the target search that found nothing.
     const STOP_LINES = [
+      [/^AutoLevel paused: .*Camp and re-enter your character/, "clientRejoin"],
       [/^AutoLevel paused: /, "clientPause"],
       [/ Looking for another target\.$/, "contested"],
       [/^No available enemies found in this zone/, "noEnemies"],
