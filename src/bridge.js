@@ -732,7 +732,8 @@
       return true;
     },
   };
-  const guardNote = (text) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}` });
+  // `extra` carries what a reader needs without parsing the text, such as the enemy of an escape.
+  const guardNote = (text, extra = {}) => events.push({ ses: session, seq: ++seqs.event, t: Date.now(), type: "guard", text: `[guard] ${text}`, ...extra });
   // Minified export names change with every client release, so search every export by content.
   const allExports = () => Object.values(mods).flatMap((m) => Object.values(m));
   // The combat runtime singleton: the chunk export whose instance has the live combat scene. The
@@ -923,7 +924,9 @@
     }
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
-    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`);
+    // The rule and the enemy go along as fields, which the collector's fight record counts per
+    // enemy (tools/lib/fight-record.mjs).
+    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`, { escape: reason.split(":")[0], npc: mob?.name ?? null, npcLevel: mob?.level ?? null, leaderLevel: leader });
     // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
     // the same dangerous mob would join again, every few seconds. The client skips spawns it has
     // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they

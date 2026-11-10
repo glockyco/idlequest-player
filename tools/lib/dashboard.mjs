@@ -254,12 +254,14 @@ export function retryAt(catalog, h, { history = [], code = null } = {}) {
 export const npcName = (name) => String(name ?? "").replace(/^#/, "").replace(/_/g, " ");
 
 /**
- * The gear pass's most wanted enemies for the dashboard, best first: zone names in full, the
- * coordinator's reason by `targetId` (`evaluations`, from `decide`: a `state` with its facts and
- * the best `plan`), and each item with its taker and the taker's group. `limit` caps the rows.
+ * The gear pass's most wanted enemies for the dashboard, best first: every enemy a group hunts or
+ * has queued, then the `limit` best of the rest, with zone names in full, the coordinator's reason
+ * by `targetId` (`evaluations`, from `decide`: a `state` with its facts and the best `plan`), and
+ * each item with its taker and the taker's group.
  */
 export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluations = {}, limit = 15 }) {
-  return targets.slice(0, limit).map((t) => {
+  const active = (t) => ["hunting", "queued"].includes(evaluations[targetId(t)]?.state);
+  return [...targets.filter(active), ...targets.filter((t) => !active(t)).slice(0, limit)].map((t) => {
     const { plan = null, ...why } = evaluations[targetId(t)] ?? {};
     return {
       npc: npcName(t.npc),
@@ -273,7 +275,8 @@ export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluati
 }
 
 const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped" };
-const taskLabel = (catalog, h) => (h.id ? taskName(catalog, h.id) : (TASK_KIND[h.kind] ?? h.kind));
+// A trip's task names all its enemies (`ids`), and reads as its first one and how many more.
+const taskLabel = (catalog, h) => (h.id ? `${taskName(catalog, h.id)}${h.ids?.length > 1 ? ` and ${h.ids.length - 1} more` : ""}` : (TASK_KIND[h.kind] ?? h.kind));
 
 // ---- Attention -----------------------------------------------------------------------------------
 

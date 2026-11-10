@@ -16,9 +16,11 @@ import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
-import { targetId } from "./lib/acquire.mjs";
+import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
+import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
+import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { pageStep } from "./lib/page.mjs";
@@ -78,6 +80,7 @@ export function openDb(path) {
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
   db.run(WEAR_SCHEMA);
+  db.run(FIGHTS_SCHEMA);
   db.run(PROGRESS_SCHEMA);
   db.run(CARDS_SCHEMA);
   return db;
@@ -719,9 +722,23 @@ class Daemon {
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
+    // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
+    // prior fitted to every fight on file, the simulator's fights of its six and its own fights at
+    // its current level, once per pair for the pass.
+    const odds = await this.killOdds(now);
+    const chances = new Map();
+    const killChance = (t, x) => {
+      const key = `${t.group}|${x.zone}|${x.npc}`;
+      if (chances.has(key)) return chances.get(key);
+      const level = t.members[0]?.level ?? 0;
+      const prior = odds?.prior && x.npcLevel != null ? priorOf(odds.prior, x.npcLevel - level, x.npcHp) : null;
+      const k = killChanceOf({ prior, record: recordCounts(this.db, { grp: t.group, npc: x.npc, level, now }), sim: odds?.odds?.[`${x.zone}|${npcKey(x.npc)}`]?.groups?.[t.group] ?? null });
+      chances.set(key, k);
+      return k;
+    };
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare, killChance });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     for (const a of actions) {
@@ -730,7 +747,8 @@ class Daemon {
         // An errand travels to its zone inside this call, after waiting for the fight at hand, which
         // takes up to about 30 s, so a shorter limit reported errands as not queued that had started.
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
-        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, task: r?.id ?? null, code: this.code });
+        // A trip names every target it hunts, so each target's retry and hunt state follow its task.
+        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: this.code });
         if (a.kind === "gear") this.pendingGear = null;
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
@@ -908,6 +926,25 @@ class Daemon {
       if (changed?.length) this.log(`experiment settings for ${t.group}: ${changed.join(", ")}`);
     }
     return held;
+  }
+
+  /**
+   * The simulator's kill chances (runs/state/kill-odds.json), read once a pass, with
+   * tools/kill-odds.mjs started in the background once they are an hour old. The tool fights only
+   * what is new or older than a day, so a refresh after a gear pass covers its new targets and the
+   * groups that leveled.
+   */
+  async killOdds(now) {
+    const odds = JSON.parse(await readFile(join(this.runs, "state/kill-odds.json"), "utf8").catch(() => "null"));
+    if ((!odds || now - odds.t > 3600000) && !this.oddsJob) {
+      this.log("kill chances: refreshing (tools/kill-odds.mjs)");
+      this.oddsJob = Bun.spawn(["bun", "tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: "pipe" });
+      void this.oddsJob.exited.then((code) => {
+        this.log(`kill chances: ${code === 0 ? "refreshed" : `failed with exit code ${code}`}`);
+        this.oddsJob = null;
+      });
+    }
+    return odds;
   }
 
   /**
@@ -1296,6 +1333,8 @@ class Daemon {
           const looted = lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) });
           recordProgress(this.db, looted, this.groups());
           this.keepCards(looted.map((r) => r.data.itemId));
+          // Each kill and escape, per enemy, for the kill chances of gear targets (tools/lib/fight-record.mjs).
+          recordFights(this.db, this.groups().get(snap.leader.name) ?? snap.leader.name, fightOutcomes(got.events, snap.leader.level));
         }
         if (!got.more) return true;
       }

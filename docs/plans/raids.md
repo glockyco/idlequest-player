@@ -6,7 +6,6 @@ How the coordinator decides which bosses and named enemies the account kills, ho
 
 - The daily list's two free summons went unused every day until 2026-11-10, and the raids since were started by hand. A casino potion waits for a hand too, and the bot had no way to use one.
 - The bosses also spawn in the open world, and nothing hunts them there.
-- Gear acquisition never hunts an enemy more than `killMargin` levels above the hunting group's leader, so higher-level named enemies are out of reach whatever they drop.
 
 ## What is known, and how
 
@@ -47,7 +46,7 @@ A kill is worth the XP it pays and the items of its loot table at their drop cha
 
 | Step | Change |
 | --- | --- |
-| 1 | Kill chances from the simulator in the background (`raidOdds`), for groups and the raid. |
+| 1 | Kill chances from the simulator in the background (`tools/kill-odds.mjs`, `runs/state/kill-odds.json`), for the raid and every group, shared with gear acquisition. |
 | 2 | Potion use in the bridge (the client's consume function) and potion raids in the bot's raid task. |
 | 3 | Boss candidates in `decide`: free summons, potions and open-world spawns, each by its cheapest killing way, raids batched into one hour. |
 | 4 | Loot and XP values rank the candidates. |

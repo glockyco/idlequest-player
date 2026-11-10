@@ -1,6 +1,7 @@
 // Checks the gear acquisition model (tools/lib/acquire.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { ACQUIRE, bestWay, copyHours, copyValue, elasticity, netRate, ways } from "../tools/lib/acquire.mjs";
+import { ACQUIRE, bestWay, copyHours, copyValue, deathHours, elasticity, killChanceOf, netRate, trip, ways } from "../tools/lib/acquire.mjs";
+import { xpStart } from "../tools/lib/xp.mjs";
 
 const member = (name: string, level: number) => ({ name, level });
 const tab = (level: number, zone: string) => ({ label: "A", group: "G1", zone, rotation: [zone], members: [member("A0", level)] });
@@ -18,6 +19,16 @@ test("a copy adds its gain to the group's XP rate for the hours it is worn", () 
   expect(copyValue(item(10, 1), { X1: 1.5 })).toBeCloseTo(0.01 * ACQUIRE.wearLevels * 1.5);
   // A taker whose group's pace is unknown adds nothing yet.
   expect(copyValue(item(10, 1), {})).toBe(0);
+});
+
+test("a copy for a slot another hunt serves pays until that copy would come, and for good only what it adds over it", () => {
+  // Ten hours of wear; the other hunt's copy gains 100 and is expected after 4 hours of hunting.
+  const claim = { gain: 100, hours: 4 };
+  const pace = { X1: 1 };
+  expect(copyValue({ ...item(50, 1), claim }, pace, 1)).toBeCloseTo((50 / 1000) * 3);
+  expect(copyValue({ ...item(50, 1), claim }, pace, 5)).toBe(0);
+  expect(copyValue({ ...item(150, 1), claim }, pace, 1)).toBeCloseTo((50 * 10 + 100 * 3) / 1000);
+  expect(copyValue(item(150, 1), pace, 1)).toBeCloseTo(1.5);
 });
 
 test("a common drop takes at least one kill-time per expected copy, however many points respawn", () => {
@@ -52,11 +63,65 @@ test("outside the rotation a camp costs what the trip zone does not pay, and a v
   expect(visit.up).toBeCloseTo(1 - 0.98 ** 6);
   expect(visit.value).toBeCloseTo((1 - 0.98 ** 6) * copyValue(item(1000, 1.39, 1), pace));
   expect(visit.cost).toBe(ACQUIRE.visitHours);
-  expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, zoneShare: () => 0.25 })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
+  expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, zoneShare: () => 0.25, killChance: () => sure })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
 });
 
-test("an enemy more than the kill margin above the leader has no way", () => {
-  const x = (npcLevel: number) => ({ npc: "a broodling", zone: "paw", npcLevel, spawn: 1, points: 1, items: [item(100, 1)] });
-  expect(bestWay(tab(30, "paw"), x(30 + ACQUIRE.killMargin), {})).not.toBeNull();
-  expect(bestWay(tab(30, "paw"), x(31 + ACQUIRE.killMargin), {})).toBeNull();
+const sure = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
+
+test("live fights count beside the simulator's, and neither means no kill chance", () => {
+  expect(killChanceOf({})).toBeNull();
+  expect(killChanceOf({ sim: { kills: 4, fights: 4, deathsPerFight: 1.25, leaderDeathsPerFight: 0.25 } })).toEqual({ p: 1, fights: 4, deaths: 1.25, leaderDeaths: 0.25 });
+  // Two live escapes after four simulated wins: four of six fights won.
+  expect(killChanceOf({ record: { kills: 0, escapes: 2 }, sim: { kills: 4, fights: 4, deathsPerFight: 0, leaderDeathsPerFight: 0 } })!.p).toBeCloseTo(4 / 6);
+  expect(killChanceOf({ record: { kills: 3, escapes: 1 } })).toEqual({ p: 0.75, fights: 4, deaths: 0, leaderDeaths: 0 });
+});
+
+test("a hunt is valued at its kill chance, and every fight pays its deaths", () => {
+  const x = { npc: "a broodling", zone: "paw", npcLevel: 34, spawn: 1, points: 1, items: [item(100, 1, 0.5)] };
+  // The zone is in the group's rotation, so an errand is the only way.
+  const pace = { X1: 1, A0: 2 };
+  const at = (k: object | null) => bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, killChance: () => k });
+  expect(at(null)).toBeNull();
+  expect(at({ ...sure, p: 0 })).toBeNull();
+  // Half the fights lost: the copy takes twice the hours, and is still taken when it pays.
+  const half = at({ ...sure, p: 0.5 })!;
+  expect(half.hours).toBeCloseTo(at(sure)!.hours * 2);
+  // A leader death per fight costs its time and its XP at the leader's pace, for each of the four
+  // fights a copy takes at a 50% drop and a 50% chance.
+  const dying = { ...sure, p: 0.5, deaths: 1, leaderDeaths: 1 };
+  const perFight = 85 / 3600 + (30 * 30 * 666.67) / ((xpStart(31) - xpStart(30)) / 2);
+  expect(deathHours(tab(30, "paw"), dying, pace)).toBeCloseTo(perFight);
+  expect(at(dying)!.cost).toBeCloseTo(4 * perFight);
+});
+
+test("a trip pays its zone's cost once and adds each enemy's drops", () => {
+  const pace = { X1: 1 };
+  const ctx = { hoursPerLevel: pace, zoneShare: () => 0.5, killChance: () => sure };
+  const fiend = { npc: "a fiend", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [item(75, 1)] };
+  const ghoul = { npc: "a ghoul", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [{ ...item(60, 1), slot: "neck" }] };
+  // A copy an hour of each, worth 0.75 and 0.6 hours: the half-hour camp fills each slot with the
+  // chance 1 - e^-0.5 that its copy comes, and pays half its hours in XP once.
+  const both = trip(tab(30, "paw"), [fiend, ghoul], ctx)!;
+  expect(both).toMatchObject({ kind: "camp", zone: "unrest", hours: ACQUIRE.campMin / 60 });
+  expect(both.members.map((m) => m.x.npc)).toEqual(["a fiend", "a ghoul"]);
+  expect(netRate(both)).toBeCloseTo(((0.75 + 0.6) * (1 - Math.exp(-0.5)) - 0.25) / 0.5);
+  // An enemy not due for a camp stays out of it.
+  expect(trip(tab(30, "paw"), [fiend, ghoul], ctx, (x) => x !== ghoul)!.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
+});
+
+test("a trip fills a slot once, however fast its copies come", () => {
+  // Ten copies an hour of a 0.75-hour piece: a half-hour camp fills the slot almost surely, and
+  // earns the copy once, not five times.
+  const fast = { npc: "a fiend", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [item(75, 0.1)] };
+  const camp = trip(tab(30, "paw"), [fast], { hoursPerLevel: { X1: 1 }, zoneShare: () => 1, killChance: () => sure })!;
+  expect(camp.value).toBeCloseTo(0.75 * (1 - Math.exp(-5)));
+});
+
+test("enemies that each take all of the group's kills do not add up on one trip", () => {
+  const pace = { X1: 1 };
+  // Ten points respawning hourly give ten kills an hour, all a group of ten kills an hour takes.
+  const busy = (npc: string, gain: number) => ({ npc, zone: "unrest", npcLevel: 30, spawn: 1, points: 10, respawn: 3600, items: [{ ...item(gain, 1), slot: npc }] });
+  const both = trip(tab(30, "paw"), [busy("a fiend", 75), busy("a ghoul", 60)], { hoursPerLevel: pace, zoneShare: () => 0.5, killChance: () => sure, killsPerHour: { G1: 10 } })!;
+  expect(both.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
+  expect(netRate(both)).toBeCloseTo((0.75 * (1 - Math.exp(-0.5)) - 0.25) / 0.5);
 });

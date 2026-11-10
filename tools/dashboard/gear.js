@@ -210,16 +210,18 @@ function reasonOf(t, now) {
   const p = t.plan;
   const mins = (h) => (h * 60 < 1 ? "under a minute" : h < 1.5 ? `${Math.round(h * 60)} min` : `${h.toFixed(1)} h`);
   const how = p && (p.kind === "visit" ? `a ${mins(p.hours)} visit finds it up ${Math.round(100 * (p.up ?? 0))}% of the time` : `one drop takes about ${mins(p.hours)} of ${p.kind === "camp" ? "camping" : "hunting"}`);
-  const planTip = p && `${how}, worth ${mins(p.value)} of ${p.taker}'s group's leveling.`;
+  const trip = p?.enemies > 1 ? ` on a trip for ${p.enemies} enemies` : "";
+  const planTip = p && `${how}${trip}, worth ${mins(p.value)} of ${p.taker}'s group's leveling.`;
   switch (w.state) {
     case "hunting": return { kind: "now", text: `${w.group} hunting`, tip: planTip };
-    case "queued": return { kind: "next", text: `${p.group} next`, tip: planTip };
+    case "queued": return { kind: "next", text: `${p.group} next${p.enemies > 1 ? ` (trip of ${p.enemies})` : ""}`, tip: planTip };
     case "busy": return { kind: "wait", text: `after ${w.group}'s ${TASK_NOUN[w.on?.kind] ?? "task"}`, tip: `${w.only ? `Only ${w.group} is strong enough. ` : ""}${planTip ?? ""}` };
     case "retry": return { kind: "wait", text: `again ${w.at - now <= 0 ? "now" : `in ${Math.max(1, Math.round((w.at - now) / 60000))} min`}`, tip: "The last hunt found nothing." };
     case "outbid": return { kind: "wait", text: "groups on better targets" };
     case "experiment": return { kind: "wait", text: `${w.group} in an experiment` };
     case "notWorth": return { kind: "out", text: "not worth a trip yet", tip: planTip };
-    case "tooStrong": return { kind: "out", text: `too strong${w.level ? ` (level ${w.level})` : ""}`, tip: "No playing group is within three levels of it." };
+    case "tooStrong": return { kind: "out", text: `too strong${w.level ? ` (level ${w.level})` : ""}`, tip: `The best group kills it in ${Math.round(100 * (w.chance ?? 0))}% of its fights, by its own fights, the simulator's and the model fitted to all fights on file.` };
+    case "untested": return { kind: "wait", text: "kill chance not known yet", tip: "No group has fought it, the simulator has not fought it, and the model fitted to all fights on file has no fit yet." };
     case "time": return { kind: "out", text: `${w.when} only` };
     case "crowded": return { kind: "out", text: "zone crowded" };
     case "noPace": return { kind: "out", text: `no XP rate for ${w.taker}'s group yet` };

@@ -219,6 +219,8 @@ bun tools/raidsweep.mjs --name heal-mode --bosses 127098 --levels 60 --extra 3 -
 bun tools/raid-kit.mjs --boss 72003 --seeds 6   # Cazic-Thule
 ```
 
+`tools/kill-odds.mjs` fights each daily boss and each casino potion boss the survey finds with all roster characters and with the strongest group's six, and the pairs of group and gear target with the highest expected value under the model fitted to every simulated fight (`tools/lib/kill-prior.mjs`). Its fights run in the client's raid mode, which takes only enemies above level 50. It writes the kill chances and the model to `runs/state/kill-odds.json`, keeps a result for a day at its group's level, and fights `--pairs` pairs a run.
+
 ## Measuring efficiency
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's
@@ -309,13 +311,17 @@ the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prin
 The plan also lists the gear that enemies of every live zone drop (`liveDrops` in
 `tools/lib/gear-data.mjs`), where it beats what a character wears, and ranks the enemies by the
 value an hour of hunting them brings to the account
-(`targets`). Each coordinator pass gives the free groups the targets whose best way of hunting earns
-most, best pair of group and target first: an errand inside normal hunting when the zone is in the
-group's rotation, a camp or a short visit when it is not. Any group may hunt for any character,
-because a gear task moves the copy. `docs/plans/gear-acquisition.md` describes the model and its
-assumptions. The dashboard lists the top targets as Most wanted, each with which group would hunt it
-for whom, what a copy takes, adds and costs, and why it is or is not hunted. The wants stay in the
-db meta key `gear`, so a restart keeps them.
+(`targets`). Each coordinator pass sends the free groups on the trips that earn most, best pair of
+group and zone first: a trip hunts every wanted enemy of its zone that pays, as an errand inside
+normal hunting when the zone is in the group's rotation, and as a camp or a short visit when it is
+not. A group's chance against an enemy comes from a model fitted to every simulated fight, the
+simulator's fights of its six and its own live fights (`runs/state/kill-odds.json`, which
+`bun tools/kill-odds.mjs` refreshes in the background hourly). Any group may hunt for any
+character, because a gear task moves the copy. `docs/plans/gear-acquisition.md` describes the
+model and its assumptions. The dashboard lists every enemy a group hunts or has queued and the top
+other targets as Most wanted, each with which group would hunt it for whom, what a copy takes, adds
+and costs, and why it is or is not hunted. The wants stay in the db meta key `gear`, so a restart
+keeps them.
 
 ## Monitoring
 

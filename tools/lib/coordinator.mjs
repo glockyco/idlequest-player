@@ -3,7 +3,7 @@
 // returns the tasks to queue, and tools/iqd.mjs gathers the inputs and queues the tasks in the
 // pages through the bot's own task API. It never plays a step itself.
 import { stoneShares } from "../../src/group.mjs";
-import { ACQUIRE, bestWay, describeWay, netRate, targetId, targetRetryMin } from "./acquire.mjs";
+import { ACQUIRE, bestWay, describeTrip, netRate, slotKey, targetId, targetRetryMin, trip } from "./acquire.mjs";
 import { estimate } from "./rates.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
@@ -170,12 +170,15 @@ export function worldHold(history, id, code = null) {
  *   bot and bridge code the task ran under, and `code` the code the tabs run now.
  * - `targets`: the gear pass's enemies worth hunting for gear (tools/lib/gear-plan.mjs), best first,
  *   `crowded`, zones other players crowd (`crowdedZones`), `points`, the spawn points of each target
- *   by `targetId`, and the terms of `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel` and `zoneShare`.
- * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id? }]`, at most one per tab,
- * where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and `targets`, by
- * `targetId`, the group each target pays most for, its way, hours, value and cost, and its `status`.
+ *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
+ *   `killsPerHour`, `zoneShare` and `killChance(tab, target)`, a group's kill chance against the
+ *   enemy (`killChanceOf`), null when unknown.
+ * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
+ * per tab, where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and a trip
+ * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
+ * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, killChance = () => null, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
@@ -283,21 +286,23 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   }
 
   // Gear targets (docs/plans/gear-acquisition.md): any group may hunt for any character, because a
-  // gear task moves the copy afterwards. One copy serves one character's slot, and groups in one
-  // zone contest its enemies, so the assignment is greedy with re-evaluation: of all pairs of free
-  // tab (no experiment holds its group) and due target in a zone no tab found crowded lately, the
-  // one whose best way (`bestWay`) earns most per hour of the hunting group's time goes first, then
-  // every pair is valued again without the taker slots it serves and with its zone occupied, and so
-  // on. A target a group already hunts claims its slots the same way.
+  // gear task moves the copy afterwards. A group's trip goes to one zone and hunts every wanted
+  // enemy there that pays (`trip`), since the zone's cost is paid once and the drops roll on their
+  // own. The assignment is greedy with re-evaluation: of all pairs of free tab (no experiment holds
+  // its group for an errand) and zone no tab found crowded lately, the trip that earns most per hour
+  // of the hunting group's time goes first, then every pair is valued again with that trip's taker
+  // slots claimed and its zone occupied, and so on. A claimed slot still takes a copy that comes
+  // sooner, for the hours until the claim's copy would come (`copyValue`). A target a group already
+  // hunts claims its slots the same way.
   const targetEval = {};
-  // Each target's last coordinator task, found once for the pass.
+  // Each target's last coordinator task, found once for the pass. A trip's task names all its targets.
   const lastHunts = new Map();
-  for (const h of history) if (h.id) lastHunts.set(h.id, h);
+  for (const h of history) for (const id of h.ids ?? (h.id ? [h.id] : [])) lastHunts.set(id, h);
   const lastHunt = (id) => lastHunts.get(id);
-  const ctx = { tabs, hoursPerLevel, killsPerHour, zoneShare };
+  const ctx = { tabs, hoursPerLevel, killsPerHour, zoneShare, killChance };
   const hunter = (t) => free(t) && t.members.length;
   // An errand changes the AutoLevel limits an experiment's arms compare, so a held group gets none.
-  const allowed = (t, w) => !(w.kind === "errand" && held.has(t.group));
+  const allowed = (t, kind) => !(kind === "errand" && held.has(t.group));
   // What keeps a group from a target this pass: a task queued this pass, its errand or its running task.
   const holding = (t) => {
     const queued = out.find((o) => o.label === t.label);
@@ -308,49 +313,67 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   };
   // The tab on a target's errand, by its enemies, or on the hunt the coordinator queued for it, by
   // the bot task the history records for the target, found once for the pass.
-  const huntedBy = (x) => tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && history.some((h) => h.label === t.label && h.task != null && h.task === t.task.id && h.id === targetId(x))));
+  const huntedBy = (x) => tabs.find((t) => (t.errand?.zone === x.zone && new RegExp(t.errand.keep ?? "^$", "i").test(x.npc)) || (t.task?.status === "running" && history.some((h) => h.label === t.label && h.task != null && h.task === t.task.id && (h.ids ?? [h.id]).includes(targetId(x)))));
   const hunted = new Map(targets.map((x) => [targetId(x), huntedBy(x)]));
-  const slotKey = (w) => `${w.to}:${w.slot}`;
   // A night or day spawn is hunted only then, by the game's hour on the tab.
   const inTime = (x, t) => !x.when || (x.when === "night" ? isNight(t.gameHour) : t.gameHour != null && !isNight(t.gameHour));
-  // Which target's hunt serves each taker slot, by enemy name.
-  const claimed = new Map(targets.filter((x) => hunted.get(targetId(x))).flatMap((x) => x.items.map((w) => [slotKey(w), x.npc])));
-  const open = (x) => ({ ...x, items: x.items.filter((w) => !claimed.has(slotKey(w))) });
+  // Each taker slot a hunt serves, `{ gain, hours, npc }`: the best copy coming, its expected hours
+  // of hunting and its enemy. A slot keeps the better of two claims.
+  const claimed = new Map();
+  const claim = (x, w) => {
+    for (const [j, item] of x.items.entries()) {
+      const c = { gain: item.gain, hours: w?.copies?.[j] ?? Infinity, npc: x.npc };
+      const old = claimed.get(slotKey(item));
+      if (!old || c.gain > old.gain || (c.gain === old.gain && c.hours < old.hours)) claimed.set(slotKey(item), c);
+    }
+  };
+  for (const x of targets) {
+    const by = hunted.get(targetId(x));
+    if (by) claim(x, bestWay(by, x, ctx));
+  }
+  // A target with the claims on its slots, for valuing a copy that a slot already expects.
+  const withClaims = (x) => ({ ...x, items: x.items.map((w) => (claimed.has(slotKey(w)) ? { ...w, claim: claimed.get(slotKey(w)) } : w)) });
   // The trips chosen this pass, as tabs in their zones for the shared-zone cost.
   const occupied = [];
   const taker = (x) => x.items[0].to;
   // The facts of a way to get a target's drop, for the dashboard: who hunts it for whom, how, the
-  // hours per copy (or per visit), the share of visits that find it up, and what a copy adds and costs
-  // in hours of group progress.
-  const planOf = (t, x, w) => ({ group: t.group, taker: taker(x), item: x.items[0].item, kind: w.kind, hours: w.hours, up: w.up ?? null, value: w.value, cost: w.cost });
+  // hours per copy (or per visit), the share of visits that find it up, what a copy adds and costs
+  // in hours of group progress, and how many enemies its trip hunts.
+  const planOf = (t, x, w, enemies = 1) => ({ group: t.group, taker: taker(x), item: x.items[0].item, kind: w.kind, hours: w.hours, up: w.up ?? null, value: w.value, cost: w.cost, enemies });
+  // Wanted enemies by zone, leaving out zones found crowded and enemies a group hunts.
+  const zones = new Map();
+  for (const x of targets) if (!crowded.has(x.zone) && !hunted.get(targetId(x))) (zones.get(x.zone) ?? zones.set(x.zone, []).get(x.zone)).push(x);
   for (;;) {
     const withTrips = { ...ctx, tabs: [...tabs, ...occupied] };
     let best = null;
     for (const t of tabs.filter(hunter)) {
-      for (const target of targets) {
-        const id = targetId(target);
-        if (targetEval[id] || crowded.has(target.zone) || hunted.get(id) || !inTime(target, t)) continue;
-        const x = open(target);
-        if (!x.items.length) continue;
-        const w = bestWay(t, x, withTrips);
-        if (w && netRate(w) > 0 && allowed(t, w) && due(lastHunt(id), targetRetryMin(w.kind)) && (!best || netRate(w) > netRate(best.w))) best = { t, x, w, id };
+      for (const xs of zones.values()) {
+        const open = xs.filter((x) => !targetEval[targetId(x)] && inTime(x, t)).map(withClaims);
+        if (!open.length) continue;
+        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && due(lastHunt(targetId(x)), targetRetryMin(kind)));
+        if (w && netRate(w) > 0 && (!best || netRate(w) > netRate(best.w))) best = { t, w };
       }
     }
     if (!best) break;
-    const { t, x, w, id } = best;
-    const keep = x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const item = x.items[0].item;
-    const spec = w.kind === "errand" ? { zone: x.zone, keep, item, minutes: 60 } : { zone: x.zone, keep, item, ...(w.kind === "camp" && points[id]?.length ? { points: points[id] } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.round(ACQUIRE.visitHours * 60) : ACQUIRE.campMin };
-    const why = `${t.group} hunts it for ${taker(x)} (${w.kind}): ${describeWay(w, taker(x))}`;
-    out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id, spec, why });
-    targetEval[id] = { state: "queued", plan: planOf(t, x, w) };
-    for (const s of x.items) claimed.set(slotKey(s), x.npc);
-    occupied.push({ label: null, group: t.group, zone: x.zone });
+    const { t, w } = best;
+    const ids = w.members.map((m) => targetId(m.x));
+    const keep = [...new Set(w.members.map((m) => m.x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))].join("|");
+    // A trip for one enemy ends once its best item is in the bags, and one for several runs its time.
+    const item = w.members.length === 1 ? { item: w.members[0].x.items[0].item } : {};
+    const pts = [...new Set(w.members.flatMap((m) => points[targetId(m.x)] ?? []))];
+    const spec = w.kind === "errand" ? { zone: w.zone, keep, ...item, minutes: 60 } : { zone: w.zone, keep, ...item, ...(w.kind === "camp" && pts.length ? { points: pts } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.max(1, Math.round(w.hours * 60)) : ACQUIRE.campMin };
+    const why = `${t.group} ${w.kind === "errand" ? "hunts" : w.kind === "camp" ? "camps" : "visits"} ${w.zone} for ${w.members.map((m) => m.x.npc).join(", ")}: ${describeTrip(w)}`;
+    out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id: ids[0], ids, spec, why });
+    for (const m of w.members) {
+      targetEval[targetId(m.x)] = { state: "queued", plan: planOf(t, m.x, m.w, w.members.length) };
+      claim(m.x, m.w);
+    }
+    occupied.push({ label: null, group: t.group, zone: w.zone });
   }
-  // Why every other target waits: its hunt runs, its zone is crowded, no group can kill it, its
-  // takers' slots go to other targets, no way pays, or the group it pays most for is busy or held and
-  // no free group takes it at a profit. Each reason is a `state` with its facts, and the dashboard
-  // words it (tools/dashboard/gear.js).
+  // Why every other target waits: its hunt runs, its zone is crowded, no group can kill it, other
+  // hunts serve its takers' slots, no way pays, or the group it pays most for is busy or held and
+  // no free group's trip takes it at a profit. Each reason is a `state` with its facts, and the
+  // dashboard words it (tools/dashboard/gear.js).
   for (const x of targets) {
     const id = targetId(x);
     if (targetEval[id]) continue;
@@ -358,15 +381,20 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const reach = tabs.filter((t) => t.members.length).map((t) => ({ t, w: bestWay(t, x, ctx) })).filter((p) => p.w);
     const best = reach.reduce((a, b) => (!a || netRate(b.w) > netRate(a.w) ? b : a), null);
     const plan = best ? planOf(best.t, x, best.w) : null;
+    // The best chance any group has against it, which says whether a target is out of every
+    // group's reach (below `ACQUIRE.tooStrong`) or only not worth it yet.
+    const chances = tabs.filter((t) => t.members.length).map((t) => killChance(t, x)?.p).filter((p) => p != null);
+    const chance = chances.length ? Math.max(...chances) : null;
     let why;
     if (on) why = { state: "hunting", group: on.group };
-    else if (!open(x).items.length) why = { state: "covered", by: [...new Set(x.items.map((w) => claimed.get(slotKey(w))))] };
+    else if (x.items.every((w) => claimed.has(slotKey(w)))) why = { state: "covered", by: [...new Set(x.items.map((w) => claimed.get(slotKey(w)).npc))] };
     else if (crowded.has(x.zone)) why = { state: "crowded" };
     else if (tabs.length && !inTime(x, tabs[0])) why = { state: "time", when: x.when };
-    else if (!best) why = { state: "tooStrong", level: x.npcLevel ?? null };
+    else if (chance == null) why = { state: "untested", level: x.npcLevel ?? null };
+    else if (!best || chance < ACQUIRE.tooStrong) why = { state: "tooStrong", level: x.npcLevel ?? null, chance };
     else if (!x.items.some((w) => hoursPerLevel[w.to] > 0)) why = { state: "noPace", taker: taker(x) };
     else if (netRate(best.w) <= 0) why = { state: "notWorth" };
-    else if (!allowed(best.t, best.w)) why = { state: "experiment", group: best.t.group };
+    else if (!allowed(best.t, best.w.kind)) why = { state: "experiment", group: best.t.group };
     else if (!hunter(best.t)) why = { state: "busy", group: best.t.group, only: reach.length === 1, on: holding(best.t) };
     else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) why = { state: "retry", at: retryTime(lastHunt(id), targetRetryMin(best.w.kind), code) };
     else why = { state: "outbid" };
