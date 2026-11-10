@@ -76,3 +76,23 @@ test("older code installs outside a raid, at most every two minutes", () => {
   expect(step(0, game({ code: "c0" }), T0 + 60 * SEC)).toBeNull();
   expect(step(0, game({ code: "c0" }), T0 + 150 * SEC)).toBe("install");
 });
+
+test("a character select without a connection for a minute reloads, so the login form shows", () => {
+  const step = fleetOf(1);
+  const select = game({ screen: "select", conn: { connected: false } });
+  expect(step(0, select, T0)).toBeNull();
+  expect(step(0, select, T0 + 30 * SEC)).toBeNull();
+  expect(step(0, select, T0 + 60 * SEC)).toBe("reload");
+  // Its sign-in limit holds the next reload, and a connected select needs nothing.
+  expect(step(0, select, T0 + 90 * SEC)).toBeNull();
+  expect(step(0, game({ screen: "select" }), T0 + 300 * SEC)).toBeNull();
+});
+
+test("a page that shows the server's refusal holds every sign-in of the fleet for its minute", () => {
+  const step = fleetOf(3);
+  const fresh = { hasBridge: false, hasBot: false };
+  expect(step(0, login({ ...fresh, signInRefused: true }), T0)).toBeNull();
+  expect(step(1, login(fresh), T0 + 30 * SEC)).toBeNull();
+  expect(step(2, login(fresh), T0 + 69 * SEC)).toBeNull();
+  expect(step(1, login(fresh), T0 + 71 * SEC)).toBe("signIn");
+});

@@ -1199,8 +1199,12 @@
     if (!c) throw new Error(rosterLoaded(i) ? `no account character ${who}` : "the account's characters are not loaded");
     return c;
   };
-  // A switch starts from a connected page in the world or at the character select.
-  const switchable = (i) => Boolean(i.socket?.isConnected) && ["game", "characterSelect"].includes(i.stores.screen.getState().currentScreen) && rosterLoaded(i);
+  // A switch starts from a page in the world with its socket connected, or from the character
+  // select, where ENTER WORLD opens the world connection itself, with the character list loaded.
+  const switchable = (i) => {
+    const screen = i.stores.screen.getState().currentScreen;
+    return (screen === "characterSelect" || (screen === "game" && Boolean(i.socket?.isConnected))) && rosterLoaded(i);
+  };
   // A page out of the game comes back by the client's own resume, in about 80 s, or by the page
   // supervisor's sign-in after a minute (tools/lib/page.mjs), so a task's switch waits for it.
   const PAGE_BACK_MS = 150000;

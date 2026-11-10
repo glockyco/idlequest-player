@@ -1578,8 +1578,12 @@
     events,
     seqs,
     session,
-    /** What the party does now, `{ act, why, since }` (see "Activity" above), or the last label while no character is in the world. */
-    activity: () => (stores.character.getState().characterProfile?.id ? readActivity() : activity),
+    /**
+     * What the party does now, `{ act, why, since }` (see "Activity" above), or the last label while no
+     * character is in the world, unless a load failed there, such as the character select's, which the
+     * remedy table answers with Try Again wherever it happens.
+     */
+    activity: () => (stores.character.getState().characterProfile?.id || stores.loadFailure.getState().message ? readActivity() : activity),
     /** True when the leader and every living companion and pet are at full HP and mana. */
     partyFull,
     /**

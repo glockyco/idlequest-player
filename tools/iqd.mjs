@@ -1028,8 +1028,9 @@ class Daemon {
     if (!present) obs = { reachable: false, present: false, error: this.relay.connected ? null : "relay not connected" };
     else {
       try {
-        // The page's screen comes with the snapshot, also for a page without the bridge.
-        const snap = await this.relay.evaluate(tr.targetId, `({ ...${call(snapshotInPage, { session: tr.state.pageSession ?? null, after: tr.state.alertSeq ?? 0, sinceT: now - 900000 })}, screen: (${screenInPage})() })`, { timeout: 8000 });
+        // The page's screen comes with the snapshot, also for a page without the bridge, and so does
+        // the login form's refusal of a burst of sign-ins, which holds the fleet's sign-ins (tools/lib/page.mjs).
+        const snap = await this.relay.evaluate(tr.targetId, `({ ...${call(snapshotInPage, { session: tr.state.pageSession ?? null, after: tr.state.alertSeq ?? 0, sinceT: now - 900000 })}, screen: (${screenInPage})(), signInRefused: /Too many login attempts/i.test(document.body?.innerText ?? "") })`, { timeout: 8000 });
         obs = { reachable: true, present: true, snap };
       } catch (e) {
         obs = { reachable: false, present: true, error: String(e.message).slice(0, 100) };

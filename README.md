@@ -415,7 +415,10 @@ manual ones, and the dashboard's Coordinator section shows its last pass.
 in with the stored login when the login form shows, at once on a fresh page and after a minute on
 one that left the game, so the client can resume the session by itself first, at most every two
 minutes per tab, because a sign-in outlasts a cycle, and six times in the fleet per half minute,
-because the server refuses a burst ("Too many login attempts"). It installs the bridge and bot as
+because the server refuses a burst ("Too many login attempts"), and a page that shows that refusal
+holds every sign-in for the minute the server asks. A character select without a connection for a
+minute is a session the server ended ("Log in before entering the world."), so its page reloads to
+show the login form. It installs the bridge and bot as
 `attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
 otherwise at most every two minutes, and deploys them to a tab whose installed code differs from
 the repository's (`codeVersion`, outside raids). A signed-out tab keeps its bot, which enters the

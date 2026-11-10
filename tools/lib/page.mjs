@@ -6,19 +6,24 @@
 // memory and free of a client fault the bridge names. Each look gives at most one action:
 //   signIn   the login form shows on a fresh page, or `offlineSec` after the page left the game,
 //            at most every `signInEveryMin` per tab and `signInBurst` times in the fleet per
-//            `signInWindowSec`, because the server refuses a burst ("Too many login attempts")
+//            `signInWindowSec`, because the server refuses a burst ("Too many login attempts"). A
+//            page that shows that refusal holds every sign-in of the fleet for `refusedHoldSec`,
+//            the minute the server asks for
 //   install  the bridge or the bot is missing, or runs older code outside a raid, at most every
 //            `installEveryMin` per tab, and at once after the tab's sign-in
 //   reload   the heap's floor over `heapWindowMin` stays at `heapShare` of its limit, because the
 //            client keeps memory it no longer needs, or the last `lootlessKills` kills brought no
 //            loot line, which a failed zone load can leave behind, once every row is on disk, at a
-//            quiet moment, and one page of the fleet per `reloadGapMin`
+//            quiet moment, and one page of the fleet per `reloadGapMin`. A character select whose
+//            connection stayed down for `offlineSec` is a session the server ended without the login
+//            form ("Log in before entering the world."), so its reload counts as a sign-in
 
 export const PAGE = {
   offlineSec: 60, // the client tries to resume a session by itself first
   signInEveryMin: 2, // a sign-in takes the page through loading to the character select, which outlasts a cycle
   signInBurst: 6, // twelve sign-ins at once saw two or three refused, and nine at once none
   signInWindowSec: 30,
+  refusedHoldSec: 70, // "Please wait a minute before trying again."
   installEveryMin: 2,
   heapShare: 0.5,
   heapWindowMin: 10, // longer than V8's collection sawtooth of a few minutes
@@ -61,11 +66,20 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
   if (snap.heap) out.heap = [...(out.heap ?? []).filter((r) => now - r.t <= 2 * cfg.heapWindowMin * 60000), { t: now, used: snap.heap.used }];
   const fresh = !snap.hasBridge || !snap.hasBot;
   out.offlineSince = snap.screen === "login" || snap.conn?.connected === false ? (out.offlineSince ?? now) : null;
+  if (snap.signInRefused) next.signInHoldUntil = Math.max(next.signInHoldUntil ?? 0, now + cfg.refusedHoldSec * 1000);
+  // A sign-in or a reload that leads to one waits for the server's minute and the fleet's budget.
+  const signInHeld = now < (next.signInHoldUntil ?? 0) || next.signIns.length >= cfg.signInBurst;
   if (snap.screen === "loading") return result();
+  if (snap.screen === "select" && snap.conn?.connected === false && now - out.offlineSince >= cfg.offlineSec * 1000) {
+    if (now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || signInHeld) return result();
+    out.signInAt = now;
+    next.signIns = [...next.signIns, now];
+    return result({ kind: "reload", why: `the character select had no connection for ${Math.round((now - out.offlineSince) / 1000)} s` });
+  }
   if (snap.screen === "login") {
     // A fresh page signs in at once, and one that left the game gives the client its minute.
     const offlineMs = now - out.offlineSince;
-    if (!(fresh || offlineMs >= cfg.offlineSec * 1000) || now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || next.signIns.length >= cfg.signInBurst) return result();
+    if (!(fresh || offlineMs >= cfg.offlineSec * 1000) || now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || signInHeld) return result();
     out.signInAt = now;
     next.signIns = [...next.signIns, now];
     return result({ kind: "signIn", why: fresh ? "a fresh page" : `the login form for ${Math.round(offlineMs / 1000)} s` });
