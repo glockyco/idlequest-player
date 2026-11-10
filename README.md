@@ -402,8 +402,12 @@ reachable but has lost the bridge or the bot, as a
 page reload does: it signs in with the stored login when the login form shows and installs both as
 `attach` does (`src/install.mjs`), at most every two minutes per tab. The bot keeps its settings in
 the tab's sessionStorage, so it enters the world as its leader and regroups by itself, and a tab
-without them gets its group from `data/roster.json`. A crashed tab needs a new tab, which iqd
-cannot open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
+without them gets its group from `data/roster.json`. The game client keeps memory it no longer
+needs, so a tab's JS heap grows over hours. Once its floor, the lowest reading over 10 minutes,
+stays at half the heap limit or more (`recycleReason` in `tools/iqd.mjs`), iqd reloads the page at a
+moment without a task, fight, raid or zone load, with every recorded row on disk, one tab at a
+time, and the recovery above brings it back. A crashed tab needs a new tab, which iqd cannot
+open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and
@@ -468,9 +472,9 @@ names the running client and `iq.missingApi` lists the missing parts.
 - Never assign to `socket.onJson` or another callback slot on the game's objects. The client's own
   packet dispatch lives there, and replacing it leaves the world stuck on the loading screen.
   Tee traffic by wrapping instance methods, as `src/bridge.js` does.
-- Avoid reloading or navigating the game tab while signed in. The login session lives in page
+- Do not reload or navigate the game tab by hand while signed in. The login session lives in page
   memory only ([docs/client-internals.md](docs/client-internals.md#authentication)), so a lost
-  session means signing in again.
+  session means signing in again, which iqd's recovery does for its own reloads.
 - `.re/` holds downloaded copies of the game client for reverse engineering and is not committed.
   `bun tools/client-snapshot.mjs` saves each release to `.re/releases/<release>/`, with readable
   copies in `pretty/` (see [After a client update](#after-a-client-update)). Regenerate the opcode

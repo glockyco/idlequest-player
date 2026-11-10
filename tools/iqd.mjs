@@ -29,12 +29,35 @@ export const THRESHOLDS = {
   idleSec: 120, // idle or dead without a bot pause or a raid
   noKillSec: 300, // no kill without a bot pause or a raid
   heapShare: 0.85, // share of the JS heap limit
+  recycleShare: 0.5, // share of the JS heap limit the heap's floor over `recycleMin` reaches before the page reloads
+  recycleMin: 10, // the window of that floor, longer than V8's collection sawtooth of a few minutes
+  recycleGapMin: 10, // at most one page reload in this many minutes, so one group at a time is down
   taskMin: 60, // a coordinator task running longer than this (the longest, a farm, runs 120 under its own errand)
   snapshotEverySec: 300, // a character's snapshot is written at least this often
 };
 
 /** Attention kinds that describe a state. They resolve themselves when the state ends. */
 export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap", "longtask"];
+
+/**
+ * Why the page of a tab should reload now, or null. The game client keeps memory it no longer
+ * needs, so a tab's JS heap grows over hours by an amount that depends on what the tab did (the
+ * bridge's own buffers are capped), until the page would run out of heap. A reload starts a fresh
+ * page and keeps the tab's sessionStorage, which holds the bot's leader and settings, and
+ * `recoverTab` signs in and installs the bridge and bot again. `log` holds the tab's heap readings
+ * `{ t, used }` since its page loaded. The floor, the lowest reading over the last `recycleMin`
+ * minutes, counts, because the heap saws up and down by hundreds of MB between collections. The
+ * reload waits for a moment it loses little: no running task, raid, fight or zone load.
+ */
+export function recycleReason({ log, snap, now, thresholds = THRESHOLDS }) {
+  const limit = snap?.heap?.limit;
+  const since = now - thresholds.recycleMin * 60000;
+  if (!limit || !log.length || log[0].t > since) return null;
+  const floor = Math.min(...log.filter((r) => r.t >= since).map((r) => r.used));
+  if (floor < thresholds.recycleShare * limit) return null;
+  if (snap.bot?.task?.status === "running" || snap.raid || snap.conn?.inCombat || snap.conn?.zoneLoading || !snap.conn?.worldReady) return null;
+  return `the page heap stayed above ${floor} of ${limit} MB for ${thresholds.recycleMin} min`;
+}
 
 // ---- Database -----------------------------------------------------------------------------------
 
@@ -999,6 +1022,9 @@ class Daemon {
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
       this.saveSession(tr, snap, now);
       this.recordCharacters(tr, snap, now);
+      // The heap readings of the page since it loaded, over twice the recycle window.
+      if (tr.heapSession !== snap.pageSession) Object.assign(tr, { heapSession: snap.pageSession, heapLog: [] });
+      if (snap.heap) tr.heapLog = [...tr.heapLog.filter((r) => r.t >= now - 2 * THRESHOLDS.recycleMin * 60000), { t: now, used: snap.heap.used }];
     } else if (tr.rowId) {
       this.db.query("UPDATE sessions SET state = ? WHERE id = ?").run(JSON.stringify(tr.state), tr.rowId);
     }
@@ -1008,7 +1034,22 @@ class Daemon {
     const stale = snap?.hasBridge && snap.hasBot && this.code && snap.code !== this.code && !snap.raid;
     if (obs.reachable && snap && !snap.error && (!snap.hasBridge || !snap.hasBot || stale)) await this.recoverTab(tr, now, stale).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
     else if (snap?.hasBot && !stale) tr.state.recovery = null;
-    if (usable && snap.leader && snap.rec) await this.exportRows(tr, snap).catch((e) => this.log(`export ${tr.label}: ${e.message}`));
+    const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
+    // Only with every recorded row on disk, since a reload drops the page's buffers.
+    if (exported && this.recover && snap.hasBot && !stale) await this.recycleTab(tr, snap, now).catch((e) => this.log(`reload ${tr.label}: ${e.message}`));
+  }
+
+  /**
+   * Reload a tab's page when `recycleReason` asks for it, one tab per `recycleGapMin`. Needs
+   * `--recover`, which signs the reloaded page in and installs the bridge and bot again.
+   */
+  async recycleTab(tr, snap, now) {
+    const why = recycleReason({ log: tr.heapLog ?? [], snap, now });
+    if (!why || now - (this.lastRecycleAt ?? 0) < THRESHOLDS.recycleGapMin * 60000) return;
+    this.lastRecycleAt = now;
+    this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'iqd', ?)").run(now, tr.label, `reloaded the page: ${why}`);
+    this.log(`reload ${tr.label}: ${why}`);
+    await this.relay.evaluate(tr.targetId, "setTimeout(() => location.reload(), 200), true", { timeout: 5000 });
   }
 
   saveSession(tr, snap, now) {
@@ -1098,6 +1139,7 @@ class Daemon {
     syncAttention(this.db, { label: tr.label, oldLabel, res, now, log: this.log });
   }
 
+  /** Append the tab's new recorder rows to its leader's logs. Resolves true once every row is on disk. */
   async exportRows(tr, snap) {
     const dir = join(this.runs, "live", safeName(snap.leader.name));
     let cur = this.cursors.get(dir);
@@ -1112,7 +1154,7 @@ class Daemon {
     await mkdir(dir, { recursive: true });
     for (let i = 0; i < 12; i++) {
       const got = await this.relay.evaluate(tr.targetId, call(drainInPage, { s: cur.s, e: cur.e, maxS: 2000, maxE: 4000 }), { timeout: 10000 });
-      if (!got) return;
+      if (!got) return false;
       if (got.samples.length) {
         await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
@@ -1123,8 +1165,9 @@ class Daemon {
         await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
       }
-      if (!got.more) return;
+      if (!got.more) return true;
     }
+    return false;
   }
 
   /**
