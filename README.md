@@ -416,11 +416,13 @@ does (`src/install.mjs`), at most every two minutes and at once when its sign-in
 character select. A signed-out tab keeps its bot, which enters the world from the character select.
 It turns rendering off again once the signed-in page is back in the world. The bot keeps its settings in
 the tab's sessionStorage, so it enters the world as its leader and regroups by itself, and a tab
-without them gets its group from `data/roster.json`. The game client keeps memory it no longer
-needs, so a tab's JS heap grows over hours. Once its floor, the lowest reading over 10 minutes,
-stays at half the heap limit or more (`recycleReason` in `tools/iqd.mjs`), iqd reloads the page at a
-moment without a task, fight, raid or zone load, with every recorded row on disk, one tab at a
-time, and the recovery above brings it back. A crashed tab needs a new tab, which iqd cannot
+without them gets its group from `data/roster.json`. iqd reloads a page for two faults of the
+client (`recycleReason` in `tools/iqd.mjs`). The client keeps memory it no longer needs, so a tab's
+JS heap grows over hours, and a reload comes once its floor, the lowest reading over 10 minutes,
+stays at half the heap limit or more. A failed zone load leaves the client without its loot
+messages (docs/client-internals.md, Loot messages), and a reload comes after 25 kills in a row
+without a "You loot" line. It waits for a moment without a task, fight, raid or zone load, with
+every recorded row on disk, one tab at a time, and the recovery above brings it back. A crashed tab needs a new tab, which iqd cannot
 open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by

@@ -385,6 +385,16 @@ at 255 (`a4`), item haste takes the highest item at most 50 (buff haste adds up 
   and revive items on their own, never buff items. Buff durations come from the spell, and the
   wiki's "clicky buffs have no expiration" is not visible in the client.
 
+### Loot messages
+
+A zone load that fails and is tried again (the "Loading failed" window's Try Again, which the bot
+presses) can leave the page without its loot messages. The server still loots, and coin and items
+arrive, but no "You loot" line shows, and after each kill AutoLevel waits about six seconds with the
+party full before it picks the next enemy, which the bridge labels `noTarget`. A sign-in does not
+end it, and a page reload does. iqd reloads a tab after `lootlessKills` kills in a row without a
+"You loot" line (`recycleReason` in `tools/iqd.mjs`), and the progress feed misses that tab's loot
+until then.
+
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so

@@ -33,6 +33,7 @@ export const THRESHOLDS = {
   recycleShare: 0.5, // share of the JS heap limit the heap's floor over `recycleMin` reaches before the page reloads
   recycleMin: 10, // the window of that floor, longer than V8's collection sawtooth of a few minutes
   recycleGapMin: 10, // at most one page reload in this many minutes, so one group at a time is down
+  lootlessKills: 25, // kills in a row without a "You loot" line before the page reloads; healthy play reaches about ten
   taskMin: 60, // a coordinator task running longer than this (the longest, a farm, runs 120 under its own errand)
   snapshotEverySec: 300, // a character's snapshot is written at least this often
 };
@@ -41,22 +42,44 @@ export const THRESHOLDS = {
 export const CONDITION_KINDS = ["gone", "nobridge", "stall", "heap", "longtask"];
 
 /**
- * Why the page of a tab should reload now, or null. The game client keeps memory it no longer
- * needs, so a tab's JS heap grows over hours by an amount that depends on what the tab did (the
- * bridge's own buffers are capped), until the page would run out of heap. A reload starts a fresh
- * page and keeps the tab's sessionStorage, which holds the bot's leader and settings, and
- * `recoverTab` signs in and installs the bridge and bot again. `log` holds the tab's heap readings
- * `{ t, used }` since its page loaded. The floor, the lowest reading over the last `recycleMin`
- * minutes, counts, because the heap saws up and down by hundreds of MB between collections. The
- * reload waits for a moment it loses little: no running task, raid, fight or zone load.
+ * Kills in a row without a "You loot" line, carried from `prev` through a tab's new event rows.
+ * Only a coin or item line ends a run: a client that lost its loot messages still shows lines
+ * such as "Uncollected items remain on the corpse".
  */
-export function recycleReason({ log, snap, now, thresholds = THRESHOLDS }) {
-  const limit = snap?.heap?.limit;
+export function lootlessKills(prev, events) {
+  let n = prev;
+  for (const e of events) {
+    if (/^You have defeated /.test(e.text ?? "")) n++;
+    else if (e.type === "LOOT" && /^You loot /.test(e.text ?? "")) n = 0;
+  }
+  return n;
+}
+
+/**
+ * Why the page of a tab should reload now, or null. A reload starts a fresh page and keeps the
+ * tab's sessionStorage, which holds the bot's leader and settings, and `recoverTab` signs in and
+ * installs the bridge and bot again. Two faults of the client ask for one:
+ *
+ * - It keeps memory it no longer needs, so a tab's JS heap grows over hours by an amount that
+ *   depends on what the tab did (the bridge's own buffers are capped), until the page would run out
+ *   of heap. `log` holds the tab's heap readings `{ t, used }` since its page loaded. The floor, the
+ *   lowest reading over the last `recycleMin` minutes, counts, because the heap saws up and down by
+ *   hundreds of MB between collections.
+ * - A zone load that failed and was tried again leaves it without its loot messages until the page
+ *   reloads (docs/client-internals.md, Loot messages): coin and items still arrive, but no "You
+ *   loot" line shows and AutoLevel waits about six seconds after each kill. `lootless` counts the
+ *   kills in a row without such a line (`lootlessKills`).
+ *
+ * The reload waits for a moment it loses little: no running task, raid, fight or zone load.
+ */
+export function recycleReason({ log, lootless = 0, snap, now, thresholds = THRESHOLDS }) {
+  if (snap?.bot?.task?.status === "running" || snap?.raid || snap?.conn?.inCombat || snap?.conn?.zoneLoading || !snap?.conn?.worldReady) return null;
+  if (lootless >= thresholds.lootlessKills) return `the last ${lootless} kills brought no loot line, which the client loses in a failed zone load`;
+  const limit = snap.heap?.limit;
   const since = now - thresholds.recycleMin * 60000;
   if (!limit || !log.length || log[0].t > since) return null;
   const floor = Math.min(...log.filter((r) => r.t >= since).map((r) => r.used));
   if (floor < thresholds.recycleShare * limit) return null;
-  if (snap.bot?.task?.status === "running" || snap.raid || snap.conn?.inCombat || snap.conn?.zoneLoading || !snap.conn?.worldReady) return null;
   return `the page heap stayed above ${floor} of ${limit} MB for ${thresholds.recycleMin} min`;
 }
 
@@ -1123,7 +1146,7 @@ class Daemon {
    * `--recover`, which signs the reloaded page in and installs the bridge and bot again.
    */
   async recycleTab(tr, snap, now) {
-    const why = recycleReason({ log: tr.heapLog ?? [], snap, now });
+    const why = recycleReason({ log: tr.heapLog ?? [], lootless: tr.lootless ?? 0, snap, now });
     if (!why || now - (this.lastRecycleAt ?? 0) < THRESHOLDS.recycleGapMin * 60000) return;
     this.lastRecycleAt = now;
     this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'iqd', ?)").run(now, tr.label, `reloaded the page: ${why}`);
@@ -1243,6 +1266,8 @@ class Daemon {
       this.cursors.set(dir, cur);
     }
     await mkdir(dir, { recursive: true });
+    // Only a reload brings lost loot messages back, so the count starts again with each page.
+    if (tr.lootSession !== snap.pageSession) Object.assign(tr, { lootSession: snap.pageSession, lootless: 0 });
     for (let i = 0; i < 12; i++) {
       const got = await this.relay.evaluate(tr.targetId, call(drainInPage, { s: cur.s, e: cur.e, maxS: 2000, maxE: 4000 }), { timeout: 10000 });
       if (!got) return false;
@@ -1256,6 +1281,7 @@ class Daemon {
         await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
         cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
         recordProgress(this.db, lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) }), this.groups());
+        tr.lootless = lootlessKills(tr.lootless, got.events);
       }
       if (!got.more) return true;
     }

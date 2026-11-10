@@ -1,7 +1,7 @@
 // Checks the attention rules of tools/iqd.mjs on fixture snapshots. No browser, no relay, no clock.
 // Run with `bun test`.
 import { expect, test } from "bun:test";
-import { openDb, raiseItem, recycleReason, renderStatus, resolveItem, stepSession, syncAttention } from "../tools/iqd.mjs";
+import { lootlessKills, openDb, raiseItem, recycleReason, renderStatus, resolveItem, stepSession, syncAttention } from "../tools/iqd.mjs";
 
 const T0 = 1_800_000_000_000;
 const SEC = 1000;
@@ -291,4 +291,17 @@ test("a page reloads once its heap floor over ten minutes reaches half the limit
   for (const busy of [{ bot: { task: { status: "running" } } }, { conn: { ...snap.conn, inCombat: true } }, { raid: true }, { conn: { ...snap.conn, zoneLoading: true } }]) {
     expect(recycleReason({ log: log(2100), snap: { ...snap, ...busy }, now: T0 })).toBeNull();
   }
+});
+
+test("a page reloads after 25 kills in a row without a loot line, and the count ends only at a loot line", () => {
+  const kill = { type: "EXPERIENCE_GAIN", text: "You have defeated a gnomish miner and gained 19130 experience!" };
+  // A client without its loot messages still shows that items stayed on the corpse.
+  const remain = { type: "LOOT", text: "Uncollected items remain on the corpse. Make room and loot it manually." };
+  expect(lootlessKills(20, [kill, remain, kill])).toBe(22);
+  expect(lootlessKills(20, [kill, { type: "LOOT", text: "You loot 7 gold, 2 silver!" }, kill])).toBe(1);
+  const snap = { heap: { used: 900, limit: 4000 }, conn: { worldReady: true, inCombat: false, zoneLoading: false }, raid: false, bot: { task: null } };
+  expect(recycleReason({ log: [], lootless: 24, snap, now: T0 })).toBeNull();
+  expect(recycleReason({ log: [], lootless: 25, snap, now: T0 })).toContain("25 kills brought no loot line");
+  // It waits for a quiet moment like the heap reason.
+  expect(recycleReason({ log: [], lootless: 30, snap: { ...snap, conn: { ...snap.conn, inCombat: true } }, now: T0 })).toBeNull();
 });
