@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "dots-9-ab",
+    "a": ["G2", "G4", "G6", "G8", "G10", "G12"],
+    "b": ["G3", "G5", "G7", "G9", "G11"],
+    "blockMin": 20,
+    "blocks": 6,
+    "setting": { "dotMaxTicks": 9 },
+    "without": { "dotMaxTicks": 0 }
+  }
+]
