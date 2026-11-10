@@ -1,0 +1,152 @@
+# Fault handling
+
+How the bot, the adapter and iqd handle what goes wrong in the server and the client, so each fault
+has one owner, one cure and a test, and the fixes of 2026-11-10 become one design instead of a
+stack of special cases. This plan extends the [controller design](controller.md) and changes two
+of its principles.
+
+## Why
+
+The server was slow and restarted several times on 2026-11-10, and each fault showed in a
+different place:
+
+| Fault | Cost | Fixed where |
+| --- | --- | --- |
+| A failed zone load, retried with Try Again, left the client's loot preview on a disposed scene | Six groups lost their loot lines and waited about 6 s after every kill for 3 to 5 hours, 11 to 16% of their time, labelled `noTarget` | A reload rule in iqd, then a wrap in the adapter |
+| The client paused AutoLevel when the server did not confirm a fight in time | About 10% of all group time in a slow hour, because the bot waited 60 s to restart | A marker in `keepAutoLevel`, outside the remedy table |
+| A server restart signed every tab out | Twelve groups at the login form for 1.9 hours | A new trigger and timers in `recoverTab` |
+| Inventory Search requests timed out | Two gear passes failed and the hourly schedule lost 2.3 hours of moves and the targets | Retries in the adapter and a retry timer in the gear pass |
+| Rows of a page went into several characters' logs | 46% of the loot rows were copies | A cursor per page |
+
+Each fix works, but together they break the controller design's principles. Principle 3 says one
+table maps each idle cause to its remedy, yet the stuck loot hid under `noTarget` because the
+labels have no cause for it, and the client's pauses are handled outside the table. Principle 8
+says the adapter has no policy, yet it now compensates a client defect and retries requests by its
+own counts. Principle 9 says policy code is pure and tested, yet page recovery in iqd is imperative
+code with five flags and timers (`recovery.at`, `signedInAt`, `offlineSince`, `renderingOff`,
+`lootless`). The design has no part for the page itself, although sign-outs, failed loads and
+reloads are everyday events. Seven places in the bot and the adapter start AutoLevel, each with its
+own conditions.
+
+## Fault model
+
+| Fault | How it shows | Cure | Owner |
+| --- | --- | --- | --- |
+| A read-only request times out (Inventory Search, opcode 1241) | The request's error | Ask again after a pause, up to three times, then report what was not found | The adapter's query |
+| The server is slow to confirm an action (a fight's start, a zone change, a cancellation) | The client's own line: "AutoLevel paused: ... try again", "Request timeout for opcode 313" | Retry the action, as the client's text asks | The controller's remedy table |
+| The server ends the session (a restart, a camping it could not confirm) | The login form, or the socket down | Sign in with the stored login, spread over the tabs, because the server refuses a burst ("Too many login attempts") | The page supervisor |
+| A zone load fails | The "Loading Failed" window | Try Again, then the shim for the defect it is known to leave | The remedy table and a shim |
+| The client keeps a defect that no shim covers | A symptom the adapter can name, such as loot that never settles | A fresh page | The page supervisor |
+| The client keeps memory | The heap floor over 10 minutes | A fresh page at a quiet moment | The page supervisor |
+| The page lost the bridge or the bot, or runs older code | The snapshot | Install | The page supervisor |
+| The tab is gone | The relay | A new tab (`restoreGroup`) | An agent |
+
+## Design
+
+### Causes are named where they are observed
+
+The adapter's activity label gives every idle second the cause the page shows for it, so the remedy
+table sees each fault by name. With AutoLevel off, the cause is the latest evidence since it last
+ran. New causes:
+
+| Cause | Evidence |
+| --- | --- |
+| `held` | AutoLevel off since one of the bot's holds (`iqBot.state.heldAt`) |
+| `clientPause` | AutoLevel off since the client's "AutoLevel paused: ..." line |
+| `contested` | AutoLevel off since "Looking for another target.", which stops AutoLevel only when it had stopped or fought a single target. While AutoLevel runs, the client tries another target after 500 ms by itself. |
+| `lootSettle` | AutoLevel waits for a kill's pending loot (`pendingAutoLevelLoot` of the combat runtime) |
+| `loadFailed` | The Loading Failed window is open (the message of the client's load failure store) |
+
+`noTarget` then means that AutoLevel runs with nothing to approach, no loot pending and no enemy to
+wait for, and a second the rules cannot place, such as one without the combat runtime, is
+`unknown`, never folded into a neighbouring cause. The rules are pure (`ACTIVITY_RULES`) and tested
+on their own.
+
+### One owner starts AutoLevel
+
+Whether AutoLevel runs is part of the desired state, and the remedy table is the only code that
+starts it. A hold keeps it off: a pause, a raid, a page out of the world or in a zone change, a
+character switch, the guard's escape, a dead leader or members still joining. The bot stops
+AutoLevel only under a hold or for a fresh start, and it notes every hold in `state.heldAt`, so
+the label names AutoLevel that went off under one `held`. Every cause has its delay in the table:
+`held` and `contested` at once, `clientPause` after 5 s, `off` after 60 s (manual movement cancels
+AutoLevel, so a person's stop gets a minute). `loadFailed` presses Try Again, also under a hold,
+once for every failure. `lootSettle` that outlasts the client's deadline on several kills in a row
+is a page fault the bot reports to iqd. The markers `clientStop` and `restartNow`, the start in
+`keepAutoLevel`, the guard's restart loop and the Try Again click in `watchConnection` go, and the
+task runner, the raid and the guard hand AutoLevel back by ending their hold. The end of a hold and
+the end of a cause's delay wake the tick, so the delays hold to the second.
+
+Rendering off becomes a client option the bot keeps (`clientOptions.disable3D`, whose toggle is
+`toggleDisable3D`), like Auto-Sell, so no sign-in or reload needs its own step. A screenshot of the
+world lifts it for its moment (`iqBot.render(seconds)`).
+
+### The page supervisor
+
+Each tab's page has a desired state too: loaded, signed in, in the world, with the current bridge
+and bot, within its memory, and without a known client fault. One pure function in
+`tools/lib/page.mjs` takes a tab's observation, its supervisor state and the fleet's budgets and
+returns one action (none, sign in, install, reload, alert) with the new state:
+
+| Observed | Action | Limits |
+| --- | --- | --- |
+| Loading | None | |
+| Login form or socket down for a minute | Sign in | Every 2 minutes per tab, and a pause between any two sign-ins of the fleet |
+| Bridge or bot missing, or older code outside a raid | Install | Every 2 minutes per tab, at once after this tab's sign-in reached the character select |
+| Heap floor at half the limit for 10 minutes, or a page fault the bot reported | Reload at a quiet moment | One reload in the fleet per 10 minutes |
+| A tab not answering for a minute | Alert | |
+
+It replaces `recoverTab`'s timers, `recycleTab`, `recycleReason` and the lootless count, and the
+executor in iqd only evaluates the action in the tab. Its tests replay recorded situations: twelve
+tabs signed out at once, a reload whose first zone load fails, a tab that signs in while another
+reloads, a heap floor during a fight.
+
+### Client defects are shims
+
+The adapter has no game policy. A known defect of the client is compensated in a shim, kept apart
+in one section of the adapter, each with the defect it answers, the evidence, and a count of how
+often it acted, which the snapshot carries. `tools/check-client.mjs` checks for every shim that its
+anchor still exists in a new client release, and a shim that has not acted for a release is
+deleted. The first is the loot preview that calls back within 1.5 s when its scene cannot
+(`watchLootPreview` today). Principle 8 becomes: the adapter has no policy, it retries idempotent
+reads, and it compensates documented client defects in shims.
+
+### One query for read-only requests
+
+The adapter offers `query(op, payload)`: a read-only request with a timeout, asked up to three
+times with a pause between. Inventory Search in the gear survey and the coordinator's
+`searchInPage` use it instead of their own retries. Actions keep their effect checks, and a task
+step retries an action that changes the game, because only the step knows whether it took effect.
+
+### Samples name their character
+
+Each sample carries the active character's id, so the minute totals and zone rates never take an
+XP difference across a character switch. A switch to a lower-level member showed as -22M XP per hour
+for group 1 and a switch back as 32M for group 8.
+
+## Migration
+
+Each step deletes what it replaces, has tests on recorded situations, runs on one group first and
+then on all, measured with the idle causes per group-hour.
+
+1. The causes and the single AutoLevel owner, with rendering as a client option. Deletes the
+   `clientStop` marker, the starts outside the reconciler, the Try Again click in `watchConnection`
+   and iqd's `renderingOff`.
+2. The page supervisor. Deletes `recoverTab`'s timers, `recycleTab`, `recycleReason` and
+   `lootlessKills`.
+3. The shim section, with the loot preview moved into it and its check in `tools/check-client.mjs`.
+4. The query, used by the gear survey and the coordinator's searches. Deletes their own retries.
+5. The character id in samples, read by `tools/lib/minutes.mjs` and `tools/lib/rates.mjs`.
+6. `controller.md` updated: principle 3 names causes by their evidence, principle 8 as above, and a
+   part for the page supervisor.
+
+## Decisions
+
+- A failed zone load is answered with Try Again, and a shim compensates the defect it leaves.
+  Failed loads came 0.31 times per tab-hour on 2026-11-10, and with the shim those pages played at
+  the rate of fresh ones, while a reload costs 60 to 90 s and a new zone load, which can fail again.
+- The adapter compensates documented client defects in shims, and a fresh page cures what no shim
+  covers.
+- Page recovery is one pure state machine in `tools/lib/page.mjs`, run by iqd.
+- The steps run in the order of the migration above, one commit each, before the readiness-recovery
+  work and the cleric chain.
