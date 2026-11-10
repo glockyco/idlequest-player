@@ -1,62 +1,15 @@
-// Checks the item demand model (docs/plans/items.md): the quest graph's script edges and walk, the
-// demand sources and the client table reader. Run with `bun test`.
+// Checks the item demand model (docs/plans/items.md): the demand sources and the client table
+// reader. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { arrayLiteral } from "../tools/lib/client-tables.mjs";
 import { ALL_COPIES, addDemand, chainDemand, handInDemand, potionDemand, stepDemand, tabShares } from "../tools/lib/item-demand.mjs";
-import { needFor, scriptEdges } from "../tools/lib/quest-graph.mjs";
 
-const FORPAR = `function event_say(e)
-	if e.message:findi("components") then
-		e.other:SummonItem(20380)
-	end
-end
-
-function event_trade(e)
-	if item_lib.check_turn_in(e.trade, {item1 = 20378}) then
-		e.other:SummonItem(20380)
-	elseif item_lib.check_turn_in(e.trade, {item1 = 20380, item2 = 20524, item3 = 20525, item4 = 5520}) then
-		e.other:SummonItem(20535)
-	end
-	item_lib.return_items(e.self, e.other, e.trade)
-end`;
-
-test("a script gives one hand-in edge per branch, a talk edge for what dialogue gives, and the spawns and rewards of each", () => {
-  const edges = scriptEdges(FORPAR, { zone: "steamfont", npc: "Forpar Fizfla" });
-  expect(edges.map((e) => [e.kind, e.inputs, e.outputs])).toEqual([
-    ["handin", { 20378: 1 }, [20380]],
-    ["handin", { 20380: 1, 20524: 1, 20525: 1, 5520: 1 }, [20535]],
-    ["talk", {}, [20380]],
-  ]);
-  // The positional QuestReward names its item and XP, eq.handin its counts, and a branch that
-  // spawns an NPC lists it for its loot.
-  const other = scriptEdges(
-    `function event_trade(e)
-	if (eq.handin({[14337] = 1, [13073] = 2})) then
-		e.other:QuestReward(e.self,0,0,0,0,10651,350000)
-		eq.spawn2(80042,0,0,1,2,3,0)
-	end
-end`,
-    { zone: "z", npc: "n" },
-  );
-  expect(other).toMatchObject([{ kind: "handin", inputs: { 14337: 1, 13073: 2 }, outputs: [10651], exp: 350000, spawns: [80042] }]);
-});
-
-test("the walk back from a reward takes every alternative, and stops at what is held or bought", () => {
-  const edge = (inputs: Record<number, number>, outputs: number[]) => ({ kind: "handin", inputs, outputs, exp: 0 });
-  // 1 comes from 2 and 3, 3 from 4 or from 5 and 6, and 6 from a merchant item 7.
-  const edges = [edge({ 2: 1, 3: 1 }, [1]), edge({ 4: 1 }, [3]), edge({ 5: 1, 6: 2 }, [3]), edge({ 7: 1 }, [6])];
-  expect([...needFor(edges, 1).entries()].sort()).toEqual([[2, 1], [3, 1], [4, 1], [5, 1], [6, 2], [7, 1]]);
-  // Holding 3 ends that branch, and a merchant's 6 is bought, not made.
-  expect([...needFor(edges, 1, new Set([3])).keys()]).toEqual([2]);
-  expect([...needFor(edges, 1, new Set(), new Set([6])).keys()].sort()).toEqual([2, 3, 4, 5, 6]);
-});
-
-test("chain demand counts a copy per member that still needs the epic, and one reward per member", () => {
-  const edges = [{ kind: "handin", inputs: { 20: 1, 21: 2, 22: 1 }, outputs: [10], exp: 0 }];
+test("chain demand counts each reward's step items once per member that still needs the epic, and one reward per member", () => {
+  const epicNeeds = new Map([[10, { 20: 1, 21: 2 }]]);
   const epics = { Bard: [10], Wizard: [11] };
   const members = [{ name: "A", class: "Bard" }, { name: "B", class: "Bard" }, { name: "C", class: "Wizard" }];
-  // B holds the epic, so only A needs its inputs. Item 22 is sold by a merchant and bought at the step.
-  expect(chainDemand({ edges, epics, members, epicHolders: new Set(["B"]), buyable: new Set([22]) })).toEqual({ 10: 2, 11: 1, 20: 1, 21: 2 });
+  // B holds the epic, so only A needs its steps' items.
+  expect(chainDemand({ epicNeeds, epics, members, epicHolders: new Set(["B"]) })).toEqual({ 10: 2, 11: 1, 20: 1, 21: 2 });
 });
 
 test("step demand keeps an open chain's items for its class and a done chain's proof for every member", () => {
@@ -98,17 +51,17 @@ test("each leader keeps its carried copies up to the need left after others' cop
 });
 
 test("every copy of an item the hand-in NPC takes alone for XP is kept, and nothing it takes in sets or for no XP", () => {
-  const edge = (npc: string, inputs: Record<number, number>, exp: number) => ({ kind: "handin", npc, zone: "sro", inputs, outputs: [], exp, spawns: [] });
-  const edges = [
-    edge("Smith Tv-ysa", { 10300: 1 }, 137200),
+  const branch = (npc: string, inputs: Record<number, number>, exp: number) => ({ event: "trade", script: { npc }, inputs, actions: exp ? [{ exp }] : [] });
+  const branches = [
+    branch("Smith Tv-ysa", { 10300: 1 }, 137200),
     // A second branch for the same stone pays more, and the larger reward counts.
-    edge("Smith Tv-ysa", { 10300: 1 }, 140000),
+    branch("Smith Tv-ysa", { 10300: 1 }, 140000),
     // Two of one item, a set of two items, and a hand-in without XP are no repeatable XP hand-ins.
-    edge("Smith Tv-ysa", { 10400: 2 }, 274400),
-    edge("Smith Tv-ysa", { 10015: 1, 10016: 1 }, 5000),
-    edge("Smith Tv-ysa", { 13077: 1 }, 0),
+    branch("Smith Tv-ysa", { 10400: 2 }, 274400),
+    branch("Smith Tv-ysa", { 10015: 1, 10016: 1 }, 5000),
+    branch("Smith Tv-ysa", { 13077: 1 }, 0),
     // Another NPC's hand-in is not the task's.
-    edge("Mrysila", { 10500: 1 }, 14500),
+    branch("Mrysila", { 10500: 1 }, 14500),
   ];
-  expect(handInDemand(edges, "Smith Tv-ysa")).toEqual({ demand: { 10300: ALL_COPIES }, xp: { 10300: 140000 } });
+  expect(handInDemand(branches, "Smith Tv-ysa")).toEqual({ demand: { 10300: ALL_COPIES }, xp: { 10300: 140000 } });
 });

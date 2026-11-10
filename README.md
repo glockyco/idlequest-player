@@ -301,12 +301,14 @@ items from Inventory Search. A character whose party the pass cannot read, with 
 world or a task playing another character, keeps the worn items of the last survey. The moves run as one gear task (`iqBot.gear`), which buys or pulls
 each item and gives it equipped to its receiver, or into the bags for a Bard's instrument, in the party or not, and equips an item for the tab's own active character from its bags (`equipOwn`), since a transfer to oneself is refused. Every item passes through the tab's leader, which refuses a second copy of a lore item, so the task goes to the free tab whose leader carries the fewest of the plan's lore items, and moves its leader cannot take wait for a later task. Each bot keeps
 the account's demand (`demand`, copies per item, `docs/plans/items.md`): the copies the gear plan is
-still short of, every input of the class epics' chains in the quest graph read from the content's
-quest scripts and recipes (`tools/lib/quest-graph.mjs`), the items of the runnable chains in
+still short of, the items each class epic's chosen steps take (the epic model,
+`tools/lib/epic-model.mjs`), the items of the runnable chains in
 `data/quests.json`, the copies of what the coordinator's hunts and errands are for that the roster
 still needs, and one of each casino boss potion. It also keeps the copies the plan's moves take
 (`gearKeepInstances`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). After a
-content update, `bun tools/quest-graph.mjs` lists the chain items the graph does not reach. iqd saves
+content update, `bun tools/epic-model.mjs` lists each class epic's steps, gaps and blockers
+(`--steps`, `--class <Class>`), with `--hand` the hand-kept chain items the model's steps do not
+take, and fails while a chosen step uses a script idiom the analyzer cannot read. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of every live zone drop (`liveDrops` in
 `tools/lib/gear-data.mjs`), where it beats what a character wears, and ranks the enemies by the

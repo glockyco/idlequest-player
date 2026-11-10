@@ -13,7 +13,7 @@ The coordinator owns the account's demand for items: how many copies of each ite
 
 ## Principles
 
-1. Demand is derived. The hand-written facts are each class's epic reward (`data/epics.json`) and the runnable chain steps of `data/quests.json`, which the quest graph checks. The quest graph, the gear plan, the casino table and the hand-in rewards follow from the content snapshot and the client.
+1. Demand is derived. The hand-written facts are each class's epic reward (`data/epics.json`) and the runnable chain steps of `data/quests.json`, which the epic model's check compares with its own steps. The epic model, the gear plan, the casino table and the hand-in rewards follow from the content snapshot and the client.
 2. An item's fate is its most valuable use: equip, chain input, boss summon, hand-in reward, sale, or none.
 3. The leader's bags are a buffer. A kept copy moves to the character who uses it, or to storage while that character cannot take it yet.
 4. Every loot channel and every held item goes through the same fate.
@@ -22,20 +22,13 @@ The coordinator owns the account's demand for items: how many copies of each ite
 
 ## Design
 
-### Quest graph (`tools/lib/quest-graph.mjs`)
+### Epic steps ([epic model](epic-model.md))
 
-Edges read from the content snapshot:
-
-- Hand-in: an NPC script's `check_turn_in` or `eq.handin` branch, its inputs with counts, and what the branch gives (`SummonItem`, the items and XP of `QuestReward` in either form). A branch that spawns an NPC (`eq.spawn2`, `eq.unique_spawn`) also gives that NPC's loot, which carries the chains whose reward drops from a summoned enemy.
-- Talk: an item an NPC gives in dialogue, and the loot of an NPC its dialogue spawns.
-- Combine: a tradeskill recipe's components and carried container into its product.
-- Spell: a scroll and the components a cast consumes into the item the spell summons, as Summon Orb gives the Orb of Mastery.
-
-An item that no edge produces is a leaf: a drop, a merchant item or a ground spawn, whose sources the gear model already finds. A chain's demand is every input on the paths back from its epic reward. The walk stops at an item a merchant sells, which is bought at its step rather than carried. Two hand-ins that give the same item both count until one is chosen. A scene that a script runs on signals, such as the one that ends in Shmendrik Lavawalker's death, is no edge, so the runnable steps of `data/quests.json` cover those chains, and `bun tools/quest-graph.mjs` lists every chain item the graph does not reach.
+A class epic's demand is the items its chosen steps take (`treeNeeds` of `epicTree` in `tools/lib/epic-model.mjs`): every hand-in's inputs and the items its conditions want held, and every combine's and summoning cast's inputs, along the cheapest way to each piece the model finds in the quest scripts and the content's tables. A piece bought at its step, from a merchant or the Tradeskill Bank's catalog, is not carried, so it is no demand. The runnable steps of `data/quests.json` keep their own items (`stepDemand`), and `bun tools/epic-model.mjs --hand` lists those the model's steps do not take.
 
 ### Demand (coordinator)
 
-`demand[itemId]` is the copies the account needs: one epic reward per class member and one chain input per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), the copies the hunts and errands are for (`opportunityDemand`), one of each boss potion (the client's casino table), every copy of the items a coordinator hand-in task pays XP for (`handInDemand`, Smith Tv`ysa's lightstones) and the gear plan's copies still to acquire. Each tab gets its leader's share (`tabShares`), because the bag reserve acts on the active leader's carried items only. Copies worn or carried by others count first. Each leader then keeps the carried copies the account still needs, and every leader keeps the shortfall and the gear plan's copies, because any tab may loot the missing one. The shares come from the last gear pass's survey, so a copy looted since then can be kept twice until the next pass. The gear plan's moves add the instances they take (`gearKeepInstances`).
+`demand[itemId]` is the copies the account needs: one epic reward per class member and the items of each epic's chosen steps per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), the copies the hunts and errands are for (`opportunityDemand`), one of each boss potion (the client's casino table), every copy of the items a coordinator hand-in task pays XP for (`handInDemand`, Smith Tv`ysa's lightstones) and the gear plan's copies still to acquire. Each tab gets its leader's share (`tabShares`), because the bag reserve acts on the active leader's carried items only. Copies worn or carried by others count first. Each leader then keeps the carried copies the account still needs, and every leader keeps the shortfall and the gear plan's copies, because any tab may loot the missing one. The shares come from the last gear pass's survey, so a copy looted since then can be kept twice until the next pass. The gear plan's moves add the instances they take (`gearKeepInstances`).
 
 ### Fate (bot)
 

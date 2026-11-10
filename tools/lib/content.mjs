@@ -14,9 +14,10 @@ export async function* rows(table, root) {
   }
 }
 
-// The expansion the live server plays, Classic through Velious: a spawn row that needs a later
-// expansion does not appear.
+// The expansion the live server plays, Classic through Velious: a spawn row or a recipe that needs
+// a later expansion does not exist there. -1 bounds a range on neither side.
 export const LIVE_EXPANSION = 2;
+const inLiveExpansion = (r) => !(r.min_expansion > LIVE_EXPANSION || (r.max_expansion >= 0 && r.max_expansion < LIVE_EXPANSION));
 
 /**
  * The rows of spawn table `table` (`spawn2` or `spawnentry`) the live server uses: inside the live
@@ -30,9 +31,31 @@ export async function* liveSpawnRows(table, root) {
   for await (const r of rows(table, root)) {
     if (r.version > 0) continue;
     if (table === "spawnentry" && !(r.chance > 0)) continue;
-    if (r.min_expansion > LIVE_EXPANSION || (r.max_expansion >= 0 && r.max_expansion < LIVE_EXPANSION)) continue;
+    if (!inLiveExpansion(r)) continue;
     yield typeof r.zone === "string" && r.zone !== r.zone.toLowerCase() ? { ...r, zone: r.zone.toLowerCase() } : r;
   }
+}
+
+/**
+ * The recipes a character can craft, `Map<id, { id, name, skill, trivial, nofail, parts, yields }>`
+ * with `parts` and `yields` as `[{ item, n }]`: enabled, shown in the Advanced recipe window, whose
+ * requests `craftItem` (src/bridge.js) sends, and inside the live expansion. The server crafts
+ * without a container, so a recipe's container is no part, and a part the recipe hands back, such as
+ * a tool, is no yield.
+ */
+export async function craftableRecipes(root) {
+  const recipes = new Map();
+  for await (const r of rows("tradeskill_recipe", root)) {
+    if (r.enabled && r.show_in_advanced && inLiveExpansion(r)) recipes.set(r.id, { id: r.id, name: r.name, skill: r.tradeskill, trivial: r.trivial, nofail: Boolean(r.nofail), parts: [], yields: [] });
+  }
+  for await (const e of rows("tradeskill_recipe_entries", root)) {
+    const r = recipes.get(e.recipe_id);
+    if (!r || e.iscontainer) continue;
+    if (e.componentcount > 0) r.parts.push({ item: e.item_id, n: e.componentcount });
+    if (e.successcount > 0) r.yields.push({ item: e.item_id, n: e.successcount });
+  }
+  for (const r of recipes.values()) r.yields = r.yields.filter((y) => !r.parts.some((p) => p.item === y.item));
+  return recipes;
 }
 
 /**

@@ -12,10 +12,6 @@ research per class stays in [epics.md](epics.md) until the model reproduces it.
 - A hand-written chain drifts from its scripts: a step that spawns a scene, a keyword the NPC wants
   first or a piece a later hand-in replaces has to be found and typed by hand, and a content update
   breaks it silently.
-- The quest graph (`tools/lib/quest-graph.mjs`) already reads hand-ins, rewards, combines and summoning
-  spells. It sees no spoken keyword, no quest flag, no class check and no scene that a timer or a
-  signal runs, and it follows every edge that gives an item, so the Warrior's closure reaches 98
-  scripts, most of them other quests that give a common item the epic also takes.
 - Nothing plans the drops: the pieces most epics need come from named enemies and raid bosses, many
   NO DROP and LORE, one kill per character.
 
@@ -54,9 +50,12 @@ can get now. A kill that several characters need, one copy each, is planned once
 ### Running the steps
 
 Steps run as quest tasks with the step kinds the bot has: talk with keywords, give, hand in each,
-buy, craft and kill with a wait. A pickup of a ground spawn, the cast of a summoning spell and a
-forage are new kinds, added when an epic in the plan needs them. A hand-in is made by the active
-character, so the task plays the character whose epic it is, as quest tasks do now.
+buy, craft and kill with a wait. A pickup of a ground spawn, the cast of a summoning spell, a
+hand-in with coin (the Give Items window takes an amount of each coin) and a forage are new kinds,
+added when an epic in the plan needs them. A timer or a signal branch runs by itself once its
+starter has, so the step after it waits as a kill step waits for a summoned enemy. A hand-in is
+made by the active character, so the task plays the character whose epic it is, as quest tasks do
+now.
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
 progress the epic adds to its character's group, shared by the pieces still missing, so trips and
@@ -77,7 +76,7 @@ before a gear trip, because each step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them: ground pickup, summoning cast, forage. | |
+| 4 | New step kinds as the epics in the plan reach them: ground pickup, summoning cast, coin hand-in, forage. | |
 | 5 | Raid pieces with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 
@@ -86,8 +85,8 @@ before a gear trip, because each step is certain progress.
 - Tests: the analyzer on script fixtures for each idiom (a keyword before a trade, a class check, a
   flag that orders two steps, a scene with a timer, a scripted NPC's loot), and the plan's choice of
   source and its shared kills.
-- The check tool lists, per class, the steps, the sources, the gaps and the unread idioms, and runs
-  after every content update.
+- The check tool (`bun tools/epic-model.mjs`, README) lists, per class, the steps, the sources, the
+  gaps and the unread idioms, and runs after every content update.
 - Live: the first step of each new kind runs once for one character before the coordinator runs it
   for all, and each epic's first completion is recorded in the diary with its time and kills.
 

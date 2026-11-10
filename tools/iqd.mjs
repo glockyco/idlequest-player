@@ -700,16 +700,16 @@ class Daemon {
       const b = predicted(t.zone, level);
       return a > 0 && b > 0 ? a / b : 0;
     };
-    // The account's demand (docs/plans/items.md, "Demand"): total copies for the class epics' chain
-    // inputs from the quest graph, the items of the runnable chains in data/quests.json, the copies
-    // the hunts and errands are for and the casino's boss potions, and the last gear pass's copies
-    // still to acquire. The model is read once, and the gear counts stay in the db meta key
-    // `gearKeep`, so a restart keeps them.
+    // The account's demand (docs/plans/items.md, "Demand"): total copies for the items the class
+    // epics' chosen steps take (the epic model), the items of the runnable chains in
+    // data/quests.json, the copies the hunts and errands are for and the casino's boss potions, and
+    // the last gear pass's copies still to acquire. The model is read once, and the gear counts stay
+    // in the db meta key `gearKeep`, so a restart keeps them.
     this.itemModel ??= await loadItemModel();
     this.gearKeep ??= metaGet(this.db, "gearKeep") ?? { counts: {}, instances: [] };
     const epicHolders = new Set((await Promise.all(Object.values(this.itemModel.epics).flat().map((id) => carriers(this.itemModel.names.get(id))))).flat());
     // The lightstone hand-ins the coordinator runs (`STONES`), read from Smith Tv`ysa's script.
-    const stones = handInDemand(this.itemModel.edges, "Smith Tv-ysa");
+    const stones = handInDemand(this.itemModel.branches, "Smith Tv-ysa");
     const stoneXp = Object.fromEntries(Object.entries(stones.xp).map(([id, xp]) => [this.itemModel.names.get(Number(id)), xp]));
     const need = addDemand(
       chainDemand({ ...this.itemModel, members, epicHolders }),

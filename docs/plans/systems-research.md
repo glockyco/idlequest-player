@@ -184,7 +184,7 @@ The wiki explains same-account companion progression and independent raid copies
 - The patched client's spell data holds Double Experience (spell 62007): an XP bonus of 100% (SPA 337), 300 ticks, target type 41 (the group) with a range of 100 (`.re/releases/20261108T004644-064bc896/spells-DnHviMCR.json`). The potion that casts it is handed out as a reward for bug reports and the like, not obtainable in normal play, so the plans leave it out.
 - The older boosts in the snapshot (Potion of Adventure 40605 and II 40994, Bottle of Adventure I and II 41961 and 41962, Bottle of Shared Adventure I and II 48083 and 48084, Elixir of Greater Learning 40893) use SPA 337 at 10% to 50%. No merchant list and no NPC loot table in the snapshot carries them.
 - The casino's prizes and Olyna Mudel's potions in West Freeport hold no XP boost either.
-- Repeatable XP hand-ins add XP beside hunting. The quest graph (`tools/lib/quest-graph.mjs`) lists 1,104 single-item hand-ins that pay XP, 189 of whose items drop in live zones. A hand-in pays the active character only. The best by expected XP per kill of the dropper, from the content's loot and spawn tables:
+- Repeatable XP hand-ins add XP beside hunting. The quest scripts hold 1,104 single-item hand-ins that pay XP, 189 of whose items drop in live zones. A hand-in pays the active character only. The best by expected XP per kill of the dropper, from the content's loot and spawn tables:
 
   | Hand-in | XP each | Dropper, level, zone | Drop | Respawn | XP per kill |
   | --- | ---: | --- | ---: | ---: | ---: |

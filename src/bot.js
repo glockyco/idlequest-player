@@ -53,8 +53,8 @@
     charm: false,
     dotMaxTicks: 0, // DoTs longer than this many ticks are left out for every caster (`keepExclusions`); 0 leaves none out
     // Item id to the copies the account needs (docs/plans/items.md, "Demand"), set by the coordinator
-    // from the gear plan, the quest graph's chain inputs and the casino's boss potions: up to that
-    // many copies are kept.
+    // from the gear plan, the class epics' chosen steps, the quest chains and the casino's boss
+    // potions: up to that many copies are kept.
     demand: {},
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
     keepSupply: { 14: 20, 15: 20 }, // food (item type 14) and drink (15): units kept, from the largest stacks, which the server feeds the character from

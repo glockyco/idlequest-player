@@ -5,34 +5,34 @@ import { readFile } from "node:fs/promises";
 import { casinoBosses } from "./client-tables.mjs";
 import { rows } from "./content.mjs";
 import { doneItems } from "./coordinator.mjs";
-import { needFor, questGraph } from "./quest-graph.mjs";
+import { dependencies, epicTree, loadEpicModel, treeNeeds } from "./epic-model.mjs";
 
 /**
  * What demand is computed from, read once because it changes only with a content or client update:
- * the quest graph's `edges`, the class `epics` (`data/epics.json`), the items a merchant sells
- * (`buyable`), the casino's potion `bosses`, item `names` by id and `ids` by name.
+ * the class `epics` (`data/epics.json`), the copies each epic reward's chosen steps take
+ * (`epicNeeds`, by reward, from the epic model's `epicTree`), the epic model's script `branches`,
+ * the casino's potion `bosses`, item `names` by id and `ids` by name.
  */
 export async function loadItemModel(root) {
-  const [edges, bosses, epics] = await Promise.all([questGraph(root), casinoBosses(), readFile(new URL("../../data/epics.json", import.meta.url), "utf8").then(JSON.parse)]);
-  const buyable = new Set();
-  for await (const m of rows("merchantlist", root)) buyable.add(m.item);
+  const [model, bosses, epics] = await Promise.all([loadEpicModel(root), casinoBosses(), readFile(new URL("../../data/epics.json", import.meta.url), "utf8").then(JSON.parse)]);
+  const classes = Object.entries(epics);
+  await model.addStatic([...new Set(classes.flatMap(([, rewards]) => rewards.flatMap((r) => [...dependencies(model, r).items])))]);
+  const epicNeeds = new Map(classes.flatMap(([cls, rewards]) => rewards.map((r) => [r, treeNeeds(epicTree(model, cls, r))])));
   const names = new Map();
   const ids = new Map();
   for await (const i of rows("items", root)) {
     names.set(i.id, i.Name);
     ids.set(i.Name, [...(ids.get(i.Name) ?? []), i.id]);
   }
-  return { edges, bosses, epics, buyable, names, ids };
+  return { epicNeeds, branches: model.branches, bosses, epics, names, ids };
 }
 
 /**
  * Copies of each item the roster's class epics take: one copy of a class's epic reward for each of
  * its members, and for each member that holds none of the rewards (`epicHolders`, names), the
- * copies one reward takes on the paths back from it (`needFor` of the quest graph `edges`, walking
- * back to items a merchant sells, `buyable`). A buyable input is bought at its step rather than
- * carried, so it is no demand.
+ * copies each reward's chosen steps take (`epicNeeds`, by reward).
  */
-export function chainDemand({ edges, epics, members, epicHolders = new Set(), buyable = new Set() }) {
+export function chainDemand({ epicNeeds, epics, members, epicHolders = new Set() }) {
   const out = {};
   const add = (id, n) => (out[id] = (out[id] ?? 0) + n);
   for (const [cls, rewards] of Object.entries(epics)) {
@@ -40,18 +40,16 @@ export function chainDemand({ edges, epics, members, epicHolders = new Set(), bu
     for (const reward of rewards) add(reward, ofClass.length);
     const needers = ofClass.filter((m) => !epicHolders.has(m.name)).length;
     if (!needers) continue;
-    const each = new Map();
-    for (const reward of rewards) for (const [id, n] of needFor(edges, reward, new Set(), buyable)) if (!buyable.has(id)) each.set(id, Math.max(each.get(id) ?? 0, n));
-    for (const [id, n] of each) add(id, n * needers);
+    for (const reward of rewards) for (const [id, n] of Object.entries(epicNeeds.get(reward) ?? {})) add(id, n * needers);
   }
   return out;
 }
 
 /**
- * Copies of the items the runnable chains of `data/quests.json` use, for the steps the quest graph
- * cannot follow, such as a scene that ends in a kill: one copy of each step's items for every class
- * member, at any level, that does not hold the chain (`holders`), and one copy of each item that
- * shows a chain done (`doneItems`) for every class member. `ids` maps an item name to its ids.
+ * Copies of the items the runnable chains of `data/quests.json` use, which can go another way than
+ * the epic model's chosen steps: one copy of each step's items for every class member, at any
+ * level, that does not hold the chain (`holders`), and one copy of each item that shows a chain done
+ * (`doneItems`) for every class member. `ids` maps an item name to its ids.
  */
 export function stepDemand({ quests, holders = {}, members, ids }) {
   const out = {};
@@ -118,16 +116,18 @@ export function tabShares({ need, short = {}, rows, leaders }) {
 export const ALL_COPIES = 1_000_000;
 
 /**
- * Every copy of the items NPC `npc` takes one at a time for XP (`edges` of the quest graph, by the
- * NPC's script file name), because each copy pays its reward again and a coordinator task hands
- * them in: Smith Tv`ysa's lightstones today. Returns `{ demand, xp }`, `xp` mapping each item id to
- * the XP one copy pays.
+ * Every copy of the items NPC `npc` takes one at a time for XP (the epic model's script `branches`,
+ * by the NPC's script file name), because each copy pays its reward again and a coordinator task
+ * hands them in: Smith Tv`ysa's lightstones today. Returns `{ demand, xp }`, `xp` mapping each item
+ * id to the XP one copy pays.
  */
-export function handInDemand(edges, npc) {
+export function handInDemand(branches, npc) {
   const xp = {};
-  for (const e of edges) {
-    const ids = Object.keys(e.inputs);
-    if (e.kind === "handin" && e.npc === npc && e.exp > 0 && ids.length === 1 && e.inputs[ids[0]] === 1) xp[ids[0]] = Math.max(xp[ids[0]] ?? 0, e.exp);
+  for (const b of branches) {
+    if (b.event !== "trade" || b.script.npc !== npc) continue;
+    const ids = Object.keys(b.inputs);
+    const exp = b.actions.reduce((sum, a) => sum + (a.exp ?? 0), 0);
+    if (exp > 0 && ids.length === 1 && b.inputs[ids[0]] === 1) xp[ids[0]] = Math.max(xp[ids[0]] ?? 0, exp);
   }
   return { demand: Object.fromEntries(Object.keys(xp).map((id) => [id, ALL_COPIES])), xp };
 }

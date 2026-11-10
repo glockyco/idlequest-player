@@ -18,7 +18,7 @@
 // 2.5%, halved after a failure, times 100% below skill 15, (200 - skill) / 2 percent to 174 and
 // 12.5 - 0.08 * (skill - 175) percent above, where stat is the crafter's higher of INT and WIS
 // (STR for Blacksmithing, DEX for Fletching and Make Poison) and rate the skill's rate below.
-import { rows } from "./lib/content.mjs";
+import { craftableRecipes, rows } from "./lib/content.mjs";
 
 const SKILLS = {
   fishing: { id: 55, rate: 2 },
@@ -52,14 +52,7 @@ export const skillUpChance = (skill, { stat = 100, rate = 2, failed = false } = 
 export async function recipesOf(id, root) {
   const price = new Map();
   for await (const c of rows("crafting_merchant_items", root)) price.set(c.item_id, c.price);
-  const recipes = new Map();
-  for await (const r of rows("tradeskill_recipe", root)) if (r.enabled && r.show_in_advanced) recipes.set(r.id, { id: r.id, name: r.name, skill: r.tradeskill, trivial: r.trivial, nofail: Boolean(r.nofail), parts: [], yields: [] });
-  for await (const e of rows("tradeskill_recipe_entries", root)) {
-    const r = recipes.get(e.recipe_id);
-    if (!r || e.iscontainer) continue;
-    if (e.componentcount > 0) r.parts.push({ item: e.item_id, n: e.componentcount });
-    if (e.successcount > 0) r.yields.push({ item: e.item_id, n: e.successcount });
-  }
+  const recipes = await craftableRecipes(root);
   const direct = (r) => (r.parts.every((p) => price.has(p.item)) ? r.parts.reduce((a, p) => a + price.get(p.item) * p.n, 0) : null);
   // A component made by a catalog-only recipe costs that recipe's price per success over its yield.
   const made = new Map();

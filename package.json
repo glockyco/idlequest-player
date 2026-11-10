@@ -3,5 +3,8 @@
   "type": "module",
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4"
+  },
+  "dependencies": {
+    "luaparse": "^0.3.1"
   }
 }
