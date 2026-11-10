@@ -975,6 +975,33 @@
   const looseName = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   const itemName = (row) => row.itemDetails?.Name ?? row.itemDetails?.name;
   const inBags = (row) => row.bag > 0 || (row.bag === 0 && row.slot >= 22 && row.slot <= 29);
+
+  // ---- Queries ------------------------------------------------------------------------------
+  // The server's read-only requests, the only ones that are safe to ask again. A slow server times
+  // one out now and then, so `query` asks up to three times with a growing pause
+  // (docs/plans/fault-handling.md, "One query for read-only requests"). A request that changes the
+  // game keeps its caller's effect check instead, because only the caller knows whether it took
+  // effect. Each entry names the reply's opcode, how long one answer may take and, for a request
+  // that can also act, which payloads only read.
+  const READS = {
+    1062: { reply: 1063, ms: 9000 }, // the zone's spawns, as the client asks on entry and for Spawn Camp
+    1222: { reply: 1223, ms: 10000, reads: (p) => !p.bossKey }, // the daily raid bosses: with a bossKey it summons one
+    1225: { reply: 1225, ms: 10000, reads: (p) => p.action === "read" }, // a tradeskill bank's contents
+    1237: { reply: 1238, ms: 10000, reads: (p) => p.action === "get" }, // the Alternate Advancement state
+    1241: { reply: 1241, ms: 8000, reads: (p) => p.action === "search" }, // Inventory Search over the account
+  };
+  const query = async (op, payload) => {
+    const read = READS[op];
+    if (!read || (read.reads && !read.reads(payload))) throw new Error(`opcode ${op} with this payload is not a read-only request`);
+    for (let k = 0; ; k++) {
+      try {
+        return await socket.sendCorrelatedJsonRequest(op, read.reply, payload, read.ms);
+      } catch (e) {
+        if (k >= 2) throw e;
+        await pause(2000 * (k + 1));
+      }
+    }
+  };
   /** Copies of `name` in the active character's bags and general slots. */
   const carried = (name) => (stores.character.getState().characterProfile?.inventory ?? []).filter((x) => inBags(x) && itemName(x) === name).reduce((s, x) => s + (x.quantity || 1), 0);
   const buttonByText = (re, root = document) => [...root.querySelectorAll("button")].find((b) => re.test((b.textContent ?? "").trim())) ?? null;
@@ -1020,7 +1047,7 @@
     if (!e) throw new Error("the client's zone sync state was not found");
     const cb = stores.combat.getState();
     const zone = stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.shortName;
-    const r = await socket.sendCorrelatedJsonRequest(1062, 1063, { zoneName: zone, stateSessionId: e.stateSessionId, zoneRevision: e.zoneRevision, sourceZoneId: e.zoneId, sourceInstanceId: e.zoneInstance, questMovementVersion: 7 }, 9000);
+    const r = await query(1062, { zoneName: zone, stateSessionId: e.stateSessionId, zoneRevision: e.zoneRevision, sourceZoneId: e.zoneId, sourceInstanceId: e.zoneInstance, questMovementVersion: 7 });
     if (!r?.success) throw new Error(r?.error ?? "no zone spawns");
     zoneSpawns = { t: Date.now(), spawns: r.spawns ?? [] };
     return zoneSpawns.spawns.length;
@@ -1394,7 +1421,7 @@
     }
     let withdrawn = 0;
     if (output != null && done.successes > 0) {
-      const bank = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "read" }, 10000);
+      const bank = await query(1225, { characterId: p().id, kind: "ingredients", action: "read" });
       const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: done.successes, revision: bank?.revision }, 10000);
       if (!w?.success) throw new Error(`withdrawing the result failed: ${w?.error ?? "no reply"}`);
       await pause(700);
@@ -1456,12 +1483,11 @@
     return { ok: Boolean(worn) && itemName(worn) === item };
   };
   /**
-   * Inventory Search's own request (opcode 1241, action "search", read-only) for each of `words`,
-   * four at a time, merged by owner, item instance and bank. A search matches names anywhere and
-   * lists at most 200 rows, so the words are item kinds and name parts. A slow server times a
-   * request out now and then, so each word is asked up to three times, and one that still fails is
-   * missed instead of failing the whole survey. Resolves with the rows, the words whose search was
-   * cut off at 200 and the missed words.
+   * Inventory Search (opcode 1241, action "search") for each of `words`, four at a time, merged by
+   * owner, item instance and bank. A search matches names anywhere and lists at most 200 rows, so
+   * the words are item kinds and name parts. A word whose search `query` could not get is missed
+   * instead of failing the whole survey. Resolves with the rows, the words whose search was cut off
+   * at 200 and the missed words.
    */
   const searchItems = async (words) => {
     const p = stores.character.getState().characterProfile;
@@ -1472,20 +1498,13 @@
     await Promise.all(
       Array.from({ length: 4 }, async () => {
         while (todo.length) {
-          const query = todo.shift();
-          let r = null;
-          for (let k = 0; k < 3 && !r; k++) {
-            try {
-              r = await socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query }, 8000);
-            } catch {
-              if (k < 2) await pause(2000 * (k + 1));
-            }
-          }
+          const word = todo.shift();
+          const r = await query(1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: word }).catch(() => null);
           if (!r) {
-            missed.push(query);
+            missed.push(word);
             continue;
           }
-          if (r.more) capped.push(query);
+          if (r.more) capped.push(word);
           for (const m of r.matches ?? []) seen.set(`${m.characterId}:${m.itemInstanceId}:${m.bankKind ?? ""}`, m);
         }
       }),
@@ -1531,6 +1550,7 @@
     mods,
     stores,
     socket,
+    query,
     command,
     /** Client build id (release time and hash of the declared files), stable for the life of a page. */
     release,
@@ -1869,7 +1889,8 @@
       /** The daily raid bosses of the current zone (`DailyRaidBossesRequest`), or with `bossKey` summon that boss. */
       async bosses(bossKey) {
         const p = stores.character.getState().characterProfile;
-        const r = await socket.sendCorrelatedJsonRequest(1222, 1223, { characterId: p.id, zoneId: stores.combat.getState().currentZone, ...(bossKey ? { bossKey } : {}) }, 10000);
+        const payload = { characterId: p.id, zoneId: stores.combat.getState().currentZone, ...(bossKey ? { bossKey } : {}) };
+        const r = bossKey ? await socket.sendCorrelatedJsonRequest(1222, 1223, payload, 10000) : await query(1222, payload);
         if (!r?.success) throw new Error(r?.error || "the daily boss list did not load");
         return { resetsRemaining: r.resetsRemaining, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
       },

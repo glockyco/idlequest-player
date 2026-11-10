@@ -115,10 +115,14 @@ no policy, it retries idempotent reads, and it compensates documented client def
 
 ### One query for read-only requests
 
-The adapter offers `query(op, payload)`: a read-only request with a timeout, asked up to three
-times with a pause between. Inventory Search in the gear survey and the coordinator's
-`searchInPage` use it instead of their own retries. Actions keep their effect checks, and a task
-step retries an action that changes the game, because only the step knows whether it took effect.
+The adapter offers `query(op, payload)` (`READS` in `src/bridge.js`): a read-only request with a
+timeout, asked up to three times with a growing pause, which refuses any request it does not know
+to be read-only. A request that can also act, such as the daily boss list that summons a boss
+with a key, names the payloads that only read. Inventory Search in the gear survey and the
+coordinator's `searchInPage`, the zone's spawns, the daily boss list, the AA state and a
+tradeskill bank's contents use it, and the searches lost their own retries. Actions keep their
+effect checks, and a task step retries an action that changes the game, because only the step
+knows whether it took effect.
 
 ### Samples name their character
 

@@ -362,10 +362,10 @@ const GEAR_RETRY_MIN = 10;
 const RAID_PP_PER_DAY = 5300;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
-/** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only. */
+/** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only, through the bridge's `query`. */
 export async function searchInPage(a) {
   const p = window.iq.stores.character.getState().characterProfile;
-  const r = await window.iq.socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: a.q }, 8000);
+  const r = await window.iq.query(1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: a.q });
   return (r?.matches ?? []).map((m) => ({ item: m.itemName, who: m.characterName, n: m.quantity ?? 1 }));
 }
 
@@ -437,7 +437,7 @@ export function applySettingsInPage(a) {
 export async function aaInPage(a) {
   const host = window.iq.stores.character.getState().characterProfile.id;
   const send = (action, extra) => window.iq.socket.sendCorrelatedJsonRequest(1237, 1238, { action, ...extra, hostCharacterId: host }, 10000);
-  let r = await send("get", {});
+  let r = await window.iq.query(1237, { action: "get", hostCharacterId: host });
   if (!r?.success) throw new Error(r?.error ?? "no advancement state");
   const done = [];
   const unlock = r.state.unlockLevel ?? 46;
@@ -566,11 +566,11 @@ class Daemon {
     } catch {
       /* no quests file */
     }
-    // One search per item and pass, since chains share items, and a timed-out search is asked once more.
+    // One search per item and pass, since chains share items. The page's `query` asks a slow
+    // server up to three times, in at most 30 s.
     const searched = new Map();
-    const ask = (q) => this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 12000 });
     const search = (q) => {
-      if (!searched.has(q)) searched.set(q, ask(q).catch(() => ask(q)));
+      if (!searched.has(q)) searched.set(q, this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 35000 }));
       return searched.get(q);
     };
     const stock = {};
@@ -724,7 +724,7 @@ class Daemon {
     const aa = metaGet(this.db, "aa") ?? {};
     const aaBefore = structuredClone(aa);
     for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
-      const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 20000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
+      const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
       if (r?.state) aa[r.state.name] = { ...r.state, t: now };
       if (!r?.done?.length) continue;
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${r.done.join("; ")}`);
