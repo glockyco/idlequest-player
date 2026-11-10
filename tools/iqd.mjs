@@ -1032,7 +1032,8 @@ class Daemon {
       if (!this.trackers.has(id)) this.trackers.set(id, { targetId: id, rowId: null, label: `tab:${id.slice(-4)}`, leader: null, state: {} });
     }
     const triggers = await this.triggers();
-    if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch(() => this.code);
+    // A failed version keeps the last one, so tabs stop updating: the log names why.
+    if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch((e) => (this.log(`code version: ${e.message}`), this.code));
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code });
     await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));

@@ -430,7 +430,8 @@ minute is a session the server ended ("Log in before entering the world."), so i
 show the login form. It installs the bridge and bot as
 `attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
 otherwise at most every two minutes, and deploys them to a tab whose installed code differs from
-the repository's (`codeVersion`, outside raids). A signed-out tab keeps its bot, which enters the
+the repository's (`codeVersion`, outside raids). iqd loads `src/install.mjs` once, so a change to
+that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
 world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
 enters the world as its leader and regroups by itself, and a tab without them gets its group from
 `data/roster.json`. The supervisor reloads a page for two faults of the client: a JS heap whose
