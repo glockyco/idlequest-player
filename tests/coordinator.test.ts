@@ -72,6 +72,20 @@ test("a failure under older code is retried at once after a deploy, and only onc
   expect(decide({ now: NOW, tabs, quests, history: [{ ...failed("old")[0], status: "done" }], code: "new" }).actions).toEqual([]);
 });
 
+test("a run waiting for the world holds every group until its time, also after a deploy, and a failure with a time only under its own code", () => {
+  const quests = { "paladin-epic-note": { class: "Paladin", minLevel: 1, reward: "Note", steps: [] } };
+  const pal = (label: string, group: string) => ({ ...tab(label, group, 40), members: [{ name: `${label}0`, level: 40, class: "Paladin" }] });
+  const tabs = [pal("A", "G1"), pal("B", "G2")];
+  const run = (status: string, code: string) => [{ t: NOW - 10 * 60000, label: "A", kind: "quest", id: "paladin-epic-note", status, code, nextAt: NOW + 3600000 }];
+  // A spawn point that rolls at a known time holds both groups, whatever code runs.
+  expect(decide({ now: NOW, tabs, quests, history: run("waiting", "old"), code: "new" }).actions).toEqual([]);
+  expect(decide({ now: NOW + 3700000, tabs, quests, history: run("waiting", "old"), code: "new" }).actions).toHaveLength(2);
+  // An occupant the group could not clear holds both groups under the code that judged it.
+  expect(decide({ now: NOW, tabs, quests, history: run("failed", "new"), code: "new" }).actions).toEqual([]);
+  // A deploy may have fixed that judgment, so both groups try again at once.
+  expect(decide({ now: NOW, tabs, quests, history: run("failed", "old"), code: "new" }).actions).toHaveLength(2);
+});
+
 test("a chain whose reward a later chain takes stays done, and a finished chain's inputs are let go", () => {
   const quests = {
     note: { class: "Paladin", reward: "Sealed Note", doneIf: ["SoulFire"], needs: ["Fire Beetle Eye"], steps: [{ zone: "freportw", craft: { inputs: ["Fire Beetle Eye"] }, expect: "Edible Goo" }] },

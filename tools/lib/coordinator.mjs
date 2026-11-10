@@ -128,6 +128,31 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
 }
 
 /**
+ * When the coordinator may run a task again after `last`, its newest history entry on a tab, as a
+ * time in ms (0 for at once): the time the run named (`nextAt`, a respawn) or `retryMin` after it.
+ * A failure under older code than `code` may run at once, also one that named a time, because the
+ * deploy since may have fixed its cause, and a repeat under the new code waits as usual. A run that
+ * ended as waiting named the world's time, such as a spawn point's next roll, which no deploy
+ * changes.
+ */
+export function retryTime(last, retryMin, code = null) {
+  if (!last) return 0;
+  if (last.status === "failed" && code != null && last.code != null && last.code !== code) return 0;
+  return last.nextAt ?? last.t + retryMin * 60000;
+}
+
+/**
+ * Until when quest `id` is held for every tab, in ms (0 for not at all): a run that waits for the
+ * world's time, such as a spawn point that rolls at a known time, and a failure with a time of its
+ * own under the code that runs now (`code`), such as an occupant the group could not clear, hold
+ * every member who needs that NPC.
+ */
+export function worldHold(history, id, code = null) {
+  const holds = (h) => h.status === "waiting" || (h.status === "failed" && (code == null || h.code == null || h.code === code));
+  return Math.max(0, ...history.filter((h) => h.id === id && h.nextAt && holds(h)).map((h) => h.nextAt));
+}
+
+/**
  * The tasks to queue now. Inputs:
  * - `tabs`: `[{ label, group, members: [{ name, level, class }], task: { kind, status } | null, errand, zone, gameHour }]`,
  *   one per playing tab whose bot runs.
@@ -163,10 +188,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
   // (`due`), and the two kinds without one, hand-ins and farm joins, wait `failHoldMin` after a failure.
   const free = (t) => !busy.has(t.label) && !out.some((o) => o.label === t.label);
   const failedLately = (label, match) => history.some((h) => h.label === label && h.status === "failed" && match(h) && now - h.t < cfg.failHoldMin * 60000);
-  // A task comes back after the time its last run said (`nextAt`, a respawn) or after `retryMin`. A
-  // failure under older code comes back at once, because the deploy since may have fixed its cause,
-  // and a repeat under the new code waits as usual.
-  const due = (last, retryMin) => !last || (last.status === "failed" && code != null && last.code != null && last.code !== code) || now >= (last.nextAt ?? last.t + retryMin * 60000);
+  const due = (last, retryMin) => now >= retryTime(last, retryMin, code);
 
   // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
   // a hunt without one, still running or ended unseen, by the time since it started, at most the
@@ -200,6 +222,7 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       if (!due(last, q.retryMin ?? 120)) continue;
+      if (now < worldHold(history, id, code)) continue;
       copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }

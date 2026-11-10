@@ -1185,6 +1185,24 @@
   // pause, so the bot restores the leader, the party, the zone and AutoLevel at once. A step that
   // fails is tried once more before the task gives up. `state.task` keeps the last task.
   class TaskStopped extends Error {}
+  // A task that cannot go on before a known time, such as a quest NPC's spawn point that respawns
+  // later, ends as "waiting" with that time (`nextAt`), and the coordinator brings it back then.
+  class TaskLater extends Error {
+    constructor(message, at) {
+      super(message);
+      this.at = at;
+    }
+  }
+  // The group's own leader, for fights a quest member is too weak for.
+  const becomeLeader = async (i) => {
+    const id = Number(config.leaderId);
+    for (let k = 0; k < 2 && Number(i.stores.character.getState().characterProfile?.id) !== id; k++) {
+      const job = switchTo(i, id);
+      while (!job.done) await sleep(1000);
+      if (!job.ok) throw new Error(job.message);
+    }
+    if (Number(i.stores.character.getState().characterProfile?.id) !== id) throw new Error("the leader did not become active");
+  };
   const withTimeout = (p, ms, what) => Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)))]);
   const activeName = (i) => (i.stores.screen.getState().currentScreen === "game" ? (i.stores.character.getState().characterProfile?.name ?? null) : null);
   /** Stop AutoLevel and let the fight at hand end. */
@@ -1356,52 +1374,59 @@
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
       }
-      // An NPC that shares a spawn point with others is up only part of the time, so a step with
-      // `waitMin` waits until the zone lists it.
-      if (s.npc && s.waitMin) {
+      // An NPC that shares its spawn point with others (`points`, which tools/iqd.mjs adds from the
+      // content snapshot) is up only when its point rolled it, and a point rolls again only after its
+      // occupant dies and its respawn time passes: the ghoul scribe's point in Lower Guk rolls it 34%
+      // of the time every 29 minutes and a wan ghoul knight otherwise. So the step looks once. With
+      // the NPC up the member goes on. With an occupant up the group's own leader, not the quest
+      // member, kills it, and with the point respawning nobody waits: the task ends as waiting
+      // until the point's next roll, and the group hunts meanwhile.
+      if (s.npc && s.points?.length) {
         // The whole name, because a summoned enemy can carry it, such as Maligars Enraged Doppleganger.
         const wanted = new RegExp(`^${s.npc.replace(/[ _]/g, "[ _]")}$`, "i");
-        await step(`wait for ${s.npc}`, async () => {
-          // The wait counts from its first start, which the task state keeps, so a reinstall that
-          // resumes the step does not begin it anew.
-          m.waitSince ??= {};
-          m.waitSince[k] ??= now();
-          for (const end = m.waitSince[k] + s.waitMin * 60000; ; await sleep(15000)) {
-            // Right after a zone change the server may not have the zone's spawns yet, so the next round asks again.
-            await i.refreshSpawns().catch(() => {});
-            const spawns = i.zoneSpawns?.spawns ?? [];
-            // The spawn list keeps a point's last NPC while it respawns, so only a living one counts.
-            if (spawns.some((x) => wanted.test(x.name ?? "") && x.state === "alive")) return;
-            // A spawn point that another living NPC holds rolls again only when that NPC dies (`points`
-            // from the content snapshot, which tools/iqd.mjs adds). The party walks to an occupant at
-            // most three levels above the leader and kills it there, where it is the closest of its
-            // kind, so the point rolls again within the wait, as for Kidadriar's ghoul scribe, whose
-            // point a wan ghoul knight held for seven attempts.
-            const at = (s.points ?? []).map((p) => spawns.find((x) => x.spawn2Id === p));
-            if (at.length && at.every((x) => x && x.currentHp > 0)) {
-              const lead = i.stores.character.getState().characterProfile?.level ?? 0;
-              const held = at.filter((x) => x.state === "alive" && !wanted.test(x.name ?? ""));
-              const strong = held.filter((x) => (x.level ?? 0) > lead + 3);
-              // A stronger occupant may stand for days, so the coordinator comes back after six hours (`retryAfterMs`).
-              if (strong.length || !held.length) throw Object.assign(new Error(`${s.npc} cannot spawn while ${[...new Set(at.map((x) => x.name.replace(/_/g, " ")))].join(" and ")} hold${at.length > 1 ? "" : "s"} its spawn point${at.length > 1 ? "s" : ""}`), { retryAfterMs: 6 * 3600000 });
-              // The client pulls only a party at full HP and mana, as for a quest kill, so the fight
-              // waits up to four minutes for that. Three fights without a kill, which the guard ends
-              // when the active quest member is dying, mean the party cannot clear the point: Kidadriar's
-              // party escaped a wan ghoul knight, immune to its melee, and the zol ghoul knight that
-              // joined it three times. The coordinator comes back after six hours, as for a stronger occupant.
-              for (const x of held) {
-                for (const until = now() + 240000; !i.partyFull() && now() < until; ) await sleep(3000);
-                await i.walkTo(x);
-                const r = await directedKill(i, enemyPattern(`^${x.name}$`));
-                log(`quest: ${x.name.replace(/_/g, " ")} on ${s.npc}'s spawn point: ${r}`);
-                m.occupantLost = r === "lost" ? (m.occupantLost ?? 0) + 1 : 0;
-                if (m.occupantLost >= 3) throw Object.assign(new Error(`three fights with ${x.name.replace(/_/g, " ")} on ${s.npc}'s spawn point ended without a kill (${fightState(i)})`), { retryAfterMs: 6 * 3600000 });
-              }
-              continue;
+        await step(`look for ${s.npc}`, async () => {
+          // The step's points as the zone lists them. Right after a zone change the server may not
+          // list the zone's spawns yet, so an empty answer is asked again for half a minute.
+          const listedPoints = async () => {
+            let at = [];
+            for (let r = 0; r < 10 && !at.length; r++) {
+              if (r) await sleep(3000);
+              await i.refreshSpawns().catch(() => {});
+              at = s.points.map((p) => (i.zoneSpawns?.spawns ?? []).find((x) => x.spawn2Id === p)).filter(Boolean);
             }
-            if (now() > end) throw new Error(`${s.npc} did not spawn within ${s.waitMin} minutes`);
+            return at;
+          };
+          const at = await listedPoints();
+          // The spawn list keeps a point's last NPC while it respawns, so only a living one counts.
+          if (at.some((x) => wanted.test(x.name ?? "") && x.state === "alive")) return;
+          if (!at.length) {
+            // Without its points in the list the step cannot see the point, only the NPC by name.
+            const listed = i.zoneSpawns?.spawns ?? [];
+            if (listed.some((x) => wanted.test(x.name ?? "") && x.state === "alive")) return;
+            throw new TaskLater(`${s.npc}'s spawn points (${s.points.join(", ")}) are not among the zone's ${listed.length} listed spawns`, now() + 1800000);
           }
-        }, s.waitMin * 60000 + 30000);
+          const held = at.filter((x) => x.state === "alive");
+          if (!held.length) {
+            const next = Math.min(...at.map((x) => x.nextRespawnAtMs).filter((t) => t > now()));
+            throw new TaskLater(`${s.npc}'s spawn point rolls again at ${Number.isFinite(next) ? new Date(next).toTimeString().slice(0, 5) : "an unknown time"}`, Number.isFinite(next) ? next + 30000 : now() + 1800000);
+          }
+          // The group's own leader clears the point with the client's Spawn Camp, as a camp hunt does
+          // (`campPoints`): it kills what stands there, waits when another player holds it, and ends
+          // once the point waits for its respawn, which is when the step comes back. The leader may
+          // stand in another zone, since a member enters the world where it last was, and enters the
+          // world alone, so the party gathers around it before the camp.
+          await becomeLeader(i);
+          if (zoneShort(i) !== s.zone) await i.changeZone(s.zone);
+          if ((await listedPoints()).some((x) => wanted.test(x.name ?? "") && x.state === "alive")) throw new TaskLater(`${s.npc} came up while the leader came`, now() + 60000);
+          const joined = await gatherParty(i);
+          if (partyMissing(i).length) throw new TaskLater(`the leader's party did not gather to clear ${s.npc}'s spawn point (${joined})`, now() + 600000);
+          const names = held.map((x) => x.name).join("|");
+          const r = await campPoints(i, { points: s.points, keep: names, startedAt: now(), minutes: 10 }, enemyPattern(names));
+          log(`quest: the leader camped ${s.npc}'s spawn point: ${r.result}, ${r.kills} kill(s)`);
+          // A camp that ran out of time without a kill needs a stronger group, which a few hours may bring.
+          if (!r.kills && !r.nextAt) throw Object.assign(new Error(`the leader could not clear ${s.npc}'s spawn point (${r.result})`), { retryAfterMs: 6 * 3600000 });
+          throw new TaskLater(`${s.npc}'s spawn point: ${r.result}`, r.nextAt ? r.nextAt + 30000 : now() + 1800000);
+        }, 1200000);
       }
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
       if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
@@ -1731,7 +1756,7 @@
           return await withTimeout(fn(), timeoutMs, label);
         } catch (e) {
           // An error that says when to come back would only repeat now.
-          if (e instanceof TaskStopped || attempt >= 2 || e?.retryAfterMs) throw e;
+          if (e instanceof TaskStopped || e instanceof TaskLater || attempt >= 2 || e?.retryAfterMs) throw e;
           log(`task ${task.kind}: ${label} failed, trying once more: ${e?.message ?? e}`);
           await sleep(3000);
         }
@@ -1744,12 +1769,12 @@
         await TASKS[task.kind](iq(), task, step);
         if (mine()) task.status = "done";
       } catch (e) {
-        if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : { status: "failed", error: String(e?.message ?? e), ...(e?.retryAfterMs ? { nextAt: now() + e.retryAfterMs } : {}) });
+        if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : e instanceof TaskLater ? { status: "waiting", result: e.message, nextAt: e.at } : { status: "failed", error: String(e?.message ?? e), ...(e?.retryAfterMs ? { nextAt: now() + e.retryAfterMs } : {}) });
       } finally {
         if (mine()) {
           task.endedAt = now();
           // A failure that says when to come back is handled by the coordinator's retry, so it only notes.
-          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
+          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
           state.pauseUntil = 0;
           state.pauseReason = null;
           state.restartNow ??= `the ${task.kind} task`;

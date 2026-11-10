@@ -260,8 +260,7 @@
           "Drom's Champagne",
           "Drom's Champagne"
         ],
-        "expect": "Bunker Cell #1",
-        "waitMin": 45
+        "expect": "Bunker Cell #1"
       },
       {
         "zone": "freportw",
@@ -405,8 +404,7 @@
         "npc": "Maligar",
         "give": [
           "Note to Maligar"
-        ],
-        "waitMin": 15
+        ]
       },
       {
         "zone": "qey2hh1",
@@ -477,8 +475,7 @@
         "give": [
           "Empty Ink Vial"
         ],
-        "expect": "Ink of the Dark",
-        "waitMin": 60
+        "expect": "Ink of the Dark"
       }
     ],
     "retryMin": 240

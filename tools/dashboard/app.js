@@ -117,7 +117,7 @@ function taskCell(now, t) {
   const retry = t.retryInMs == null ? "" : ` <span class="muted">· retry ${inMs(t.retryInMs)}</span>`;
   if (t.status === "running") return `<span class="name">${esc(t.name)}</span> <span class="muted">${short(t.step, 40)} · ${dur(t.forMs)}</span>`;
   if (t.status === "failed") return `<span class="bad">${esc(t.name)} failed${t.step ? ` at ${esc(t.step)}` : ""}</span><span class="muted">: ${short(t.error)}</span>${retry}`;
-  const what = t.status === "done" ? (t.result ?? "done") : t.status;
+  const what = t.status === "done" || t.status === "waiting" ? (t.result ?? t.status) : t.status;
   return `<span class="name">${esc(t.name)}</span><span class="muted">: ${short(what, 48)}${t.agoMs != null ? `, ${dur(t.agoMs)} ago` : ""}</span>${retry}`;
 }
 

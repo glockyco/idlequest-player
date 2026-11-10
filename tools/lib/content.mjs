@@ -31,17 +31,18 @@ export async function spawnTimes(root) {
 }
 
 /**
- * The spawn points (spawn2 ids) in `zone` whose spawn groups can put up an NPC whose name matches
- * `pattern` (spaces match underscores). A directed hunt watches these points: the one that
- * respawns first is when the next wanted enemy can appear.
+ * The spawn points (spawn2 ids) in each query's `zone` whose spawn groups can put up an NPC whose
+ * name matches its `pattern` (spaces match underscores), for many queries in one read of the
+ * spawn tables. A directed hunt camps these points, and a quest step looks at its NPC's. Resolves
+ * with one array of point ids per query, in the queries' order.
  */
-export async function spawnPoints(zone, pattern, root) {
-  const re = new RegExp(pattern.replace(/ /g, "[ _]"), "i");
-  const npcs = new Set();
-  for await (const n of rows("npc_types", root)) if (re.test(n.name)) npcs.add(n.id);
-  const groups = new Set();
-  for await (const s of rows("spawnentry", root)) if (npcs.has(s.npcID)) groups.add(s.spawngroupID);
-  const points = [];
-  for await (const p of rows("spawn2", root)) if (p.zone === zone && groups.has(p.spawngroupID)) points.push(p.id);
+export async function spawnPoints(queries, root) {
+  const res = queries.map((q) => new RegExp(q.pattern.replace(/ /g, "[ _]"), "i"));
+  const npcs = queries.map(() => new Set());
+  for await (const n of rows("npc_types", root)) res.forEach((re, k) => re.test(n.name) && npcs[k].add(n.id));
+  const groups = queries.map(() => new Set());
+  for await (const s of rows("spawnentry", root)) npcs.forEach((set, k) => set.has(s.npcID) && groups[k].add(s.spawngroupID));
+  const points = queries.map(() => []);
+  for await (const p of rows("spawn2", root)) queries.forEach((q, k) => p.zone === q.zone && groups[k].has(p.spawngroupID) && points[k].push(p.id));
   return points;
 }

@@ -626,20 +626,22 @@ class Daemon {
         carriedBy[o.id] = rows.map((m) => m.who);
       }
     }));
-    // The wanted enemies' spawn points, read once from the content snapshot.
-    const { spawnPoints } = await import("./lib/content.mjs");
+    // Spawn points from the content snapshot, read once per key and in one read for all new keys:
+    // the opportunities' enemies, which a hunt camps, and each quest step's NPC, whose point the step
+    // looks at, because a point that another NPC holds rolls again only when that NPC dies.
     this.points ??= new Map();
-    for (const o of opportunities) if (!this.points.has(o.id)) this.points.set(o.id, o.camp === false ? [] : await spawnPoints(o.zone, o.keep).catch(() => []));
-    // An NPC wait watches the NPC's spawn points, because a point that another NPC holds rolls again
-    // only when that NPC dies.
-    for (const q of Object.values(quests)) {
-      for (const s of q.steps) {
-        if (!s.npc || !s.waitMin) continue;
-        const k = `${s.zone}:${s.npc}`;
-        if (!this.points.has(k)) this.points.set(k, await spawnPoints(s.zone, `^${s.npc}$`).catch(() => []));
-        s.points = this.points.get(k);
-      }
-    }
+    const loadPoints = async (entries) => {
+      const fresh = entries.filter((e) => !this.points.has(e.key));
+      if (!fresh.length) return;
+      const { spawnPoints } = await import("./lib/content.mjs");
+      const found = await spawnPoints(fresh).catch(() => fresh.map(() => []));
+      fresh.forEach((e, k) => this.points.set(e.key, found[k]));
+    };
+    await loadPoints(opportunities.filter((o) => o.camp !== false).map((o) => ({ key: o.id, zone: o.zone, pattern: o.keep })));
+    for (const o of opportunities) if (o.camp === false) this.points.set(o.id, []);
+    const steps = Object.values(quests).flatMap((q) => q.steps).filter((s) => s.npc);
+    await loadPoints(steps.map((s) => ({ key: `${s.zone}:${s.npc}`, zone: s.zone, pattern: `^${s.npc}$` })));
+    for (const s of steps) s.points = this.points.get(`${s.zone}:${s.npc}`);
     const state = metaGet(this.db, "coordinator") ?? { history: [] };
     // A finished hunt reports when its points respawn, which is when to come back. Every cycle
     // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
@@ -674,8 +676,8 @@ class Daemon {
     const gear = this.pendingGear;
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
-    // A camp clears its target's spawn points, read once from the content snapshot.
-    for (const x of this.targetWants) if (!this.points.has(targetId(x))) this.points.set(targetId(x), await spawnPoints(x.zone, `^${x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`).catch(() => []));
+    // A camp clears its target's spawn points.
+    await loadPoints(this.targetWants.map((x) => ({ key: targetId(x), zone: x.zone, pattern: `^${x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$` })));
     // The share of a tab's XP per hour a trip zone pays at its leader's level: the measured rates
     // where both zones have them, else the leveling model's prediction for both (tools/predict.mjs).
     const predicted = await this.predictedRates(new Set([...tabs.map((t) => t.zone), ...this.targetWants.map((x) => x.zone)].filter(Boolean)));

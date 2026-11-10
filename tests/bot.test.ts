@@ -1159,7 +1159,7 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
   }
 });
 
-test("a summoned enemy that is up already sends the member to the fight, and an NPC wait matches the whole name", async () => {
+test("a summoned enemy that is up already sends the member to the fight", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
@@ -1185,7 +1185,7 @@ test("a summoned enemy that is up already sends the member to the fight, and an 
     const pulledReady: boolean[] = [];
     Object.assign(f.runtime, { selectEnemyTarget: () => (pulledReady.push(f.iq.partyFull()), setTimeout(() => ((dead = true), f.say("You have defeated Maligars Enraged Doppleganger, but gain no experience.")), 3000)) });
     const steps = [
-      { zone: "qey2hh1", npc: "Maligar", give: ["Note to Maligar"], waitMin: 15 },
+      { zone: "qey2hh1", npc: "Maligar", give: ["Note to Maligar"] },
       { zone: "qey2hh1", kill: "Enraged Doppleganger", waitSec: 120 },
     ];
     f.bot.quest({ members: ["Tagujazolu"], steps });
@@ -1193,11 +1193,6 @@ test("a summoned enemy that is up already sends the member to the fight, and an 
     expect(f.bot.state.task).toMatchObject({ status: "done" });
     expect(gives).toEqual([]);
     expect(pulledReady).toEqual([true]);
-
-    // Without a fight to go on to, the doppleganger is not Maligar, so the wait goes on.
-    f.bot.quest({ members: ["Tagujazolu"], steps: steps.slice(0, 1) });
-    await runToEnd(f);
-    expect(f.bot.state.task).toMatchObject({ status: "running", step: "wait for Maligar" });
   } finally {
     vi.useRealTimers();
   }
@@ -1399,15 +1394,15 @@ test("a quest runs its steps in order for each member and stops at a step whose 
   }
 });
 
-test("an NPC wait ends while a stronger NPC holds the spawn point, and waits while the point is empty", async () => {
+test("a quest NPC's point is looked at once: the NPC goes on, a respawn ends as waiting, and the gathered leader's party camps an occupant", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     handInPage(f, {}, { ok: true });
     let note = 0;
-    // Lozani (30) stands more than three levels above the level 10 leader, so the party cannot clear the point.
-    const zone = { spawns: [{ name: "Lozani", spawn2Id: 3075, currentHp: 1200, level: 30, state: "alive" }] as { name: string; spawn2Id: number; currentHp: number; level?: number; state: string }[] };
+    type Spawn = { name: string; spawn2Id: number; currentHp: number; level?: number; state: string; nextRespawnAtMs?: number };
+    const zone = { spawns: [] as Spawn[] };
     Object.assign(f.iq, {
       // The champagne is carried, the cell number comes from the hand-in.
       carried: (item: string) => (item === "Bunker Cell #1" ? note : 1),
@@ -1418,22 +1413,60 @@ test("an NPC wait ends while a stronger NPC holds the spawn point, and waits whi
         note = 1;
       },
     });
-    const steps = [{ zone: "freporte", npc: "Tykar Renlin", waitMin: 45, points: [3075], give: ["Drom's Champagne"], expect: "Bunker Cell #1" }];
+    Object.assign(f.party, { requestAccountCharacterAvailability: () => {}, availableAccountCharacterIds: [] });
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    const steps = [{ zone: "guktop", npc: "Tykar Renlin", points: [3075], give: ["Drom's Champagne"], expect: "Bunker Cell #1" }];
+    // The leader enters the world where it last stood, in another zone than the quest member.
+    const enter = f.iq.command;
+    f.iq.command = async (c: { type: string; selector?: string }) => {
+      const r = await enter(c);
+      if (c.type === "session.enterWorld") f.combat.currentZone = c.selector === "Me" ? 73 : 65;
+      return r;
+    };
+
+    // The point respawns in 20 minutes, so the task ends as waiting until then, without an alert.
+    zone.spawns = [{ name: "Lozani", spawn2Id: 3075, currentHp: 0, state: "respawning", nextRespawnAtMs: Date.now() + 1200000 }];
     f.bot.quest({ members: ["Tagujazolu"], steps });
     await runToEnd(f);
-    expect(f.bot.state.task).toMatchObject({ status: "failed" });
-    expect(f.bot.state.task.error).toContain("Tykar Renlin cannot spawn while Lozani holds its spawn point");
-    // The occupant may stand for days, so the task asks to come back in six hours.
-    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(5.9 * 3600000);
-    // The coordinator's retry handles it, so the failure notes without asking for attention.
+    expect(f.bot.state.task).toMatchObject({ status: "waiting" });
+    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(19 * 60000);
     expect(f.bot.state.alerts.filter((a) => a.kind === "task").map((a) => a.wake)).toEqual([false]);
 
-    // An empty point respawns, so the wait goes on until the NPC stands there.
-    zone.spawns = [];
-    f.bot.quest({ members: ["Edroun"], steps });
+    // An occupant waits while the leader's party does not gather: the leader enters the world alone,
+    // and a camp without the party would be a solo fight.
+    zone.spawns = [{ name: "Lozani", spawn2Id: 3075, currentHp: 1200, level: 12, state: "alive" }];
+    const camped: { points: number[]; keep: string }[] = [];
+    Object.assign(f.runtime, {
+      startSpawnCamp: (points: number[], _radius: number, keep: string) => {
+        camped.push({ points, keep });
+        setTimeout(() => {
+          zone.spawns = [{ name: "Lozani", spawn2Id: 3075, currentHp: 0, state: "respawning", nextRespawnAtMs: Date.now() + 1800000 }];
+          f.say("You have slain Lozani, but gain no experience.");
+          Object.assign(f.combat, { spawnCampStatus: "Waiting for next spawn" });
+        }, 3000);
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps });
     await runToEnd(f);
-    expect(f.bot.state.task).toMatchObject({ status: "running", step: "wait for Tykar Renlin" });
+    expect(camped).toEqual([]);
+    expect(f.bot.state.task).toMatchObject({ status: "waiting" });
+    expect(f.bot.state.task.result).toContain("did not gather");
+
+    // With the party back, the leader camps the point in the step's zone, and the task waits for the roll.
+    f.party.controlAccountCharacter = (id: number) => void f.party.companions.push({ companionType: 2, characterId: id, name: `c${id}`, curHp: 100, maxHp: 100 });
+    const moved = f.moves.length;
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(camped).toEqual([{ points: [3075], keep: "Lozani" }]);
+    expect(f.sheet.characterProfile.id).toBe(1);
+    expect(f.moves.slice(moved).at(-1)).toBe("guktop");
+    expect(f.combat.currentZone).toBe(65);
+    expect(f.bot.state.task).toMatchObject({ status: "waiting" });
+    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(29 * 60000);
+
+    // With the NPC up, the member hands in.
     zone.spawns = [{ name: "Tykar_Renlin", spawn2Id: 3075, currentHp: 651, state: "alive" }];
+    f.bot.quest({ members: ["Edroun"], steps });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done" });
   } finally {
