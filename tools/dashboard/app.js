@@ -28,6 +28,9 @@ const ACT = [
 // Idle time in the hourly bars is split by cause, in shades of the idle colour.
 const IDLE_COLORS = { noTarget: "#d9822b", crowded: "#e8b64f", afterKill: "#f0d08c", lootSettle: "#e6c27a", off: "#8d5a1f", held: "#7b6a55", clientPause: "#d0562c", clientRejoin: "#b8441f", contested: "#dca15e", readyWait: "#c46f3a", waitAttack: "#b9946a", noEnemies: "#a8431f", loadFailed: "#8f2d16", unknown: "#9a9a9a", other: "#c9b08a" };
 const idleColor = (cause) => IDLE_COLORS[cause] ?? IDLE_COLORS.other;
+// Idle causes in the reader's words, for the group rows and the hourly bars' legend.
+const IDLE_WORDS = { noTarget: "no target", crowded: "crowded", afterKill: "after a kill", lootSettle: "looting", off: "AutoLevel off", held: "held by the bot", clientPause: "client paused", clientRejoin: "rejoining", contested: "target taken", readyWait: "party not ready", waitAttack: "waiting to attack", noEnemies: "no enemies", loadFailed: "zone load failed", unknown: "unexplained", other: "other" };
+const idleWord = (cause) => IDLE_WORDS[cause] ?? cause;
 const actColor = (act) => ACT.find(([, , t]) => t(act))?.[1] ?? "var(--task)";
 const groupColor = (i, n) => `hsl(${Math.round((360 * i) / n)} 65% 50%)`;
 // Level 1 to 60 from cool to warm, so the roster grid reads as progress at a glance.
@@ -66,7 +69,7 @@ function renderNeeds(s) {
         .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.groups.map((g) => `<span class="grp">${esc(g)}</span>`).join("")}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text)}</div></div>`)
         .join("")
     : `<p class="calm">Nothing needs you.</p>`;
-  $("needs-handled").textContent = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `${h.label} ${h.n} (${h.how})`).join(", ")}.` : "";
+  $("needs-handled").innerHTML = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `<span title="${esc(h.how)}">${h.n} ${esc(h.label)}</span>`).join(", ")}.` : "";
 }
 
 function barRow(title, share, bar, text, after = null) {
@@ -80,29 +83,24 @@ function renderGoal(s) {
   const g = s.goal;
   const L = g.levels;
   const r = g.recent ?? {};
-  const eta = L.slowest
-    ? `The slowest group (${esc(L.slowest.group ?? "?")}, ${esc(L.slowest.leader)}) needs about ${hours(L.slowest.hours)} to level ${L.target}, range ${hours(L.slowest.low)} to ${hours(L.slowest.high)}.`
-    : s.reports.plan
-      ? "No estimate for the slowest group."
-      : "The estimate for the slowest group is not ready yet.";
-  const none = (what) => `<span class="muted">not measured yet</span>`;
+  const eta = L.slowest ? ` <span title="${esc(`${L.slowest.leader}'s group, ${hours(L.slowest.low)} to ${hours(L.slowest.high)}`)}">${esc(L.slowest.group ?? L.slowest.leader)} reaches ${L.target} in about ${hours(L.slowest.hours)}.</span>` : "";
+  const none = () => `<span class="muted">not measured yet</span>`;
   const R = g.raids;
-  const raidLast = R.last ? ` The last, ${ago(s.now, R.last.t)}: ${esc(R.last.text)}.` : "";
   const latest = s.progress?.latest;
   $("goal-bars").innerHTML = [
-    barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP${delta(r.level, "levels")}`, `${L.atTarget} of ${L.characters} characters at ${L.target}. Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}, mean ${L.meanLevel?.toFixed(1) ?? "-"}. ${eta}`),
+    barRow(`Levels to ${L.target}`, L.share, `${(100 * L.share).toFixed(1)}% of the XP${delta(r.level, "levels")}`, `${L.atTarget ? `${L.atTarget} at ${L.target}. ` : ""}Levels ${L.minLevel ?? "-"} to ${L.maxLevel ?? "-"}.${eta}`),
     g.gear.share == null
-      ? barRow("Gear", null, none(), `The gear pass has not saved its report yet. The pass runs once an hour.`)
-      : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target score${delta(r.gear, "slots")}`, `The average character of ${g.gear.characters} wears ${pct(g.gear.share)} of the armor and jewelry score that the account's items, merchants and wanted drops give it, and ${pct(g.gear.afterMoves)} once the ${g.gear.moves ?? "?"} queued moves are done. ${g.gear.drops ?? "?"} wanted drops are listed. Pass ${ago(s.now, g.gear.passT)}.`, g.gear.afterMoves),
+      ? barRow("Gear", null, none(), "Waiting for the first gear pass.")
+      : barRow("Gear", g.gear.share, `${pct(g.gear.share)} of the target${delta(r.gear, "slots")}`, g.gear.moves ? `${g.gear.moves} queued moves raise it to ${pct(g.gear.afterMoves)}.` : "", g.gear.afterMoves),
     g.aa.share == null
-      ? barRow("AA ranks", null, none(), `No character past level ${g.aa.level} has been recorded yet. ${g.aa.reached} of ${g.aa.characters} characters have reached it, where AA opens.`)
-      : barRow("AA ranks", g.aa.share, `${g.aa.trained} of ${g.aa.possible} ranks${delta(r.aa, "ranks")}`, `${g.aa.recorded} recorded characters past level ${g.aa.level} have trained ${g.aa.trained} of the catalog's ${g.aa.possible} ranks and hold ${g.aa.points} unspent points. Their XP goes to AA only from level 60. ${g.aa.reached} of ${g.aa.characters} characters have reached ${g.aa.level}. Pass ${ago(s.now, g.aa.passT)}.`),
+      ? barRow("AA ranks", null, none(), `AA opens at ${g.aa.level}: ${g.aa.reached} of ${g.aa.characters} characters there.`)
+      : barRow("AA ranks", g.aa.share, `${g.aa.trained} of ${g.aa.possible} ranks${delta(r.aa, "ranks")}`, `${g.aa.points ? `${g.aa.points} points unspent. ` : ""}${g.aa.reached} of ${g.aa.characters} characters past ${g.aa.level}.`),
     g.epics.share == null
-      ? barRow("Epics", null, none(), `The coordinator has not saved its chain summary yet. The last pass ${g.epics.passT ? ago(s.now, g.epics.passT) : "never"} found ${g.epics.missingCopies} copies of ${g.epics.missingPieces} epic pieces still missing.`)
-      : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps${delta(r.chain, "steps")}`, `${g.epics.holders} characters hold an epic chain's item, ${g.epics.started} have started one and ${g.epics.needers} still need one, over ${g.epics.chains} chains (characters of the class at the chain's level). ${g.epics.missingCopies} copies of ${g.epics.missingPieces} chain pieces are still missing. Pass ${ago(s.now, g.epics.passT)}.`),
+      ? barRow("Epics", null, none(), "Waiting for the coordinator's chain summary.")
+      : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps${delta(r.chain, "steps")}`, `${g.epics.needers} characters still need theirs. ${g.epics.missingCopies} pieces to find.`),
     R.share == null
-      ? barRow("Raid kills", null, none(), `The raid goal lists no bosses (data/raid-goal.json). Raids open at level ${R.level}, reached by ${R.reached} of ${R.characters} characters.`)
-      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(r.raid, "kills")}`, `${R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : "No boss of the goal killed yet."} ${R.kills} raid kills recorded.${raidLast} Raids open at level ${R.level}, reached by ${R.reached} of ${R.characters} characters.`),
+      ? barRow("Raid kills", null, none(), `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`)
+      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(r.raid, "kills")}`, R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`),
     latest ? `<p class="gx latest">Latest milestone ${ago(s.now, latest.t)}: ${latest.group ? `<span class="grp">${esc(latest.group)}</span> ` : ""}${esc(latest.text)}</p>` : "",
   ].join("");
 }
@@ -119,16 +117,19 @@ function stateCell(g) {
   if (st.kind === "none") return `<span class="pill bad">no tab</span>`;
   if (st.kind === "off") return `<span class="pill warn">AutoLevel off</span>`;
   if (st.kind === "running") return `<span class="dot" style="background:var(--fight)"></span>AutoLevel on`;
-  return `<span class="dot" style="background:${actColor(st.act)}"></span>${esc(st.act)}${st.why ? ` <span class="muted">${esc(st.why)}</span>` : ""} <span class="muted">${dur(st.forMs)}</span>`;
+  // A task's own words stand in the Task column.
+  return `<span class="dot" style="background:${actColor(st.act)}"></span>${esc(st.act)}${st.why && st.act !== "task" ? ` <span class="muted">${esc(idleWord(st.why))}</span>` : ""} <span class="muted">${dur(st.forMs)}</span>`;
 }
 
+const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid", farm: "farm" };
+/** What the group's task is now: a running task with its time, or a failure. A finished task leaves the cell to the group's activity. */
 function taskCell(now, t) {
-  if (!t) return `<span class="muted">no task yet</span>`;
-  const retry = t.retryInMs == null ? "" : ` <span class="muted">· retry ${inMs(t.retryInMs)}</span>`;
-  if (t.status === "running") return `<span class="name">${esc(t.name)}</span> <span class="muted">${short(t.step, 40)} · ${dur(t.forMs)}</span>`;
-  if (t.status === "failed") return `<span class="bad">${esc(t.name)} failed${t.step ? ` at ${esc(t.step)}` : ""}</span><span class="muted">: ${short(t.error)}</span>${retry}`;
-  const what = t.status === "done" || t.status === "waiting" ? (t.result ?? t.status) : t.status;
-  return `<span class="name">${esc(t.name)}</span><span class="muted">: ${short(what, 48)}${t.agoMs != null ? `, ${dur(t.agoMs)} ago` : ""}</span>${retry}`;
+  if (!t) return "";
+  const kind = TASK_WORD[t.kind] ?? t.kind ?? "task";
+  const name = t.name && t.name !== kind ? ` <span class="name">${esc(t.name)}</span>` : "";
+  if (t.status === "running") return `<span title="${esc(t.step ?? "")}">${esc(kind)}${name} <span class="muted">${dur(t.forMs)}</span></span>`;
+  if (t.status === "failed") return `<span class="bad" title="${esc(`${t.step ? `at ${t.step}: ` : ""}${t.error ?? ""}${t.retryInMs != null ? `. Retry ${inMs(t.retryInMs)}.` : ""}`)}">${esc(kind)} failed</span>${name}`;
+  return "";
 }
 
 /** "fight 45s, recover 15s" from a minute's seconds per activity group. */
@@ -246,7 +247,7 @@ function renderGroups(s) {
         <td class="zone">${esc(g.zone ?? "-")}</td>
         <td class="state">${stateCell(g)}<div class="zone2 muted small">${esc(g.zone ?? "-")}</div></td>
         <td class="n">${big(g.xpPerHour)}</td>
-        <td class="idle ${idleCls}" title="share of the last ${g.idleWindow}">${pct(g.idleShare)}${g.idleCause ? ` <span class="muted">${esc(g.idleCause)}</span>` : ""}</td>
+        <td class="idle ${idleCls}" title="share of the last ${g.idleWindow}">${pct(g.idleShare)}${g.idleCause ? ` <span class="muted">${esc(idleWord(g.idleCause))}</span>` : ""}</td>
         <td class="tl">${timeline(g.timeline)}</td>
         <td class="task">${taskCell(s.now, g.task)}</td></tr>
         ${open ? `<tr class="drow"><td colspan="${head.length}">${details(s, g)}</td></tr>` : ""}`;
@@ -296,9 +297,16 @@ function renderTime(s) {
   const bw = (W - L - 4) / bars.length;
   const order = ["fight", "recover", "move", "task", "dead"];
   const segColor = (k) => (k.startsWith("idle/") ? idleColor(k.slice(5)) : (ACT.find(([n]) => n === k)?.[1] ?? "var(--task)"));
+  // Idle causes under 1% of the day's time merge into "other", so the legend names what matters.
+  const day = {};
+  for (const b of bars) for (const [k, v] of Object.entries(b.sec)) day[k] = (day[k] ?? 0) + v;
+  const dayTotal = Object.values(day).reduce((x, y) => x + y, 0);
+  const keyOf = (k) => (k.startsWith("idle/") && day[k] < 0.01 * dayTotal ? "idle/other" : k);
   const causes = new Set();
   const rects = bars
-    .map((b, n) => {
+    .map((raw, n) => {
+      const b = { ...raw, sec: {} };
+      for (const [k, v] of Object.entries(raw.sec)) b.sec[keyOf(k)] = (b.sec[keyOf(k)] ?? 0) + v;
       const tot = Object.values(b.sec).reduce((x, y) => x + y, 0);
       if (!tot) return "";
       const idle = Object.keys(b.sec).filter((k) => k.startsWith("idle/")).sort((x, y) => b.sec[y] - b.sec[x]);
@@ -308,14 +316,14 @@ function renderTime(s) {
       let y = H - B;
       const x = L + n * bw + 1;
       const idleSec = idle.reduce((x2, k) => x2 + b.sec[k], 0);
-      const tip = `${hhmm(b.t)}${b.partial ? " (so far)" : ""}: ${b.groupHours.toFixed(1)} group-hours, ${keys.map((k) => `${k.replace("idle/", "idle ")} ${pct(b.sec[k] / tot)}`).join(", ")}, idle ${pct(idleSec / tot)}${b.xp ? `, ${big(b.xp)} XP` : ""}${b.deaths ? `, ${b.deaths} death${b.deaths > 1 ? "s" : ""}` : ""}`;
+      const tip = `${hhmm(b.t)}${b.partial ? " (so far)" : ""}: ${b.groupHours.toFixed(1)} group-hours, ${keys.map((k) => `${k.startsWith("idle/") ? `idle, ${idleWord(k.slice(5))}` : k} ${pct(b.sec[k] / tot)}`).join(", ")}, idle ${pct(idleSec / tot)}${b.xp ? `, ${big(b.xp)} XP` : ""}${b.deaths ? `, ${b.deaths} death${b.deaths > 1 ? "s" : ""}` : ""}`;
       return `<g><title>${esc(tip)}</title>${keys.map((k) => { const h = (full * b.sec[k]) / tot; y -= h; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="${segColor(k)}"${b.partial ? ' opacity="0.7"' : ""}/>`; }).join("")}</g>`;
     })
     .join("");
   const labels = bars.map((b, n) => (new Date(b.t).getHours() % 3 === 0 ? `<text x="${(L + n * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${String(new Date(b.t).getHours()).padStart(2, "0")}</text>` : "")).join("");
   const ticks = [0, 0.5, 1].map((f) => `<line class="grid" x1="${L}" x2="${W}" y1="${(H - B - (H - B - T) * f).toFixed(1)}" y2="${(H - B - (H - B - T) * f).toFixed(1)}"/><text x="${L - 4}" y="${(H - B - (H - B - T) * f + 4).toFixed(1)}" text-anchor="end">${(cap * f).toFixed(0)}</text>`).join("");
-  const legend = [...ACT.filter(([n]) => n !== "idle").map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`), ...[...causes].sort().map((c) => `<span><i style="background:${idleColor(c)}"></i>idle ${esc(c)}</span>`)].join("");
-  $("time-body").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${ticks}${rects}${labels}</svg><div class="legend wide">${legend}</div><p class="muted small">Bar height is the group-hours recorded in each hour (axis: group-hours), segments are shares of that time. The last bar is the current hour so far. Hover a bar for its numbers.</p>`;
+  const legend = [...ACT.filter(([n]) => n !== "idle").map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`), ...[...causes].sort().map((c) => `<span><i style="background:${idleColor(c)}"></i>idle, ${esc(idleWord(c))}</span>`)].join("");
+  $("time-body").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${ticks}${rects}${labels}</svg><div class="legend wide">${legend}</div>`;
 }
 
 // ---- Folded sections ---------------------------------------------------------------------------
