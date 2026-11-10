@@ -39,7 +39,8 @@ const leaders = opt.leaders
   : roster.groups.filter((g) => g.members?.length && (!wanted || wanted.has(g.id))).map((g) => ({ group: g.id, leader: g.members[0] }));
 
 const KILL = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
-const LOOT = /^You loot (.+?)!$/;
+// A raid corpse's item, taken from the RAID LOOT tab, ends with a period instead of "!".
+const LOOT = /^You loot (.+?)[!.]$/;
 const COIN = /^\d+ (?:platinum|gold|silver|copper)\b/;
 
 /** Kills and loot per enemy name for one leader's log inside the window. */

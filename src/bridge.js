@@ -613,8 +613,8 @@
     return null;
   };
   // The item a "You loot" line names, by the id its loot packet gave (the chat message holds only
-  // the text). "You loot 3 gold!" is coin.
-  const LOOT_LINE = /^You loot (?!\d)(.+)!$/;
+  // the text). "You loot 3 gold!" is coin, and a raid corpse's item ends with a period.
+  const LOOT_LINE = /^You loot (?!\d)(.+)[!.]$/;
   const lootOf = (type, text) => {
     const itemId = type === "LOOT" ? lootIds.get(LOOT_LINE.exec(text ?? "")?.[1]) : undefined;
     return itemId != null ? { itemId } : null;

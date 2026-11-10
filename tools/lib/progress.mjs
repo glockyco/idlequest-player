@@ -88,8 +88,9 @@ export function snapshotProgress({ snap, levels, now, goal = [] }) {
   return out;
 }
 
-// "You loot Ink of the Dark!" names an item, and "You loot 3 gold, 2 silver!" coin.
-const LOOT_LINE = /^You loot (?!\d)(.+)!$/;
+// "You loot Ink of the Dark!" names an item and "You loot 3 gold, 2 silver!" coin. A raid corpse's
+// item, taken from the RAID LOOT tab, ends with a period: "You loot Kedge Backbone."
+const LOOT_LINE = /^You loot (?!\d)(.+)[!.]$/;
 
 /**
  * The items the account wants among a tab's new event rows (`events`, as the bridge exports them,
