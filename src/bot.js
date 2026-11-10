@@ -1635,13 +1635,6 @@
     let kills = 0;
     let scanned = now();
     let waitingSince = null;
-    // The camp takes only enemies inside AutoLevel's level range, and placeholders often con green
-    // for the party that hunts a piece, so the minimum con drops to green (2, the lowest the client
-    // offers) while the camp runs.
-    const minCon = cb().minCon;
-    if (minCon > 2) cb().setMinCon(2);
-    // Placeholders and wanted enemies can lie below a level floor, which `keepLimits` restores after the task.
-    if (cb().minNpcLevel > 0) cb().setMinNpcLevel(0);
     rt.startSpawnCamp(task.points, 0, task.keep);
     try {
       while (now() < task.startedAt + task.minutes * 60000) {
@@ -1672,7 +1665,6 @@
       return { kills, result: "time is up" };
     } finally {
       holdAutoLevel(cb(), "the camp's end"); // ends the camp as well
-      if (cb().minCon !== minCon) cb().setMinCon(minCon);
     }
   };
   const huntTask = async (i, task, step) => {

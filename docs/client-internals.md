@@ -138,6 +138,10 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   (`engine.pretty.js:464758-464786`).
 - `combatScene.navigateToCombatTarget(spawnInstanceId, onError)` walks with the client's own
   navigation and `clearNavigationTarget()` stops it (`engine.pretty.js:464916`, `464953`).
+- Spawn Camp (`startSpawnCamp(spawn2Ids, radius, keep)`) picks with `findSpawnCampTarget`: the
+  closest alive spawn on the camped points whose schedule is open, skipping charmed spawns and those
+  evading or owned by another character. It applies no level or con limit (release
+  20261110T154736, `Bip1bGL8.js:7392-7414`), so a camp takes placeholders of any con.
 
 ### Readiness wait and cure passes
 
