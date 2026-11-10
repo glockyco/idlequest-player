@@ -7,6 +7,18 @@ const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k)
 const tab = (label: string, group: string, level: number, extra = {}) => ({ label, group, members: team(label, level), task: null, gameHour: 12, ...extra });
 const page = { id: "p3", group: "G1", zone: "gukbottom", keep: "ghoul", item: "Page 3", retryMin: 30 };
 
+test("one leader of 46 or more rolls the casino for the account at the time the last roll named, the one that rolled longest ago", () => {
+  const tabs = [tab("A", "G2", 40), tab("B", "G1", 52), tab("C", "G3", 47)];
+  const rolls = (now: number, history: object[]) => decide({ now, tabs, history }).actions.filter((a) => a.kind === "casino").map((a) => a.label);
+  expect(rolls(NOW, [])).toEqual(["B"]);
+  // Nobody rolls before the potion's cooldown ends, and then the leader that has not rolled yet does.
+  const won = { t: NOW - 3600000, label: "B", kind: "casino", id: "casino", status: "done", nextAt: NOW + 60000 };
+  expect(rolls(NOW, [won])).toEqual([]);
+  expect(rolls(NOW + 60000, [won])).toEqual(["C"]);
+  const next = { t: NOW + 60000, label: "C", kind: "casino", id: "casino", status: "done", nextAt: NOW + 120000 };
+  expect(rolls(NOW + 120000, [won, next])).toEqual(["B"]);
+});
+
 test("stones go to the lowest free group only once there are two a member", () => {
   const tabs = [tab("A", "G1", 40), tab("B", "G10", 8), tab("C", "G7", 9)];
   expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 6, Lightstone: 5 } }).actions).toEqual([]);

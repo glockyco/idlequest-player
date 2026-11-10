@@ -1001,6 +1001,7 @@
     1222: { reply: 1223, ms: 10000, reads: (p) => !p.bossKey }, // the daily raid bosses: with a bossKey it summons one
     1225: { reply: 1225, ms: 10000, reads: (p) => p.action === "read" }, // a tradeskill bank's contents
     1237: { reply: 1238, ms: 10000, reads: (p) => p.action === "get" }, // the Alternate Advancement state
+    1127: { reply: 1128, ms: 10000, reads: (p) => p.statusOnly === true }, // the casino's boss potion cooldown: without statusOnly it rolls
     1241: { reply: 1241, ms: 8000, reads: (p) => p.action === "search" }, // Inventory Search over the account
   };
   const query = async (op, payload) => {
@@ -1707,6 +1708,48 @@
         for (const e of reg.getEffects(id)?.active ?? []) if (rootState({ effects: [e] }).isRooted) out.push({ id, app: e.applicationId ?? `${id}|${e.effectId}`, spellId: e.spellId, casterLevel: e.casterLevel ?? 0, endsAt: e.expiresAtMs ?? Date.now() + (e.remainingTicks ?? 0) * 6000 });
       }
       return out;
+    },
+    /**
+     * Fansy's Famous Casino, whose Items prize wins at most one boss potion per account per 24 hours
+     * (GambleRoll, opcode 1127, docs/plans/systems-research.md, "Boss summons and daily allowance").
+     * The dice counts and their prices come from the client's own list of roll options.
+     */
+    casino: {
+      dice() {
+        const options = allExports().find((x) => Array.isArray(x) && x.length && x.every((o) => Number.isInteger(o?.diceCount) && Number.isInteger(o?.costCopper)));
+        if (!options) throw new Error("the client's casino roll options were not found");
+        return options.map((o) => ({ dice: o.diceCount, pricePp: o.costCopper / 1000 }));
+      },
+      /** When the account can win its next boss potion, and why it cannot roll at all (below level 46). */
+      async status() {
+        const r = await query(1127, { prizeMode: "items", statusOnly: true });
+        if (!r?.success || !r.status) throw new Error(r?.error || "the casino status did not load");
+        return { availableAt: r.status.availableAtMs ?? 0, disabled: r.status.disabledReason ?? null, serverTime: r.status.serverTimeMs ?? null };
+      },
+      /**
+       * One Items roll of `dice` dice on symbol `face` (1 to 6), as the casino's ROLL button sends it.
+       * A reply the server did not confirm is asked for again with the same operation, which the
+       * server answers with the same roll and charges once. Resolves with the dice, the matches and
+       * the prize, a boss potion on a jackpot and a lesser potion or gem on two matches.
+       */
+      async roll(dice = 9, face = 1) {
+        const option = this.dice().find((o) => o.dice === dice);
+        if (!option) throw new Error(`the casino offers no ${dice}-dice roll`);
+        const p = stores.character.getState().characterProfile;
+        const payload = { wagerCopper: option.pricePp * 1000, gameType: "crown_and_anchor", chosenFace: face, prizeMode: "items", characterId: p.id, operationId: crypto.randomUUID(), diceCount: dice, deferResultMessage: true };
+        for (let k = 0; ; k++) {
+          const r = await socket.sendCorrelatedJsonRequest(1127, 1128, payload, 10000).catch((e) => ({ success: false, uncertain: true, error: String(e?.message ?? e) }));
+          if (r.success) {
+            // The prize's name, from the copy that arrives in the bags a moment after the reply.
+            const arrived = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.itemDetails?.id === r.prizeItemId);
+            for (let w = 0; r.prizeItemId && !arrived() && w < 10; w++) await pause(500);
+            const prize = r.prizeItemId ? (arrived() ? itemName(arrived()) : `item ${r.prizeItemId}`) : null;
+            return { dice: r.dice ?? [], matches: r.matchingDice ?? 0, jackpot: Boolean(r.jackpot), prizeItemId: r.prizeItemId ?? null, prize, message: r.message ?? null, availableAt: r.availableAtMs ?? null, pricePp: option.pricePp };
+          }
+          if (!r.uncertain || k >= 2) throw new Error(r.error || "the dice did not roll");
+          await pause(2000 * (k + 1));
+        }
+      },
     },
     /**
      * The raid window's own actions (docs/client-internals.md, "How a raid fight runs" and "Running

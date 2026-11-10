@@ -38,6 +38,10 @@
     // Kept in every copy, besides the reagents of the leader's own spells. Lightstones (10300) and
     // Greater Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
+    // Casino boss potions, which summon a boss for a raid, are kept in every copy. They have no price
+    // and are NO DROP, so they would count as discards. The client's potion table numbers them from
+    // 990100 (30 bosses in release 20261110T154736).
+    keepItemIdRange: [990100, 990199],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
@@ -225,7 +229,8 @@
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
       const gear = config.gearKeepInstances.includes(r.itemInstanceId) || (gearLeft[r.itemid] > 0 && gearLeft[r.itemid]--);
-      if (supply || gear || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
+      const keptId = config.keepItemIds.includes(r.itemid) || (r.itemid >= config.keepItemIdRange[0] && r.itemid <= config.keepItemIdRange[1]);
+      if (supply || gear || keptId || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
     }
@@ -1841,7 +1846,39 @@
       });
     }
   };
-  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask };
+  // The casino's Items prize wins one boss potion per account per 24 hours (`iq.casino` of
+  // src/bridge.js). The potion stays with the character that won it: the server refuses every give
+  // of one, also to another character of the account. The task rolls `dice` dice until it wins or
+  // has spent `maxPp`, pulling a balance to the leader when its coin runs short, and ends with the
+  // time of the next potion (`nextAt`).
+  const casinoTask = async (i, task, step) => {
+    const st = await step("read the casino status", () => i.casino.status(), 30000);
+    if (st.disabled) throw new Error(st.disabled);
+    if (st.availableAt > now()) throw new TaskLater(`the next boss potion is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
+    const price = i.casino.dice().find((o) => o.dice === task.dice)?.pricePp;
+    if (!price) throw new Error(`the casino offers no ${task.dice}-dice roll`);
+    const coin = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
+    Object.assign(task, { rolls: 0, spentPp: 0 });
+    while (task.spentPp + price <= task.maxPp) {
+      if (coin() < price) {
+        const from = await step("pull coin", () => pullCoin(i, price), 30000);
+        if (!from || coin() < price) throw new TaskLater(`no balance of ${price}pp to pull for a roll`, now() + 3600000);
+        log(`casino: pulled ${from}`);
+      }
+      const r = await step(`roll ${task.dice} dice`, () => i.casino.roll(task.dice, task.face), 45000);
+      task.rolls++;
+      task.spentPp += r.pricePp;
+      if (r.jackpot && r.prizeItemId) {
+        Object.assign(task, { prize: r.prize, result: `won the ${r.prize} in ${task.rolls} rolls for ${task.spentPp}pp`, nextAt: (r.availableAt ?? now() + 86400000) + 60000 });
+        log(`casino: ${task.result}`);
+        return;
+      }
+      // A jackpot without a prize, or a cooldown that began, means the day's potion went to another tab.
+      if (r.jackpot || r.availableAt > now()) throw new TaskLater(`the boss potion went elsewhere after ${task.rolls} rolls`, (r.availableAt ?? now() + 3600000) + 60000);
+    }
+    throw new TaskLater(`no boss potion in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
+  };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask };
   const startQuest = (kind, members, name = kind) => {
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (!members.length) throw new Error(`a ${kind} needs members`);
@@ -1852,7 +1889,7 @@
   const taskSummary = (task) =>
     task.kind === "hunt"
       ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
-      : task.kind === "raid" || task.kind === "gear"
+      : task.kind === "raid" || task.kind === "gear" || task.kind === "casino"
         ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   const runTask = (task) => {
@@ -2463,6 +2500,16 @@
       if (!moves?.length) throw new Error("a gear task needs moves");
       state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
+      return { ...runTask(state.task) };
+    },
+    /**
+     * Roll the casino's Items prize for the day's boss potion as a task in the page (`casinoTask`):
+     * `dice` dice on symbol `face` until it wins or has spent `maxPp`.
+     */
+    casino({ dice = 9, face = 1, maxPp = 10000 } = {}) {
+      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), dice, face, maxPp };
+      log(`task casino: ${dice} dice, up to ${maxPp}pp`);
       return { ...runTask(state.task) };
     },
     /**

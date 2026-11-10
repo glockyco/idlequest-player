@@ -23,6 +23,10 @@ export const DEFAULTS = {
   // A task running this long, half again the hour that raises the long-task alert, waits for
   // something that is not coming (an NPC that never spawns), so it stops and the tab hunts again.
   taskStopMin: 90,
+  // The casino's daily boss potion (docs/plans/systems-research.md, "Boss summons and daily
+  // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
+  // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
+  casino: { minLevel: 46, dice: 9, maxPp: 10000 },
 };
 
 /**
@@ -209,7 +213,16 @@ export function decide({ now, tabs, stock = {}, opportunities = [], missing = {}
     if (ms > cfg.taskStopMin * 60000) out.push({ label: t.label, kind: "stopTask", id: null, spec: null, why: `${t.task.kind} task running for ${Math.round(ms / 60000)} min${t.task.step ? ` at "${t.task.step}"` : ""}` });
   }
 
-  // Quest chains (data/quests.json) come first, because each step is certain progress while a
+  // The casino's boss potion comes first: the account wins at most one a day, a day not rolled is a
+  // potion lost, and the rolls take a minute. One leader of `casino.minLevel` rolls for the account,
+  // and the task names when the next potion can be won. A potion stays with its winner and is LORE,
+  // so the leader that rolled longest ago rolls, which spreads a boss's potions over characters.
+  const lastRoll = history.filter((h) => h.kind === "casino").at(-1);
+  const rolledAt = (t) => Math.max(-Infinity, ...history.filter((h) => h.kind === "casino" && h.label === t.label).map((h) => h.t));
+  const roller = tabs.filter((t) => free(t) && (t.members[0]?.level ?? 0) >= cfg.casino.minLevel).sort((a, b) => rolledAt(a) - rolledAt(b))[0];
+  if (roller && due(lastRoll, 60) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.label, kind: "casino", id: "casino", spec: { dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.members[0].name}` });
+
+  // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.

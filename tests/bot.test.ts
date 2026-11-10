@@ -1083,6 +1083,15 @@ test("the reserve keeps a supply of food and of drink from the largest stacks, n
   expect(f.sell.map((s) => s.name).sort()).toEqual(["Rat Sandwich", "Skin of Milk"]);
 });
 
+test("the reserve keeps every casino boss potion, which has no price and is NO DROP like a discard", async () => {
+  const { bot, me } = await install();
+  const row = (slot: number, itemid: number, Name: string) => ({ bag: 23, slot, itemid, itemInstanceId: 300 + slot, quantity: 1, itemDetails: { Name, price: 0, nodrop: 0, norent: 1, itemtype: 21 } });
+  me.inventory = [row(0, 990113, "Potion of Lodizal"), row(1, 990124, "Potion of Tunare"), row(2, 3, "Battle Plans")];
+  const f = bot.fates();
+  expect(f.keep.map((k) => k.name)).toEqual(["Potion of Lodizal", "Potion of Tunare"]);
+  expect(f.discard.map((d) => d.name)).toEqual(["Battle Plans"]);
+});
+
 // Lets the bot's in-page switch job run its fake commands to the end.
 const flush = async () => {
   for (let k = 0; k < 20; k++) await Promise.resolve();
