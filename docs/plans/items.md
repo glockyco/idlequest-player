@@ -57,8 +57,8 @@ Gear has two kits, because leveling value (XP rate) and raid value (a boss fight
 | --- | --- | --- | --- |
 | 1 | Quest graph, `data/epics.json`, chain and step demand, the casino table read from the client, all in one `demand` map. | `questItemIds`, `keepItemIdRange`, `gearKeepCounts`, `setGearKeepInPage`, `questKeepItems` and the chain part of `keepNames` | Done |
 | 2 | The hunts' and errands' items in the demand, and each tab's share of it. | `keepNames`, `data/quest-items.json` and `tools/quest-items.mjs` | Done |
-| 3 | One held-item routine in the bot, loot primitives in the bridge, raid loot given in the raid window. | The cursor handling of `clearCursorAfterTrade`, `collectLoot` and `giveItem` | Open |
-| 4 | The item task delivers kept copies and stores them. | Kept copies in the leader's bags | Open |
+| 3 | One held-item routine in the bot (`settleHeld`), cursor primitives in the bridge (`placeCursor`, `giveCursor`), passed to the bridge's actions as `settle`, and the raid loot step on the same routine. | `clearCursorAfterTrade`, the auto-place in `giveItem` and `craftItem`, and `collectLoot`'s placement | Under way |
+| 4 | The item task delivers kept copies and stores them, and gives raid loot straight to its recipient with the raid window's Give Item and Equip Item. | Kept copies in the leader's bags | Open |
 | 5 | Hand-in reward values. | `keepItemIds` (the lightstones) | Open |
 | 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
 

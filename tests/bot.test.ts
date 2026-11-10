@@ -1788,6 +1788,12 @@ test("a container on the cursor with every general slot taken sends the emptiest
         const general = [22, 23, 24, 25, 26, 27, 28, 29].find((s) => !at(0, s));
         if (name === "autoPlace" && held && general != null) held.slot = general;
       },
+      placeCursor: async () => {
+        const held = at(0, 30);
+        const general = [22, 23, 24, 25, 26, 27, 28, 29].find((s) => !at(0, s));
+        if (held && general != null) held.slot = general;
+        return !at(0, 30);
+      },
       bagSpace: () => ({ free: 5, capacity: 64, cursor: at(0, 30)?.itemDetails.Name ?? null }),
       carried: (item: string) => inv.filter((r) => !(r.bag === 0 && r.slot === 30) && r.itemDetails.Name === item).length,
       talkToNpc: async () => {},

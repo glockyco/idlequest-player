@@ -1239,29 +1239,28 @@
     return held ? ((await clientFn("sell")(0, 30))?.message ?? "sold") : null;
   };
   /**
-   * After a trade, whatever the NPC put on the cursor goes into the bags, because a held cursor
-   * blocks the next trade: a quest reward such as Power of the Elements, or an item of the trade
-   * that came back. The bot's bag upkeep decides later what is surplus. An item the bags cannot
-   * take, such as the Concordance of Research container Smith Tv`ysa gives with every lightstone
-   * trade when no top-level slot is free, is sold if the bot's sale rules allow it (tradable, with
-   * a merchant price, not in `keepItemIds` or the account's `demand`). Anything else throws, so a
-   * reward is never sold or dropped.
+   * Clear the cursor before or after an action with the caller's `settle` (the bot's `settleHeld`),
+   * which decides where a held item goes: a trade's reward, an item of the trade that came back, a
+   * withdrawn craft or a give cut short. The bridge holds no such policy, so without `settle` a
+   * held item throws. Resolves once the cursor is empty.
    */
-  const clearCursorAfterTrade = async () => {
-    const held = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
-    const row = held();
-    if (!row) return null;
+  const settled = async (settle) => {
+    if (!cursorItem()) return;
+    if (!(settle && (await settle()))) throw new Error(`${cursorItem()} is on the cursor`);
+  };
+  /** Put the cursor item where the client's auto-place puts it. Resolves with whether the cursor is empty. */
+  const placeCursor = async () => {
+    if (!cursorItem()) return true;
     await clientFn("autoPlace")();
-    for (let k = 0; k < 10 && held(); k++) await pause(200);
-    if (!held()) return itemName(row);
-    const d = row.itemDetails ?? {};
-    const config = window.iqBot?.config ?? {};
-    const kept = (config.keepItemIds ?? []).includes(row.itemid) || (config.demand?.[row.itemid] ?? 0) > 0;
-    if (d.nodrop !== 0 && d.norent !== 0 && d.price > 0 && !kept) {
-      await clientFn("sell")(0, 30);
-      return `sold ${itemName(row)}`;
-    }
-    throw new Error(`no bag room for ${itemName(row)} from the trade`);
+    for (let k = 0; k < 10 && cursorItem(); k++) await pause(200);
+    return !cursorItem();
+  };
+  /** Give the cursor item to account character `characterId`, into its bags or equipped. Resolves with whether the cursor is empty. */
+  const giveCursor = async (characterId, equip = false) => {
+    if (!cursorItem()) return true;
+    await stores.companions.getState().transferHeldItem(characterId, equip);
+    for (let k = 0; k < 10 && cursorItem(); k++) await pause(200);
+    return !cursorItem();
   };
   /**
    * Hand carried items to quest NPC `name`, up to `counts[item]` copies of each, for repeatable
@@ -1269,15 +1268,17 @@
    * pays each of them in the same trade, while two copies of one item pay once (Smith Tv`ysa in
    * South Ro gave 411,600 XP for a Greater Lightstone and a Lightstone together). Only the active
    * character gets the reward, and the chat does not report it, so the XP is read from the
-   * character's XP counter. Resolves with the trades, the items handed in and the XP gained.
+   * character's XP counter. A held item before a trade, or a reward the NPC puts on the cursor,
+   * goes where `settle` puts it (`settled`). Resolves with the trades, the items handed in and the
+   * XP gained.
    */
-  const handInEach = async (name, counts) => {
+  const handInEach = async (name, counts, { settle } = {}) => {
     const xpNow = () => stores.character.getState().characterProfile?.experienceProgress?.current ?? 0;
     const xp0 = xpNow();
     const due = { ...counts };
     let trades = 0;
     let items = 0;
-    await clearCursorAfterTrade(); // an earlier trade's leftover would block this one
+    await settled(settle); // an earlier trade's leftover would block this one
     await talkToNpc(name);
     for (;;) {
       const have = Object.fromEntries(Object.keys(due).map((n) => [n, carried(n)]));
@@ -1286,7 +1287,7 @@
       const trade = async () => {
         if (!giveItemsReady()) await talkToNpc(name); // the dialogue closed between trades
         await giveToNpc(names, { closeNote: false });
-        await clearCursorAfterTrade();
+        await settled(settle);
         await pause(500);
         return names.filter((n) => carried(n) < have[n]);
       };
@@ -1404,12 +1405,12 @@
    * Craft tradeskill recipe `recipeId` with the Advanced recipe window's own requests
    * (docs/plans/systems-research.md, section 2), up to `quantity` attempts and until `until`
    * successes: each attempt buys the catalog ingredients the Tradeskill Bank lacks for one set and
-   * crafts once (the server accepts no container, 0). Then `output` is withdrawn from the bank into
-   * the bags. The catalog answers for one set only, so a batch would run out after the first
-   * attempt whenever the bank held exactly one set. Resolves with the attempts' counts and the
-   * number withdrawn.
+   * crafts once (the server accepts no container, 0). Then `output` is withdrawn from the bank onto
+   * the cursor and goes where `settle` puts it (`settled`). The catalog answers for one set only, so
+   * a batch would run out after the first attempt whenever the bank held exactly one set. Resolves
+   * with the attempts' counts and the number withdrawn.
    */
-  const craftItem = async (recipeId, { quantity = 1, until = Infinity, skillId, containerItemId = 0, output = null }) => {
+  const craftItem = async (recipeId, { quantity = 1, until = Infinity, skillId, containerItemId = 0, output = null, settle }) => {
     const p = () => stores.character.getState().characterProfile;
     const done = { attempted: 0, successes: 0, failures: 0, skillUp: null, newSkillValue: null };
     while (done.attempted < quantity && done.successes < until) {
@@ -1444,8 +1445,7 @@
       const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: done.successes, revision: bank?.revision }, 10000);
       if (!w?.success) throw new Error(`withdrawing the result failed: ${w?.error ?? "no reply"}`);
       await pause(700);
-      await clientFn("autoPlace")();
-      await pause(700);
+      await settled(settle);
       withdrawn = w.quantity ?? done.successes;
     }
     return { ...done, withdrawn };
@@ -1453,18 +1453,13 @@
   /**
    * Give a carried `item` to account character `characterId`, in the party or not, equipped when
    * `equip` is true: the item goes onto the cursor with the character store's slot move and the
-   * client's held-item transfer sends it. A refused transfer puts the item back. Resolves with
-   * the transfer's answer and the chat lines it brought.
+   * client's held-item transfer sends it. A refused transfer puts the item back. An item held from
+   * before, such as by a give that a reinstall cut short, goes where `settle` puts it first
+   * (`settled`). Resolves with the transfer's answer and the chat lines it brought.
    */
-  const giveItem = async (item, characterId, { equip = true } = {}) => {
+  const giveItem = async (item, characterId, { equip = true, settle } = {}) => {
     const ch = () => stores.character.getState();
-    // An item left on the cursor, such as by a give that a reinstall cut short, would block this
-    // one, so it goes back into the bags first.
-    if (cursorItem() && cursorItem() !== item) {
-      await clientFn("autoPlace")();
-      await pause(900);
-      if (cursorItem()) throw new Error(`${cursorItem()} is on the cursor and found no bag slot`);
-    }
+    if (cursorItem() !== item) await settled(settle);
     const row = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === item);
     if (!row) throw new Error(`no ${item} in the bags`);
     const from = { bag: row.bag, slot: row.slot };
@@ -1646,6 +1641,8 @@
     walkTo,
     craftItem,
     sellCursor,
+    placeCursor,
+    giveCursor,
     closeWindows,
     job,
     jobs,

@@ -623,8 +623,9 @@
     alert("deaths", `${state.deaths.length} deaths in the last hour (${leader} of the leader) cost about ${Math.round(cost / 60)} minutes, the last: ${state.deaths.at(-1).text}`, true);
   };
 
-  // The client's auto-place call, which puts the cursor item into the first place that fits.
-  const autoPlace = () => iq().clientFn("autoPlace")();
+  // The bridge's auto-place, which puts the cursor item into the first place that fits and
+  // resolves with whether the cursor is empty.
+  const autoPlace = () => iq().placeCursor();
 
   // A container fits only an empty general slot, and with a bag in each one it stays on the
   // cursor, which stops looting. The bag with the fewest items then moves to a free personal bank
@@ -667,6 +668,43 @@
     }
   };
 
+  /**
+   * The one held-item routine (docs/plans/items.md, "Fate"), for loot, trades, gives, crafts and
+   * the raid loot step, which pass it to the bridge as `settle`. The item goes into the bags, a
+   * container making room in the bank (`placeCursor`), because the bag reserve decides what is
+   * surplus with the gear pass's knowledge, which a fresh raid drop has not met yet. With no room,
+   * surplus leaves by its fate, and a kept item goes to the first party member that takes it, else
+   * waits while the reserve sells what it can and then goes into the room made. Resolves with
+   * whether the cursor is empty.
+   */
+  const settleHeld = async (i) => {
+    const held = i.bagSpace().cursor;
+    if (!held) return true;
+    let how;
+    if ((await placeCursor(i)) || !i.bagSpace().cursor) how = "placed";
+    else {
+      const f = fates(i, true);
+      const mine = (list) => list.some((x) => x.bag === 0 && x.slot === 30);
+      if (mine(f.sell)) how = `sold: ${(await sellAt(0, 30))?.message ?? "no reply"}`;
+      else if (mine(f.discard) && config.discard) how = (await destroyCursor(i)) ? "destroyed" : "destroy refused";
+      else {
+        const comps = i.stores.companions.getState().companions ?? [];
+        for (const c of comps.filter((c) => c.companionType === 2)) {
+          if (await i.giveCursor(Number(c.characterId), false)) {
+            how = `given to ${c.name}`;
+            break;
+          }
+        }
+        if (!how) {
+          await keepReserve(i, true, true);
+          how = i.bagSpace().free > 0 && (await placeCursor(i)) ? "placed after making room" : "no room";
+        }
+      }
+    }
+    log(`cursor item ${held}: ${how}`);
+    return !i.bagSpace().cursor;
+  };
+
   const watchCursor = async (i) => {
     const held = i.bagSpace().cursor;
     const inst = held ? rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId ?? held : null;
@@ -682,21 +720,7 @@
     // A person may be holding it on purpose, so wait longer before putting it away, and try once.
     if (!state.cursorPlaced && config.cursorPlaceSec > 0 && heldSec > config.cursorPlaceSec) {
       state.cursorPlaced = true;
-      const r = await placeCursor(i);
-      await sleep(1500);
-      const still = i.bagSpace().cursor;
-      log(`auto-placed cursor item ${held}: ${r?.message ?? "no reply"}${still ? `; cursor still holds ${still}` : ""}`);
-      if (!still || i.bagSpace().free > 0) return;
-      // With every bag slot taken the item has nowhere to go: surplus leaves by its fate, and a kept
-      // item waits while the reserve sells what it can, then goes into the room made.
-      const f = fates(i, true);
-      const mine = (list) => list.some((x) => x.bag === 0 && x.slot === 30);
-      if (mine(f.sell)) log(`sold cursor item ${held} because the bags are full: ${(await sellAt(0, 30))?.message ?? "no reply"}`);
-      else if (mine(f.discard) && config.discard) log(`discarded cursor item ${held} because the bags are full: ${(await destroyCursor(i)) ? "done" : "refused"}`);
-      else {
-        await keepReserve(i, true, true);
-        if (i.bagSpace().free > 0) log(`placed cursor item ${held} after making room: ${(await placeCursor(i))?.message ?? "no reply"}`);
-      }
+      await settleHeld(i);
     }
   };
 
@@ -1369,7 +1393,7 @@
           Object.assign(mv, { done: true, lines: [] });
           continue;
         }
-        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" }), 30000);
+        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags", settle: () => settleHeld(i) }), 30000);
         // A move retried after a reinstall may find the item already given, which the server
         // reports as a lore conflict, so that refusal means the receiver has it.
         const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));
@@ -1455,7 +1479,7 @@
               throw new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`);
             });
           }
-          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: c.output.id }), 120000);
+          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: c.output.id, settle: () => settleHeld(i) }), 120000);
           tally.attempted += r.attempted;
           tally.failures += r.failures;
           tally.skill = r.newSkillValue ?? tally.skill;
@@ -1552,7 +1576,7 @@
         return i.giveToNpc(s.give);
       }), 120000);
       if (s.each) {
-        const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each), 300000);
+        const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each, { settle: () => settleHeld(i) }), 300000);
         Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
       }
       if (s.expect) {
@@ -1560,7 +1584,7 @@
         // only an empty general slot, so it may stay there, and it counts as received.
         const held = () => i.carried(s.expect) > 0 || i.bagSpace().cursor === s.expect;
         for (let w = 0; w < 10 && !held(); w++) await sleep(500);
-        if (i.bagSpace().cursor === s.expect) await placeCursor(i);
+        if (i.bagSpace().cursor === s.expect) await settleHeld(i);
         if (!held()) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
       }
       m.at = k + 1;

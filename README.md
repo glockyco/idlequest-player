@@ -549,7 +549,8 @@ names the running client and `iq.missingApi` lists the missing parts.
 - `travelTo` fails with `no such zone`: pass the zone's short name (`misty`) or its long name as
   the game spells it. AutoLevel must be stopped first (use `pausedAutoLevel`).
 - An item stays on the cursor: `iq.bagSpace().cursor` names it, and looting and cleanup stop until
-  it is placed. The bot places it after three minutes.
+  it is placed. After three minutes the bot settles it (`settleHeld` in `src/bot.js`, the routine
+  every trade, give, craft and raid loot step also uses).
 
 ## Diary
 
