@@ -690,7 +690,10 @@ class Daemon {
     // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
     // Gear targets' items are kept by the gear plan's counts (`setGearKeepInPage`).
     const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames } }), { timeout: 10000 }).catch(() => {});
+    // Quest hand-in items the bag reserve would otherwise destroy (`questItemIds` in src/bot.js), read
+    // once from the content's quest scripts.
+    this.questItems ??= await import("./lib/content.mjs").then((m) => m.questItemIds()).catch((e) => (this.log(`quest items: ${e.message}`), null));
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames, ...(this.questItems ? { questItemIds: this.questItems } : {}) } }), { timeout: 10000 }).catch(() => {});
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
     const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });

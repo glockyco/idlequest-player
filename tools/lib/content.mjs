@@ -15,6 +15,24 @@ export async function* rows(table, root) {
 }
 
 /**
+ * Every item id some quest script accepts in a hand-in (`item_lib.check_turn_in(e.trade, { item1 = id })`
+ * or `eq.handin({ [id] = n })` under <root>/effective/quests), sorted. Epic pieces are among them, and many have no price and
+ * are NO DROP, which the bag reserve would otherwise destroy.
+ */
+export async function questItemIds(root) {
+  const dir = `${contentRoot(root)}/effective/quests`;
+  const ids = new Set();
+  for (const f of await readdir(dir, { recursive: true })) {
+    if (!f.endsWith(".lua")) continue;
+    for (const line of (await readFile(`${dir}/${f}`, "utf8")).split("\n")) {
+      if (line.includes("check_turn_in")) for (const m of line.matchAll(/item\d+\s*=\s*(\d+)/g)) ids.add(Number(m[1]));
+      if (line.includes("eq.handin")) for (const m of line.matchAll(/\[(\d+)\]\s*=/g)) ids.add(Number(m[1]));
+    }
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+/**
  * When a spawn point spawns: a point with a `_condition` spawns only while that zone condition is
  * on, such as Kithicor's night (spawn_conditions, switched by spawn_events). Resolves with
  * `timeOf(zone, condition)`, "night", "day", the condition's name for other conditions, or null

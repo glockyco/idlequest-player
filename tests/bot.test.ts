@@ -1092,6 +1092,17 @@ test("the reserve keeps every casino boss potion, which has no price and is NO D
   expect(f.discard.map((d) => d.name)).toEqual(["Battle Plans"]);
 });
 
+test("the reserve keeps a quest hand-in item it would destroy, and still sells one with a price", async () => {
+  const { bot, me } = await install();
+  const row = (slot: number, itemid: number, Name: string, price: number) => ({ bag: 23, slot, itemid, itemInstanceId: 400 + slot, quantity: 1, itemDetails: { Name, price, nodrop: price ? 1 : 0, norent: 1, itemtype: 11 } });
+  me.inventory = [row(0, 20524, "Kedge Backbone", 0), row(1, 13073, "Bone Chips", 10), row(2, 3, "Battle Plans", 0)];
+  bot.config.questItemIds = [20524, 13073];
+  const f = bot.fates();
+  expect(f.keep.map((k) => k.name)).toEqual(["Kedge Backbone"]);
+  expect(f.sell.map((s) => s.name)).toEqual(["Bone Chips"]);
+  expect(f.discard.map((d) => d.name)).toEqual(["Battle Plans"]);
+});
+
 // Lets the bot's in-page switch job run its fake commands to the end.
 const flush = async () => {
   for (let k = 0; k < 20; k++) await Promise.resolve();

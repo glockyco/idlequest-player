@@ -42,6 +42,10 @@
     // and are NO DROP, so they would count as discards. The client's potion table numbers them from
     // 990100 (30 bosses in release 20261110T154736).
     keepItemIdRange: [990100, 990199],
+    // Items some quest script accepts in a hand-in (`questItemIds` of tools/lib/content.mjs, set by
+    // the coordinator). One the client could sell is still sold, but one it would destroy (no price,
+    // NO DROP or NO RENT) is kept, because epic pieces such as Kedge Backbone are of that kind.
+    questItemIds: [],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
@@ -211,12 +215,13 @@
    * demand, the rest surplus. Demand keeps up to `gearKeepCounts` copies of an item, and every copy of `keepItemIds`, `keepNames`, the gear plan's
    * `gearKeepInstances` and the reagents of the leader's class spells, and food and drink up to
    * `keepSupply` units of each type, from the largest stacks. Surplus the client can sell (a price, not NO
-   * DROP, not NO RENT) is `sell`, cheapest first, the rest `discard`. Returns `{ keep, sell,
-   * discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
+   * DROP, not NO RENT) is `sell`, cheapest first. The rest is `discard`, except an item of `questItemIds`,
+   * which is kept. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
+    const questItems = new Set(config.questItemIds);
     const out = { keep: [], sell: [], discard: [] };
     const supplyLeft = { ...config.keepSupply };
     const gearLeft = { ...config.gearKeepCounts };
@@ -232,6 +237,7 @@
       const keptId = config.keepItemIds.includes(r.itemid) || (r.itemid >= config.keepItemIdRange[0] && r.itemid <= config.keepItemIdRange[1]);
       if (supply || gear || keptId || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
+      else if (questItems.has(r.itemid)) out.keep.push(row);
       else out.discard.push(row);
     }
     out.sell.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
