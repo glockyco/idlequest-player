@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
 import { aaChanges, chainChanges, gearChanges, lootProgress, progressCounts, recordProgress, snapshotProgress } from "../tools/lib/progress.mjs";
-import { progressRows } from "../tools/lib/dashboard.mjs";
+import { itemIdsOf, progressRows } from "../tools/lib/dashboard.mjs";
 
 const leader = (level: number) => ({ id: 1, name: "Tank", level, class: "Warrior" });
 const snap = (level: number, extra: Record<string, unknown> = {}) => ({ pageSession: 7, leader: leader(level), party: [], ...extra });
@@ -63,6 +63,21 @@ test("gear counts an upgrade the earlier pass planned or one that raised the set
   expect(gearChanges({ before, after, t: 9 }).map((e) => [e.name, e.text, e.data.slots[0].gain])).toEqual([["Tank", "Tank wears Helm (head)", 3.5]]);
   const rose = { ...after, scores: { ...after.scores, Mage: { now: 9, target: 40 } } };
   expect(gearChanges({ before, after: rose, t: 9 }).map((e) => e.name)).toEqual(["Tank", "Mage"]);
+});
+
+test("the feed names a looted item and an upgrade's new and replaced items by id, and an empty slot replaced nothing", () => {
+  const db = openDb(":memory:");
+  const groups = new Map([["Tank", "G1"]]);
+  const loot = lootProgress({ events: [{ ses: 7, seq: 1, t: 1, type: "LOOT", text: "You loot Runed Circlet!", itemId: 77 }], name: "Tank", itemFor: () => ({ for: "Tank", piece: false }) });
+  const before = { sheets: { Tank: [...sheet("Cap", 1), { slotNum: 2, slot: "neck", worn: null, move: null, drop: null }] }, scores: { Tank: { now: 10, target: 40 } } };
+  const after = { sheets: { Tank: [...sheet("Helm", 2), { slotNum: 2, slot: "neck", worn: { itemId: 3, name: "Collar" }, move: null, drop: null }] }, scores: { Tank: { now: 12, target: 40 } } };
+  recordProgress(db, [...loot, ...gearChanges({ before, after, t: 2 })], groups);
+  const rows = progressRows(db, 0);
+  expect(rows.map((r) => r.items)).toEqual([
+    [{ id: 2, name: "Helm", was: { id: 1, name: "Cap" } }, { id: 3, name: "Collar", was: null }],
+    [{ id: 77, name: "Runed Circlet" }],
+  ]);
+  expect(itemIdsOf(rows).sort((a, b) => a - b)).toEqual([1, 2, 3, 77]);
 });
 
 test("AA reports each trained rank and earned points as a minor step", () => {

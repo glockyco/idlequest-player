@@ -273,9 +273,11 @@
     log.entries.push({ seq: ++log.seq, t: Date.now(), dir, op, name, data });
     if (log.entries.length > log.max) log.entries.splice(0, log.entries.length - log.max);
   };
-  // Kill log built from the combat messages the server broadcasts.
+  // Kill log built from the combat messages the server broadcasts, and the item ids of the loot
+  // packets by item name, which the loot lines printed from them lack (`lootOf`).
   const kills = window.iq?.kills ?? [];
   const KILL_RE = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
+  const lootIds = new Map();
   const origObserve = socket.observeIncomingOpcode.bind(socket);
   socket.observeIncomingOpcode = (op, payload) => {
     try {
@@ -283,6 +285,7 @@
       record("in", op, data);
       const m = opName[op] === "ChatMessageBroadcast" && KILL_RE.exec(data.text ?? "");
       if (m) kills.push({ t: Date.now(), enemy: m[1], xp: Number(m[2]) });
+      if (opName[op] === "LootGenerated") for (const it of data.items ?? []) lootIds.set(it.name, it.itemId);
     } catch {
       /* not JSON */
     }
@@ -591,6 +594,13 @@
     }
     return null;
   };
+  // The item a "You loot" line names, by the id its loot packet gave (the chat message holds only
+  // the text). "You loot 3 gold!" is coin.
+  const LOOT_LINE = /^You loot (?!\d)(.+)!$/;
+  const lootOf = (type, text) => {
+    const itemId = type === "LOOT" ? lootIds.get(LOOT_LINE.exec(text ?? "")?.[1]) : undefined;
+    return itemId != null ? { itemId } : null;
+  };
 
   // Read-only subscription; never replaces a client callback.
   let lastChatId = stores.chat.getState().nextId - 1;
@@ -600,7 +610,7 @@
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
-      const e = { ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text) };
+      const e = { ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text), ...lootOf(m.type, m.text) };
       events.push(e);
       noteStop(e);
       // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.

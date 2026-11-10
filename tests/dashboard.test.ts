@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
 import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
+import { putCards } from "../tools/lib/cards.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const H = 3600000;
@@ -279,8 +280,9 @@ test("the gear view groups each character's scores by roster group, and the shee
       ],
       Healer: [],
     },
-    items: { 1: card(1, "Cap"), 2: card(2, "Helm"), 3: card(3, "Crown", { flags: ["NO DROP"] }), 4: card(4, "Collar"), 5: card(5, "Pendant") },
   }));
+  // The card store also holds an item no slot of the sheet names.
+  putCards(db, { 1: card(1, "Cap"), 2: card(2, "Helm"), 3: card(3, "Crown", { flags: ["NO DROP"] }), 4: card(4, "Collar"), 5: card(5, "Pendant"), 6: card(6, "Spare") });
   const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank", "Healer", "Unplanned"] }] });
   const catalog = makeCatalog({ zones: { kurn: "Kurn's Tower" } });
   const view = gearView(db, { roster });

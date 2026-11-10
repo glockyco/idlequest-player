@@ -163,7 +163,7 @@ function details(s, g) {
     ...(d.errand ? [["Errand", `${esc(d.errand.item ?? d.errand.keep ?? "")} in ${esc(d.errand.zone)}`]] : []),
   ];
   const lines = d.lines.length ? d.lines.map((x) => `<li>${ago(s.now, x.t)} <span class="src">${esc(x.source)}</span> ${esc(x.text)}</li>`).join("") : `<li class="muted">nothing recorded</li>`;
-  const progress = d.progress?.length ? d.progress.map((p) => `<li class="${progressClass(p)}">${ago(s.now, p.t)} ${kindTag(p.kind)} ${esc(p.text)}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}</li>`).join("") : `<li class="muted">nothing in two days</li>`;
+  const progress = d.progress?.length ? d.progress.map((p) => `<li class="${progressClass(p)}">${ago(s.now, p.t)} ${kindTag(p.kind)} ${withItems(esc(p.text), p.items, s.cards ?? {})}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}</li>`).join("") : `<li class="muted">nothing in two days</li>`;
   const hist = d.history.length
     ? d.history
         .map((h) => {
@@ -191,11 +191,30 @@ let progressFilter = "all";
 // The merged rows open on the page, by key, so a refresh keeps them open.
 const openProgress = new Set();
 
+/**
+ * A row's escaped text, with each item it names (`items` of the progress rows) as its chip, and for
+ * an upgraded slot first the replaced item's icon and an arrow, an empty box for an empty slot.
+ */
+function withItems(html, refs, cards) {
+  let out = html;
+  let from = 0;
+  for (const r of refs ?? []) {
+    const name = esc(r.name);
+    const at = out.indexOf(name, from);
+    if (at < 0) continue;
+    const old = !("was" in r) ? "" : `${r.was ? (cards[r.was.id] ? itemChip(cards[r.was.id], r.was.name, { iconOnly: true }) : `<span class="muted">${esc(r.was.name)}</span>`) : `<span class="ichip empty" title="the slot was empty"></span>`}<span class="swap">→</span>`;
+    const chip = old + itemChip(cards[r.id], r.name);
+    out = out.slice(0, at) + chip + out.slice(at + name.length);
+    from = at + chip.length;
+  }
+  return out;
+}
+
 /** A row's text and detail, and for a row of several events a list of them that opens on a click. */
-function progressText(p) {
-  const head = `${esc(p.text)}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}`;
+function progressText(p, cards) {
+  const head = `${withItems(esc(p.text), p.items, cards)}${p.detail ? ` <span class="muted">${esc(p.detail)}</span>` : ""}`;
   if (!p.parts?.length) return head;
-  const parts = p.parts.map((x) => `<li>${x.group && x.group !== p.group ? `<span class="grp">${esc(x.group)}</span> ` : ""}${esc(x.text)}</li>`).join("");
+  const parts = p.parts.map((x) => `<li>${x.group && x.group !== p.group ? `<span class="grp">${esc(x.group)}</span> ` : ""}${withItems(esc(x.text), x.items, cards)}</li>`).join("");
   return `<details data-key="${esc(p.key)}"${openProgress.has(p.key) ? " open" : ""}><summary>${head}</summary><ul class="plainlist parts">${parts}</ul></details>`;
 }
 
@@ -209,7 +228,7 @@ function renderProgress(s) {
   let day = null;
   for (const p of shown) {
     if (dayName(p.t) !== day) out.push(`<div class="pday">${esc((day = dayName(p.t)))}</div>`);
-    out.push(`<div class="prow ${progressClass(p)}"><span class="when" title="${esc(`${dayName(p.t)} ${clock(p.t)}`)}">${hhmm(p.t)}</span><span>${p.group ? `<span class="grp">${esc(p.group)}</span>` : ""}</span>${kindTag(p.kind)}<span class="ptxt">${progressText(p)}</span></div>`);
+    out.push(`<div class="prow ${progressClass(p)}"><span class="when" title="${esc(`${dayName(p.t)} ${clock(p.t)}`)}">${hhmm(p.t)}</span><span>${p.group ? `<span class="grp">${esc(p.group)}</span>` : ""}</span>${kindTag(p.kind)}<span class="ptxt">${progressText(p, s.cards ?? {})}</span></div>`);
   }
   $("progress-list").innerHTML = out.join("") || `<p class="muted">${P.rows.length ? "Nothing of this kind" : "Nothing recorded"} in the last ${P.hours} hours.</p>`;
 }

@@ -19,6 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
+import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
@@ -121,6 +122,7 @@ export function openDb(path) {
   db.run(SCHEMA);
   db.run(WEAR_SCHEMA);
   db.run(PROGRESS_SCHEMA);
+  db.run(CARDS_SCHEMA);
   return db;
 }
 
@@ -998,17 +1000,24 @@ class Daemon {
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;
-    // The per-character report for the dashboard: the scores in `gearPlan`, and in `gearSheets` each
-    // character's slots with the cards (name, icon, stats) of the items they name.
-    const cards = {};
-    for (const c of characters) for (const s of c.slots) for (const id of [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]) if (id != null && !cards[id] && this.items.has(id)) cards[id] = itemCard(this.items.get(id));
-    // The upgrades worn since the last pass, for the progress feed, before this pass's report replaces it.
+    // The per-character report for the dashboard: the scores in `gearPlan`, the slots in
+    // `gearSheets`, and in the card store the card (name, icon, stats) of every item the dashboard
+    // names: each slot's worn item, move and drop, every target's items and the items the upgrades
+    // worn since the last pass replaced.
     const scores = (list) => Object.fromEntries((list ?? []).map((c) => [c.name, c.score]));
     const sheets = Object.fromEntries(characters.map((c) => [c.name, c.slots]));
     const before = { sheets: metaGet(this.db, "gearSheets")?.sheets, scores: scores(metaGet(this.db, "gearPlan")?.characters) };
-    recordProgress(this.db, gearChanges({ before, after: { sheets, scores: scores(characters) }, t: now }), this.groups());
+    const changes = gearChanges({ before, after: { sheets, scores: scores(characters) }, t: now });
+    recordProgress(this.db, changes, this.groups());
+    const named = [
+      ...characters.flatMap((c) => c.slots.flatMap((s) => [s.worn?.itemId, s.move?.itemId, s.drop?.itemId])),
+      ...targets.flatMap((x) => x.items.map((w) => w.itemId)),
+      ...changes.flatMap((e) => e.data.slots.flatMap((s) => [s.itemId, s.wasId])),
+    ].filter((id) => id != null);
+    putCards(this.db, Object.fromEntries(named.filter((id) => this.items.has(id)).map((id) => [id, itemCard(this.items.get(id))])));
+    this.keepCards(named);
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
-    metaSet(this.db, "gearSheets", { t: now, sheets, items: cards });
+    metaSet(this.db, "gearSheets", { t: now, sheets });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
     metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
@@ -1286,7 +1295,9 @@ class Daemon {
         if (got.events.length) {
           await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
           cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
-          recordProgress(this.db, lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) }), this.groups());
+          const looted = lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) });
+          recordProgress(this.db, looted, this.groups());
+          this.keepCards(looted.map((r) => r.data.itemId));
           tr.lootless = lootlessKills(tr.lootless, got.events);
         }
         if (!got.more) return true;
@@ -1352,6 +1363,32 @@ class Daemon {
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
     const to = this.targetWants.flatMap((x) => x.items ?? []).find((w) => w.item === item)?.to;
     return to ? { for: to, piece: false } : null;
+  }
+
+  /**
+   * Store the cards of the items `ids` names that have none yet, from the gear pass's item rows or,
+   * for an item it never read, from the content's, in one read for all of them. Calls run one after
+   * another, because that read takes seconds, and the caller does not wait for them.
+   */
+  keepCards(ids) {
+    this.cardQueue = (this.cardQueue ?? Promise.resolve())
+      .then(async () => {
+        const want = missingCards(this.db, ids);
+        if (!want.length) return;
+        const { itemCard } = await import("./lib/gear-plan.mjs");
+        const found = new Map(want.filter((id) => this.items?.has(id)).map((id) => [id, this.items.get(id)]));
+        const unread = new Set(want.filter((id) => !found.has(id)));
+        if (unread.size) {
+          const { contentRoot, rows } = await import("./lib/content.mjs");
+          for await (const i of rows("items", contentRoot())) {
+            if (unread.delete(i.id)) found.set(i.id, i);
+            if (!unread.size) break;
+          }
+        }
+        putCards(this.db, Object.fromEntries([...found].map(([id, i]) => [id, itemCard(i)])));
+      })
+      .catch((e) => this.log(`item cards: ${e.message}`));
+    return this.cardQueue;
   }
 
   /**

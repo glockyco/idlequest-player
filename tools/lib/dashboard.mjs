@@ -8,6 +8,7 @@ import { targetId, targetRetryMin } from "./acquire.mjs";
 import { retryTime, worldHold } from "./coordinator.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 import { progressCounts } from "./progress.mjs";
+import { cardsFor } from "./cards.mjs";
 
 const DAY = 86400000;
 /** Actors whose interventions a person or an agent started by hand, as the SDK and `iqd note` log them. */
@@ -657,8 +658,9 @@ function mergeKey(r, data) {
 /**
  * The progress record (`progress`, tools/lib/progress.mjs) since `since`, newest first and of one
  * group if `group` names it, as rows for the page: `{ key, t, kind, sig, group, text, detail,
- * parts }`. A row of several events (`mergeKey`) sums them up in `text` and lists them earliest
- * first in `parts`, each `{ group, text }`.
+ * items, parts }`. A row of several events (`mergeKey`) sums them up in `text` and lists them
+ * earliest first in `parts`, each `{ group, text, items }`. `items` are the items the text names
+ * (`itemRefs`), which the page shows by their cards.
  */
 export function progressRows(db, since, { group = null, limit = 150 } = {}) {
   const raw = db.query(`SELECT t, kind, sig, name, grp, text, data, key FROM progress WHERE t >= ?${group ? " AND grp = ?" : ""} ORDER BY t DESC, id DESC`).all(...(group ? [since, group] : [since]));
@@ -680,16 +682,29 @@ export function progressRows(db, since, { group = null, limit = 150 } = {}) {
   return rows.slice(0, limit).map(rowView);
 }
 
+/**
+ * The items a progress event names, `[{ id, name }]`, and for an upgraded slot also the item it
+ * replaced as `was`, null for a slot that was empty.
+ */
+function itemRefs(kind, data) {
+  if (kind === "item") return [{ id: data.itemId ?? null, name: data.item }];
+  if (kind === "gear") return (data.slots ?? []).map((s) => ({ id: s.itemId ?? null, name: s.item, was: s.was ? { id: s.wasId ?? null, name: s.was } : null }));
+  return [];
+}
+
+/** Every item id the progress rows `rows` name, in their parts and as replaced items too. */
+export const itemIdsOf = (rows) => rows.flatMap((r) => [...r.items, ...r.parts.flatMap((p) => p.items)]).flatMap((x) => [x.id, x.was?.id]).filter((id) => id != null);
+
 /** A row of `progressRows` from its events, earliest first. */
 function rowView({ key, events }) {
   const last = events.at(-1);
   const groups = [...new Set(events.map((e) => e.grp))];
-  const row = { key, t: last.t, kind: last.kind, sig: Math.max(...events.map((e) => e.sig)), group: groups.length === 1 ? groups[0] : null, parts: [] };
-  if (events.length === 1) return { ...row, text: last.text, detail: detailOf(last.kind, last.data) };
+  const row = { key, t: last.t, kind: last.kind, sig: Math.max(...events.map((e) => e.sig)), group: groups.length === 1 ? groups[0] : null, items: [], parts: [] };
+  if (events.length === 1) return { ...row, text: last.text, detail: detailOf(last.kind, last.data), items: itemRefs(last.kind, last.data) };
   const names = [...new Set(events.map((e) => e.name).filter(Boolean))];
   // Up to three names read as a list, and a party's day as a count, since the row opens to the names.
   const who = names.length > 3 ? `${names.length} characters` : nameList(names);
-  const parts = events.map((e) => ({ group: e.grp, text: e.text }));
+  const parts = events.map((e) => ({ group: e.grp, text: e.text, items: itemRefs(e.kind, e.data) }));
   if (last.kind === "level") {
     const levels = events.map((e) => e.data.level);
     const [low, top] = [Math.min(...levels), Math.max(...levels)];
@@ -756,7 +771,7 @@ export function gearView(db, { roster }) {
 /**
  * One character's sheet for the paper doll: the 22 slots in the inventory window's order, each with
  * the item worn now, the optimal item (the wanted drop, which beats what the queued moves give, else
- * the queued move) with where it comes from, and the cards of every item named, from `gearSheets`.
+ * the queued move) with where it comes from, and the cards of every item named, from the card store.
  * `found` is false for a character the last gear pass did not plan.
  */
 export function gearSheetView(db, name, { roster, catalog }) {
@@ -766,18 +781,12 @@ export function gearSheetView(db, name, { roster, catalog }) {
   const member = roster.groups.flatMap((g) => g.members.map((m) => ({ ...m, group: g.id }))).find((m) => m.name === name);
   const entry = plan?.characters.find((c) => c.name === name);
   if (!slots || !member) return { name, found: false };
-  const items = {};
-  const card = (id) => {
-    if (id != null && sheets.items[id]) items[id] = sheets.items[id];
-  };
+  const items = cardsFor(db, slots.flatMap((s) => [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]));
   const out = slots.map((s) => {
     const drop = s.drop ? { ...s.drop, zoneName: zoneName(catalog, s.drop.zone) } : null;
     const move = s.move ? { ...s.move, ...(s.move.buy ? { buy: { ...s.move.buy, zoneName: zoneName(catalog, s.move.buy.zone) } } : {}) } : null;
     // The wanted drop beats the moved item (it is scored against the set after the moves), so it is the optimal item.
     const optimal = drop ? { kind: "drop", itemId: drop.itemId, item: drop.item } : move ? { kind: move.buy ? "buy" : "move", itemId: move.itemId, item: move.item } : null;
-    card(s.worn?.itemId);
-    card(move?.itemId);
-    card(drop?.itemId);
     return { slotNum: s.slotNum, slot: s.slot, worn: s.worn, move, drop, optimal };
   });
   return { name, found: true, t: sheets.t, group: member.group, class: member.class, race: member.race, level: member.level, xpPct: member.xpPct, score: entry?.score ?? null, share: entry ? share(entry.score.now, entry.score.target) : null, afterMoves: entry ? share(entry.score.moves, entry.score.target) : null, slots: out, items };

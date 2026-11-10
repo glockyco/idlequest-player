@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
 import { rows as contentRows } from "./content.mjs";
-import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, jobsView, levelTrends, makeCatalog, minuteTotals, mostWantedView, needsYouView, progressView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, itemIdsOf, jobsView, levelTrends, makeCatalog, minuteTotals, mostWantedView, needsYouView, progressView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { cardsFor } from "./cards.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = join(REPO, "tools/dashboard");
@@ -101,6 +102,8 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         const attention = attentionView(db, now);
         const needs = needsYouView(attention.open, now, groupOf);
         const daemon = meta("daemon");
+        const progress = progressView(db, now);
+        const wanted = mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, evaluations: meta("targetStatus")?.targets ?? {} });
         return json({
           now,
           // The page files' last change, so an open page reloads its code when the data it reads changes shape.
@@ -108,13 +111,15 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           status: statusView({ now, daemon, rows, needs, xp24: xpRate(minutes, now) }),
           needs,
           goal: goalView(db, { now, roster, plan: plan.value, groupOf, catalog, raidGoal: readJson("data/raid-goal.json", { bosses: [] }).bosses }),
-          progress: progressView(db, now),
+          progress,
           groups: rows,
           hourly: hourlyView(minutes, now),
           coordinator: daemon?.coordinate ? coordinatorView(db, now, { catalog, rows, groupOf }) : null,
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,
-          gear: { ...gearView(db, { roster }), wanted: mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, evaluations: meta("targetStatus")?.targets ?? {} }) },
+          gear: { ...gearView(db, { roster }), wanted },
+          // The card of every item the page names (tools/lib/cards.mjs), by item id.
+          cards: cardsFor(db, [...itemIdsOf(progress.rows), ...rows.flatMap((g) => itemIdsOf(g.details?.progress ?? [])), ...wanted.flatMap((t) => t.items.map((w) => w.itemId))]),
           epics: epicsView(meta("coordinator")),
           attention: { info: attention.info, resolved: attention.resolved, manual: attention.manual },
           engineering: engineeringView(db, now),

@@ -92,13 +92,13 @@ export function snapshotProgress({ snap, levels, now, goal = [] }) {
 const LOOT_LINE = /^You loot (?!\d)(.+)!$/;
 
 /**
- * The items the account wants among a tab's new event rows (`events`, as the bridge exports them),
- * from their loot lines, with what each is for from `itemFor(item)` (`{ for, piece }`, or null for
- * an item nobody wants). `name` is the character that looted, the tab's active character. A loot
- * line names the copy at the moment it came in, which hunts, errands and drops during leveling
- * all produce, and a later move between characters adds nothing. The key is the row's page
- * session and sequence, because a tab that switches characters can export one row into the logs
- * of several characters.
+ * The items the account wants among a tab's new event rows (`events`, as the bridge exports them,
+ * each loot line with its item's id), from their loot lines, with what each is for from
+ * `itemFor(item)` (`{ for, piece }`, or null for an item nobody wants). `name` is the character
+ * that looted, the tab's active character. A loot line names the copy at the moment it came in,
+ * which hunts, errands and drops during leveling all produce, and a later move between characters
+ * adds nothing. The key is the row's page session and sequence, because a tab that switches
+ * characters can export one row into the logs of several characters.
  */
 export function lootProgress({ events, name, itemFor }) {
   const out = [];
@@ -106,7 +106,7 @@ export function lootProgress({ events, name, itemFor }) {
     const item = e.type === "LOOT" ? LOOT_LINE.exec(e.text ?? "")?.[1] : null;
     const w = item ? itemFor(item) : null;
     if (!w) continue;
-    out.push({ t: e.t, kind: "item", sig: 1, name, item, text: `${name} looted ${item}${w.for ? ` for ${w.for}` : ""}`, data: { item, for: w.for ?? null, piece: Boolean(w.piece) }, key: `loot:${e.ses}:${e.seq}` });
+    out.push({ t: e.t, kind: "item", sig: 1, name, item, text: `${name} looted ${item}${w.for ? ` for ${w.for}` : ""}`, data: { item, itemId: e.itemId ?? null, for: w.for ?? null, piece: Boolean(w.piece) }, key: `loot:${e.ses}:${e.seq}` });
   }
   return out;
 }
@@ -147,7 +147,7 @@ export function gearChanges({ before, after, t }) {
       const o = old.find((x) => x.slotNum === s.slotNum);
       if (!s.worn || o?.worn?.itemId === s.worn.itemId) continue;
       const planned = [o?.move, o?.drop].find((p) => p?.itemId === s.worn.itemId);
-      changed.push({ slot: s.slot, item: s.worn.name, was: o?.worn?.name ?? null, gain: planned?.gain ?? null });
+      changed.push({ slot: s.slot, item: s.worn.name, itemId: s.worn.itemId, was: o?.worn?.name ?? null, wasId: o?.worn?.itemId ?? null, gain: planned?.gain ?? null });
     }
     if (!changed.length) continue;
     const sb = before.scores?.[name];

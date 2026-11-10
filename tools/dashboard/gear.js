@@ -89,6 +89,16 @@ function icon(card, cls = "") {
   return card ? `<img class="${cls}" src="${ICON_URL(card.icon)}" alt="" loading="lazy" data-n="${esc(card.name.slice(0, 2))}" onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'noicon', textContent: this.dataset.n }))">` : "";
 }
 
+/**
+ * An item as the game shows it: its icon and name, with its item window on hover, or with `iconOnly`
+ * the icon alone. Without a card, the name as text. Every view that names an item uses it.
+ */
+function itemChip(card, name, { iconOnly = false } = {}) {
+  if (!card) return esc(name ?? "");
+  tips.set(`i${card.id}`, itemTip(card));
+  return `<span class="ichip" data-tip="i${card.id}">${icon(card, "iic")}${iconOnly ? "" : esc(card.name)}</span>`;
+}
+
 /** One slot of the doll: the worn item's icon, or an empty box, with the optimal item as a small icon at its corner. */
 function slotBox(sheet, n) {
   const slot = sheet.slots.find((x) => x.slotNum === n);
@@ -187,17 +197,17 @@ function renderGear(s) {
           .join("")}</div></div>`,
     )
     .join("");
-  renderWanted(g.wanted ?? []);
+  renderWanted(g.wanted ?? [], s.cards ?? {});
   loadSheet();
 }
 
 /** The most wanted enemies: one row each, with every wanted item, its taker and its gain. */
-function renderWanted(rows) {
+function renderWanted(rows, cards) {
   const head = `<thead><tr><th>Enemy</th><th>Zone</th><th>Status</th><th>Items (best taker, gain, hours per copy, characters it would serve)</th></tr></thead>`;
   const hours = (h) => (h >= 10 ? `${Math.round(h)} h` : `${h.toFixed(1)} h`);
   const body = rows.length
     ? rows
-        .map((t) => `<tr><td>${esc(t.npc)}</td><td>${esc(t.zone)}</td><td class="${/^(hunting|errand|camp|visit)/.test(t.status ?? "") ? "" : "muted"}">${esc(t.status ?? "not weighed yet")}</td><td>${t.items.map((w) => `${esc(w.item)} <span class="muted">(${esc(w.to)}${w.group ? ` ${esc(w.group)}` : ""}, ${w.gain.toFixed(1)}%, ${hours(w.hours)}${w.takers > 1 ? `, ${w.takers} characters` : ""})</span>`).join("<br>")}</td></tr>`)
+        .map((t) => `<tr><td>${esc(t.npc)}</td><td>${esc(t.zone)}</td><td class="${/^(hunting|errand|camp|visit)/.test(t.status ?? "") ? "" : "muted"}">${esc(t.status ?? "not weighed yet")}</td><td>${t.items.map((w) => `${itemChip(cards[w.itemId], w.item)} <span class="muted">(${esc(w.to)}${w.group ? ` ${esc(w.group)}` : ""}, ${w.gain.toFixed(1)}%, ${hours(w.hours)}${w.takers > 1 ? `, ${w.takers} characters` : ""})</span>`).join("<br>")}</td></tr>`)
         .join("")
     : `<tr><td colspan="4" class="muted">No wanted drops in the last gear pass.</td></tr>`;
   $("wanted").innerHTML = head + `<tbody>${body}</tbody>`;

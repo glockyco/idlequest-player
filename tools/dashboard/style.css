@@ -282,3 +282,9 @@ table.totals { font-size: 13px; }
 table.totals td.up { color: var(--good); font-weight: 600; }
 table.totals td.down { color: var(--bad); }
 .noicon { font-size: 12px; font-weight: 700; color: #8d93a0; }
+/* An item named in a line: its icon, then its name, with the item window on hover (`itemChip`). */
+.ichip { display: inline-flex; align-items: center; gap: 4px; vertical-align: bottom; cursor: default; }
+.ichip img.iic, .ichip .noicon { width: 18px; height: 18px; border-radius: 3px; background: #0f1013; flex: none; }
+.ichip .noicon { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; }
+.ichip.empty { width: 16px; height: 16px; border: 1px dashed var(--muted); border-radius: 3px; }
+.swap { margin: 0 5px; color: var(--muted); }
