@@ -387,13 +387,22 @@ at 255 (`a4`), item haste takes the highest item at most 50 (buff haste adds up 
 
 ### Loot messages
 
+The server loots a kill by itself and sends LootGenerated (opcode 1030). The game session's
+`onLootGenerated` marks the kill's loot as pending and asks the scene for an auto-loot preview
+(`combatScene.previewAutoLootNearCorpse`, `CAUokwED.js`). The preview's callback collects the loot,
+which prints the "You loot" lines (`collectAutoLoot`), and clears the pending loot. AutoLevel starts
+the next fight only once the pending loot has settled or its deadline has passed
+(`startNextAutoLevelFightWhenLootSettled`, "loot settlement timed out").
+
 A zone load that fails and is tried again (the "Loading failed" window's Try Again, which the bot
-presses) can leave the page without its loot messages. The server still loots, and coin and items
-arrive, but no "You loot" line shows, and after each kill AutoLevel waits about six seconds with the
-party full before it picks the next enemy, which the bridge labels `noTarget`. A sign-in does not
-end it, and a page reload does. iqd reloads a tab after `lootlessKills` kills in a row without a
-"You loot" line (`recycleReason` in `tools/iqd.mjs`), and the progress feed misses that tab's loot
-until then.
+presses) leaves the preview with a disposed scene, which never calls back (`if (!this.disposed)` in
+`previewAutoLootNearCorpse`, `CVEP2_Ra.js`). Coin and items still arrive, but no "You loot" line
+shows, and after each kill AutoLevel waits out the deadline, about six seconds with the party full,
+which the bridge labels `noTarget`. Later zone changes and sign-ins do not end it, and a page reload
+does. So the bridge wraps the scene runtime's preview (`watchLootPreview` in `src/bridge.js`) to call
+back within 1.5 seconds, by the scene or by the wrap, which runs only the client's own collection.
+Should loot lines stop anyway, iqd reloads a tab after `lootlessKills` kills in a row without one
+(`recycleReason` in `tools/iqd.mjs`).
 
 ## Guard
 

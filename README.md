@@ -419,9 +419,9 @@ the tab's sessionStorage, so it enters the world as its leader and regroups by i
 without them gets its group from `data/roster.json`. iqd reloads a page for two faults of the
 client (`recycleReason` in `tools/iqd.mjs`). The client keeps memory it no longer needs, so a tab's
 JS heap grows over hours, and a reload comes once its floor, the lowest reading over 10 minutes,
-stays at half the heap limit or more. A failed zone load leaves the client without its loot
-messages (docs/client-internals.md, Loot messages), and a reload comes after 25 kills in a row
-without a "You loot" line. It waits for a moment without a task, fight, raid or zone load, with
+stays at half the heap limit or more. A failed zone load can leave the client without its loot
+messages, which the bridge repairs in the page (docs/client-internals.md, Loot messages), and should
+they stop anyway, a reload comes after 25 kills in a row without a "You loot" line. It waits for a moment without a task, fight, raid or zone load, with
 every recorded row on disk, one tab at a time, and the recovery above brings it back. A crashed tab needs a new tab, which iqd cannot
 open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 

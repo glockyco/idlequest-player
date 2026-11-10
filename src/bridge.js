@@ -441,6 +441,7 @@
   };
   const samplerId = setInterval(() => {
     try {
+      watchLootPreview();
       const s = sample();
       if (!s) return;
       samples.push(s);
@@ -629,6 +630,32 @@
   const runtime = () => {
     runtimeExport ??= allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })()) ?? null;
     return runtimeExport?.getInstance();
+  };
+  // After a kill the client asks the scene for an auto-loot preview and collects the loot, with its
+  // "You loot" lines, in the preview's callback, while AutoLevel waits for that loot to settle. A
+  // zone load that failed and was tried again leaves the preview with a disposed scene, which never
+  // calls back (docs/client-internals.md, Loot messages). So every preview calls back within
+  // LOOT_PREVIEW_MS, by the scene or by this wrap, which runs only the client's own collection. A
+  // zone load can bring a new scene runtime, so the sampler wraps each one it finds.
+  const LOOT_PREVIEW_MS = 1500;
+  const watchLootPreview = () => {
+    const inner = runtime()?.combatScene?.runtime;
+    if (typeof inner?.previewAutoLootNearCorpse !== "function" || inner.__iqLootWatch) return;
+    const preview = inner.previewAutoLootNearCorpse;
+    inner.previewAutoLootNearCorpse = (loot, done) => {
+      let finished = false;
+      const once = () => {
+        if (finished) return;
+        finished = true;
+        done();
+      };
+      try {
+        preview(loot, once);
+      } finally {
+        setTimeout(once, LOOT_PREVIEW_MS);
+      }
+    };
+    inner.__iqLootWatch = true;
   };
   // The raid window's command panel `id` ("heal", "debuff", "slow", "mez", ...), opened as a click
   // on its tile opens it. The window can close during a fight while the fight goes on, so its combat
