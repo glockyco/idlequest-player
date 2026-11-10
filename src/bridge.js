@@ -1169,9 +1169,13 @@
       if (!npc) throw new Error(`${name} is not in this zone`);
       await clientFn("hail")(npc.id, String(npc.name).replace(/_/g, " "));
     }
+    const options = () => [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')];
     for (const kw of keywords) {
-      const opt = [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].find((b) => looseName(b.textContent).includes(looseName(kw)));
-      if (!opt) throw new Error(`dialogue option "${kw}" not found on ${name}`);
+      // An option arrives with the server's reply to the click before it, which a slow server
+      // sends seconds later, so the talk waits for it.
+      let opt = null;
+      for (let k = 0; k < 40 && !(opt = options().find((b) => looseName(b.textContent).includes(looseName(kw)))); k++) await pause(500);
+      if (!opt) throw new Error(`dialogue option "${kw}" not found on ${name}, which offers ${options().map((b) => b.textContent.trim()).join(", ") || "none"}`);
       opt.click();
       await pause(300);
       for (let k = 0; k < 40 && !dialogueOpen(); k++) await pause(400);
@@ -1179,7 +1183,7 @@
     return {
       npcName: name,
       dialogues: [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim()),
-      options: [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')].map((el) => el.textContent.trim()),
+      options: options().map((el) => el.textContent.trim()),
       canGive: Boolean(giveItemsReady()),
     };
   };
