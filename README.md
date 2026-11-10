@@ -404,7 +404,8 @@ and errands counts, and time shared with other groups counts at the share of the
 model gives them (docs/plans/zone-crowding.md). Older time weighs less, halving every 24 hours. iqd
 keeps the rates in the db's meta key `zoneRates`, built once from `runs/live/*/samples.jsonl` and
 grown from every new sample. A zone with little time there ranks near the row's median, so it gets
-tried, and a zone other groups hunt in counts for its crowding factor. A group stays in its zone
+tried, and a zone other groups hunt in counts for what one more group adds to the account there,
+its own share less what it takes from the others. A group stays in its zone
 until another zone is worth 20% more, and the bot moves along its rotation by itself when a zone
 runs dry. A row is the list of zones that are safe and worth trying at its levels, so a zone joins
 a row there.

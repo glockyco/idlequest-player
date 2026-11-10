@@ -407,6 +407,15 @@ test("the lowest group takes the best zone first, and the next counts it as crow
   expect(out.find((z) => z.label === "B")!.rotation[0]).toBe("runnyeye");
 });
 
+test("a group goes where it adds most to the account, counting what it takes from the groups there", () => {
+  // Kurn's Tower pays 800k alone and 80% of that to each of two groups. Beside the busy group there
+  // a second one would earn 640k for itself, more than Runnyeye's 600k, but the pair earns 1,280k
+  // instead of 800k, 480k more, so the group goes to Runnyeye.
+  const curve = (zone: string, _level: number, n: number) => (zone === "kurn" ? [1, 0.8, 0.55][n] : 1 / (1 + n));
+  const tabs = [tab("H", "G5", 14, { zone: "kurn", task: { status: "running" } }), tab("A", "G3", 15, { zone: "warrens" })];
+  expect(assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: curve })[0].rotation[0]).toBe("runnyeye");
+});
+
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
   // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
   const other = tab("Z", "G9", 40, { zone: "kurn", crowdedAt: { kurn: NOW - 10 * 60000 } });

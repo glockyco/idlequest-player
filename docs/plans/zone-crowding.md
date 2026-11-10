@@ -3,13 +3,17 @@
 ## Decision
 
 A zone supplies a number of in-band kills an hour, and the account's groups in it share that
-supply: they lose little until their combined demand exceeds it, then a lot. So `assignZones` in
-`tools/lib/coordinator.mjs` values a zone for a group as its measured rate alone times
-`crowdFactor(zone, level, n)` for the `n` groups already there, and iqd takes the factor from the
-physical model in `tools/predict.mjs`: `predict(zone, level, n) / predict(zone, level, 0)`. In that
-model every kill empties a point until its respawn, the other groups' kills empty the same
-candidates, which lengthens the walk, and kills cannot exceed the zone's spawn rate shared among
-the groups. A zone the model lacks counts as shared evenly.
+supply: they lose little until their combined demand exceeds it, then a lot. iqd takes each
+group's share from the physical model in `tools/predict.mjs`: `crowdFactor(zone, level, n)` is
+`predict(zone, level, n) / predict(zone, level, 0)`, the share of its rate alone a group earns
+beside `n` others. In that model every kill empties a point until its respawn, the other groups'
+kills empty the same candidates, which lengthens the walk, and kills cannot exceed the zone's spawn
+rate shared among the groups. A zone the model lacks counts as shared evenly.
+
+`assignZones` in `tools/lib/coordinator.mjs` values a zone for a group by what it adds to the
+account there: its rate alone times `(n+1) f(n) - n f(n-1)`, its own share less what it takes
+from the `n` groups already there. Valued by its own share alone, a group counts none of that
+loss, and six groups gathered in Solusek's Eye.
 
 The rate alone is measured over all of a zone's time (`tools/lib/rates.mjs`): a second shared with
 `n` other groups counts as `crowdFactor(zone, level, n)` seconds alone. Measured over the minutes

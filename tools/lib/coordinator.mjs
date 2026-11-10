@@ -427,9 +427,12 @@ export function crowdedZones(tabs, now) {
  * rotation. A group stays in its zone, and keeps its rotation, until the best zone is worth
  * `margin` more, so measurement noise and shifting crowds do not move groups back and forth.
  * A rotation set within `settleMin` (`rotationSetAt`) stays while the group travels to it. Groups are assigned from the lowest
- * level up, because the slowest group sets the account's time to 60, and a zone is worth its
- * `crowdFactor(zone, level, n)` share of its rate alone for the `n` groups that hunt there already
- * (docs/plans/zone-crowding.md: a zone supplies so many kills an hour, which the groups share). A zone's measured rate is
+ * level up, because the slowest group sets the account's time to 60. A zone is worth what one
+ * more group adds to the account there: with `f(n)` = `crowdFactor(zone, level, n)` the share of
+ * its rate alone a group gets beside `n` others, the `n` groups already there earn `n f(n-1)` and
+ * would earn `(n+1) f(n)` with this one (docs/plans/zone-crowding.md: a zone supplies so many kills
+ * an hour, which the groups share). Valued at its own share alone, a sixth group in Solusek's Eye
+ * looked as good as a third in Kaesora while it added a third as much. A zone's measured rate is
  * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
  * zone with little time there ranks near the median and gets tried. Busy groups keep their rotation and
  * count for the zone they are in. Groups an experiment holds are assigned like the others, because
@@ -454,7 +457,13 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     const known = (solid.length ? solid : zones.filter((m) => m.e)).map((m) => m.e.xph).sort((a, b) => a - b);
     const median = known.length ? known[Math.floor(known.length / 2)] : 1;
     const xph = (e) => (e ? (e.hours * e.xph + cfg.priorHours * median) / (e.hours + cfg.priorHours) : median);
-    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: (xph(m.e) * crowdFactor(m.z, level, crowd.get(m.z) ?? 0)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    // What one more group adds to the account in a zone, in shares of the zone's rate alone.
+    const gain = (z) => {
+      const n = crowd.get(z) ?? 0;
+      const f = (k) => (k > 0 ? crowdFactor(z, level, k) : 1);
+      return (n + 1) * f(n) - n * f(n - 1);
+    };
+    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: (xph(m.e) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
