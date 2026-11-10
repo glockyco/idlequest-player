@@ -5,19 +5,36 @@
 // The release dir holds the bundles of one client (`.re/releases/<id>/`, written by
 // tools/client-snapshot.mjs, or the older `.re/js/`). The default is the newest dir under
 // `.re/releases/`. The bundles load under happy-dom and go through the same discovery the bridge
-// runs in the page (`CLIENT_SURFACE` in src/bridge.js), so a FAIL here is a FAIL in the page.
-// Exit code 1 when any part of the surface is missing.
+// runs in the page (`CLIENT_SURFACE` in src/bridge.js), so a FAIL here is a FAIL in the page. Each
+// shim of the bridge (`SHIMS`) needs its anchor in the bundles' source, and a NOTE says when its
+// defect is gone, so the shim can go once its count in the snapshot stays at zero.
+// Exit code 1 when any part of the surface or a shim's anchor is missing.
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const repo = new URL("../", import.meta.url).pathname;
 
-/** The bridge's `CLIENT_SURFACE`, evaluated from its source. */
-export async function loadSurface() {
+/** A self-contained block of src/bridge.js between `// BEGIN <name>` and `// END <name>`, evaluated. */
+async function loadBlock(name) {
   const src = await readFile(join(repo, "src/bridge.js"), "utf8");
-  const block = /\/\/ BEGIN CLIENT_SURFACE\n([\s\S]*?)\n\s*\/\/ END CLIENT_SURFACE/.exec(src)?.[1];
-  if (!block) throw new Error("src/bridge.js has no CLIENT_SURFACE block");
-  return new Function(`${block}\nreturn CLIENT_SURFACE;`)();
+  const block = new RegExp(`// BEGIN ${name}\\n([\\s\\S]*?)\\n\\s*// END ${name}`).exec(src)?.[1];
+  if (!block) throw new Error(`src/bridge.js has no ${name} block`);
+  return new Function(`${block}\nreturn ${name};`)();
+}
+
+/** The bridge's `CLIENT_SURFACE`, evaluated from its source. */
+export const loadSurface = () => loadBlock("CLIENT_SURFACE");
+
+/**
+ * Rows `{ kind, name, ok, note }` for the bridge's shims against the bundles' source `texts`: a
+ * shim's anchor must be there, and a release without its defect gets a note instead of a failure.
+ */
+export function shimRows(shims, texts) {
+  const found = (re) => texts.some((t) => re.test(t));
+  return Object.entries(shims).flatMap(([name, s]) => [
+    { kind: "shim", name: `${name} anchor`, ok: found(s.anchor) },
+    found(s.defect) ? { kind: "shim", name: `${name} defect`, ok: true } : { kind: "shim", name: `${name} defect`, ok: false, note: "not found: the release may have fixed it" },
+  ]);
 }
 
 /** The release string a bundle sends as `client_release`, found through the constant it names. */
@@ -73,11 +90,12 @@ export async function loadBundles(dirArg) {
   return { mods, failed, files };
 }
 
-/** Rows `{ kind, name, ok }` for the bridge's client surface, its client functions included. */
+/** Rows `{ kind, name, ok, note }` for the bridge's client surface, its client functions and its shims. */
 export async function checkRelease(dir) {
   const surface = await loadSurface();
   const loaded = await loadBundles(dir);
-  const rows = surface.audit(surface.discover(loaded.mods));
+  const texts = await Promise.all(loaded.files.map((f) => readFile(join(resolve(dir), f), "utf8")));
+  const rows = [...surface.audit(surface.discover(loaded.mods)), ...shimRows(await loadBlock("SHIMS"), texts)];
   return { rows, ...loaded };
 }
 
@@ -89,8 +107,8 @@ if (import.meta.main) {
   console.log(`loaded ${files.length - failed.length} of ${files.length} bundles`);
   for (const f of failed) console.log(`  not loaded ${f}`);
   console.log();
-  for (const r of rows) console.log(`${r.ok ? "PASS" : "FAIL"} ${r.kind.padEnd(10)} ${r.name}`);
-  const fails = rows.filter((r) => !r.ok);
-  console.log(`\n${rows.length - fails.length} of ${rows.length} PASS${fails.length ? `, ${fails.length} FAIL: ${fails.map((r) => r.name).join(", ")}` : ""}`);
+  for (const r of rows) console.log(`${r.ok ? "PASS" : r.note ? "NOTE" : "FAIL"} ${r.kind.padEnd(10)} ${r.name}${r.note ? `: ${r.note}` : ""}`);
+  const fails = rows.filter((r) => !r.ok && !r.note);
+  console.log(`\n${rows.filter((r) => r.ok).length} of ${rows.length} PASS${fails.length ? `, ${fails.length} FAIL: ${fails.map((r) => r.name).join(", ")}` : ""}`);
   process.exit(fails.length ? 1 : 0);
 }

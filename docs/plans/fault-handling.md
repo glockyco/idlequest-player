@@ -105,12 +105,13 @@ dip.
 ### Client defects are shims
 
 The adapter has no game policy. A known defect of the client is compensated in a shim, kept apart
-in one section of the adapter, each with the defect it answers, the evidence, and a count of how
-often it acted, which the snapshot carries. `tools/check-client.mjs` checks for every shim that its
-anchor still exists in a new client release, and a shim that has not acted for a release is
-deleted. The first is the loot preview that calls back within 1.5 s when its scene cannot
-(`watchLootPreview` today). Principle 8 becomes: the adapter has no policy, it retries idempotent
-reads, and it compensates documented client defects in shims.
+in one section of the adapter (`SHIMS` in `src/bridge.js`), each with the defect it answers, the
+evidence, and a count of how often it stood in for the client, which the snapshot carries. A shim
+leaves the client's healthy path alone. `tools/check-client.mjs` checks for every shim that its
+anchor, the client code it relies on, still exists in a new client release, and notes when its
+defect is gone, so a shim whose count stays at zero on that release is deleted. The first is the
+loot preview, which calls back when a disposed scene cannot. Principle 8 becomes: the adapter has
+no policy, it retries idempotent reads, and it compensates documented client defects in shims.
 
 ### One query for read-only requests
 

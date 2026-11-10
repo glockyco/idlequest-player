@@ -528,7 +528,7 @@
   };
   const samplerId = setInterval(() => {
     try {
-      watchLootPreview();
+      applyShims();
       const s = sample();
       if (!s) return;
       samples.push(s);
@@ -730,32 +730,67 @@
     runtimeExport ??= allExports().find((g) => typeof g?.getInstance === "function" && (() => { try { return g.getInstance()?.combatScene; } catch { return false; } })()) ?? null;
     return runtimeExport?.getInstance();
   };
-  // After a kill the client asks the scene for an auto-loot preview and collects the loot, with its
-  // "You loot" lines, in the preview's callback, while AutoLevel waits for that loot to settle. A
-  // zone load that failed and was tried again leaves the preview with a disposed scene, which never
-  // calls back (docs/client-internals.md, Loot messages). So every preview calls back within
-  // LOOT_PREVIEW_MS, by the scene or by this wrap, which runs only the client's own collection. A
-  // zone load can bring a new scene runtime, so the sampler wraps each one it finds.
-  const LOOT_PREVIEW_MS = 1500;
-  const watchLootPreview = () => {
+
+  // ---- Shims --------------------------------------------------------------------------------
+  // Compensations for documented client defects (docs/plans/fault-handling.md, "Client defects are
+  // shims"). A shim runs only the client's own code, leaves the client's healthy path alone and
+  // counts how often it stood in for the client in `shimCounts`, which the snapshot carries.
+  // BEGIN SHIMS
+  // tools/check-client.mjs evaluates this block on its own and looks in a release's minified source
+  // for each shim's `anchor`, the client code the shim relies on, and its `defect`, the code that has
+  // the defect. A release without the anchor breaks the shim. One without the defect may have fixed
+  // it, and the shim goes once its count stays at zero on that release.
+  const SHIMS = {
+    // After a kill the client asks the scene for an auto-loot preview and collects the loot, with its
+    // "You loot" lines, in the preview's callback, which comes after a 1 s delay and a 2 s preview
+    // (AUTO_LOOT_DELAY_MS, AUTO_LOOT_PREVIEW_MS). A zone load that failed and was tried again leaves
+    // the preview with a disposed scene, which returns without calling back (docs/client-internals.md,
+    // Loot messages). The shim calls back at `ms` when the client has not, which AutoLevel's 5 s
+    // pause after a kill hides, and counts the previews the client still had not answered at `dropMs`.
+    lootPreview: {
+      ms: 3500,
+      dropMs: 15000,
+      anchor: /\.combatScene\.previewAutoLootNearCorpse\(\w+,\(\)=>\{this\.collectAutoLoot\(/,
+      defect: /previewAutoLootNearCorpse\(\w+,\w+\)\{if\(!this\.disposed\)\{/,
+    },
+  };
+  // END SHIMS
+  const shimCounts = window.iq?.shimCounts ?? {};
+  for (const k of Object.keys(SHIMS)) shimCounts[k] ??= 0;
+  // This install's mark on what it wrapped, so a newer install wraps it again.
+  const INSTALL = Symbol("bridge install");
+  // The wrapped runtime is a plain object, and its preview an own property. The first wrapper keeps
+  // the client's function there for every later install to wrap. The runtime lasts as long as the
+  // page, through zone changes, and the sampler wraps any new one it finds.
+  const shimLootPreview = () => {
     const inner = runtime()?.combatScene?.runtime;
-    if (typeof inner?.previewAutoLootNearCorpse !== "function" || inner.__iqLootWatch) return;
-    const preview = inner.previewAutoLootNearCorpse;
+    if (typeof inner?.previewAutoLootNearCorpse !== "function" || inner.__iqShim === INSTALL) return;
+    const preview = (inner.__iqLootPreview ??= inner.previewAutoLootNearCorpse);
+    const { ms, dropMs } = SHIMS.lootPreview;
     inner.previewAutoLootNearCorpse = (loot, done) => {
       let finished = false;
+      let answered = false;
       const once = () => {
         if (finished) return;
         finished = true;
         done();
       };
       try {
-        preview(loot, once);
+        preview(loot, () => {
+          answered = true;
+          once();
+        });
       } finally {
-        setTimeout(once, LOOT_PREVIEW_MS);
+        setTimeout(once, ms);
+        setTimeout(() => {
+          if (!answered) shimCounts.lootPreview++;
+        }, dropMs);
       }
     };
-    inner.__iqLootWatch = true;
+    inner.__iqShim = INSTALL;
   };
+  const applyShims = () => shimLootPreview();
+
   // The raid window's command panel `id` ("heal", "debuff", "slow", "mez", ...), opened as a click
   // on its tile opens it. The window can close during a fight while the fight goes on, so its combat
   // view opens first, as the client's own returnFromLoot does after the loot window.
@@ -1508,6 +1543,7 @@
     log,
     kills,
     faults,
+    shimCounts,
     samples,
     events,
     seqs,

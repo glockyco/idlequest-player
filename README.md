@@ -476,8 +476,10 @@ names the running client and `iq.missingApi` lists the missing parts.
    the release id. A release that is saved already is skipped.
 2. `bun tools/check-client.mjs [release dir]` runs the bridge's discovery on the saved bundles
    and prints PASS or FAIL for every store, action, state key, dispatcher and client function the
-   SDK and the bot use. It exits with 1 on a FAIL. Fix each FAIL in `CLIENT_SURFACE`
-   (`src/bridge.js`) before attaching.
+   SDK and the bot use, and for the anchor of every shim (`SHIMS` in `src/bridge.js`). It exits
+   with 1 on a FAIL. Fix each FAIL in `CLIENT_SURFACE` or `SHIMS` before attaching. A NOTE says
+   that a shim's defect is no longer in the release: delete the shim once its count in
+   `iq.shimCounts` stays at zero on that release.
 3. `bun tools/client-snapshot.mjs --diff <old> <new>` lists what changed by names that survive
    minification: text and message templates, enum members such as option ids, action names, zone
    names and renamed bundles. Arguments are release ids or directories.

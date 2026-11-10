@@ -325,6 +325,7 @@ export function snapshotInPage(a) {
     const m = performance.memory;
     out.heap = m ? { used: Math.round(m.usedJSHeapSize / 1048576), limit: Math.round(m.jsHeapSizeLimit / 1048576) } : null;
     out.faults = iq.faults ?? null;
+    out.shims = iq.shimCounts ?? null;
     out.bags = p?.id ? { ...iq.bagSpace(), reserve: window.iqBot?.config?.minFreeSlots ?? null } : null;
     out.rec = { ses: iq.session, seqS: iq.seqs?.sample ?? 0, seqE: iq.seqs?.event ?? 0 };
   } catch (e) {
