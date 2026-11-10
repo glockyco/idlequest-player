@@ -86,8 +86,9 @@ const tradeOf = (table, locals) => {
  * to its branches, each `{ when, actions, line }`. `when` lists the conditions every enclosing
  * `if` puts on the branch, each one of:
  * `{ say: [keyword] }`, `{ trade: { items, coin? } }`, `{ class: name }`, `{ flag, op, value }`,
- * `{ spell: id }`, `{ random: text }`, `{ faction: text }`, `{ time: text }` for a window of the
- * zone's hour, `{ npcType: id }` for a branch that runs only for one of the script's NPCs,
+ * `{ spell: id }`, `{ random: text, p? }` with `p` the chance of a roll the analyzer reads,
+ * `{ faction: text }`, `{ time: text }` for a window of the zone's hour, `{ npcType: id }` for a
+ * branch that runs only for one of the script's NPCs,
  * `{ var, op, value, initial }` for a test of a script variable (`op` "truthy" or "falsy" for a bare
  * test), `{ never: text }` for a test no value the event gives can pass, `{ otherwise: true }` for
  * an else branch, `{ any: [conditions] }` for an `or`, whose parts are `{ all: [conditions] }`
@@ -153,6 +154,21 @@ export function parseScript(text) {
     return null;
   };
 
+  // A test of a random roll, `local roll = math.random(100); if (roll <= 80)`: the roll's name, its
+  // range of whole numbers and the values that pass, or null for another condition.
+  const rollTest = (c, locals) => {
+    if (c?.type !== "BinaryExpression" || c.right.type !== "NumericLiteral") return null;
+    const call = c.left.type === "Identifier" && locals.has(c.left.name) ? locals.get(c.left.name) : c.left;
+    if (call?.type !== "CallExpression" || nameOf(call.base) !== "math.random") return null;
+    const args = call.arguments.map((a) => valueOf(a, locals));
+    if (!args.length || args.some((a) => !Number.isInteger(a))) return null;
+    const [lo, hi] = args.length === 1 ? [1, args[0]] : args;
+    if (!(hi >= lo) || hi - lo > 100000) return null;
+    const values = [];
+    for (let v = lo; v <= hi; v++) if (meets(c.operator, v, c.right.value)) values.push(v);
+    return { name: src(c.left), size: hi - lo + 1, values };
+  };
+
   const conditionsOf = (c, locals) => {
     if (!c) return [];
     if (c.type === "LogicalExpression" && c.operator === "and") return [...conditionsOf(c.left, locals), ...conditionsOf(c.right, locals)];
@@ -211,7 +227,10 @@ export function parseScript(text) {
       if (/:(GetBaseRace|GetRace)$/.test(ln) && op === "==") return [{ race: rv }];
       if (/:GetLevel$/.test(ln)) return [{ level: [op, rv] }];
       if (/:Get\w*Faction/.test(ln)) return [{ faction: src(c) }];
-      if (/random/.test(ln) || (lhs.type === "Identifier" && /^ran/.test(lhs.name))) return [{ random: src(c) }];
+      if (/random/.test(ln) || (lhs.type === "Identifier" && /^ran/.test(lhs.name))) {
+        const roll = rollTest(c, locals);
+        return [{ random: src(c), ...(roll ? { p: roll.values.length / roll.size } : {}) }];
+      }
       // A quest flag: `qglobals["name"]` or `qglobals.name`, also through tonumber().
       const flagOf = (x) => {
         const y = x.type === "CallExpression" && nameOf(x.base) === "tonumber" ? x.arguments[0] : x;
@@ -293,8 +312,24 @@ export function parseScript(text) {
         if (local && depth < 3) out.push(...branchesOf(local.body, when, new Map(locals), depth + 1));
         else here.actions.push(...actionOf(call, locals));
       } else if (s.type === "IfStatement") {
+        // Clauses that test one random roll split its values: each takes those it passes that no
+        // clause before it took, and an else takes the rest.
+        let roll = null;
+        const taken = new Set();
         for (const clause of s.clauses) {
-          const cond = clause.type === "ElseClause" ? [{ otherwise: true }] : conditionsOf(clause.condition, locals);
+          let cond;
+          if (clause.type === "ElseClause") {
+            cond = [{ otherwise: true }, ...(roll ? [{ random: `the rest of ${roll.name}`, p: (roll.size - taken.size) / roll.size }] : [])];
+          } else {
+            cond = conditionsOf(clause.condition, locals);
+            const r = rollTest(clause.condition, locals);
+            if (r && (!roll || roll.name === r.name)) {
+              roll ??= r;
+              const fresh = r.values.filter((v) => !taken.has(v));
+              for (const v of fresh) taken.add(v);
+              cond = cond.map((x) => (x.random != null ? { ...x, p: fresh.length / r.size } : x));
+            }
+          }
           out.push(...branchesOf(clause.body, [...when, ...cond], new Map(locals), depth));
         }
       } else if (["ForNumericStatement", "ForGenericStatement", "WhileStatement", "RepeatStatement", "DoStatement"].includes(s.type)) {

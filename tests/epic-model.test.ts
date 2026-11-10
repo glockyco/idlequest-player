@@ -152,3 +152,16 @@ test("a combine buys the inputs the Tradeskill Bank's catalog sells, and the cat
   const handedIn = epicTree(buildEpicModel({ scripts: [script("z/Giver.lua", lua)], ...parts, edges: [] }), "Cleric", 92);
   expect(handedIn.gaps).toEqual([91]);
 });
+
+test("a branch behind a random roll costs its tries, so a sure hand-in beats a guardian one sentry death in ten spawns", () => {
+  const sentry = `function event_death_complete(e)\n  local roll = math.random(10)\n  if roll == 1 then\n    eq.spawn2(500, 0, 0, 0, 0, 0, 0)\n  end\nend`;
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 40, item2 = 40}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/a_sentry.lua", sentry), script("z/Taker.lua", taker)],
+    npcs: [{ id: 3, name: "a_sentry", level: 30, loottable: 0 }, { id: 500, name: "a_guardian", level: 30, loottable: 7 }, { id: 2, name: "Taker", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 3, zone: "z" }, { npcId: 2, zone: "z" }],
+    loot: new Map([[7, [{ item: 30, p: 1 }]]]),
+    sources: [{ item: 40, way: { kind: "ground", zone: "z", respawn: 60 } }],
+  });
+  expect(epicTree(model, "Cleric", 30).steps.map(describe)).toEqual(["ground 40", "trade give 30"]);
+});

@@ -136,3 +136,18 @@ test("a script file names its NPC, decoding a leading # and taking a number as t
   expect(scriptOwner("kithicor/%23Tasi_V-ghera.lua")).toEqual({ zone: "kithicor", npc: "Tasi V-ghera", npcId: null });
   expect(scriptOwner("citymist/90000.lua")).toEqual({ zone: "citymist", npc: null, npcId: 90000 });
 });
+
+test("the clauses of a random roll split its values, and an else takes the rest", () => {
+  const lua = `function event_death_complete(e)
+  local roll = math.random(100)
+  if roll <= 50 then
+    eq.spawn2(1, 0, 0, 0, 0, 0, 0)
+  elseif roll <= 80 then
+    eq.spawn2(2, 0, 0, 0, 0, 0, 0)
+  else
+    eq.spawn2(3, 0, 0, 0, 0, 0, 0)
+  end
+end`;
+  const chance = (npc: number) => branches(lua, "death").find((b) => b.actions.some((a) => a.spawn === npc))?.when.find((c) => c.random)?.p;
+  expect([chance(1), chance(2), chance(3)]).toEqual([0.5, 0.3, 0.2]);
+});

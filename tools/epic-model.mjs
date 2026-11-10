@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { rows } from "./lib/content.mjs";
-import { dependencies, epicTree, loadEpicModel } from "./lib/epic-model.mjs";
+import { chanceOf, dependencies, epicTree, loadEpicModel } from "./lib/epic-model.mjs";
 
 const REPO = new URL("../", import.meta.url).pathname;
 const { values: opt } = parseArgs({ options: { steps: { type: "boolean" }, class: { type: "string" }, hand: { type: "boolean" } } });
@@ -36,7 +36,7 @@ const branchText = (b) => {
   const say = b.when.find((c) => c.say)?.say;
   const gives = b.actions.flatMap((a) => a.give ?? []).map((i) => names.get(i) ?? i);
   const spawns = b.actions.filter((a) => a.spawn).map((a) => model.npcs.get(a.spawn)?.name ?? a.spawn);
-  return `${b.event} ${b.npc} (${b.zone})${say ? ` say "${say.join("/")}"` : ""}${Object.keys(b.inputs).length ? ` takes ${itemList(b.inputs)}` : ""}${gives.length ? ` gives ${gives.join(", ")}` : ""}${spawns.length ? ` spawns ${spawns.join(", ")}` : ""} [${b.file}:${b.line}]`;
+  return `${b.event} ${b.npc} (${b.zone})${say ? ` say "${say.join("/")}"` : ""}${Object.keys(b.inputs).length ? ` takes ${itemList(b.inputs)}` : ""}${gives.length ? ` gives ${gives.join(", ")}` : ""}${spawns.length ? ` spawns ${spawns.join(", ")}` : ""}${chanceOf(b) < 1 ? ` (chance ${Math.round(chanceOf(b) * 100)}%)` : ""} [${b.file}:${b.line}]`;
 };
 const wayText = (w) => {
   if (w.kind === "scene") return `kill scripted ${w.npc} L${w.level} (${Math.round(w.drop * 100)}%)`;

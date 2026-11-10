@@ -48,6 +48,9 @@ export async function loadScripts(root) {
   return { scripts, failed, disabled };
 }
 
+/** The chance that branch `b` runs when its event comes: the product of its read random rolls. */
+export const chanceOf = (b) => b.when.reduce((q, c) => q * (c.p ?? 1), 1);
+
 const addWay = (ways, id, way) => id > 0 && (ways.get(id) ?? ways.set(id, []).get(id)).push(way);
 
 /**
@@ -254,12 +257,13 @@ export function cheapest(model, cls, reward) {
     if (c.all) return c.all.reduce((s, p) => s + condCost(p, b, false), 0);
     return (c.trade && !top ? inputsCost(c.trade.items) : 0) + (c.has ? ic(c.has) : 0) + setterCost(c, b);
   };
+  // A branch behind random rolls runs once in 1/p tries on average, and each try costs it again.
   const branchValue = (b) => {
     let cost = b.event === "say" ? COST.say : COST.handin;
     for (const c of b.when) cost += condCost(c, b);
     cost += inputsCost(b.inputs) + startOf(b).cost;
     if (["death", "combat", "hp", "slay"].includes(b.event)) cost += killHours(Math.max(0, ...b.npcIds.map((id) => npcs.get(id)?.level ?? 0)));
-    return cost;
+    return cost / Math.max(chanceOf(b), 1e-3);
   };
   const wayValue = (w) => {
     switch (w.kind) {
