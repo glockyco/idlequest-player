@@ -242,9 +242,10 @@ Level L ends at `1000 * L^3 * m` XP times the race and class factor. `m` was 1.0
 - Kerafyrm (resolved): his open-world spawn is disabled on the live server, so the roster is not sized for him. The daily list is unread until a character reaches 46.
 - Raid members and budgets (resolved in code): recruits fight from server snapshots, and the client reads neither the per-target budgets nor the class costs.
 - Raid targeting (resolved in code): AutoLevel is off in raid mode and every fight starts from a target the leader picks, so unattended raids need raid commands in the SDK.
-- Raid price and daily list (resolved): an hour of raid time costs 2,000 pp with the highest character at 46 as below it, and the daily list offers ten bosses, of which only Cazic-Thule is a goal boss (systems research, "Hourly price").
+- Raid price and daily list (resolved): an hour of raid time costs 2,000 pp with the highest character at 46 or below and 8,000 pp at 52, and the daily list offers ten bosses, of which only Cazic-Thule is a goal boss (systems research, "Hourly price").
+- Daily bosses within reach (simulated): `bun tools/raidsim.mjs --roster account --leader Tagujazolu --members <group 1>` kills Phinigel Autropos, Lady Vox, Faydedar, Lord Nagafen and Venril Sathir with group 1's six at 51 and 52, and times out on Talendor, Gorenaire, Trakanon, Innoruuk and Cazic-Thule. A live raid on one of the five checks the simulator before the coordinator spends the free resets on them.
 - Raid size (resolved): the server accepted all 71 other account characters as recruits and started a fight with all 72, while their own groups kept playing them ("What the raids ask for").
-- Open: the raid-time price at 47 to 60, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
+- Open: the raid-time price at 53 to 60, whether raid DoT damage is resisted, the real damage and HP of geared level 46 to 60 recruits, how a companion Magician or Necromancer replaces its pet at a new tier when it is not the leader, whether level-60 raid buffs such as Aegolism can be bought or must drop, and which class should lead raids.
 
 ## Revisit when
 
