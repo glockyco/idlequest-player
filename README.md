@@ -402,9 +402,14 @@ manual ones, and the dashboard's Coordinator section shows its last pass.
 
 `run --recover` deploys the bridge and bot to every tab whose installed code differs from the
 repository's (`codeVersion` in `src/install.mjs`, outside raids), and brings back a game tab that is
-reachable but has lost the bridge or the bot, as a
-page reload does: it signs in with the stored login when the login form shows and installs both as
-`attach` does (`src/install.mjs`), at most every two minutes per tab. The bot keeps its settings in
+reachable but has lost the bridge or the bot, as a page reload does, or has been off the game
+server for a minute with both in place, as a server restart leaves every tab. It signs in with the
+stored login when the login form shows, at most every two minutes per tab because a sign-in
+outlasts a cycle. A server that refuses a burst of sign-ins ("Too many login attempts") gets the
+next one after those two minutes. Where the bridge or bot is missing, it installs both as `attach`
+does (`src/install.mjs`), at most every two minutes and at once when its sign-in reached the
+character select. A signed-out tab keeps its bot, which enters the world from the character select.
+It turns rendering off again once the signed-in page is back in the world. The bot keeps its settings in
 the tab's sessionStorage, so it enters the world as its leader and regroups by itself, and a tab
 without them gets its group from `data/roster.json`. The game client keeps memory it no longer
 needs, so a tab's JS heap grows over hours. Once its floor, the lowest reading over 10 minutes,
@@ -524,6 +529,6 @@ names the running client and `iq.missingApi` lists the missing parts.
 
 [diary/](diary/) has one entry per session, with screenshots in `diary/media/`. Game tabs run with
 rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps
-running, and `createGroup` and `restoreGroup` turn it off because the client forgets it at sign-in.
+running. The client forgets it at sign-in, so `createGroup`, `restoreGroup` and iqd's recovery turn it off.
 For a screenshot of the world, such as a raid kill, press Enable Rendering in that tab first and
 turn rendering off again afterwards.

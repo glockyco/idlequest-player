@@ -224,6 +224,8 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   // shortage a bags alert reported.
   if (snap.bags?.free >= 4) settled["alert-lootFull"] = now;
   if (snap.bags?.reserve != null && snap.bags.free >= snap.bags.reserve) settled["alert-bags"] = now;
+  // A page back in the game world ends the outage an offline alert reported.
+  if (snap.conn?.screen === "game" && snap.conn.connected) settled["alert-offline"] = now;
   return { state: st, items, evaluated, settled };
 }
 
@@ -331,6 +333,7 @@ export function snapshotInPage(a) {
     out.activitySec = iq.activitySeconds?.(600000) ?? null;
     out.raid = Boolean(S.raid?.getState?.().raidModeActive);
     out.conn = { screen: S.screen?.getState?.().currentScreen ?? null, connected: iq.socket?.isConnected ?? null, worldReady: iq.socket?.worldReady ?? null, inCombat: Boolean(S.skills?.getState?.().inCombat), zoneLoading: Boolean(cb.isZoneLoading) };
+    out.rendering = !cb.disable3D;
     const ks = iq.kills ?? [];
     let n = 0;
     let xp = 0;
@@ -1033,10 +1036,23 @@ class Daemon {
     }
     this.applyItems(tr, res, now, oldLabel);
     // A tab without the bridge or the bot is recovered, and one that runs older code gets the new
-    // code, unless a raid runs, which a reinstall would end.
+    // code, unless a raid runs, which a reinstall would end. A server restart signs every page out
+    // and leaves the bridge and bot in it, and the bot does not sign in, so a page off the game
+    // server for a minute is signed in again. The minute leaves the client time to resume by itself.
     const stale = snap?.hasBridge && snap.hasBot && this.code && snap.code !== this.code && !snap.raid;
-    if (obs.reachable && snap && !snap.error && (!snap.hasBridge || !snap.hasBot || stale)) await this.recoverTab(tr, now, stale).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
+    const install = Boolean(snap && (!snap.hasBridge || !snap.hasBot || stale));
+    const offline = Boolean(snap?.conn && (snap.conn.screen === "login" || snap.conn.connected === false));
+    tr.offlineSince = offline ? (tr.offlineSince ?? now) : null;
+    const signedOut = offline && now - tr.offlineSince >= 60000;
+    if (obs.reachable && snap && !snap.error && (install || signedOut)) await this.recoverTab(tr, now, { update: stale, install }).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
     else if (snap?.hasBot && !stale) tr.state.recovery = null;
+    if (usable && tr.renderingOff && snap.conn?.worldReady) {
+      tr.renderingOff = false;
+      if (snap.rendering) {
+        await this.relay.evaluate(tr.targetId, "(() => { const s = window.iq.stores.combat.getState(); if (!s.disable3D) s.toggleDisable3D(); return true; })()", { timeout: 5000 }).catch((e) => this.log(`rendering ${tr.label}: ${e.message}`));
+        this.log(`recovery ${tr.label}: turned rendering off after the sign-in`);
+      }
+    }
     const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
     // Only with every recorded row on disk, since a reload drops the page's buffers.
     if (exported && this.recover && snap.hasBot && !stale) await this.recycleTab(tr, snap, now).catch((e) => this.log(`reload ${tr.label}: ${e.message}`));
@@ -1102,19 +1118,21 @@ class Daemon {
   }
 
   /**
-   * Bring a reachable game tab without the bridge or the bot back to play, at most every two
-   * minutes (`--recover`): sign in with the stored login when the login form shows, then install
-   * the bridge and bot as the SDK does (src/install.mjs). The bot keeps its settings in the tab's
-   * sessionStorage, so a reloaded tab knows its leader. A tab that lost them gets its group's leader
-   * and members from data/roster.json, by the leader it showed before. The bot then enters the
-   * world as the leader and regroups by itself.
+   * Bring a reachable game tab back to play (`--recover`): a page without the bridge or the bot, as
+   * a reload leaves it, or one a server restart signed out, which keeps both. It signs in with the
+   * stored login when the login form shows. A sign-in takes the page through loading to the
+   * character select, which can last longer than a cycle, so another sign-in waits two minutes.
+   * Then it installs the bridge and bot as the SDK does (src/install.mjs) where `install` asks for
+   * them, at most every two minutes, but at once when this recovery's sign-in reached the
+   * character select. A signed-out page that kept both needs only the sign-in. A page still loading
+   * counts as no attempt. The bot keeps its settings in the tab's sessionStorage, so a reloaded tab
+   * knows its leader. A tab that lost them gets its group's leader and members from
+   * data/roster.json, by the leader it showed before. The bot then enters the world as the leader
+   * from the character select and regroups by itself.
    */
-  async recoverTab(tr, now, update = false) {
+  async recoverTab(tr, now, { update = false, install = true } = {}) {
     if (!this.recover) return;
-    const r = (tr.state.recovery ??= { attempts: 0, at: 0 });
-    if (now - r.at < 120000) return;
-    r.at = now;
-    r.attempts++;
+    const r = (tr.state.recovery ??= { attempts: 0, at: 0, signedInAt: 0 });
     const { installExpressions, screenInPage, signInInPage, storedLogin } = await import("../src/install.mjs");
     const evaluate = (expression, timeout = 15000) => this.relay.evaluate(tr.targetId, expression, { timeout });
     const screen = await evaluate(`(${screenInPage})()`);
@@ -1124,9 +1142,19 @@ class Daemon {
     };
     if (screen === "loading") return;
     if (screen === "login") {
+      if (now - (r.signedInAt ?? 0) < 120000) return;
+      r.signedInAt = now;
+      r.attempts++;
       await evaluate(`(${signInInPage})(${JSON.stringify(await storedLogin())})`);
+      // The client forgets Disable Rendering at a sign-in (src/group.mjs, renderingOff), so it goes
+      // off again once the page is back in the world.
+      tr.renderingOff = true;
       return note("signed in with the stored login");
     }
+    if (!install) return;
+    if (now - r.at < 120000 && !((r.signedInAt ?? 0) > r.at)) return;
+    r.at = now;
+    r.attempts++;
     for (const e of await installExpressions()) await evaluate(e, 30000);
     const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
     const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;

@@ -161,6 +161,14 @@ test("a bags alert settles once the free slots are back at the bot's reserve", (
   expect(step({ free: 12, cursor: null }).settled["alert-bags"]).toBeUndefined();
 });
 
+test("an offline alert settles once the page is connected in the game world", () => {
+  const step = (conn: Snap) => stepSession({ state: {}, obs: { reachable: true, present: true, snap: snap({ conn }) }, now: T0, label: "G2" });
+  expect(step({ screen: "login", connected: false }).settled["alert-offline"]).toBeUndefined();
+  // The client can show the game screen while its socket is down.
+  expect(step({ screen: "game", connected: false }).settled["alert-offline"]).toBeUndefined();
+  expect(step({ screen: "game", connected: true }).settled["alert-offline"]).toBe(T0);
+});
+
 test("heap above 85% of the limit raises", () => {
   expect(kinds(run(() => ok(snap({ heap: { used: 3300, limit: 4000 } })), 1, 30))).toEqual([]);
   expect(kinds(run(() => ok(snap({ heap: { used: 3500, limit: 4000 } })), 1, 30))).toEqual(["heap"]);
