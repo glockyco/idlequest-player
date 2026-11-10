@@ -85,6 +85,7 @@ code { font-size: 12px; }
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 .meter.unknown { background: repeating-linear-gradient(135deg, var(--border) 0 6px, transparent 6px 12px); border: 1px dashed var(--border); }
 .up { color: var(--good); font-weight: 600; margin-left: 4px; white-space: nowrap; }
+.got { color: var(--good); font-weight: 600; }
 .latest { margin-top: 4px; }
 
 /* Progress: what moved the goal bars, newest first, one row per event. */

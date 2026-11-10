@@ -126,8 +126,9 @@ const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear 
 function taskCell(now, t) {
   if (!t) return "";
   const kind = TASK_WORD[t.kind] ?? t.kind ?? "task";
-  const name = t.name && t.name !== kind ? ` <span class="name">${esc(t.name)}</span>` : "";
-  if (t.status === "running") return `<span title="${esc(t.step ?? "")}">${esc(kind)}${name} <span class="muted">${dur(t.forMs)}</span></span>`;
+  const what = t.subject ?? t.name;
+  const name = what && what !== kind ? ` <span class="name">${esc(what)}</span>` : "";
+  if (t.status === "running") return `<span title="${esc(`${t.name ?? ""}${t.step ? `: ${t.step}` : ""}`)}">${esc(kind)}${name} <span class="muted">${dur(t.forMs)}</span></span>`;
   if (t.status === "failed") return `<span class="bad" title="${esc(`${t.step ? `at ${t.step}: ` : ""}${t.error ?? ""}${t.retryInMs != null ? `. Retry ${inMs(t.retryInMs)}.` : ""}`)}">${esc(kind)} failed</span>${name}`;
   return "";
 }
@@ -266,23 +267,25 @@ function toggleGroup(row) {
 
 // ---- Coordinator and time ----------------------------------------------------------------------
 
+/** What the coordinator runs now and how its last tasks ended, each task by what it is after. */
 function renderCoordinator(s) {
   const c = s.coordinator;
   if (!s.coordinatorOn) return void ($("coord").innerHTML = `<p class="muted">Off. Start the collector with <code>--coordinate</code> to let it queue hand-ins and hunts.</p>`);
   if (!c) return void ($("coord").innerHTML = `<p class="muted">No pass yet.</p>`);
-  const stock = Object.entries(c.stock).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
   const list = (items, empty) => (items.length ? `<ul class="plainlist lines">${items.join("")}</ul>` : `<p class="muted small">${empty}</p>`);
-  const running = c.running.map((t) => `<li><span class="grp">${esc(t.group)}</span> <span class="name">${esc(t.name)}</span> <span class="muted">${esc(t.step ?? "")} · ${dur(t.forMs)}</span></li>`);
-  const retries = c.retries.slice(0, 8).map((r) => `<li><span class="when">${inMs(r.inMs)}</span> <span class="grp">${esc(r.group ?? "-")}</span> ${esc(r.name)}</li>`);
-  const outcomes = c.outcomes.slice(0, 6).map((o) => `<li><span class="when">${dur(o.agoMs)} ago</span> <span class="grp">${esc(o.group)}</span> ${esc(o.name)}: <span class="${o.status === "failed" ? "bad" : "muted"}">${short(o.status === "failed" ? `failed at ${o.step ?? "?"}, ${o.error ?? ""}` : (o.result ?? o.status), 60)}</span></li>`);
-  const decisions = c.decisions.slice(0, 6).map((d) => `<li><span class="when">${ago(s.now, d.t)}</span> ${d.group ? `<span class="grp">${esc(d.group)}</span> ` : ""}<span title="${esc(d.text)}">${esc(d.text)}</span></li>`);
-  const ex = c.experiment;
-  const experiment = ex.running.length ? ex.running.map((e) => `${esc(e.name)} since ${dur(e.sinceMs)} (A ${esc(e.a.join(", "))}, B ${esc(e.b.join(", "))})`).join("; ") : `none running${ex.lastEnded ? `, last: ${esc(ex.lastEnded.name)} ended ${dur(ex.lastEnded.agoMs)} ago` : ""}`;
-  $("coord").innerHTML = `<p class="small muted">Pass ${dur(c.passAgeMs)} ago. Lightstones on the account: ${esc(stock)}. Experiment: ${experiment}.</p>
-    <div class="trio">
-      <div><h4>Running</h4>${list(running, "No task runs.")}<h4>Next retries</h4>${list(retries, "Nothing is waiting.")}</div>
-      <div><h4>Recent outcomes</h4>${list(outcomes, "No task has ended yet.")}<h4>Recent decisions</h4>${list(decisions, "No decisions yet.")}</div>
-    </div>`;
+  const running = c.running.map((t) => `<li title="${esc(`${t.name ?? ""}${t.step ? `: ${t.step}` : ""}`)}"><span class="grp">${esc(t.group)}</span> ${esc(TASK_WORD[t.kind] ?? t.kind ?? "task")} <span class="name">${esc(t.subject ?? t.name)}</span> <span class="muted">${dur(t.forMs)}</span></li>`);
+  // The bot's results in a few words: an item got, an enemy not up, a camp waiting for its spawn.
+  const ended = (o) => {
+    if (o.status === "failed") return `<span class="bad" title="${esc(`${o.step ? `at ${o.step}: ` : ""}${o.error ?? ""}`)}">failed</span>`;
+    const r = o.result ?? o.status;
+    if (/^got /.test(r)) return `<span class="got">${esc(r)}</span>`;
+    const spawn = /next spawn at (\d+:\d+)/.exec(r);
+    const words = spawn ? `spawns at ${spawn[1]}` : /^none of .* up$/.test(r) ? "not up" : r === "time is up" ? "no drop in time" : short(r, 48);
+    return `<span class="muted" title="${esc(r)}">${esc(words)}</span>`;
+  };
+  const outcomes = c.outcomes.slice(0, 8).map((o) => `<li title="${esc(o.name)}"><span class="when">${dur(o.agoMs)} ago</span> <span class="grp">${esc(o.group ?? "-")}</span> <span class="name">${esc(o.subject)}</span>: ${ended(o)}</li>`);
+  const experiments = c.experiments.map((e) => `<p class="small">Experiment ${esc(e.name)} for ${dur(e.sinceMs)}: ${esc(e.a.join(", "))} against ${esc(e.b.join(", "))}.</p>`).join("");
+  $("coord").innerHTML = `${experiments}<div class="trio"><div><h4>Running</h4>${list(running, "No task runs.")}</div><div><h4>Ended</h4>${list(outcomes, "No task has ended yet.")}</div></div>`;
 }
 
 /** The hourly bars: height is the group-hours recorded in the hour, segments are the shares of each activity and idle cause. */

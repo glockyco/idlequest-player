@@ -196,6 +196,20 @@ export function taskName(catalog, id) {
   return unslug(id, catalog);
 }
 
+/** What a task is after in a word or two: an opportunity's item, a quest's reward, a farm's enemy or a target's enemy. */
+export function taskSubject(catalog, id) {
+  if (id == null) return null;
+  const o = catalog.opportunities.get(id);
+  if (o) return o.item;
+  const q = catalog.quests[id];
+  if (q) return q.reward;
+  const f = catalog.farms.get(id);
+  if (f) return f.keep;
+  const target = catalog.targets.get(id);
+  if (target) return npcName(target.npc);
+  return unslug(id, catalog);
+}
+
 /** `text` with every coordinator id in it replaced by its name. */
 export function nameIds(catalog, text) {
   const ids = [...catalog.opportunities.keys(), ...Object.keys(catalog.quests), ...catalog.farms.keys(), ...catalog.targets.keys()].sort((a, b) => b.length - a.length);
@@ -463,7 +477,7 @@ export function taskView(catalog, task, history, now, errand = null, code = null
   // An errand runs inside normal hunting, between and after tasks, so while one runs and no task
   // does, the errand is what the group is doing.
   if (errand && task?.status !== "running") {
-    return { id: null, kind: "errand", name: errand.item ?? errand.keep, status: "running", step: `errand for ${errand.keep} in ${zoneName(catalog, errand.zone)}${errand.until ? `, ends in ${Math.max(0, Math.round((errand.until - now) / 60000))} min` : ""}`, forMs: errand.since ? now - errand.since : null, agoMs: null, result: null, error: null, retryInMs: null };
+    return { id: null, kind: "errand", name: errand.item ?? errand.keep, subject: errand.item ?? errand.keep, status: "running", step: `errand for ${errand.keep} in ${zoneName(catalog, errand.zone)}${errand.until ? `, ends in ${Math.max(0, Math.round((errand.until - now) / 60000))} min` : ""}`, forMs: errand.since ? now - errand.since : null, agoMs: null, result: null, error: null, retryInMs: null };
   }
   if (!task) return null;
   const h = history.find((x) => x.task === task.id);
@@ -472,6 +486,7 @@ export function taskView(catalog, task, history, now, errand = null, code = null
     id: task.id,
     kind: task.kind,
     name: h ? taskLabel(catalog, h) : (TASK_KIND[task.kind] ?? task.kind),
+    subject: h?.id ? taskSubject(catalog, h.id) : null,
     status: task.status,
     step: task.step ?? null,
     forMs: task.status === "running" && task.startedAt ? now - task.startedAt : null,
@@ -808,51 +823,26 @@ export function gearSheetView(db, name, { roster, catalog }) {
   return { name, found: true, t: sheets.t, group: member.group, class: member.class, race: member.race, level: member.level, xpPct: member.xpPct, score: entry?.score ?? null, share: entry ? share(entry.score.now, entry.score.target) : null, afterMoves: entry ? share(entry.score.moves, entry.score.target) : null, slots: out, items };
 }
 
-/** A retry that came due longer ago than this is not waiting for its turn but for a group that fits it, and is left out of the panel. */
-const RETRY_GRACE_MS = 30 * 60000;
-
 /**
- * The coordinator panel: running tasks, next retries, the running experiment and recent outcomes,
- * with item and quest names. The bot keeps only each tab's latest task, so the outcomes are those.
+ * The coordinator panel: running tasks, the running experiments and recent outcomes, each outcome
+ * with its short `subject` (`taskSubject`) and its full name. The bot keeps only each tab's latest
+ * task, so the outcomes are those.
  */
 export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   const state = metaRow(db, "coordinator");
   if (!state) return null;
   const history = state.history ?? [];
-  const tasks = rows.filter((r) => r.task).map((r) => ({ group: r.id, leader: r.leader, ...r.task }));
-  const running = tasks.filter((t) => t.status === "running").sort((a, b) => b.forMs - a.forMs);
+  const running = rows
+    .filter((r) => r.task?.status === "running")
+    .map((r) => ({ group: r.id, leader: r.leader, ...r.task }))
+    .sort((a, b) => b.forMs - a.forMs);
   // Each task's own outcome, newest first, from the history the collector settles every cycle.
   const outcomes = history
     .filter((h) => h.status && outcomeOf(h).endedAt)
     .sort((a, b) => outcomeOf(b).endedAt - outcomeOf(a).endedAt)
     .slice(0, 12)
-    .map((h) => ({ group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h), step: h.step ?? null, status: h.status, result: h.result ?? null, error: h.error ?? null, agoMs: now - outcomeOf(h).endedAt }));
-  // The newest history entry of each opportunity (of each tab for a quest) says when it comes up again.
-  const latest = new Map();
-  for (const h of history) latest.set(h.kind === "quest" ? `${h.id}@${h.label}` : (h.id ?? `${h.kind}@${h.label}`), h);
-  const missing = state.last?.missing ?? {};
-  const runningIds = new Set(running.map((t) => t.id));
-  const code = metaRow(db, "daemon")?.code ?? null;
-  const retries = [...latest.values()]
-    .filter((h) => h.id && !runningIds.has(h.task) && missing[h.id] !== 0)
-    .map((h) => ({ at: retryAt(catalog, h, { history, code }), h }))
-    .filter((x) => x.at != null && x.at > now - RETRY_GRACE_MS)
-    .sort((a, b) => a.at - b.at)
-    .map(({ at, h }) => ({ inMs: at - now, group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h) }));
+    .map((h) => ({ group: groupOf.get(h.label) ?? null, kind: h.kind, subject: taskSubject(catalog, h.id) ?? TASK_KIND[h.kind] ?? h.kind, name: taskLabel(catalog, h), step: h.step ?? null, status: h.status, result: h.result ?? null, error: h.error ?? null, agoMs: now - outcomeOf(h).endedAt }));
   const ex = state.experiments ?? {};
-  const live = Object.entries(ex.running ?? {}).map(([name, x]) => ({ name, sinceMs: ex.started?.[name] ? now - ex.started[name] : null, a: x.a ?? [], b: x.b ?? [] }));
-  const ended = Object.entries(ex.ended ?? {}).sort((a, b) => b[1] - a[1])[0];
-  const decisions = db
-    .query("SELECT t, session, text FROM interventions WHERE actor = 'coordinator' ORDER BY id DESC LIMIT 10")
-    .all()
-    .map((x) => ({ t: x.t, group: groupOf.get(x.session) ?? null, text: nameIds(catalog, x.text) }));
-  return {
-    passAgeMs: state.last ? now - state.last.t : null,
-    stock: state.last?.stock ?? {},
-    running,
-    retries,
-    experiment: { running: live, lastEnded: ended ? { name: ended[0], agoMs: now - ended[1] } : null },
-    outcomes,
-    decisions,
-  };
+  const experiments = Object.entries(ex.running ?? {}).map(([name, x]) => ({ name, sinceMs: ex.started?.[name] ? now - ex.started[name] : null, a: x.a ?? [], b: x.b ?? [] }));
+  return { running, experiments, outcomes };
 }
