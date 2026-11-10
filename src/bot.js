@@ -415,13 +415,15 @@
     // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
     if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return;
     state.offSince ??= now();
-    // When another player holds the chosen target, the client gives it up with "Looking for another
-    // target." and sometimes stops AutoLevel instead of retrying (CAUokwED.js:5400-5426). That stop
-    // is the client's, not a person's, so it restarts at the next tick, within a minute of the line.
-    // The bot's own resurrections and switches restart it at once as well (`restartNow` says which).
-    const contested = state.abandonAt && now() - state.abandonAt < 60000;
-    if (contested || state.restartNow) {
-      state.abandonAt = null;
+    // The client stops AutoLevel by itself when another player holds the chosen target ("Looking
+    // for another target.", CAUokwED.js:5400-5426) and when the server is slow to confirm a fight
+    // ("AutoLevel paused: Combat preparation timed out before it could begin. Please try again.").
+    // Those stops are the client's, not a person's, and its text asks for a retry, so AutoLevel
+    // restarts at the next tick (`clientStop`, set by scanEvents). The bot's own resurrections and
+    // switches restart it at once as well (`restartNow` says which).
+    const clientStop = state.clientStop && now() - state.clientStop.t < 60000 ? state.clientStop : null;
+    if (clientStop || state.restartNow) {
+      state.clientStop = null;
       cb.startAutoLevel();
       state.offSince = now();
       if (state.restartNow) {
@@ -429,8 +431,8 @@
         state.restartNow = null;
         return;
       }
-      state.contestedRestarts = (state.contestedRestarts ?? 0) + 1;
-      log(`restarted AutoLevel after a contested target (${state.contestedRestarts} so far)`);
+      state.clientRestarts = (state.clientRestarts ?? 0) + 1;
+      log(`restarted AutoLevel after ${clientStop.why} (${state.clientRestarts} so far)`);
       return;
     }
     if (now() - state.offSince < config.restartAfterSec * 1000) return;
@@ -539,7 +541,8 @@
         const lvl = i.stores.character.getState().characterProfile?.level ?? 0;
         if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text, leader: who === "You", lostXp: who === "You" && lvl >= 5 ? lvl * lvl * 666.67 : 0 });
       } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
-      else if (/Looking for another target\.$/.test(text)) state.abandonAt = e.t ?? now();
+      else if (/Looking for another target\.$/.test(text)) state.clientStop = { t: e.t ?? now(), why: "a contested target" };
+      else if ((m = /^AutoLevel paused: (.+?)(?: Please try again\.| Check your connection, then try again\.)?$/.exec(text))) state.clientStop = { t: e.t ?? now(), why: `the client's pause (${m[1]})` };
       // A lowered cap and a timed-out escape are the guard working. Only an AutoLevel it could not
       // restart needs someone.
       else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, /did NOT restart/.test(text));

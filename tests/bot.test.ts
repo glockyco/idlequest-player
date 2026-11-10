@@ -720,6 +720,26 @@ test("in raid mode the bot leaves AutoLevel off, and restarts it after the raid"
   }
 });
 
+test("AutoLevel the client paused for a retry restarts at the next tick, and one off without a reason waits a minute", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.combat.isRunning = false;
+    f.say("AutoLevel paused: Combat preparation timed out before it could begin. Please try again.");
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(1);
+    // Still off and no new line: the usual wait of restartAfterSec from that start.
+    vi.advanceTimersByTime(30000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(1);
+    vi.advanceTimersByTime(31000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a root that outlasts a fight is dispelled only when that saves time, and cures go back off", async () => {
   vi.useFakeTimers();
   try {
