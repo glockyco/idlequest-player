@@ -80,6 +80,41 @@ export function opportunityDemand({ opportunities, need, ids }) {
 }
 
 /**
+ * Each leader's share of the account's demand, since the bag reserve acts on the active leader's
+ * carried items only. `need` is total copies per item id, `short` the gear plan's copies still to
+ * acquire, `rows` the account survey (Equipped and Carried rows) and `leaders` the tabs' leaders.
+ * Copies worn or carried by others are out of the reserve's reach, so they count first. Then each
+ * leader keeps the carried copies the account still needs, most first, and every leader keeps the
+ * shortfall and the gear plan's copies, because any tab may loot the missing one. Returns
+ * `{ [leader]: { [itemId]: copies } }`.
+ */
+export function tabShares({ need, short = {}, rows, leaders }) {
+  const lead = new Set(leaders);
+  const held = new Map();
+  for (const r of rows) {
+    if (!need[r.itemId]) continue;
+    const who = r.location === "Carried" && lead.has(r.characterName) ? r.characterName : "";
+    const m = held.get(r.itemId) ?? new Map();
+    m.set(who, (m.get(who) ?? 0) + (r.quantity ?? 1));
+    held.set(r.itemId, m);
+  }
+  const out = Object.fromEntries(leaders.map((l) => [l, {}]));
+  const add = (l, id, n) => n > 0 && (out[l][id] = (out[l][id] ?? 0) + n);
+  for (const [id, n] of Object.entries(need)) {
+    const m = held.get(Number(id)) ?? new Map();
+    let left = n - Math.min(n, m.get("") ?? 0);
+    for (const [l, c] of [...m].filter(([l]) => l).sort((a, b) => b[1] - a[1])) {
+      const take = Math.min(left, c);
+      add(l, id, take);
+      left -= take;
+    }
+    for (const l of leaders) add(l, id, left);
+  }
+  for (const [id, n] of Object.entries(short)) for (const l of leaders) add(l, id, n);
+  return out;
+}
+
+/**
  * One copy of every casino boss potion (`bosses`, the client's casino table): a potion is LORE
  * and stays with the character that won it, so a tab never carries two of one boss.
  */

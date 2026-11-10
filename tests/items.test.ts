@@ -2,7 +2,7 @@
 // demand sources and the client table reader. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { arrayLiteral } from "../tools/lib/client-tables.mjs";
-import { addDemand, chainDemand, potionDemand, stepDemand } from "../tools/lib/item-demand.mjs";
+import { addDemand, chainDemand, potionDemand, stepDemand, tabShares } from "../tools/lib/item-demand.mjs";
 import { needFor, scriptEdges } from "../tools/lib/quest-graph.mjs";
 
 const FORPAR = `function event_say(e)
@@ -78,4 +78,21 @@ test("a client table is read only as a plain literal", () => {
   const text = 'x=1;Si=[{key:"tunare",npcId:127098,itemId:990124,scriptedSpawn:{x:-247,questSource:"a(b).lua"}}],y=2';
   expect(arrayLiteral(text, text.indexOf("[{"))).toEqual([{ key: "tunare", npcId: 127098, itemId: 990124, scriptedSpawn: { x: -247, questSource: "a(b).lua" } }]);
   expect(() => arrayLiteral('[{key:"a",v:alert(1)}]', 0)).toThrow("not a plain literal");
+});
+
+test("each leader keeps its carried copies up to the need left after others' copies, and every leader keeps the shortfall", () => {
+  const row = (characterName: string, itemId: number, location = "Carried", quantity?: number) => ({ characterName, itemId, location, ...(quantity ? { quantity } : {}) });
+  const rows = [
+    // Item 1: need 3. A member carries one and leader A wears one, both out of the reserve's reach.
+    row("Member", 1), row("A", 1, "Equipped"),
+    // A carries a stack of 4: one copy is still needed, the rest is surplus.
+    row("A", 1, "Carried", 4),
+    // Item 2: need 2, leaders A and B carry one each, nothing short.
+    row("A", 2), row("B", 2),
+    // Item 9 has no need and is ignored.
+    row("A", 9),
+  ];
+  const shares = tabShares({ need: { 1: 3, 2: 2, 3: 1 }, short: { 7: 2 }, rows, leaders: ["A", "B"] });
+  // Item 3 is short everywhere, and the gear plan's two copies of item 7 go to every leader.
+  expect(shares).toEqual({ A: { 1: 1, 2: 1, 3: 1, 7: 2 }, B: { 2: 1, 3: 1, 7: 2 } });
 });

@@ -35,7 +35,7 @@ An item that no edge produces is a leaf: a drop, a merchant item or a ground spa
 
 ### Demand (coordinator)
 
-`demand[itemId]` is the copies the account needs: the gear plan's copies, one epic reward per class member and one chain input per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), one of each boss potion (the client's casino table) and the hand-in items whose reward pays (lightstones today). It replaces `keepNames`, `keepItemIds`, `keepItemIdRange`, `questItemIds`, `gearKeepCounts` and `data/quest-items.json`. Each tab gets its share: the copies its characters carry that the account still needs, and the instances its planned moves take. Until step 2 every tab gets the account's whole count, which keeps at most a few copies too many.
+`demand[itemId]` is the copies the account needs: one epic reward per class member and one chain input per member still without the epic (`chainDemand`), one copy of a runnable chain's items per member still on it (`stepDemand`), the copies the hunts and errands are for (`opportunityDemand`), one of each boss potion (the client's casino table) and the gear plan's copies still to acquire. Hand-in items whose reward pays (lightstones today) are still `keepItemIds` until step 5 values them. Each tab gets its leader's share (`tabShares`), because the bag reserve acts on the active leader's carried items only. Copies worn or carried by others count first. Each leader then keeps the carried copies the account still needs, and every leader keeps the shortfall and the gear plan's copies, because any tab may loot the missing one. The shares come from the last gear pass's survey, so a copy looted since then can be kept twice until the next pass. The gear plan's moves add the instances they take (`gearKeepInstances`).
 
 ### Fate (bot)
 
@@ -56,10 +56,10 @@ Gear has two kits, because leveling value (XP rate) and raid value (a boss fight
 | Step | Change | Removes | Status |
 | --- | --- | --- | --- |
 | 1 | Quest graph, `data/epics.json`, chain and step demand, the casino table read from the client, all in one `demand` map. | `questItemIds`, `keepItemIdRange`, `gearKeepCounts`, `setGearKeepInPage`, `questKeepItems` and the chain part of `keepNames` | Done |
-| 2 | The hunts' and errands' items in the demand, then each tab's share of the demand by the copies the account holds elsewhere. | `keepNames` (done), `data/quest-items.json` and `tools/quest-items.mjs` (done), `keepItemIds` | Under way |
+| 2 | The hunts' and errands' items in the demand, and each tab's share of it. | `keepNames`, `data/quest-items.json` and `tools/quest-items.mjs` | Done |
 | 3 | One held-item routine in the bot, loot primitives in the bridge, raid loot given in the raid window. | The cursor handling of `clearCursorAfterTrade`, `collectLoot` and `giveItem` | Open |
 | 4 | The item task delivers kept copies and stores them. | Kept copies in the leader's bags | Open |
-| 5 | Hand-in reward values. | Hand-picked hand-ins such as lightstones | Open |
+| 5 | Hand-in reward values. | `keepItemIds` (the lightstones) | Open |
 | 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
 
 ## Checks
