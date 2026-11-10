@@ -1334,25 +1334,39 @@
   /**
    * Inventory Search's own request (opcode 1241, action "search", read-only) for each of `words`,
    * four at a time, merged by owner, item instance and bank. A search matches names anywhere and
-   * lists at most 200 rows, so the words are item kinds and name parts. Resolves with the rows and
-   * the words whose search was cut off at 200.
+   * lists at most 200 rows, so the words are item kinds and name parts. A slow server times a
+   * request out now and then, so each word is asked up to three times, and one that still fails is
+   * missed instead of failing the whole survey. Resolves with the rows, the words whose search was
+   * cut off at 200 and the missed words.
    */
   const searchItems = async (words) => {
     const p = stores.character.getState().characterProfile;
     const seen = new Map();
     const capped = [];
+    const missed = [];
     const todo = [...new Set(words)];
     await Promise.all(
       Array.from({ length: 4 }, async () => {
         while (todo.length) {
           const query = todo.shift();
-          const r = await socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query }, 8000);
-          if (r?.more) capped.push(query);
-          for (const m of r?.matches ?? []) seen.set(`${m.characterId}:${m.itemInstanceId}:${m.bankKind ?? ""}`, m);
+          let r = null;
+          for (let k = 0; k < 3 && !r; k++) {
+            try {
+              r = await socket.sendCorrelatedJsonRequest(1241, 1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query }, 8000);
+            } catch {
+              if (k < 2) await pause(2000 * (k + 1));
+            }
+          }
+          if (!r) {
+            missed.push(query);
+            continue;
+          }
+          if (r.more) capped.push(query);
+          for (const m of r.matches ?? []) seen.set(`${m.characterId}:${m.itemInstanceId}:${m.bankKind ?? ""}`, m);
         }
       }),
     );
-    return { rows: [...seen.values()], capped };
+    return { rows: [...seen.values()], capped, missed };
   };
   /** Close windows that hide the right-hand buttons: Done and Close buttons, merchant, Path To, the quest dialogue and the combat macro bar. */
   const closeWindows = async () => {

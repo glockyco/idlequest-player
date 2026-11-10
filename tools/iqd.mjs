@@ -395,6 +395,8 @@ export function drainInPage(a) {
 
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
+// A pass that failed, such as an Inventory Search the server timed out, comes again this soon.
+const GEAR_RETRY_MIN = 10;
 // The raid budget a gear pass leaves untouched: an hour of raid time and a casino boss potion a day
 // (docs/plans/leveling-plan.md, lever 9).
 const RAID_PP_PER_DAY = 5300;
@@ -915,25 +917,37 @@ class Daemon {
   /**
    * The roster gear pass, every `GEAR_EVERY_MIN`: worn items and the leaders' bags from every
    * party's own inventories, the companions' carried items from Inventory Search (`searchItems` in
-   * the bridge), then the plan of tools/lib/gear-plan.mjs. The items the plan wants kept go to every
-   * bot, and the moves go to the coordinator's policy, which queues them as one gear task. The
-   * survey is saved to runs/state/account-items.json for tools/handdown.mjs.
+   * the bridge), then the plan of tools/lib/gear-plan.mjs. A roster character whose party the pass
+   * cannot read, because its tab is out of the world or a task plays another character, keeps the
+   * worn items of the last survey. Taken for naked, it would get moves into slots it fills, its wear
+   * stints would close and the progress feed would count its items as new at the next read. The
+   * items the plan wants kept go to every bot, and the moves go to the coordinator's policy, which
+   * queues them as one gear task. The survey is saved to runs/state/account-items.json for
+   * tools/handdown.mjs and the next pass.
    */
   async gearPass(now, tabs, hoursPerLevel = {}) {
-    // The last pass is kept in the database, so a restart of iqd does not survey again at once.
-    if (now - (metaGet(this.db, "gear")?.t ?? 0) < GEAR_EVERY_MIN * 60000) return null;
-    metaSet(this.db, "gear", { t: now });
+    // The last pass is kept in the database, so a restart of iqd does not survey again at once. The
+    // report and targets of the last pass that finished stay until the next one finishes, and one
+    // that fails comes again after GEAR_RETRY_MIN.
+    const prev = metaGet(this.db, "gear") ?? {};
+    if (now < (prev.next ?? (prev.t ?? 0) + GEAR_EVERY_MIN * 60000)) return null;
+    metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
     const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
     const party = [];
     for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
-    const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords(party.map((r) => r.itemName))] }), { timeout: 10000 });
+    const read = new Set(party.map((r) => r.characterName));
+    const groups = this.groups();
+    const last = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
+    const kept = last.filter((r) => r.location === "Equipped" && groups.has(r.characterName) && !read.has(r.characterName));
+    if (kept.length) this.log(`gear pass: kept the last worn items of ${new Set(kept.map((r) => r.characterName)).size} characters whose party was not readable`);
+    const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...party, ...kept].map((r) => r.itemName))] }), { timeout: 10000 });
     let job = null;
     for (let k = 0; k < 90 && !job?.done; k++) {
       await new Promise((r) => setTimeout(r, 2000));
       job = await this.relay.evaluate(tabs[0].targetId, call(jobInPage, { id }), { timeout: 10000 });
     }
     if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
-    const survey = mergeSurvey(party, job.result.rows);
+    const survey = mergeSurvey([...party, ...kept], job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
     recordWear(this.db, survey, now);
@@ -984,9 +998,8 @@ class Daemon {
     const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // The 40 best targets are all the hunts and the dashboard's list need.
     this.targetWants = targets.slice(0, 40);
-    // The per-character report for the dashboard, kept apart from `gear` so the placeholder written at the
-    // start of a pass never wipes it: the scores in `gearPlan`, and in `gearSheets` each character's slots
-    // with the cards (name, icon, stats) of the items they name.
+    // The per-character report for the dashboard: the scores in `gearPlan`, and in `gearSheets` each
+    // character's slots with the cards (name, icon, stats) of the items they name.
     const cards = {};
     for (const c of characters) for (const s of c.slots) for (const id of [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]) if (id != null && !cards[id] && this.items.has(id)) cards[id] = itemCard(this.items.get(id));
     // The upgrades worn since the last pass, for the progress feed, before this pass's report replaces it.
@@ -997,8 +1010,8 @@ class Daemon {
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
     metaSet(this.db, "gearSheets", { t: now, sheets, items: cards });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
-    metaSet(this.db, "gear", { t: now, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
-    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}`);
+    metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
+    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
     return { moves };
   }
 
