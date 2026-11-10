@@ -1083,24 +1083,17 @@ test("the reserve keeps a supply of food and of drink from the largest stacks, n
   expect(f.sell.map((s) => s.name).sort()).toEqual(["Rat Sandwich", "Skin of Milk"]);
 });
 
-test("the reserve keeps every casino boss potion, which has no price and is NO DROP like a discard", async () => {
+test("the reserve keeps copies up to the account's demand, counting stacks, and lets the rest go", async () => {
   const { bot, me } = await install();
-  const row = (slot: number, itemid: number, Name: string) => ({ bag: 23, slot, itemid, itemInstanceId: 300 + slot, quantity: 1, itemDetails: { Name, price: 0, nodrop: 0, norent: 1, itemtype: 21 } });
-  me.inventory = [row(0, 990113, "Potion of Lodizal"), row(1, 990124, "Potion of Tunare"), row(2, 3, "Battle Plans")];
+  const row = (slot: number, itemid: number, Name: string, price: number, quantity = 1) => ({ bag: 23, slot, itemid, itemInstanceId: 300 + slot, quantity, itemDetails: { Name, price, nodrop: price ? 1 : 0, norent: 1, itemtype: 21 } });
+  // A boss potion and an epic piece have no price and are NO DROP, like the Battle Plans nobody wants.
+  me.inventory = [row(0, 990113, "Potion of Lodizal", 0), row(1, 20524, "Kedge Backbone", 0), row(2, 20524, "Kedge Backbone", 0), row(3, 3, "Battle Plans", 0), row(4, 10035, "Ruby", 50, 3), row(5, 10035, "Ruby", 50, 3)];
+  bot.config.demand = { 990113: 1, 20524: 1, 10035: 2 };
   const f = bot.fates();
-  expect(f.keep.map((k) => k.name)).toEqual(["Potion of Lodizal", "Potion of Tunare"]);
-  expect(f.discard.map((d) => d.name)).toEqual(["Battle Plans"]);
-});
-
-test("the reserve keeps a quest hand-in item it would destroy, and still sells one with a price", async () => {
-  const { bot, me } = await install();
-  const row = (slot: number, itemid: number, Name: string, price: number) => ({ bag: 23, slot, itemid, itemInstanceId: 400 + slot, quantity: 1, itemDetails: { Name, price, nodrop: price ? 1 : 0, norent: 1, itemtype: 11 } });
-  me.inventory = [row(0, 20524, "Kedge Backbone", 0), row(1, 13073, "Bone Chips", 10), row(2, 3, "Battle Plans", 0)];
-  bot.config.questItemIds = [20524, 13073];
-  const f = bot.fates();
-  expect(f.keep.map((k) => k.name)).toEqual(["Kedge Backbone"]);
-  expect(f.sell.map((s) => s.name)).toEqual(["Bone Chips"]);
-  expect(f.discard.map((d) => d.name)).toEqual(["Battle Plans"]);
+  // One Kedge Backbone is wanted, the first stack of rubies covers the two wanted, the second is surplus.
+  expect(f.keep.map((k) => `${k.name} ${k.slot}`).sort()).toEqual(["Kedge Backbone 1", "Potion of Lodizal 0", "Ruby 4"]);
+  expect(f.sell.map((s) => `${s.name} ${s.slot}`)).toEqual(["Ruby 5"]);
+  expect(f.discard.map((d) => `${d.name} ${d.slot}`).sort()).toEqual(["Battle Plans 3", "Kedge Backbone 2"]);
 });
 
 // Lets the bot's in-page switch job run its fake commands to the end.
@@ -1868,10 +1861,10 @@ test("the reserve discards surplus without a price first, then sells surplus che
     // The coordinator names a quest piece, and the gear plan needs one helm copy for a move.
     Object.assign(f.bot.config, { autoBank: false, minFreeSlots: 8, targetFreeSlots: 8, keepNames: ["Power of Fire"], gearKeepInstances: [104] });
     expect(f.bot.fates()).toMatchObject({ keep: [{ name: "Power of Fire" }, { name: "Small Bronze Helm", instanceId: 104 }], discard: [{ name: "Battle Plans" }, { name: "Shaded Torch" }] });
-    // A count from the gear plan keeps that many copies of an item the account is short of, not more.
-    Object.assign(f.bot.config, { gearKeepInstances: [], gearKeepCounts: { 5: 1 } });
+    // The account's demand keeps that many copies of an item it is short of, not more.
+    Object.assign(f.bot.config, { gearKeepInstances: [], demand: { 5: 1 } });
     expect(f.bot.fates().keep.filter((k) => k.name === "Small Bronze Helm")).toHaveLength(1);
-    Object.assign(f.bot.config, { gearKeepInstances: [104], gearKeepCounts: {} });
+    Object.assign(f.bot.config, { gearKeepInstances: [104], demand: {} });
     const clean = async () => {
       const run = f.bot.cleanup();
       for (let k = 0; k < 30; k++) {

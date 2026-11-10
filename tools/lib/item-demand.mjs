@@ -1,0 +1,83 @@
+// The account's demand for items (docs/plans/items.md, "Demand"): how many copies of each item the
+// account needs. Each source is a pure function from the game's data, and `addDemand` sums them,
+// because two uses of one item each need their own copy.
+import { readFile } from "node:fs/promises";
+import { casinoBosses } from "./client-tables.mjs";
+import { rows } from "./content.mjs";
+import { doneItems } from "./coordinator.mjs";
+import { needFor, questGraph } from "./quest-graph.mjs";
+
+/**
+ * What demand is computed from, read once because it changes only with a content or client update:
+ * the quest graph's `edges`, the class `epics` (`data/epics.json`), the items a merchant sells
+ * (`buyable`), the casino's potion `bosses`, item `names` by id and `ids` by name.
+ */
+export async function loadItemModel(root) {
+  const [edges, bosses, epics] = await Promise.all([questGraph(root), casinoBosses(), readFile(new URL("../../data/epics.json", import.meta.url), "utf8").then(JSON.parse)]);
+  const buyable = new Set();
+  for await (const m of rows("merchantlist", root)) buyable.add(m.item);
+  const names = new Map();
+  const ids = new Map();
+  for await (const i of rows("items", root)) {
+    names.set(i.id, i.Name);
+    ids.set(i.Name, [...(ids.get(i.Name) ?? []), i.id]);
+  }
+  return { edges, bosses, epics, buyable, names, ids };
+}
+
+/**
+ * Copies of each item the roster's class epics take: one copy of a class's epic reward for each of
+ * its members, and for each member that holds none of the rewards (`epicHolders`, names), the
+ * copies one reward takes on the paths back from it (`needFor` of the quest graph `edges`, walking
+ * back to items a merchant sells, `buyable`). A buyable input is bought at its step rather than
+ * carried, so it is no demand.
+ */
+export function chainDemand({ edges, epics, members, epicHolders = new Set(), buyable = new Set() }) {
+  const out = {};
+  const add = (id, n) => (out[id] = (out[id] ?? 0) + n);
+  for (const [cls, rewards] of Object.entries(epics)) {
+    const ofClass = members.filter((m) => m.class === cls);
+    for (const reward of rewards) add(reward, ofClass.length);
+    const needers = ofClass.filter((m) => !epicHolders.has(m.name)).length;
+    if (!needers) continue;
+    const each = new Map();
+    for (const reward of rewards) for (const [id, n] of needFor(edges, reward, new Set(), buyable)) if (!buyable.has(id)) each.set(id, Math.max(each.get(id) ?? 0, n));
+    for (const [id, n] of each) add(id, n * needers);
+  }
+  return out;
+}
+
+/**
+ * Copies of the items the runnable chains of `data/quests.json` use, for the steps the quest graph
+ * cannot follow, such as a scene that ends in a kill: one copy of each step's items for every class
+ * member, at any level, that does not hold the chain (`holders`), and one copy of each item that
+ * shows a chain done (`doneItems`) for every class member. `ids` maps an item name to its ids.
+ */
+export function stepDemand({ quests, holders = {}, members, ids }) {
+  const out = {};
+  const add = (name, n) => {
+    for (const id of ids.get(name) ?? []) out[id] = (out[id] ?? 0) + n;
+  };
+  for (const [id, q] of Object.entries(quests)) {
+    const ofClass = members.filter((m) => m.class === q.class);
+    for (const name of doneItems(id, quests)) add(name, ofClass.length);
+    const open = ofClass.filter((m) => !(holders[id] ?? []).includes(m.name)).length;
+    if (!open) continue;
+    const items = [...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])];
+    for (const name of new Set(items.filter(Boolean))) add(name, open);
+  }
+  return out;
+}
+
+/**
+ * One copy of every casino boss potion (`bosses`, the client's casino table): a potion is LORE
+ * and stays with the character that won it, so a tab never carries two of one boss.
+ */
+export const potionDemand = (bosses) => Object.fromEntries(bosses.map((b) => [b.itemId, 1]));
+
+/** The sum of demand maps `{ [itemId]: copies }`. */
+export function addDemand(...maps) {
+  const out = {};
+  for (const m of maps) for (const [id, n] of Object.entries(m)) out[id] = (out[id] ?? 0) + n;
+  return out;
+}

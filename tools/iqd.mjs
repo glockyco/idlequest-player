@@ -17,6 +17,7 @@ import { Relay } from "../src/cdp.mjs";
 import { accumulate, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { targetId } from "./lib/acquire.mjs";
+import { addDemand, chainDemand, loadItemModel, potionDemand, stepDemand } from "./lib/item-demand.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -463,12 +464,6 @@ export async function aaInPage(a) {
   return { done, state: { name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null } };
 }
 
-/** Give the bot what the roster gear plan needs kept: copies per item the account is short of, and the copies its moves take. */
-export function setGearKeepInPage(a) {
-  window.iqBot.set({ gearKeepCounts: a.counts, gearKeepInstances: a.instances });
-  return Object.keys(a.counts).length + a.instances.length;
-}
-
 // ---- Recorder files -----------------------------------------------------------------------------
 
 /** Last `{ ses, seq }` in a JSONL file, like exportRun's resume point, or zeros without a file. */
@@ -533,7 +528,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, questKeepItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -687,13 +682,17 @@ class Daemon {
       const b = predicted(t.zone, level);
       return a > 0 && b > 0 ? a / b : 0;
     };
-    // What the hunts, errands and open quest chains are for is never sold, wherever it is looted.
-    // Gear targets' items are kept by the gear plan's counts (`setGearKeepInPage`).
-    const keepNames = [...new Set([...opportunities.map((o) => o.item), ...questKeepItems({ quests, holders, members })].filter(Boolean))].sort();
-    // Quest hand-in items the bag reserve would otherwise destroy (`questItemIds` in src/bot.js), read
-    // once from the content's quest scripts.
-    this.questItems ??= await import("./lib/content.mjs").then((m) => m.questItemIds()).catch((e) => (this.log(`quest items: ${e.message}`), null));
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames, ...(this.questItems ? { questItemIds: this.questItems } : {}) } }), { timeout: 10000 }).catch(() => {});
+    // What the hunts and errands are for is never sold, wherever it is looted.
+    const keepNames = [...new Set(opportunities.map((o) => o.item).filter(Boolean))].sort();
+    // The account's demand (docs/plans/items.md, "Demand"): the last gear pass's copies, the class
+    // epics' chain inputs from the quest graph, the items of the runnable chains in
+    // data/quests.json and the casino's boss potions. The model is read once, and the gear counts
+    // stay in the db meta key `gearKeep`, so a restart keeps them.
+    this.itemModel ??= await loadItemModel();
+    this.gearKeep ??= metaGet(this.db, "gearKeep") ?? { counts: {}, instances: [] };
+    const epicHolders = new Set((await Promise.all(Object.values(this.itemModel.epics).flat().map((id) => carriers(this.itemModel.names.get(id))))).flat());
+    const demand = addDemand(this.gearKeep.counts, chainDemand({ ...this.itemModel, members, epicHolders }), stepDemand({ quests, holders, members, ids: this.itemModel.ids }), potionDemand(this.itemModel.bosses));
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { keepNames, demand, gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
     const { actions, targets: targetEval } = decide({ now, tabs, stock, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare });
@@ -988,7 +987,9 @@ class Daemon {
     this.keepCards(named);
     metaSet(this.db, "gearPlan", { t: now, characters: characters.map(({ slots, ...c }) => c) });
     metaSet(this.db, "gearSheets", { t: now, sheets });
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(setGearKeepInPage, keep), { timeout: 10000 }).catch(() => {});
+    // The pass sends the counts to every tab inside the account's demand (`demand` in src/bot.js).
+    this.gearKeep = keep;
+    metaSet(this.db, "gearKeep", keep);
     metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
     return { moves };

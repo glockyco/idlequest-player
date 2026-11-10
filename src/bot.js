@@ -38,14 +38,6 @@
     // Kept in every copy, besides the reagents of the leader's own spells. Lightstones (10300) and
     // Greater Lightstones (10400) are worth 137,200 and 274,400 XP each to Smith Tv`ysa in South Ro.
     keepItemIds: [10015, 10300, 10400],
-    // Casino boss potions, which summon a boss for a raid, are kept in every copy. They have no price
-    // and are NO DROP, so they would count as discards. The client's potion table numbers them from
-    // 990100 (30 bosses in release 20261110T154736).
-    keepItemIdRange: [990100, 990199],
-    // Items some quest script accepts in a hand-in (`questItemIds` of tools/lib/content.mjs, set by
-    // the coordinator). One the client could sell is still sold, but one it would destroy (no price,
-    // NO DROP or NO RENT) is kept, because epic pieces such as Kedge Backbone are of that kind.
-    questItemIds: [],
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
@@ -63,7 +55,10 @@
     // (docs/plans/leveling-plan.md, lever 5), so the bot holds it off. Null would leave it alone.
     charm: false,
     dotMaxTicks: 0, // DoTs longer than this many ticks are left out for every caster (`keepExclusions`); 0 leaves none out
-    gearKeepCounts: {}, // item id to the copies the roster gear plan (tools/lib/gear-plan.mjs) still needs: up to that many are kept
+    // Item id to the copies the account needs (docs/plans/items.md, "Demand"), set by the coordinator
+    // from the gear plan, the quest graph's chain inputs and the casino's boss potions: up to that
+    // many copies are kept.
+    demand: {},
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
     keepNames: [], // items the coordinator's hunts, errands and quest chains are for, by name, kept in every copy
     keepSupply: { 14: 20, 15: 20 }, // food (item type 14) and drink (15): units kept, from the largest stacks, which the server feeds the character from
@@ -122,7 +117,9 @@
   } catch {
     saved = {};
   }
-  const config = { ...DEFAULTS, ...saved };
+  // Only keys the code still has: a setting a later version removed would otherwise stay in every
+  // tab's storage and in every snapshot.
+  const config = { ...DEFAULTS, ...Object.fromEntries(Object.entries(saved).filter(([k]) => k in DEFAULTS)) };
 
   const fresh = {
     alerts: [], // { seq, t, kind, wake, text }; `wake` marks what an attached script should act on
@@ -211,20 +208,19 @@
   };
 
   /**
-   * The fate of every carried item outside containers (docs/plans/inventory.md): kept up to its
-   * demand, the rest surplus. Demand keeps up to `gearKeepCounts` copies of an item, and every copy of `keepItemIds`, `keepNames`, the gear plan's
-   * `gearKeepInstances` and the reagents of the leader's class spells, and food and drink up to
-   * `keepSupply` units of each type, from the largest stacks. Surplus the client can sell (a price, not NO
-   * DROP, not NO RENT) is `sell`, cheapest first. The rest is `discard`, except an item of `questItemIds`,
-   * which is kept. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
+   * The fate of every carried item outside containers (docs/plans/items.md, "Fate"): kept up to its
+   * demand, the rest surplus. Demand keeps up to `demand` copies of an item, every copy of
+   * `keepItemIds` and `keepNames`, the gear plan's `gearKeepInstances`, the reagents of the leader's
+   * class spells, and food and drink up to `keepSupply` units of each type, from the largest stacks.
+   * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
+   * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
-    const questItems = new Set(config.questItemIds);
     const out = { keep: [], sell: [], discard: [] };
     const supplyLeft = { ...config.keepSupply };
-    const gearLeft = { ...config.gearKeepCounts };
+    const demandLeft = { ...config.demand };
     const rows = inv.filter((r) => ((r.bag === 0 && r.slot >= 22 && r.slot <= 29) || (r.bag >= 23 && r.bag <= 30) || (withCursor && r.bag === 0 && r.slot === 30)) && r.itemDetails && !((r.itemDetails.bagslots || 0) > 0));
     // Food and drink come from the largest stacks, so the supply takes the fewest slots.
     rows.sort((a, b) => (b.quantity ?? 1) - (a.quantity ?? 1));
@@ -233,11 +229,9 @@
       const name = d.Name ?? d.name;
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
-      const gear = config.gearKeepInstances.includes(r.itemInstanceId) || (gearLeft[r.itemid] > 0 && gearLeft[r.itemid]--);
-      const keptId = config.keepItemIds.includes(r.itemid) || (r.itemid >= config.keepItemIdRange[0] && r.itemid <= config.keepItemIdRange[1]);
-      if (supply || gear || keptId || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
+      const wanted = config.gearKeepInstances.includes(r.itemInstanceId) || (demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true));
+      if (supply || wanted || config.keepItemIds.includes(r.itemid) || config.keepNames.includes(name) || reagents.has(r.itemid)) out.keep.push(row);
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
-      else if (questItems.has(r.itemid)) out.keep.push(row);
       else out.discard.push(row);
     }
     out.sell.sort((a, b) => a.price * a.quantity - b.price * b.quantity);

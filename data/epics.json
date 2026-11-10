@@ -1,0 +1,16 @@
+{
+  "Warrior": [10908],
+  "Cleric": [5532],
+  "Paladin": [10099],
+  "Ranger": [20488, 20487],
+  "Shadow Knight": [14383],
+  "Druid": [20490],
+  "Monk": [10652],
+  "Bard": [20542],
+  "Rogue": [11057],
+  "Shaman": [10651],
+  "Necromancer": [20544],
+  "Wizard": [14341],
+  "Magician": [28034],
+  "Enchanter": [10650]
+}
