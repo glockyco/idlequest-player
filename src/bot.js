@@ -89,7 +89,7 @@
     slowFightSec: 180,
     slowFoeShare: 0.25, // an enemy that pays less than this share of the party's usual XP per fight second is skipped
     rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
-    rotateBelowShare: 0.6, // move on when the last 10 minutes earned less than this share of the visit's best
+    rotateBelowShare: 0.6, // move on when the XP per hour of play over the last 10 minutes falls below this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
     rotateEscapes: 4, // guard escapes in this zone within 10 minutes rotate immediately (0 = never)
     // AutoLevel's con and level limits, { minCon, maxCon, maxLevelDiff }, that the party returns to
@@ -1870,12 +1870,21 @@
   // AutoLevel only pulls enemies it can reach, and spawns return after about ten minutes, so a
   // party can empty the reachable part of a zone: in Permafrost at level 19 the XP rate fell from
   // 1.9M to nothing in 40 minutes. With `rotation` set to zone short names, the bot moves to the
-  // next one when "No available enemies" persists, or when the last 10 minutes earned less than
-  // `rotateBelowShare` of the best 10 minutes since arriving, after at least `rotateMinStayMin`.
-  // The coordinator sets `rotation`: the band row's zones at the leader's level with the most
-  // measured XP per hour, best first, a zone other groups hunt in counting for less
+  // next one when "No available enemies" persists, or when the XP per hour of play over the last 10
+  // minutes falls below `rotateBelowShare` of the best since arriving, after at least
+  // `rotateMinStayMin`. The coordinator sets `rotation`: the band row's zones at the leader's level
+  // with the most measured XP per hour, best first, a zone other groups hunt in counting for less
   // (`assignZones` in tools/lib/coordinator.mjs).
   const xpLast10 = (i) => (i.kills ?? []).filter((k) => k.t > now() - 600000).reduce((s, k) => s + (k.xp ?? 0), 0);
+  // Seconds that are not the zone's: a task, travel, a hold of the bot, the client's pause, a stop
+  // nothing explains, a failed zone load, and a page signed out, which records no seconds at all.
+  const NOT_PLAY = /^(task|unknown|travel(\/.*)?|idle\/(held|clientPause|off|loadFailed|unknown))$/;
+  // The kills' XP over the last 10 minutes per hour of the party's play in them (`activitySeconds`
+  // of src/bridge.js), or null below five minutes of play, which leaves too little to judge.
+  const playRate = (i) => {
+    const play = Object.entries(i.activitySeconds?.(600000) ?? {}).reduce((a, [k, s]) => a + (NOT_PLAY.test(k) ? 0 : s), 0);
+    return play >= 300 ? (3600 * xpLast10(i)) / play : null;
+  };
   const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
   // A party outside its rotation, after a respawn at the bind point, a new rotation or a fresh
   // start in a home city, moves to the rotation's first zone after `outsideRotationSec`.
@@ -1925,10 +1934,11 @@
       }
     }
     if (now() - (state.zoneSince ?? now()) < 600000) return;
-    const rate = xpLast10(i);
+    const rate = playRate(i);
+    if (rate == null) return;
     state.zoneBestRate = Math.max(state.zoneBestRate ?? 0, rate);
     if (now() - state.zoneSince < config.rotateMinStayMin * 60000 || rate >= config.rotateBelowShare * state.zoneBestRate) return;
-    await rotate(i, `the last 10 minutes earned ${Math.round((100 * rate) / Math.max(1, state.zoneBestRate))}% of this visit's best`);
+    await rotate(i, `the last 10 minutes of play earned ${Math.round((100 * rate) / Math.max(1, state.zoneBestRate))}% of this visit's best`);
   };
 
   // ---- Errands ------------------------------------------------------------------------------

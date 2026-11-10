@@ -125,6 +125,9 @@ async function install(partyIds: number[] = []) {
     { shortName: "permafrost", longName: "The Permafrost Caverns", zoneidnumber: 73 },
   ];
   const kills: { t: number; xp: number; enemy: string }[] = [];
+  // Seconds per activity label over the last minutes, as the bridge counts them from its samples. The
+  // fake played the whole window unless a test changes it.
+  const played: Record<string, number> = { fight: 600 };
   const moves: string[] = [];
   // Item rows in the bags, by name.
   const bag: { id?: number; name: string; quantity?: number }[] = [];
@@ -182,6 +185,7 @@ async function install(partyIds: number[] = []) {
     session: 1,
     samples: [],
     kills,
+    activitySeconds: () => ({ ...played }),
     // Zone changes the bot asked for, by short name; the fake moves the party at once.
     changeZone: async (shortName: string) => {
       moves.push(shortName);
@@ -234,7 +238,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, loadFailure, sheet, screen, commands, commandReply, activity };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, played, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, loadFailure, sheet, screen, commands, commandReply, activity };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -527,6 +531,31 @@ test("rotation moves on from a zone whose XP rate fell or whose guard keeps esca
     for (let k = 0; k < 4; k++) ambushed.guard.trips.push({ t: Date.now(), reason: "level: an ice giant L47", zone: 73 });
     await ambushed.bot.tick();
     expect(ambushed.moves).toEqual(["paw"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a party signed out or held through the last ten minutes keeps its zone, because the rate counts play only", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bot, combat, kills, played, moves } = await install();
+    bot.config.rotation = ["guktop", "permafrost"];
+    combat.currentZone = 65;
+    await bot.tick(); // arrival
+    for (let m = 0; m < 10; m++) {
+      vi.advanceTimersByTime(60000);
+      kills.push({ t: Date.now(), xp: 10000, enemy: "a froglok" });
+    }
+    await bot.tick(); // this visit's best ten minutes
+    vi.advanceTimersByTime(11 * 60000); // nothing killed since
+    // A signed-out page records no seconds, and a hold records its own.
+    for (const window of [{}, { "idle/held": 400, fight: 200 }]) {
+      for (const k of Object.keys(played)) delete played[k];
+      Object.assign(played, window);
+      await bot.tick();
+    }
+    expect(moves).toEqual([]);
   } finally {
     vi.useRealTimers();
   }
