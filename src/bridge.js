@@ -47,6 +47,9 @@
       raid: { find: ["setGroupCommand", "isRaidOpen"], actions: ["openRaid", "closeRaid", "endRaid", "addGuildMembers", "setAllCommand"], state: ["raidModeActive", "combatActive", "leaderDead", "lifecyclePending", "roster", "engagedEnemies", "eventLog"] },
       // The Raid Time section's quote and expiry, which raid mode reads before it starts a fight.
       raidTime: { find: ["priceCopper", "renewalAttemptedFor"], actions: [], state: ["expiresAtMs", "busy", "error"] },
+      // The failed zone load that the loading overlay shows as Loading Failed, and the retry its
+      // TRY AGAIN button calls.
+      loadFailure: { find: ["retryToken", "fail", "retry"], actions: ["retry"], state: ["message"] },
       merchant: { find: ["merchants", "selectedMerchant", "merchantItems"], actions: [], state: [] },
       partyTactics: { find: ["meleeByCharacterId", "setTactic"], actions: [], state: ["overridesByCharacterId"] },
       partySpells: { find: ["castingPreferences", "setPetPreference"], actions: ["setTactic", "setCastingPreferences"], state: ["overridesByCompanion"] },
@@ -318,7 +321,8 @@
 
   // ---- Activity -----------------------------------------------------------------------------
   // One label for every second of play, so the time a tab loses is measured instead of guessed
-  // (docs/plans/controller.md). The labels come from the client's own state, in this order:
+  // (docs/plans/controller.md), and every idle second carries the cause the page shows for it
+  // (docs/plans/fault-handling.md). `ACTIVITY_RULES.label` decides from what `activityView` reads:
   //   dead       the active character is dead
   //   travel     zoning (why "zone"), an escape of the guard ("escape"), or AutoLevel's own trip
   //              to a merchant ("restock") or back after a death ("deathReturn")
@@ -327,12 +331,69 @@
   //   approach   walking to the enemy AutoLevel or the Enemy Targets list picked
   //   recover    the readiness wait before a pull (HP, mana, pets, cures) or its retry, or someone
   //              below full HP or mana while AutoLevel runs, as in its 5 s pause after each kill
-  //   idle       nothing happens: AutoLevel is off ("off"), or off because the client found nothing
-  //              within its limits in the zone ("noEnemies"), stands at its target with Auto
-  //              Attack off ("waitAttack"), retries its readiness wait with the party full
-  //              ("readyWait"), waits for an enemy that others or its deferrals hold ("crowded"),
-  //              pauses after a kill with the party full ("afterKill"), or runs without a target
-  //              ("noTarget")
+  //   idle       nothing happens, and why names what holds the party:
+  //     loadFailed   a zone load failed and its Loading Failed window is open, so nothing plays
+  //     held         AutoLevel off since one of the bot's holds (`autoLevelHold` in src/bot.js)
+  //     clientPause  AutoLevel off since the client paused it ("AutoLevel paused: ...")
+  //     contested    AutoLevel off since the client gave up a target another player holds
+  //     noEnemies    AutoLevel off since the client found no enemy within its limits in the zone
+  //     off          AutoLevel off with none of these since it last ran
+  //     waitAttack   AutoLevel at its target with Auto Attack off
+  //     readyWait    AutoLevel retrying its readiness wait with the party full
+  //     afterKill    the client's pause after a won fight, with the party full
+  //     lootSettle   AutoLevel waiting for a kill's loot to settle
+  //     crowded      AutoLevel waiting for an enemy that other players or its deferrals hold
+  //     noTarget     AutoLevel on with nothing to approach, no loot pending and no enemy to wait for
+  //     unknown      the client's combat runtime is not found, so the rules cannot place the second
+  // BEGIN ACTIVITY_RULES
+  // Pure and self-contained, so tests/activity.test.ts evaluates this block on its own.
+  const ACTIVITY_RULES = (() => {
+    // AutoLevel waits this long after each won fight before it looks for the next enemy (`Dt`,
+    // 5 s, in the client's combat runtime), plus a second of sampling slack.
+    const AFTER_KILL_MS = 6000;
+    // The client's lines that stop AutoLevel (CAUokwED.js): its supervisor's pause, the target
+    // approach's abandon when AutoLevel had stopped or fought a single target (while AutoLevel
+    // runs, the client tries another target after 500 ms), and the target search that found nothing.
+    const STOP_LINES = [
+      [/^AutoLevel paused: /, "clientPause"],
+      [/ Looking for another target\.$/, "contested"],
+      [/^No available enemies found in this zone/, "noEnemies"],
+    ];
+    /** The cause a chat line gives for a stop of AutoLevel, or null. Only the client's system lines count. */
+    const stopCause = (e) => (/^SYSTEM/.test(e?.type ?? "") ? (STOP_LINES.find(([re]) => re.test(e.text ?? ""))?.[1] ?? null) : null);
+    /**
+     * Why AutoLevel is off: the latest evidence since it last ran at `ranAt`, the client's latest
+     * stop line `stop` (`{ t, cause }`) or the bot's latest hold at `heldAt`.
+     */
+    const offCause = ({ ranAt, stop, heldAt }) => {
+      const line = stop && stop.t >= ranAt ? stop : null;
+      if (heldAt > ranAt && heldAt >= (line?.t ?? 0)) return "held";
+      return line?.cause ?? "off";
+    };
+    /** The label `[act, why]` of one second of play, from the page view of `activityView`. */
+    const label = (v) => {
+      if (v.loadFailed) return ["idle", "loadFailed"];
+      if (v.dead) return ["dead"];
+      if (v.zoneLoading) return ["travel", "zone"];
+      if (v.escaping) return ["travel", "escape"];
+      if (v.inCombat) return ["fight"];
+      if (v.pause != null) return ["task", v.pause];
+      if (v.trip) return ["travel", v.trip === "death-return" ? "deathReturn" : "restock"];
+      const rt = v.runtime;
+      if (!rt) return ["idle", "unknown"];
+      if (rt.attempt) return rt.attempt === "waiting-to-attack" ? ["idle", "waitAttack"] : ["approach"];
+      if (rt.buffPhase) return ["recover"];
+      if (rt.retrying) return v.partyFull ? ["idle", "readyWait"] : ["recover"];
+      if (!v.running) return ["idle", offCause(v)];
+      if (!v.partyFull) return ["recover"];
+      if (v.sinceKillMs < AFTER_KILL_MS) return ["idle", "afterKill"];
+      if (rt.pendingLoot > 0) return ["idle", "lootSettle"];
+      if (rt.waitingTargets) return ["idle", "crowded"];
+      return ["idle", "noTarget"];
+    };
+    return { stopCause, offCause, label };
+  })();
+  // END ACTIVITY_RULES
   /** True when the leader and every living companion and pet are at full HP and mana. */
   const partyFull = () => {
     const p = stores.character.getState().characterProfile ?? {};
@@ -352,53 +413,70 @@
     if (journeyHelper === undefined) journeyHelper = allExports().find((g) => g && typeof g === "object" && typeof g.beforeFight === "function" && "returningAfterDeath" in g) ?? null;
     return journeyHelper;
   };
-  // AutoLevel waits this long after each won fight before it looks for the next enemy (`Dt` in the
-  // client's combat runtime), plus a second of sampling slack.
-  const AFTER_KILL_MS = 6000;
-  // The client's "No available enemies found in this zone" switches AutoLevel off, and its line
-  // names that cause for the 90 seconds after it.
-  const noEnemiesSince = (t) => {
-    for (let k = events.length - 1; k >= 0 && events[k].t > t - 90000; k--) if (/^No available enemies found in this zone/.test(events[k].text ?? "")) return true;
-    return false;
+  // When AutoLevel last ran and the client's latest line that stopped it, which the rules weigh
+  // against the bot's holds. A reinstall takes both from the buffers.
+  let ranAt = samples.findLast((s) => s.run)?.t ?? 0;
+  let lastStop = null;
+  const noteStop = (e) => {
+    const cause = ACTIVITY_RULES.stopCause(e);
+    if (cause) lastStop = { t: e.t, cause };
   };
-  const activityNow = () => {
+  for (const e of events) noteStop(e);
+  /** What the label rules read: the client's stores and combat runtime, and the bot's pause and holds. */
+  const activityView = () => {
     const p = stores.character.getState().characterProfile;
     const cb = stores.combat.getState();
-    if (!(p?.curHp > 0)) return ["dead"];
-    if (cb.isZoneLoading) return ["travel", "zone"];
-    if (guard.phase === "leaving") return ["travel", "escape"];
-    if (stores.skills.getState().inCombat) return ["fight"];
+    const t = Date.now();
+    if (cb.isRunning) ranAt = t;
     const bot = window.iqBot?.state;
-    if ((bot?.pauseUntil ?? 0) > Date.now()) return ["task", String(bot.pauseReason ?? "").slice(0, 40)];
-    const trip = journey()?.phase;
-    if (trip) return ["travel", trip === "death-return" ? "deathReturn" : "restock"];
     const rt = runtime();
     const attempt = rt?.combatApproach?.attempt;
-    if (attempt) return attempt.phase === "waiting-to-attack" ? ["idle", "waitAttack"] : ["approach"];
-    if (rt?.buffPhaseActive) return ["recover"];
-    if (rt?.preparationRetryTimer != null) return partyFull() ? ["idle", "readyWait"] : ["recover"];
-    if (!cb.isRunning) return ["idle", noEnemiesSince(Date.now()) ? "noEnemies" : "off"];
-    if (!partyFull()) return ["recover"];
-    if (rt?.waitingForAutoLevelTargets) return ["idle", "crowded"];
-    return ["idle", Date.now() - (kills.at(-1)?.t ?? 0) < AFTER_KILL_MS ? "afterKill" : "noTarget"];
+    return {
+      loadFailed: Boolean(stores.loadFailure.getState().message),
+      dead: !(p?.curHp > 0),
+      zoneLoading: Boolean(cb.isZoneLoading),
+      escaping: guard.phase === "leaving",
+      inCombat: Boolean(stores.skills.getState().inCombat),
+      pause: (bot?.pauseUntil ?? 0) > t ? String(bot.pauseReason ?? "").slice(0, 40) : null,
+      trip: journey()?.phase ?? null,
+      runtime: rt
+        ? {
+            attempt: attempt ? (attempt.phase ?? "approaching") : null,
+            buffPhase: Boolean(rt.buffPhaseActive),
+            retrying: rt.preparationRetryTimer != null,
+            pendingLoot: rt.pendingAutoLevelLoot?.size ?? 0,
+            waitingTargets: Boolean(rt.waitingForAutoLevelTargets),
+          }
+        : null,
+      running: Boolean(cb.isRunning),
+      partyFull: partyFull(),
+      sinceKillMs: t - (kills.at(-1)?.t ?? 0),
+      ranAt,
+      stop: lastStop,
+      heldAt: Number(bot?.heldAt) || 0,
+    };
   };
-  // The current label and when it began, `{ act, why, since }`, kept by the sampler.
+  // The current label and when it began, `{ act, why, since }`, which the sampler and every reader
+  // bring up to date. A fault in the rules must not stop the recorder, so it shows as its own label.
   let activity = window.iq?.activity?.() ?? null;
+  const readActivity = () => {
+    let lab;
+    try {
+      lab = ACTIVITY_RULES.label(activityView());
+    } catch {
+      lab = ["unknown"];
+    }
+    const [act, why = null] = lab;
+    if (activity?.act !== act || activity?.why !== why) activity = { act, why, since: Date.now() };
+    return activity;
+  };
   const sample = () => {
     const p = stores.character.getState().characterProfile;
     if (!p?.id) return null;
     const cb = stores.combat.getState();
     const comps = stores.companions.getState().companions ?? [];
     const t = Date.now();
-    // A fault in the labels must not stop the recorder, so it shows as its own label.
-    let lab;
-    try {
-      lab = activityNow();
-    } catch {
-      lab = ["unknown"];
-    }
-    const [act, why = null] = lab;
-    if (activity?.act !== act || activity?.why !== why) activity = { act, why, since: t };
+    const { act, why } = readActivity();
     // A task or an errand changes what the party fights, so the measured zone rates leave that
     // time out (tools/lib/rates.mjs).
     const bot = window.iqBot?.state;
@@ -522,7 +600,9 @@
     for (const m of state.messages) {
       if (m.id <= lastChatId) continue;
       lastChatId = m.id;
-      events.push({ ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text) });
+      const e = { ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text) };
+      events.push(e);
+      noteStop(e);
       // The game reminds the player when merchant spells are missing, after a level-up and every ten minutes.
       if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
         lastSpellBuy = Date.now();
@@ -798,9 +878,7 @@
       for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
       guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
     }
-    // AutoLevel comes back only when it ran before: a script or a task that holds the party still
-    // keeps it off.
-    const wasRunning = cb.isRunning;
+    // The escape is one of the bot's holds, so the bot starts AutoLevel again once it ends.
     cb.setIsRunning(false);
     try {
       await changeZone(target ?? null);
@@ -808,15 +886,7 @@
       guardNote(`zone change failed: ${e.message}`);
     }
     applyLimits(stores.combat.getState(), limits);
-    if (wasRunning) {
-      for (let i = 0; i < 15 && !stores.combat.getState().isRunning; i++) {
-        stores.combat.getState().startAutoLevel();
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-      guardNote(stores.combat.getState().isRunning ? "AutoLevel running again" : "AutoLevel did NOT restart");
-    } else {
-      guardNote("AutoLevel stays off, as it was before the escape");
-    }
+    guardNote("escape done");
     guard.phase = "watching";
   };
   guard.timerId = setInterval(() => {
@@ -1422,8 +1492,8 @@
     events,
     seqs,
     session,
-    /** What the party does now, `{ act, why, since }` (see "Activity" above), or null before the first sample. */
-    activity: () => activity,
+    /** What the party does now, `{ act, why, since }` (see "Activity" above), or the last label while no character is in the world. */
+    activity: () => (stores.character.getState().characterProfile?.id ? readActivity() : activity),
     /** True when the leader and every living companion and pet are at full HP and mana. */
     partyFull,
     /**

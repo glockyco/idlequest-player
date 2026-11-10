@@ -35,6 +35,7 @@
 // gap, and by "spawns" when the model is held back by its spawn limit.
 import { readFile } from "node:fs/promises";
 import { DEFAULTS, cfgFromFlags, conLimits, evalZone, loadZones } from "./predict.mjs";
+import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 
 const args = process.argv.slice(2);
 const has = (n) => args.includes(`--${n}`);
@@ -147,9 +148,9 @@ function addEvents(stretches, events, members) {
     s.xpLost += Number(/^You lose (\d+) experience/.exec(e.text)?.[1] ?? 0);
     s.stone += Number(/^You gain experience!! \((\d+)\)/.exec(e.text)?.[1] ?? 0);
     if (e.type === "guard") {
-      const g = /^\[guard\] leaving: (\w+)/.exec(e.text);
+      const g = ESCAPE_START.exec(e.text);
       if (g) open = { t: e.t, why: g[1], s };
-      else if (open && /AutoLevel (running again|did NOT restart)/.test(e.text)) {
+      else if (open && ESCAPE_END.test(e.text)) {
         open.s.escapes.push({ why: open.why, secs: (e.t - open.t) / 1000 });
         open = null;
       }

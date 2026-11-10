@@ -1,7 +1,7 @@
 // In-page supervisor for unattended play.
 //
 // AutoLevel fights, loots and rests by itself. The supervisor does the routine work it leaves to a
-// person: it keeps the tab on its leader, starts AutoLevel again when it stays off without a pause,
+// person: it keeps the tab on its leader and AutoLevel running unless one of its holds keeps it off,
 // sells surplus copies before the bags fill, and keeps a short report with alerts, so an attached
 // script can check in with one call instead of many. It runs on a timer inside the page and keeps
 // working while no script is attached, for example while an agent waits for an answer.
@@ -17,6 +17,7 @@
   const prev = window.iqBot;
   if (prev?.timerId) clearInterval(prev.timerId);
   if (prev?.fastTimerId) clearInterval(prev.fastTimerId);
+  if (prev?.waker?.timer) clearTimeout(prev.waker.timer);
 
   // Settings changed with `set` override these defaults and are saved in the tab's sessionStorage.
   // It survives reloads of that tab, and a second session's tab does not see it, so two groups
@@ -26,7 +27,7 @@
     enabled: true,
     tickSec: 15,
     fastTickSec: 2, // Auto Attack and root checks, which lose play time for every second they wait
-    restartAfterSec: 60, // AutoLevel off this long while not paused: start it again (manual movement input cancels it)
+    restartAfterSec: 60, // AutoLevel off this long for no stated reason starts again. Manual movement cancels it, so a person's stop gets this long.
     defaultPauseMin: 20, // a pause ends by itself after this many minutes unless renewed
     // The bag reserve (docs/plans/inventory.md): below `minFreeSlots` free slots between fights the
     // bot makes room until `targetFreeSlots` are free, so a drop always fits.
@@ -41,8 +42,11 @@
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
     // moves it again, so the coordinator's roster gear pass (tools/lib/gear-plan.mjs) equips instead.
     // The server's Auto-Sell and Delete Clutter act only on full bags and by rules that do not know
-    // what the account needs, so the bot's reserve (`keepReserve`) does their work.
-    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, deleteNoDrop: false },
+    // what the account needs, so the bot's reserve (`keepReserve`) does their work. Rendering stays
+    // off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel runs and
+    // saves most of a tab's CPU, and the client forgets it at a sign-in (OSTsR53r.js:191477).
+    // A screenshot of the world turns it on for its moment (`render`).
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, deleteNoDrop: false, disable3D: true },
     // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
@@ -118,14 +122,17 @@
     actions: [], // { t, text }
     pauseUntil: 0,
     pauseReason: null,
-    offSince: null,
     restarts: [],
     eventCursor: null, // { ses, seq } of the last chat event looked at
     cursorSince: null,
     cursorAlerted: false,
     offlineSince: null,
     offlineAlerted: false,
-    idleCase: null, // { why, rung, at, alerted }: the idle cause the remedy table works on
+    idleCases: {}, // cause -> { rung, at, began, errand, alerted }: the idle causes the remedy table works on
+    heldAt: 0, // the last time a hold kept AutoLevel off or the bot stopped it, which the activity label reads
+    heldBy: null, // what that hold was
+    holding: false, // whether a hold held at the last look
+    renderUntil: 0, // rendering stays on until then, for a screenshot of the world
     lootFails: [], // times of "could not loot" messages
     lootAlertAt: 0,
     deaths: [], // times of party deaths
@@ -379,8 +386,8 @@
     if (pick) {
       pick.button.click();
       state.deadSince = now();
-      // A resurrection chosen in the window leaves AutoLevel paused at the corpse.
-      state.restartNow = "the resurrection";
+      // A resurrection chosen in the window leaves AutoLevel off at the corpse, and the death was a
+      // hold, so the remedy table starts it again.
       alert("respawn", `the leader was dead at level ${p.level}; resurrected with ${pick.percent}% of the lost XP for ${pick.price ? `${pick.price}pp` : "free"}`);
       return;
     }
@@ -405,43 +412,65 @@
     const group = [...new Set([...config.partyIds, config.leaderId].filter((id) => id != null).map(Number))];
     return group.filter((id) => !present.has(id) && id !== me);
   };
-  const keepAutoLevel = (i, cb) => {
-    if (cb.isRunning) {
-      state.offSince = null;
-      state.restartNow = null;
-      return;
-    }
-    if (now() < state.pauseUntil || i.guard?.phase === "leaving" || !i.socket.isConnected || leaderDead(i)) return;
+  // ---- AutoLevel holds ----------------------------------------------------------------------
+  // Whether AutoLevel runs is part of the desired state, and the remedy table below is the only
+  // code that starts it (docs/plans/fault-handling.md). A hold keeps it off: a pause for a script
+  // or a task, a raid, a page out of the world or in a zone change, a character switch or another
+  // character than the leader in play, the guard's escape, a dead leader, or members still joining.
+  // The bot stops AutoLevel only under a hold or for a fresh start (`holdAutoLevel`), and it notes
+  // every hold in `state.heldAt`, so the page's activity label tells AutoLevel that went off under
+  // a hold ("held") from the client's own stops and from a stop nothing explains (src/bridge.js).
+  const pauseName = () => `the pause${state.pauseReason ? ` for ${state.pauseReason}` : ""}`;
+  const autoLevelHold = (i) => {
+    const p = i.stores.character.getState().characterProfile;
+    if (now() < state.pauseUntil) return pauseName();
+    if (inRaid(i)) return "the raid";
+    if (state.switching && !state.switching.done) return `the switch to ${state.switching.name}`;
+    if (!i.socket?.isConnected || i.stores.screen.getState().currentScreen !== "game" || !p?.id) return "a page out of the world";
+    if (i.stores.combat.getState().isZoneLoading) return "a zone change";
+    if (config.leaderId != null && Number(p.id) !== Number(config.leaderId)) return `${p.name} in play instead of the leader`;
+    if (i.guard?.phase === "leaving") return "the guard's escape";
+    if (leaderDead(i)) return "the leader's death";
     // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
-    if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return;
-    state.offSince ??= now();
-    // The client stops AutoLevel by itself when another player holds the chosen target ("Looking
-    // for another target.", CAUokwED.js:5400-5426) and when the server is slow to confirm a fight
-    // ("AutoLevel paused: Combat preparation timed out before it could begin. Please try again.").
-    // Those stops are the client's, not a person's, and its text asks for a retry, so AutoLevel
-    // restarts at the next tick (`clientStop`, set by scanEvents). The bot's own resurrections and
-    // switches restart it at once as well (`restartNow` says which).
-    const clientStop = state.clientStop && now() - state.clientStop.t < 60000 ? state.clientStop : null;
-    if (clientStop || state.restartNow) {
-      state.clientStop = null;
-      cb.startAutoLevel();
-      state.offSince = now();
-      if (state.restartNow) {
-        log(`restarted AutoLevel after ${state.restartNow}`);
-        state.restartNow = null;
-        return;
-      }
-      state.clientRestarts = (state.clientRestarts ?? 0) + 1;
-      log(`restarted AutoLevel after ${clientStop.why} (${state.clientRestarts} so far)`);
-      return;
+    if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return "members joining";
+    return null;
+  };
+  // Both ticks note the holds, and the end of one wakes the tick, so AutoLevel starts without
+  // waiting for the next interval.
+  const noteHold = (i) => {
+    const hold = autoLevelHold(i);
+    if (hold) Object.assign(state, { heldAt: now(), heldBy: hold, holding: true });
+    else if (state.holding) {
+      state.holding = false;
+      wake(500);
     }
-    if (now() - state.offSince < config.restartAfterSec * 1000) return;
-    cb.startAutoLevel();
-    state.offSince = now(); // give the start a full interval before trying again
-    state.restarts = state.restarts.filter((t) => t > now() - 3600000);
-    state.restarts.push(now());
-    const repeated = state.restarts.length >= 3;
-    alert("autoLevelRestarted", `AutoLevel was off for ${config.restartAfterSec}s without a pause; started it again${repeated ? ` (${state.restarts.length} times this hour)` : ""}`, repeated);
+  };
+  /** The bot's every stop of AutoLevel, for `why`. The next tick starts it again once no hold remains. */
+  const holdAutoLevel = (cb, why) => {
+    cb.setIsRunning(false);
+    Object.assign(state, { heldAt: now(), heldBy: why });
+    wake(1500);
+  };
+  // A pause ends here, whether it ran out, its task ended or a script resumed the bot. It was a
+  // hold, so AutoLevel starts at once, and the tick restores the leader, the party and the zone.
+  const endPause = (what) => {
+    if (state.pauseUntil) log(`${what} ended`);
+    Object.assign(state, { pauseUntil: 0, pauseReason: null, heldAt: now(), heldBy: what });
+    wake(500);
+  };
+  // The tick runs at the latest `ms` from now, for a change to act on at once, such as the end of
+  // a hold or of a remedy's delay. A tick in progress takes it a second later.
+  const waker = { timer: null, at: 0 };
+  const wake = (ms) => {
+    const at = now() + ms;
+    if (waker.timer && waker.at <= at) return;
+    clearTimeout(waker.timer);
+    waker.at = at;
+    waker.timer = setTimeout(() => {
+      waker.timer = null;
+      if (ticking) wake(1000);
+      else tick();
+    }, ms);
   };
 
   // ---- Enemies worth their time -------------------------------------------------------------
@@ -541,11 +570,9 @@
         const lvl = i.stores.character.getState().characterProfile?.level ?? 0;
         if (who === "You" || names.has(who)) (state.deaths ??= []).push({ t: e.t ?? now(), text, leader: who === "You", lostXp: who === "You" && lvl >= 5 ? lvl * lvl * 666.67 : 0 });
       } else if ((m = /inventory is full, you could not loot (.+?)\.?$/i.exec(text))) state.lootFails.push({ t: e.t ?? now(), item: m[1] });
-      else if (/Looking for another target\.$/.test(text)) state.clientStop = { t: e.t ?? now(), why: "a contested target" };
-      else if ((m = /^AutoLevel paused: (.+?)(?: Please try again\.| Check your connection, then try again\.)?$/.exec(text))) state.clientStop = { t: e.t ?? now(), why: `the client's pause (${m[1]})` };
-      // A lowered cap and a timed-out escape are the guard working. Only an AutoLevel it could not
-      // restart needs someone.
-      else if (e.type === "guard" && /lowering the AutoLevel cap|did NOT restart|failed/.test(text)) alert("guard", text, /did NOT restart/.test(text));
+      // A lowered cap and an escape's failed zone change are notes, because the guard and the remedy
+      // table handle both.
+      else if (e.type === "guard" && /lowering the AutoLevel cap|failed/.test(text)) alert("guard", text);
     }
   };
 
@@ -660,27 +687,54 @@
 
   // ---- Idle remedies -----------------------------------------------------------------------
   // One table maps each idle cause of the page's activity label (src/bridge.js, "Activity") to a
-  // ladder of remedies (docs/plans/controller.md, principle 3). A rung runs once the cause has
-  // lasted `afterSec`, the next one if the same cause outlasts `afterSec` again, and a rung with
-  // nothing to do passes to the next at once. When the ladder is used up, an alert wakes a script.
-  // "off" is keepAutoLevel's and "afterKill" is the client's own pause after a kill. An errand
-  // waits for its spawns on purpose, so it gets its own ladder (`errand`, the restarts by default),
-  // except that a crowded errand zone, whose enemies other players take, ends the errand.
+  // ladder of remedies (docs/plans/controller.md, principle 3), and its `start` is the only start of
+  // AutoLevel (docs/plans/fault-handling.md). A rung runs once the cause has lasted `afterSec`, the
+  // next one once the cause outlasts `afterSec` again, and a rung with nothing to do passes to the
+  // next at once. When the ladder is used up, an alert wakes a script. A cause's case ends once the
+  // label no longer shows that occurrence of it, which began at the label's `since`, and for a
+  // cause with AutoLevel on, whose remedies change the label for a moment, at the next kill
+  // (`untilKill`). While a hold keeps AutoLevel off, only a cause marked `always` acts. An errand
+  // hunts its zone on purpose, so its ladder leaves out the rungs that change the zone or the
+  // limits, unless the cause names its own (`errand`): a crowded errand zone, whose enemies other
+  // players take, ends the errand. "afterKill" and "lootSettle" are the client's own waits after a
+  // kill, and "unknown" has no remedy.
   const REMEDIES = {
-    waitAttack: { afterSec: 20, rungs: ["restart"] },
-    readyWait: { afterSec: 30, rungs: ["restart"] },
-    noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"] },
-    crowded: { afterSec: 60, rungs: ["widen", "move"], errand: ["leave"] },
+    loadFailed: { afterSec: 0, rungs: ["tryAgain"], always: true },
+    // AutoLevel off: it starts at once after a hold or a contested target, 5 s after the client
+    // paused it, and after `restartAfterSec` when nothing explains the stop.
+    held: { afterSec: 0, rungs: ["start"] },
+    contested: { afterSec: 0, rungs: ["start"] },
+    clientPause: { afterSec: 5, rungs: ["start"] },
+    off: {
+      get afterSec() {
+        return config.restartAfterSec;
+      },
+      rungs: ["start"],
+    },
     noEnemies: { afterSec: 0, rungs: ["widen", "move"] },
-  };
-  const restartAutoLevel = (cb) => {
-    cb.setIsRunning(false);
-    setTimeout(() => iq()?.stores.combat.getState().startAutoLevel(), 1500);
+    waitAttack: { afterSec: 20, rungs: ["restart"], untilKill: true },
+    readyWait: { afterSec: 30, rungs: ["restart"], untilKill: true },
+    noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"], untilKill: true },
+    crowded: { afterSec: 60, rungs: ["widen", "move"], errand: ["leave"], untilKill: true },
   };
   const remedies = {
+    // A stop nothing explains is counted, because one that keeps coming back is a person or a
+    // fault to find in the event log.
+    start: (i, cb, why, cause) => {
+      cb.startAutoLevel();
+      if (cause === "held") return `started AutoLevel after ${state.heldBy ?? "a hold"}`;
+      if (cause === "off") {
+        state.restarts = state.restarts.filter((t) => t > now() - 3600000);
+        state.restarts.push(now());
+        const repeated = state.restarts.length >= 3;
+        alert("autoLevelRestarted", `AutoLevel was off for ${config.restartAfterSec} s for no stated reason; started it again${repeated ? ` (${state.restarts.length} times this hour)` : ""}`, repeated);
+      }
+      return "started AutoLevel";
+    },
+    // A stop that the next tick answers with a start, because it is the bot's own hold.
     restart: (i, cb) => {
-      restartAutoLevel(cb);
-      return "restarted AutoLevel";
+      holdAutoLevel(cb, "a fresh start");
+      return "stopped AutoLevel for a fresh start";
     },
     // Undo what narrowed the limits: the guard's tightening first, then the level floor, then a
     // minimum con above blue. `keepLimits` returns them to `limits` after `widenMin`.
@@ -690,21 +744,21 @@
         i.guard.preferred = null;
         setLimits(cb, p);
         state.widenedAt = now();
-        restartAutoLevel(cb);
+        holdAutoLevel(cb, "the wider limits");
         return `back to con ${p.minCon}..${p.maxCon}, cap ${p.maxLevelDiff} from before the guard tightened them`;
       }
       if (cb.minNpcLevel > 0) {
         const was = cb.minNpcLevel;
         cb.setMinNpcLevel(0);
         state.widenedAt = now();
-        restartAutoLevel(cb);
+        holdAutoLevel(cb, "the wider limits");
         return `lifted the minimum enemy level ${was}`;
       }
       if (cb.minCon > 4) {
         const was = cb.minCon;
         cb.setMinCon(4);
         state.widenedAt = now();
-        restartAutoLevel(cb);
+        holdAutoLevel(cb, "the wider limits");
         return `lowered minimum con from ${was} to blue (4)`;
       }
       return null;
@@ -714,6 +768,12 @@
       if (!state.errand) return null;
       endErrand(i, why, true);
       return "ended the errand";
+    },
+    // The Loading Failed window's TRY AGAIN, which loads the zone again.
+    tryAgain: (i) => {
+      i.stores.loadFailure.getState().retry();
+      alert("loadFailed", "the zone did not finish loading; pressed Try Again");
+      return "pressed Try Again";
     },
   };
   // The setters overwrite each other in this order (docs/client-internals.md).
@@ -726,7 +786,9 @@
   // The options live per character on the server, so a character switch brings the new
   // character's own. Each setting flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`).
   const keepOptions = (cb) => {
-    for (const [key, want] of Object.entries(config.clientOptions ?? {})) {
+    for (const [key, setting] of Object.entries(config.clientOptions ?? {})) {
+      // A screenshot of the world draws it for a moment (`render`).
+      const want = key === "disable3D" && now() < state.renderUntil ? false : setting;
       const toggle = cb[`toggle${key[0].toUpperCase()}${key.slice(1).replace(/Enabled$/, "")}`];
       if (key in cb && cb[key] !== want && typeof toggle === "function") {
         toggle();
@@ -829,23 +891,31 @@
     log(`AutoLevel limits back to con ${l.minCon}..${l.maxCon}, cap ${l.maxLevelDiff} from ${cb.minCon}..${cb.maxCon}, cap ${cb.maxLevelDiff}`);
     setLimits(cb, l);
   };
-  const watchIdle = async (i, cb) => {
+  const keepAutoLevel = async (i) => {
     const a = i.activity?.();
+    const lastKill = (i.kills ?? []).at(-1)?.t ?? 0;
+    // An errand has its own ladders, so a case also ends when one begins or ends.
+    for (const [why, c] of Object.entries(state.idleCases)) {
+      const spec = REMEDIES[why];
+      const over = !spec || (spec.untilKill ? lastKill > c.began : !(a?.act === "idle" && a.why === why && a.since === c.began));
+      if (over || c.errand !== Boolean(state.errand)) delete state.idleCases[why];
+    }
     const spec = a?.act === "idle" ? REMEDIES[a.why] : null;
+    if (!spec || (!spec.always && autoLevelHold(i))) return;
     // A rooted member keeps the readiness wait on, and the root dispel (`dispelRoots`) breaks roots.
-    if (!spec || (a.why === "readyWait" && partyRoots(i).length)) return void (state.idleCase = null);
-    let c = state.idleCase;
-    // An errand has its own ladder, so the case starts over when one begins or ends.
-    if (!c || c.why !== a.why || !!c.errand !== !!state.errand) c = state.idleCase = { why: a.why, rung: 0, at: a.since, errand: !!state.errand };
-    if (now() - c.at < spec.afterSec * 1000) return;
+    if (a.why === "readyWait" && partyRoots(i).length) return;
+    const c = (state.idleCases[a.why] ??= { rung: 0, at: a.since, began: a.since, errand: Boolean(state.errand) });
+    const due = Math.max(c.at, a.since) + spec.afterSec * 1000 - now();
+    if (due > 0) return void wake(due);
     // Crowding comes from other players, so the coordinator sends no errand there for a while (`crowdedAt`).
     if (a.why === "crowded") (state.crowdedAt ??= {})[zoneShort(i)] = now();
-    const rungs = state.errand ? (spec.errand ?? spec.rungs.filter((r) => r === "restart")) : spec.rungs;
+    const rungs = state.errand ? (spec.errand ?? spec.rungs.filter((r) => r !== "widen" && r !== "move")) : spec.rungs;
     // A used-up ladder starts over after ten minutes, because a crowded zone empties again.
     if (c.rung >= rungs.length && now() - c.at > 600000) Object.assign(c, { rung: 0, at: now() });
+    const cb = i.stores.combat.getState();
     const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.longName ?? "this zone";
     while (c.rung < rungs.length) {
-      const done = await remedies[rungs[c.rung++]](i, cb, `idle (${a.why}) in ${zone}`);
+      const done = await remedies[rungs[c.rung++]](i, cb, `idle (${a.why}) in ${zone}`, a.why);
       if (done) {
         c.at = now();
         log(`remedy for idle (${a.why}): ${done}`);
@@ -1039,16 +1109,6 @@
   };
 
   const watchConnection = (i) => {
-    // A zone that fails to load leaves the client's "Loading failed" window over a game screen,
-    // and nothing plays until its Try Again button is pressed, so the bot presses it.
-    if (typeof document !== "undefined" && /LOADING FAILED/i.test(document.body?.innerText ?? "")) {
-      const retry = [...document.querySelectorAll("button")].find((b) => /^TRY AGAIN$/i.test(b.textContent.trim()));
-      if (retry && now() - (state.loadRetryAt ?? 0) > 15000) {
-        state.loadRetryAt = now();
-        retry.click();
-        alert("loadFailed", "the zone did not finish loading; pressed Try Again");
-      }
-    }
     const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
     if (ok) {
       state.offlineSince = null;
@@ -1074,7 +1134,7 @@
     if (!missing.length) return;
     if (i.stores.skills.getState().inCombat) {
       if (cb.isRunning) {
-        cb.setIsRunning(false);
+        holdAutoLevel(cb, "members to gather");
         log(`stopped pulling until ${missing.length} missing member(s) can join after this fight`);
       }
       return;
@@ -1083,9 +1143,6 @@
     state.rejoinAt = now();
     i.stores.companions.getState().requestAccountCharacterAvailability();
     missing.forEach((id, k) => setTimeout(() => iq()?.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
-    // Look again once the last of them should have arrived, so AutoLevel starts without waiting for the next tick.
-    setTimeout(tick, 2500 * (missing.length + 1) + 500);
-    state.restartNow = "the party gathered";
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
   };
   // A task that fights as a member other than the leader gathers the group around it first, since
@@ -1120,7 +1177,7 @@
     if (screen() === "game") {
       if (!rejoin && Number(i.stores.character.getState().characterProfile?.id) === Number(target.id)) return { ok: true, message: `${target.name} is active` };
       if (i.stores.skills.getState().inCombat) return { ok: false, message: "the party is in combat" };
-      i.stores.combat.getState().setIsRunning(false);
+      holdAutoLevel(i.stores.combat.getState(), `the switch to ${target.name}`);
       const r = await command(i, { type: "session.camp" }, 60000);
       if (!r?.ok) return { ok: false, message: `camping failed: ${r?.message ?? "no reply"}` };
     }
@@ -1147,9 +1204,8 @@
         if (r.ok) {
           state.switchFails = 0;
           state.rejoinAt = 0; // the new active character gathers its party at once
-          state.restartNow = `the switch to ${target.name}`;
           log(r.message);
-          setTimeout(tick, 1000);
+          wake(1000);
         } else {
           state.switchFails++;
           state.switchRetryAt = now() + Math.min(600000, 30000 * 2 ** (state.switchFails - 1));
@@ -1212,7 +1268,7 @@
   const activeName = (i) => (i.stores.screen.getState().currentScreen === "game" ? (i.stores.character.getState().characterProfile?.name ?? null) : null);
   /** Stop AutoLevel and let the fight at hand end. */
   const calm = async (i) => {
-    i.stores.combat.getState().setIsRunning(false);
+    holdAutoLevel(i.stores.combat.getState(), "a task");
     for (let k = 0; k < 70 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
     if (i.stores.skills.getState().inCombat) throw new Error("the fight did not end");
   };
@@ -1495,7 +1551,7 @@
     let t0 = now();
     if (!engaged()) {
       for (let k = 0; k < 30 && (rt.combatActive || rt.combatApproach?.isBusy?.() || rt.buffPhaseActive || rt.preparationRetryTimer != null); k++) await sleep(1000);
-      if (cb().isRunning) cb().setIsRunning(false);
+      if (cb().isRunning) holdAutoLevel(cb(), "a directed kill");
       if (!cb().enemyTargetAttackOnArrival) cb().setEnemyTargetAttackOnArrival(true);
       t0 = now();
       rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
@@ -1561,7 +1617,7 @@
       }
       return { kills, result: "time is up" };
     } finally {
-      cb().setIsRunning(false); // ends the camp as well
+      holdAutoLevel(cb(), "the camp's end"); // ends the camp as well
       if (cb().minCon !== minCon) cb().setMinCon(minCon);
     }
   };
@@ -1787,10 +1843,7 @@
           task.endedAt = now();
           // A failure that says when to come back is handled by the coordinator's retry, so it only notes.
           alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
-          state.pauseUntil = 0;
-          state.pauseReason = null;
-          state.restartNow ??= `the ${task.kind} task`;
-          setTimeout(tick, 500);
+          endPause(`the ${task.kind} task`);
         }
       }
     })();
@@ -1846,13 +1899,11 @@
     // A new zone starts from the target limits: a widening was for the zone the party leaves.
     const limits = config.limits ?? { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     log(`moving to ${dest}: ${why}`);
-    cb.setIsRunning(false);
+    holdAutoLevel(cb, `the move to ${dest}`);
     try {
       const name = await i.changeZone(dest);
-      const c = i.stores.combat.getState();
-      setLimits(c, limits);
+      setLimits(i.stores.combat.getState(), limits);
       state.widenedAt = 0;
-      c.startAutoLevel();
       alert("rotate", `moved to ${name}: ${why}`);
       return true;
     } catch (e) {
@@ -2091,7 +2142,7 @@
       state.pauseUntil = Math.max(state.pauseUntil, now() + 5 * 60000);
       state.pauseReason = `upkeep (${reason})`;
       if (cb().isRunning) {
-        cb().setIsRunning(false);
+        holdAutoLevel(cb(), "upkeep");
         stopped = true;
       }
       for (let k = 0; k < 90 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
@@ -2137,11 +2188,7 @@
       }
       return done.join(", ");
     } finally {
-      if (stopped || state.pauseReason?.startsWith("upkeep")) {
-        state.pauseUntil = 0;
-        state.pauseReason = null;
-      }
-      if (stopped) cb().startAutoLevel();
+      if (stopped || state.pauseReason?.startsWith("upkeep")) endPause("upkeep");
       state.upkeepRunning = false;
       if (done.length) alert("upkeep", `${reason}: ${done.join(", ")}`);
     }
@@ -2171,67 +2218,63 @@
     }
   };
 
-  let ticking = false;
-  const tick = async () => {
-    if (!config.enabled || ticking) return;
-    ticking = true;
+  let ticking = null; // the tick in progress, which a call made meanwhile waits for
+  // The watchers that serve the leader's party, in the order they act. They wait while another
+  // character is active, out of the world, in a raid and under a pause.
+  const serveParty = async (i) => {
+    if (reconcileLeader(i)) return;
+    const cb = i.stores.combat.getState();
+    if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
+    scanEvents(i);
+    watchZone(i, cb);
+    await watchCursor(i);
+    watchLoot(i);
+    watchDeaths(i);
+    if (inRaid(i)) return void watchMemory();
+    if (config.respawnAfterSec > 0) await watchDeath(i);
+    watchMemory();
+    // A pause holds the tab for a script or a task: until it ends, the bot changes neither the
+    // zone, the party, AutoLevel and its targets nor the gems and the bags.
+    if (now() < state.pauseUntil) return;
+    await watchErrand(i);
+    await watchOutside(i);
+    await watchRate(i);
+    keepParty(i, cb);
+    keepLimits(i, cb);
+    keepTactics(i);
+    avoidTargets(i);
+    await upkeepIfDue(i);
+    await keepReserve(i);
+    await restoreBags(i);
+  };
+  const runTick = async () => {
     try {
       const i = iq();
       if (!i?.stores || typeof i.bagSpace !== "function") return;
       watchConnection(i);
       await watchRelease(i);
-      // The end of a pause is an event: whatever its script left behind, the bot restores at once.
-      if (state.pauseUntil && now() >= state.pauseUntil) {
-        log(`pause ended${state.pauseReason ? `: ${state.pauseReason}` : ""}`);
-        state.pauseUntil = 0;
-        state.pauseReason = null;
-        state.restartNow ??= "the end of a pause";
-      }
+      if (state.pauseUntil && now() >= state.pauseUntil) endPause(pauseName());
       // The client options protect every character the tab plays, so they hold also while a task
       // plays another character or a pause holds the tab.
       if (i.stores.character.getState().characterProfile?.id && !i.stores.combat.getState().isZoneLoading) keepOptions(i.stores.combat.getState());
-      // The other watchers serve the leader's party, so they wait while another character is active.
-      if (reconcileLeader(i)) return;
-      const cb = i.stores.combat.getState();
-      if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || !i.stores.character.getState().characterProfile?.id) return;
-      scanEvents(i);
-      watchZone(i, cb);
-      await watchCursor(i);
-      watchLoot(i);
-      watchDeaths(i);
-      if (inRaid(i)) {
-        watchMemory();
-        state.lastError = null;
-        return;
-      }
-      if (config.respawnAfterSec > 0) await watchDeath(i);
-      watchMemory();
-      // A pause holds the tab for a script or a task: until it ends, the bot changes neither the
-      // zone, the party, AutoLevel and its targets nor the gems and the bags.
-      if (now() < state.pauseUntil) {
-        state.lastError = null;
-        return;
-      }
-      await watchErrand(i);
-      await watchOutside(i);
-      await watchRate(i);
-      keepParty(i, cb);
-      await watchIdle(i, cb);
-      keepLimits(i, cb);
-      keepTactics(i);
-      avoidTargets(i);
-      keepAutoLevel(i, cb);
-      await upkeepIfDue(i);
-      await keepReserve(i);
-      await restoreBags(i);
+      noteHold(i);
+      await serveParty(i);
+      // AutoLevel and the idle remedies act after the watchers that hold the party, and also under a
+      // hold, which leaves only the page's own remedies.
+      await keepAutoLevel(i);
       state.lastError = null;
     } catch (e) {
       const msg = String(e?.message ?? e);
       if (state.lastError !== msg) log(`tick failed: ${msg}`);
       state.lastError = msg;
-    } finally {
-      ticking = false;
     }
+  };
+  const tick = () => {
+    if (!config.enabled) return Promise.resolve();
+    ticking ??= runTick().finally(() => {
+      ticking = null;
+    });
+    return ticking;
   };
 
   // Checks of the fight state that cost time for every second they wait: a pull standing with
@@ -2241,6 +2284,7 @@
     try {
       const i = iq();
       if (!i?.stores) return;
+      noteHold(i);
       const cb = i.stores.combat.getState();
       if (i.stores.screen.getState().currentScreen !== "game" || cb.isZoneLoading || inRaid(i)) return;
       avoidTargets(i);
@@ -2261,6 +2305,7 @@
     fastTimerId: setInterval(fastTick, config.fastTickSec * 1000),
     tick,
     fastTick,
+    waker,
     /** Roots on party members and pets with their end times, and who could dispel them. */
     roots: () => ({ roots: partyRoots(iq()), dispellers: dispellers(iq()) }),
     /** Each carried item's fate by the inventory policy: `{ keep, sell, discard }`. */
@@ -2366,10 +2411,7 @@
     stopTask() {
       if (state.task?.status === "running") {
         state.task.status = "stopped";
-        state.pauseUntil = 0;
-        state.pauseReason = null;
-        state.restartNow ??= `the stopped ${state.task.kind} task`;
-        setTimeout(tick, 500);
+        endPause(`the ${state.task.kind} task`);
       }
       return state.task && { ...state.task };
     },
@@ -2400,12 +2442,11 @@
       // A zone change waits for the fight at hand to end, so AutoLevel stops pulling meanwhile. The
       // wait stays under the 30 s a script's page call may last.
       if (zoneShort(i) !== zone && i.stores.skills.getState().inCombat) {
-        i.stores.combat.getState().setIsRunning(false);
+        holdAutoLevel(i.stores.combat.getState(), `the errand's move to ${zone}`);
         for (let k = 0; k < 22 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
       }
       if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand: ${what}`))) {
         state.errand = null;
-        i.stores.combat.getState().startAutoLevel();
         throw new Error(`could not move to ${zone}`);
       }
       Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
@@ -2454,12 +2495,15 @@
 
     /** End a pause now. The bot restores the leader, the party, the zone and AutoLevel at once. */
     resume() {
-      if (state.pauseUntil) log("pause ended");
-      state.pauseUntil = 0;
-      state.pauseReason = null;
-      state.restartNow ??= "the end of a pause";
-      setTimeout(tick, 500);
+      endPause(pauseName());
       return true;
+    },
+
+    /** Draw the world for `seconds`, as a screenshot needs, after which rendering goes off again. */
+    render(seconds = 30) {
+      state.renderUntil = now() + seconds * 1000;
+      keepOptions(iq().stores.combat.getState());
+      return new Date(state.renderUntil).toISOString();
     },
 
     /**

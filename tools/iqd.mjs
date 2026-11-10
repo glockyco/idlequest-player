@@ -1118,13 +1118,6 @@ class Daemon {
     const signedOut = offline && now - tr.offlineSince >= 60000;
     if (obs.reachable && snap && !snap.error && (install || signedOut)) await this.recoverTab(tr, now, { update: stale, install }).catch((e) => this.log(`recovery ${tr.label}: ${e.message}`));
     else if (snap?.hasBot && !stale) tr.state.recovery = null;
-    if (usable && tr.renderingOff && snap.conn?.worldReady) {
-      tr.renderingOff = false;
-      if (snap.rendering) {
-        await this.relay.evaluate(tr.targetId, "(() => { const s = window.iq.stores.combat.getState(); if (!s.disable3D) s.toggleDisable3D(); return true; })()", { timeout: 5000 }).catch((e) => this.log(`rendering ${tr.label}: ${e.message}`));
-        this.log(`recovery ${tr.label}: turned rendering off after the sign-in`);
-      }
-    }
     const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
     // Only with every recorded row on disk, since a reload drops the page's buffers.
     if (exported && this.recover && snap.hasBot && !stale) await this.recycleTab(tr, snap, now).catch((e) => this.log(`reload ${tr.label}: ${e.message}`));
@@ -1217,9 +1210,6 @@ class Daemon {
       r.signedInAt = now;
       r.attempts++;
       await evaluate(`(${signInInPage})(${JSON.stringify(await storedLogin())})`);
-      // The client forgets Disable Rendering at a sign-in (src/group.mjs, renderingOff), so it goes
-      // off again once the page is back in the world.
-      tr.renderingOff = true;
       return note("signed in with the stored login");
     }
     if (!install) return;

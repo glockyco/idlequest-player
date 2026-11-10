@@ -415,11 +415,11 @@ outlasts a cycle. A server that refuses a burst of sign-ins ("Too many login att
 next one after those two minutes. Where the bridge or bot is missing, it installs both as `attach`
 does (`src/install.mjs`), at most every two minutes and at once when its sign-in reached the
 character select. A signed-out tab keeps its bot, which enters the world from the character select.
-It turns rendering off again once the signed-in page is back in the world. The bot keeps its settings in
-the tab's sessionStorage, so it enters the world as its leader and regroups by itself, and a tab
-without them gets its group from `data/roster.json`. iqd reloads a page for two faults of the
-client (`recycleReason` in `tools/iqd.mjs`). The client keeps memory it no longer needs, so a tab's
-JS heap grows over hours, and a reload comes once its floor, the lowest reading over 10 minutes,
+The bot keeps its settings in the tab's sessionStorage, so it enters the world as its leader and
+regroups by itself, and a tab without them gets its group from `data/roster.json`. iqd reloads a
+page for two faults of the client (`recycleReason` in `tools/iqd.mjs`). The client keeps memory it
+no longer needs, so a tab's JS heap grows over hours, and a reload comes once its floor, the lowest
+reading over 10 minutes,
 stays at half the heap limit or more. A failed zone load can leave the client without its loot
 messages, which the bridge repairs in the page (docs/client-internals.md, Loot messages), and should
 they stop anyway, a reload comes after 25 kills in a row without a "You loot" line. It waits for a moment without a task, fight, raid or zone load, with
@@ -538,6 +538,5 @@ names the running client and `iq.missingApi` lists the missing parts.
 
 [diary/](diary/) has one entry per session, with screenshots in `diary/media/`. Game tabs run with
 rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps
-running. The client forgets it at sign-in, so `createGroup`, `restoreGroup` and iqd's recovery turn it off.
-For a screenshot of the world, such as a raid kill, press Enable Rendering in that tab first and
-turn rendering off again afterwards.
+running, and the bot keeps that setting as one of its client options. For a screenshot of the world,
+such as a raid kill, call `iqBot.render(seconds)` in that tab, which draws the world for that long.

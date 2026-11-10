@@ -31,6 +31,7 @@
 // `act` or `act/why` for idle and travel, over the covered seconds that carry a label.
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 
 const args = process.argv.slice(2);
 const dir = args.find((a) => !a.startsWith("--"));
@@ -213,9 +214,9 @@ const escapes = [];
   let open = null;
   for (const e of events) {
     if (e.type !== "guard" || !coveredSec.has(Math.floor(e.t / 1000))) continue;
-    const m = /^\[guard\] leaving: (\w+)/.exec(e.text);
+    const m = ESCAPE_START.exec(e.text);
     if (m) open = { t: e.t, why: m[1] };
-    else if (open && /AutoLevel (running again|did NOT restart)/.test(e.text)) {
+    else if (open && ESCAPE_END.test(e.text)) {
       escapes.push({ ...open, secs: (e.t - open.t) / 1000 });
       open = null;
     }
@@ -355,7 +356,7 @@ const result = {
     cureCasts,
     cureSuccesses: pulls.reduce((s, p) => s + p.cured, 0),
   },
-  // The seconds from leaving to AutoLevel running again. The abandoned fight and the walk back
+  // The seconds from leaving to the escape's end in a zone. The abandoned fight and the walk back
   // from the zone-in are not counted here, but show in kills per minute.
   escapes: { count: escapes.length, meanSec: +mean(escapes.map((e) => e.secs)).toFixed(1), totalSec: Math.round(escapes.reduce((s, e) => s + e.secs, 0)), byTrigger: escapes.reduce((o, e) => ((o[e.why] = (o[e.why] ?? 0) + 1), o), {}) },
   // Share of the party's logged damage per member or pet, and "no caster" for caster-less ticks, with

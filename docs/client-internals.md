@@ -233,6 +233,32 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   `setCurrentZone` then clears the target and all engaged mobs, stops AutoLevel unless a merchant
   trip expected the zone, and drops an active Farm Items plan when the zone differs
   (`main.pretty.js:189476-189497`). That makes it the escape from a bad fight.
+- A zone load that fails sets the message of a small store (`message`, `retry`, `retryToken`,
+  `fail`, `clear`), which the global loading overlay shows as the Loading Failed window. Its TRY
+  AGAIN calls the store's `retry`, which loads the zone again, and nothing plays until then. The
+  bridge finds the store as `loadFailure`.
+
+### AutoLevel's stops and waits
+
+The bridge's activity label names each of these from the client's state and lines
+(`ACTIVITY_RULES` in `src/bridge.js`).
+
+- The supervisor's pause stops AutoLevel, sets the combat mode to none, turns Auto Attack off and
+  prints "AutoLevel paused: <reason>" (the `pause` callback in `CAUokwED.js`). The reasons include
+  combat preparation that timed out, a fight or a request the server did not confirm, combat that
+  could not be prepared or loaded, and a target outside the level settings. A zone that stays out
+  of sync after one resynchronization asks to reconnect instead of trying again.
+- When the target approach gives a target up, "<reason> Looking for another target.", it defers the
+  spawn, for 15 seconds if the target became unavailable and for 5 minutes otherwise. While
+  AutoLevel runs and the fight was not a single target's, it tries another target after 500 ms.
+  Otherwise it stops AutoLevel.
+- The target search prints "Waiting for an available enemy. AutoLevel will try again shortly." when
+  other players or the deferral list hold every enemy within the limits, sets
+  `waitingForAutoLevelTargets` and tries again. With no enemy within the limits it prints "No
+  available enemies found in this zone." and stops AutoLevel.
+- After a won fight AutoLevel waits 5 seconds (`Dt`), then until the kill's pending loot
+  (`pendingAutoLevelLoot` of the runtime) has settled or passed its deadline of 15 seconds from the
+  kill (`Li`), looking every 250 ms (`Fi`), and only then starts the next fight.
 
 ### Melee damage
 
@@ -397,8 +423,8 @@ the next fight only once the pending loot has settled or its deadline has passed
 A zone load that fails and is tried again (the "Loading failed" window's Try Again, which the bot
 presses) leaves the preview with a disposed scene, which never calls back (`if (!this.disposed)` in
 `previewAutoLootNearCorpse`, `CVEP2_Ra.js`). Coin and items still arrive, but no "You loot" line
-shows, and after each kill AutoLevel waits out the deadline, about six seconds with the party full,
-which the bridge labels `noTarget`. Later zone changes and sign-ins do not end it, and a page reload
+shows, and after each kill AutoLevel waits for the pending loot until its deadline, which the bridge
+labels `lootSettle` once the party is full. Later zone changes and sign-ins do not end it, and a page reload
 does. So the bridge wraps the scene runtime's preview (`watchLootPreview` in `src/bridge.js`) to call
 back within 1.5 seconds, by the scene or by the wrap, which runs only the client's own collection.
 Should loot lines stop anyway, iqd reloads a tab after `lootlessKills` kills in a row without one
@@ -417,9 +443,9 @@ is under `healerHpPct` HP. With `fightingOnly` the level and hit checks count on
 `hateTargetId`, `currentTargetId` or `chaseTargetId` names the party: `player`,
 `character-<id>` or a pet. The engaged list also holds idle mobs of the encounter with no target
 and guards fighting other NPCs (`npc:<id>`). On a trigger it stops AutoLevel, re-enters the current
-zone (or changes to `retreatZone` if set), and starts AutoLevel again with the same limits about
-nine seconds later, if it was running before the escape, so a script or task that holds the party
-keeps it still. Before it leaves it defers every mob of that fight, the target and the pull
+zone (or changes to `retreatZone` if set) with the same limits and notes "escape done". The escape
+is one of the bot's holds, so the bot starts AutoLevel again once it ends, unless a script or a task
+holds the party. Before it leaves it defers every mob of that fight, the target and the pull
 target with `deferAutoLevelSpawn` for `avoidMin` minutes (see the deferral list above), because
 AutoLevel picks the nearest target and would otherwise pull the same camp again right after
 re-entering. After `escalateAfter` escapes in an hour, an escape caused by a mob inside AutoLevel's

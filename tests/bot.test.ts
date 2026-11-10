@@ -17,9 +17,11 @@ interface Alert {
 interface Bot {
   timerId: Timer;
   fastTimerId: Timer;
-  config: { upkeep: boolean; partyIds: number[]; leaderId: number | null; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
-  state: { alerts: Alert[]; switching: { name: string; done: boolean; ok: boolean | null } | null };
+  waker: { timer: Timer | null };
+  config: { enabled: boolean; upkeep: boolean; partyIds: number[]; leaderId: number | null; routeStuckSec: number; readyStuckSec: number; rotation: string[] };
+  state: { alerts: Alert[]; switching: { name: string; done: boolean; ok: boolean | null } | null; heldAt: number; idleCases: Record<string, { rung: number; at: number; began: number; errand: boolean; alerted?: boolean }> };
   pause(minutes: number, reason?: string): string;
+  resume(): boolean;
   tick(): Promise<void>;
   upkeep(reason: string): Promise<string>;
   fastTick(): void;
@@ -66,6 +68,8 @@ async function install(partyIds: number[] = []) {
   const skills = { inCombat: false };
   // The raid store's mode flag, which a test can switch on.
   const raid = { raidModeActive: false };
+  // The failed zone load the client shows as Loading Failed, and the presses of its TRY AGAIN.
+  const loadFailure = { message: null as string | null, retries: 0, retry: () => void loadFailure.retries++ };
   // Tactic changes the bot made, as [who, key, value].
   const tactics: [string, string, unknown][] = [];
   const spells: { overridesByCompanion: Record<string, Record<string, unknown>> } = { overridesByCompanion: { "character:10": { cure: false }, "character:20": { cure: false } } };
@@ -84,8 +88,16 @@ async function install(partyIds: number[] = []) {
     maxLevelDiff: 5,
     minNpcLevel: 0,
     setMinNpcLevel: (v: number) => { combat.minNpcLevel = v; },
-    setIsRunning: (on: boolean) => { if (!on) autoLevel.stops++; },
-    startAutoLevel: () => autoLevel.starts++,
+    // AutoLevel runs once started, and the page then labels a running state.
+    setIsRunning: (on: boolean) => {
+      combat.isRunning = on;
+      if (!on) autoLevel.stops++;
+    },
+    startAutoLevel: () => {
+      autoLevel.starts++;
+      combat.isRunning = true;
+      Object.assign(activity, { act: "approach", why: null, since: Date.now() });
+    },
     setMinCon: (v: number) => { combat.minCon = v; },
     setMaxCon: (v: number) => { combat.maxCon = v; },
     setMaxLevelDiff: (v: number) => { combat.maxLevelDiff = v; },
@@ -135,6 +147,11 @@ async function install(partyIds: number[] = []) {
   const g = globalThis as unknown as FakeGlobals;
   g.sessionStorage = { getItem: () => null, setItem: () => {} };
   g.window = globalThis;
+  // A bot of an earlier test must not tick into this one's page.
+  if (g.iqBot) {
+    g.iqBot.config.enabled = false;
+    clearTimeout(g.iqBot.waker?.timer ?? undefined);
+  }
   g.iqBot = undefined;
   // The account's characters, the active one and the screen, which the camp and enter-world
   // commands change the way the client does. Camping releases the companions.
@@ -186,8 +203,9 @@ async function install(partyIds: number[] = []) {
     guard,
     socket: { isConnected: true },
     bagSpace: () => ({ free: 30, capacity: 58, cursor: null }),
-    // The bridge's activity label, which tests set to the situation they need.
-    activity: () => activity,
+    // The bridge's activity label, which tests set to the situation they need. Like the bridge's, each
+    // read is a snapshot that later changes leave alone.
+    activity: () => ({ ...activity }),
     // The bridge's readiness check over the fake party: full HP, and full mana for casters.
     partyFull: () =>
       me.curHp >= me.maxHp && me.mana >= me.maxMana && (party.companions as { curHp: number; maxHp: number; curMana: number; maxMana: number }[]).every((c) => c.curHp >= c.maxHp && (!(c.maxMana > 0) || c.curMana >= c.maxMana)),
@@ -203,6 +221,7 @@ async function install(partyIds: number[] = []) {
       spellbook: store(book),
       partySpells: store(spells),
       raid: store(raid),
+      loadFailure: store(loadFailure),
     },
   };
   g.iq = iq;
@@ -215,7 +234,7 @@ async function install(partyIds: number[] = []) {
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
-  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, sheet, screen, commands, commandReply, activity };
+  return { iq, bot, events, say, recruited, autoLevel, me, tank, combat, guard, kills, moves, runtime, targets, bag, effects, skills, tactics, book, party, dismissed, raid, loadFailure, sheet, screen, commands, commandReply, activity };
 }
 
 test("chat lines that the bot's own alerts repeat are read once", async () => {
@@ -283,8 +302,8 @@ test("the remedy table widens a crowded party's limits, then moves it, and wakes
     vi.advanceTimersByTime(601000);
     alone.combat.minCon = 4;
     await alone.bot.tick();
-    expect(alone.bot.state.idleCase.rung).toBeGreaterThan(0);
-    expect(alone.bot.state.idleCase.at).toBeGreaterThan(Date.now() - 1000);
+    expect(alone.bot.state.idleCases.crowded.rung).toBeGreaterThan(0);
+    expect(alone.bot.state.idleCases.crowded.at).toBeGreaterThan(Date.now() - 1000);
   } finally {
     vi.useRealTimers();
   }
@@ -322,7 +341,7 @@ test("widened limits return to the target limits after widenMin, and a move star
     p.combat.minCon = 4;
     p.bot.state.widenedAt = Date.now();
     Object.assign(p.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
-    p.bot.state.idleCase = { why: "crowded", rung: 1, at: Date.now() - 61000 };
+    p.bot.state.idleCases = { crowded: { rung: 1, at: Date.now() - 61000, began: Date.now() - 61000, errand: false } };
     await p.bot.tick();
     expect([p.moves, p.combat.minCon]).toEqual([["permafrost"], 10]);
   } finally {
@@ -351,19 +370,37 @@ test("a party short of members stops pulling during a fight and asks them to rej
   expect(p.recruited).toEqual([20]);
 }, 10000);
 
-test("a target or readiness hang restarts AutoLevel, and the client's own pause after a kill is left alone", async () => {
+test("a hang restarts AutoLevel, the same hang before the next kill widens the limits, and the client's pause after a kill is left alone", async () => {
   vi.useFakeTimers();
   try {
     const hung = await install();
+    hung.bot.config.limits = { minCon: 10, maxCon: 13, maxLevelDiff: 5 };
+    hung.combat.minCon = 10;
     Object.assign(hung.activity, { act: "idle", why: "noTarget", since: Date.now() - 21000 });
     await hung.bot.tick();
-    vi.advanceTimersByTime(2000);
+    expect(hung.autoLevel).toEqual({ stops: 1, starts: 0 });
+    // The restart's stop is the bot's own hold, which the page labels "held", and the start follows at once.
+    Object.assign(hung.activity, { act: "idle", why: "held", since: Date.now() });
+    await hung.bot.tick();
     expect(hung.autoLevel).toEqual({ stops: 1, starts: 1 });
+    // The hang is back with no kill since, so the ladder goes on to the wider limits.
+    Object.assign(hung.activity, { act: "idle", why: "noTarget", since: Date.now() });
+    vi.advanceTimersByTime(21000);
+    await hung.bot.tick();
+    expect([hung.combat.minCon, hung.autoLevel.stops]).toEqual([4, 2]);
+    // A kill ends the case, so the next hang starts over with a restart.
+    hung.kills.push({ t: Date.now(), xp: 1000, enemy: "a rat" });
+    Object.assign(hung.activity, { act: "idle", why: "noTarget", since: Date.now() });
+    vi.advanceTimersByTime(21000);
+    await hung.bot.tick();
+    expect(hung.autoLevel.stops).toBe(3);
+    expect(hung.bot.state.alerts.filter((a) => a.kind === "idle")).toEqual([]);
 
     const ready = await install();
     Object.assign(ready.activity, { act: "idle", why: "readyWait", since: Date.now() - 31000 });
     await ready.bot.tick();
-    vi.advanceTimersByTime(2000);
+    Object.assign(ready.activity, { act: "idle", why: "held", since: Date.now() });
+    await ready.bot.tick();
     expect(ready.autoLevel).toEqual({ stops: 1, starts: 1 });
 
     const fighting = await install();
@@ -564,7 +601,7 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     const crowded = await install();
     crowded.bot.config.rotation = ["guktop"];
     crowded.combat.currentZone = 65;
-    crowded.bot.state.idleCase = { why: "crowded", rung: 2, at: Date.now() - 900000, alerted: true };
+    crowded.bot.state.idleCases = { crowded: { rung: 2, at: Date.now() - 900000, began: Date.now() - 900000, errand: false, alerted: true } };
     await crowded.bot.errand({ zone: "permafrost", keep: "famished", item: "Power of Water", minutes: 60 });
     Object.assign(crowded.activity, { act: "idle", why: "crowded", since: Date.now() - 61000 });
     await crowded.bot.tick();
@@ -699,20 +736,21 @@ test("a pull standing at its target with Auto Attack off gets Auto Attack, and o
   }
 });
 
-test("in raid mode the bot leaves AutoLevel off, and restarts it after the raid", async () => {
+test("in raid mode the bot leaves AutoLevel off, and starts it at once after the raid", async () => {
   vi.useFakeTimers();
   try {
-    const { bot, combat, raid, autoLevel } = await install();
+    const { bot, combat, raid, autoLevel, activity } = await install();
     raid.raidModeActive = true;
     combat.isRunning = false;
+    Object.assign(activity, { act: "idle", why: "off", since: Date.now() });
     await bot.tick();
     vi.advanceTimersByTime(120000);
     await bot.tick();
     expect(autoLevel.starts).toBe(0);
-
+    // The raid is a hold, so the page labels AutoLevel off after it "held".
+    expect(bot.state.heldAt).toBe(Date.now());
     raid.raidModeActive = false;
-    await bot.tick();
-    vi.advanceTimersByTime(120000);
+    Object.assign(activity, { act: "idle", why: "held", since: Date.now() });
     await bot.tick();
     expect(autoLevel.starts).toBe(1);
   } finally {
@@ -720,21 +758,63 @@ test("in raid mode the bot leaves AutoLevel off, and restarts it after the raid"
   }
 });
 
-test("AutoLevel the client paused for a retry restarts at the next tick, and one off without a reason waits a minute", async () => {
+test("AutoLevel starts at once after a hold or a contested target, 5 s after the client's pause, and a minute after a stop nothing explains", async () => {
   vi.useFakeTimers();
   try {
     const f = await install();
-    f.combat.isRunning = false;
-    f.say("AutoLevel paused: Combat preparation timed out before it could begin. Please try again.");
+    const off = (why: string) => {
+      f.combat.isRunning = false;
+      Object.assign(f.activity, { act: "idle", why, since: Date.now() });
+    };
+    off("contested");
     await f.bot.tick();
     expect(f.autoLevel.starts).toBe(1);
-    // Still off and no new line: the usual wait of restartAfterSec from that start.
-    vi.advanceTimersByTime(30000);
+    off("clientPause");
     await f.bot.tick();
     expect(f.autoLevel.starts).toBe(1);
-    vi.advanceTimersByTime(31000);
+    vi.advanceTimersByTime(5000);
     await f.bot.tick();
     expect(f.autoLevel.starts).toBe(2);
+    off("off");
+    vi.advanceTimersByTime(59000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(2);
+    vi.advanceTimersByTime(1000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(3);
+    expect(f.bot.state.alerts.filter((a) => a.kind === "autoLevelRestarted").length).toBe(1);
+    // A pause holds AutoLevel off, and its end is a hold the page labels "held".
+    f.bot.pause(5, "a script");
+    off("off");
+    vi.advanceTimersByTime(120000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(3);
+    f.bot.resume();
+    expect(f.bot.state.heldAt).toBe(Date.now());
+    off("held");
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a failed zone load gets Try Again also under a pause, and every new failure gets its own", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.pause(5, "a task");
+    Object.assign(f.activity, { act: "idle", why: "loadFailed", since: Date.now() });
+    await f.bot.tick();
+    expect(f.loadFailure.retries).toBe(1);
+    // Still open with no zone load since: the ladder is used up and wakes a script.
+    await f.bot.tick();
+    expect([f.loadFailure.retries, f.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)]).toEqual([1, [true]]);
+    // The retried load failed again between two ticks, which saw the window open both times.
+    vi.advanceTimersByTime(30000);
+    Object.assign(f.activity, { act: "idle", why: "loadFailed", since: Date.now() });
+    await f.bot.tick();
+    expect(f.loadFailure.retries).toBe(2);
   } finally {
     vi.useRealTimers();
   }

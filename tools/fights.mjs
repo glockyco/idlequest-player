@@ -27,6 +27,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Database } from "bun:sqlite";
+import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(`--${n}`);
@@ -139,7 +140,6 @@ const SPELL_DMG = /^(You|\S+) (?:have|has) taken (\d+) damage from a spell\.$/;
 const ENGAGE = /^You engage (.+) in combat!$/;
 const JOIN = /^(.+) joins the fight!$/;
 const KILL = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
-const LEAVE = /^\[guard\] leaving: (\w+): (.*)$/;
 const bandOf = (l) => (l <= 4 ? "1-4" : l <= 8 ? "5-8" : l <= 14 ? "9-14" : "15+");
 const BANDS = ["1-4", "5-8", "9-14", "15+"];
 
@@ -186,7 +186,7 @@ function fightsOf(party, zonesById) {
     if (cur && e.t - cur.last > QUIET) close("quiet");
     const text = e.text;
     if (e.type === "guard") {
-      const m = LEAVE.exec(text);
+      const m = ESCAPE_START.exec(text);
       if (m) {
         if (!cur) {
           // The guard fired on mobs that never touched the party, so no combat line opened a fight.
@@ -198,7 +198,7 @@ function fightsOf(party, zonesById) {
         cur.last = Math.max(cur.last, e.t);
         pendingEscape = cur;
         close("escape");
-      } else if (pendingEscape && /AutoLevel (running again|did NOT restart)/.test(text)) {
+      } else if (pendingEscape && ESCAPE_END.test(text)) {
         pendingEscape.escape.secs = (e.t - pendingEscape.escape.t) / 1000;
         pendingEscape = null;
       }

@@ -410,6 +410,8 @@ export async function attach(tab) {
      * Start AutoLevel with the given limits. Con values follow the game's options:
      * 2 green, 4 blue, 10 white, 15 yellow, 13 red. `maxLevelDiff` caps enemy level above yours and
      * also sets the maximum con: 0 gives White, 1 to 2 Yellow, 3 or more Red (main.pretty.js:190701-190716).
+     * The bot's remedy table is the only code that starts AutoLevel, so this sets the limits and ends
+     * the bot's pause, a hold after which the bot starts AutoLevel at once.
      */
     async startAutoLevel({ minCon, maxCon, maxLevelDiff } = {}) {
       await handle.clearWindows();
@@ -424,15 +426,8 @@ export async function attach(tab) {
         maxCon ?? null,
         maxLevelDiff ?? null,
       );
-      // The AutoLevel window's Start button closes the window and calls the store's start
-      // (`CVEP2_Ra.js:417418`), as the bot and the guard do. A click can land on a zone-change
-      // overlay that still covers the button.
-      await tab.evaluate(() => {
-        const s = window.iq.stores.combat.getState();
-        if (!s.isRunning) s.startAutoLevel();
-      });
-      await sleep(2000);
       await handle.resumeBot();
+      for (let k = 0; k < 10 && !(await handle.status()).autoLevel?.running; k++) await sleep(1000);
       return (await handle.status()).autoLevel;
     },
 
