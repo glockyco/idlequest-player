@@ -31,6 +31,18 @@ test("a raid runs as soon as one is due, the most valuable first, potions includ
   expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds }).kill).toMatchObject({ key: "lodizal" });
 });
 
+test("a potion's raid buys no raid time of its own", () => {
+  const odds = { phin: { raid: win }, lodizal: { raid: win } };
+  const potions = [{ key: "lodizal", name: "Lodizal", zone: "iceclad", itemId: 990113, who: "Tagujazolu" }];
+  // No hour runs and no summon is left: the potion waits.
+  const idle = nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds, paid: false });
+  expect(idle.kill).toBeNull();
+  expect(idle.skipped).toEqual([{ key: "lodizal", why: "its potion keeps until an hour of raid time runs" }]);
+  // A free summon opens the hour, also when the potion's boss is worth more, and the potion follows inside it.
+  expect(nextBossKill({ daily: daily(1, [boss("phin")]), potions, odds, value: { lodizal: 9 }, paid: false }).kill).toMatchObject({ key: "phin", source: "summon" });
+  expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds, paid: true }).kill).toMatchObject({ key: "lodizal", source: "potion" });
+});
+
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {
   // X1 reaches its next level in 2 hours, so a gain of 100 tenths of a percent worn 10 levels is
   // worth 2 hours: the cloak's 25% gives 0.5, and of two back pieces only the better one counts.

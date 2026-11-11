@@ -1025,8 +1025,8 @@ class Daemon {
     // A casino boss a raid summoned and did not kill, which blocks every other potion until it is dead.
     const standing = standingBosses(history, casino, now);
     const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions, ...standing], targets: this.targetWants, hoursPerLevel });
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value });
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, standing, price: st.time?.pricePp ?? null });
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value, paid: Boolean(st.time?.active) });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, standing, paid: Boolean(st.time?.active), price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1043,7 +1043,8 @@ class Daemon {
     const members = [...groupOf.keys()].filter((n) => n !== leader);
     const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : { bossKey: kill.key };
     const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : "a free summon";
-    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
+    // A potion's raid rides on the hour that runs (`nextBossKill`), so it buys none if that hour ends before its turn.
+    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: kill.source === "potion" ? 0 : (st.time?.pricePp ?? 0), ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
   }
 
   /**
