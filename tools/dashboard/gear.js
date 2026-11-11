@@ -213,8 +213,8 @@ function reasonOf(t, now) {
   const trip = p?.enemies > 1 ? ` on a trip for ${p.enemies} enemies` : "";
   const planTip = p && `${how}${trip}, worth ${mins(p.value)} of ${p.taker}'s group's leveling.`;
   switch (w.state) {
-    case "hunting": return { kind: "now", text: `${w.group} hunting`, tip: planTip };
-    case "queued": return { kind: "next", text: `${p.group} next${p.enemies > 1 ? ` (trip of ${p.enemies})` : ""}`, tip: planTip };
+    case "hunting": return { kind: "now", text: `${(w.groups?.length ? w.groups : [w.group]).join(", ")} hunting`, tip: planTip };
+    case "queued": return { kind: "next", text: `${(w.groups?.length ? w.groups : [p.group]).join(", ")} next${p.enemies > 1 ? ` (trip of ${p.enemies})` : ""}`, tip: planTip };
     case "busy": return { kind: "wait", text: `after ${w.group}'s ${TASK_NOUN[w.on?.kind] ?? "task"}`, tip: `${w.only ? `Only ${w.group} is strong enough. ` : ""}${planTip ?? ""}` };
     case "retry": return { kind: "wait", text: `again ${w.at - now <= 0 ? "now" : `in ${Math.max(1, Math.round((w.at - now) / 60000))} min`}`, tip: "The last hunt found nothing." };
     case "outbid": return { kind: "wait", text: "groups on better targets" };

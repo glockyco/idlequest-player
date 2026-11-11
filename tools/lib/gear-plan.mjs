@@ -462,13 +462,17 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], targets: rankTargets(byTarget, copyValue), characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }
 
+// The further takers of an item a target lists, for the copies of groups that hunt it at one time.
+const OTHER_TAKERS = 3;
+
 /**
  * The enemies worth hunting for gear, best first. A kill yields one copy, which serves one
  * character, so each item counts once, at the best of its takers, and each character slot once, at
  * the item that pays most there per hour: items are given to slots in the order of `copyValue` over
  * hours per copy. An enemy's `rate` is the value an hour of hunting it brings, the sum of each item's
  * value over its hours per copy, since each drop rolls on its own, with `takers` the characters each
- * item would serve and `firstHours` the hours until the first of them drops.
+ * item would serve, `others` the next `OTHER_TAKERS` of them, each at its best slot and best first,
+ * and `firstHours` the hours until the first copy drops.
  */
 function rankTargets(byTarget, copyValue) {
   return [...byTarget.values()]
@@ -482,7 +486,13 @@ function rankTargets(byTarget, copyValue) {
         usedItems.add(w.itemId);
         usedSlots.add(w.key);
         const { key, ...rest } = w;
-        items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
+        const same = t.offers.filter((o) => o.itemId === w.itemId);
+        const others = [];
+        for (const o of [...same].sort((a, b) => rate(b) - rate(a))) {
+          if (o.to === w.to || others.some((x) => x.to === o.to) || others.length >= OTHER_TAKERS) continue;
+          others.push({ to: o.to, slot: o.slot, gain: o.gain, level: o.level });
+        }
+        items.push({ ...rest, takers: new Set(same.map((o) => o.to)).size, ...(others.length ? { others } : {}) });
       }
       const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
       return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, npcHp: t.npcHp, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, also: t.also ?? [], ...(t.fights ? { fights: t.fights } : {}), rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };

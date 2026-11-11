@@ -154,6 +154,28 @@ test("a zone's enemies go on one trip, and a second group follows only for what 
   expect(two.targets["target-unrest-a-ghoul"].plan.cost).toBeCloseTo(1);
 });
 
+test("several groups hunt one common enemy while its spawn points feed them, each for the item's next taker", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw"), place(tab("B", "G2", 30), "paw"), place(tab("C", "G3", 30), "paw")];
+  // The Plane of Hate's Disciples on 2026-11-11: seven points that respawn every 640 s give 39
+  // kills an hour, and only one group at a time was sent. Here each group kills 20 an hour, so two
+  // find enough and the third would get what they leave, which is nothing.
+  const falchion = { item: "Falchion", to: "X1", slot: "primary", level: 30, gain: 300, hours: 0.5, drop: 0.1 };
+  const disciple = (others: object[]) => ({ npc: "a disciple", zone: "hateplane", npcLevel: 30, spawn: 1, points: 7, respawn: 640, items: [{ ...falchion, ...(others.length ? { others } : {}) }] });
+  const paces = { X1: 1, X2: 1 };
+  const run = (others: object[]) => decide({ killChance: byLevel, now: NOW, tabs, targets: [disciple(others)], hoursPerLevel: paces, killsPerHour: { G1: 20, G2: 20, G3: 20 } });
+  const both = run([{ to: "X2", slot: "primary", gain: 200, level: 30 }]);
+  expect(both.actions.map((a) => [a.label, a.ids])).toEqual([["A", ["target-hateplane-a-disciple"]], ["B", ["target-hateplane-a-disciple"]]]);
+  expect(both.targets["target-hateplane-a-disciple"]).toMatchObject({ state: "queued", groups: ["G1", "G2"], plan: { group: "G1", taker: "X1" } });
+  // With one taker the second copy only comes sooner for a slot that already expects one, which does not pay a trip.
+  expect(run([]).actions.map((a) => a.label)).toEqual(["A"]);
+  // A group that already hunts the enemy counts the same way: one more group joins, not two.
+  const hunting = [{ ...tabs[0], task: { id: "hunt-1", kind: "hunt", status: "running" } }, tabs[1], tabs[2]];
+  const history = [{ t: NOW - 60000, label: "A", kind: "hunt", id: "target-hateplane-a-disciple", ids: ["target-hateplane-a-disciple"], task: "hunt-1" }];
+  const joined = decide({ killChance: byLevel, now: NOW, tabs: hunting, targets: [disciple([{ to: "X2", slot: "primary", gain: 200, level: 30 }])], hoursPerLevel: paces, killsPerHour: { G1: 20, G2: 20, G3: 20 }, history });
+  expect(joined.actions.map((a) => a.label)).toEqual(["B"]);
+  expect(joined.targets["target-hateplane-a-disciple"]).toMatchObject({ state: "hunting", groups: ["G1", "G2"] });
+});
+
 test("the strongest group takes the zone where its targets add most, and the others hunt what they reach", () => {
   const strong = place(tab("A", "G1", 51), "velketor");
   const weak = place(tab("B", "G2", 40), "paw");

@@ -33,6 +33,9 @@ export const ACQUIRE = {
   // The share of a group's hunting time its fights take (58.7% over 34 group-hours on 2026-11-11),
   // so its usual fight lasts this share of the time between two of its kills.
   fightShare: 0.59,
+  // An enemy is open to a further group while this share of what its points respawn is left by
+  // the groups that hunt it. Less is a trickle the trip's time does not pay for.
+  minSupply: 0.25,
 };
 
 // What a death costs beyond a won fight, in seconds of the party's time: the fight and the wait

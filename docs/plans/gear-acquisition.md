@@ -35,14 +35,23 @@ A copy is worth getting when `V > C`. A group's time is what each choice spends,
 group to one zone, where it hunts every wanted enemy that pays: the zone's cost `k` is paid once,
 each enemy adds its drops less its deaths, and the enemies share the group's kills. An enemy hunted
 at its full rate takes the share of the group's kills its points give as they respawn, and when the
-shares pass all of the group's kills, the enemies that pay most per share keep theirs. The
+shares pass all of the group's kills, the enemies that pay most per share keep theirs. The group
+kills an enemy at the pace of that enemy's fights: its usual kills per hour, slowed by the
+simulator's seconds per fight against its usual fight (`paceOf`). The
 assignment is greedy with re-evaluation: the pair of free group and zone whose trip earns the most
-per hour goes first, then every other pair is valued again with that trip's taker slots claimed and
-its zone occupied, so a second group there pays the shared cost.
+per hour goes first, then every other pair is valued again with that trip's taker slots claimed,
+its zone occupied, so a second group there pays the shared cost, and its kills taken from its
+enemies' spawn points.
 
 A copy serves one character. Each item counts at its best taker, and each character slot once. An
 enemy's worth adds its items, since each drop rolls on its own, so a copy of any of them comes every
-`1 / sum(1 / H)` hours. A slot another hunt already serves still takes a copy that comes sooner: it
+`1 / sum(1 / H)` hours. An enemy is one group's only while its points feed no more: the Plane of
+Hate's Disciples, Dragoons, Agents, Knights and Sages stand on 28 points that respawn every 640 s,
+about 157 an hour, against a group's 60 kills. So an enemy stays open to further groups while a
+quarter of what its points respawn is left (`minSupply`), each group's take counted as its kills
+spread over its trip's enemies by their supply. A further group's copy goes to the item's next
+taker (`others` of the gear plan's targets, three of them). A slot another hunt already serves,
+with no further taker, still takes a copy that comes sooner: it
 is worn until the other hunt's copy would come, and adds for good only what it gains over that copy.
 So a group takes a quick lesser upgrade while a stronger group hunts the best one.
 
