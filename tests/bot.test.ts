@@ -1460,12 +1460,20 @@ test("a summoned enemy that is up already sends the member to the fight", async 
 });
 
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
-// and ends in a kill or a wipe. `leaderFalls` kills the leader once, mid-fight, and `endFails`
-// makes that many calls of `end` throw.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false } = {}) {
+// and ends in a kill, a wipe or, with outcome "fled", a boss that leaves the fight alive. A kill
+// shows as the server's kill line and leaves one drop on the corpse. `leaderFalls` kills the
+// leader once, mid-fight, `endFails` makes that many calls of `end` throw, and `diesOnArrival`
+// has the raid engage and kill the boss while it walks there, before any attack order.
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false } = {}) {
   const calls: string[] = [];
   const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
-  let drops = [{ id: "loot-item-7-0", name: "Red Dragon Scales" }];
+  let drops: { id: string; name: string }[] = [];
+  const page = f.iq as unknown as { events: { t: number; seq: number; type?: string; text: string }[] };
+  const die = () => {
+    f.targets.splice(0);
+    drops = [{ id: "loot-item-7-0", name: "Red Dragon Scales" }];
+    page.events = [...(page.events ?? []), { t: Date.now(), seq: 9002, type: "EXPERIENCE_GAIN", text: "You have defeated Lord Nagafen and gained 520300 experience!" }];
+  };
   (f.iq as unknown as { raid: object }).raid = {
     time: async () => (calls.push("time"), { active: timeLeft, pricePp }),
     buyHour: async (maxPp: number) => {
@@ -1481,7 +1489,10 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       return ids;
     },
     heal: (mode: string) => calls.push(`heal ${mode}`),
-    position: () => calls.push(`position ${f.combat.targetNPC?.name}`),
+    position: () => {
+      calls.push(`position ${f.combat.targetNPC?.name}`);
+      if (diesOnArrival) setTimeout(die, 4000);
+    },
     attack: async () => {
       calls.push(`attack ${f.combat.targetNPC?.name}`);
       if (r.combat) return;
@@ -1491,13 +1502,13 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       if (healer)
         setTimeout(() => {
           f.targets.push({ spawnInstanceId: 8, npcId: 1099, name: "a_swirlspine_seahorse", level: 49, distance: 20 } as { spawnInstanceId: number; name: string });
-          const page = f.iq as unknown as { events: { t: number; seq: number; text: string }[] };
           page.events = [...(page.events ?? []), { t: Date.now(), seq: 9001, text: "a swirlspine seahorse heals Lord Nagafen for 10000 points." }];
         }, fightMs / 4);
       setTimeout(() => {
         r.combat = false;
-        r.roster = r.roster.map((m) => ({ ...m, damage: 500, alive: outcome === "killed" }));
-        if (outcome === "killed") f.targets.splice(0);
+        r.roster = r.roster.map((m) => ({ ...m, damage: 500, alive: outcome !== "wiped" }));
+        if (outcome === "killed") die();
+        else if (outcome === "fled") f.targets.splice(0);
         else r.leaderDead = true;
       }, fightMs);
     },
@@ -1530,7 +1541,8 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       giveBack: async () => true,
     },
   };
-  f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55, distance: 12 } as { spawnInstanceId: number; name: string });
+  // The boss that dies on arrival stands as far off as Lodizal did, so the raid is still walking.
+  f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55, distance: diesOnArrival ? 5580 : 12 } as { spawnInstanceId: number; name: string });
   Object.assign(f.runtime, { selectEnemyTarget: (ids: number[]) => (f.combat.targetNPC = ids[0] === 1099 ? { spawnInstanceId: 8, name: "a_swirlspine_seahorse" } : { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
   return calls;
 }
@@ -1610,6 +1622,31 @@ test("a raid task has a living member revive the fallen leader and fights on", a
     await runToEnd(f);
     expect(calls.filter((c) => c === "revive")).toHaveLength(1);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", deaths: 1, revives: 1 } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a boss that leaves the fight alive is no kill, and one that dies on the raid's arrival is", async () => {
+  vi.useFakeTimers();
+  try {
+    // Lodizal fled two fights and was gone from the enemy list, with no kill line.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, outcome: "fled" });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "ended", alive: 2 } });
+    expect(f.bot.state.alerts.filter((a) => a.kind === "raid")).toEqual([]);
+    expect(calls).not.toContain("loot");
+    // The third fight killed him while the raid still walked to him.
+    const g = await install([10, 20]);
+    const early = fakeRaid(g, { timeLeft: true, diesOnArrival: true });
+    g.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen" });
+    await runToEnd(g);
+    expect(g.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+    expect(early.filter((c) => /^(attack|nuke|effect)/.test(c))).toEqual([]);
+    expect(early.at(-1)).toBe("loot");
+    expect(g.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toMatchObject([{ killed: expect.stringContaining("Nagafen") }]);
   } finally {
     vi.useRealTimers();
   }

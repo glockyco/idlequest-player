@@ -1853,23 +1853,31 @@
       }, 90000);
       const distance = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).find((x) => x.spawnInstanceId === boss.spawnInstanceId)?.distance ?? null;
       if (task.heal) await step("heal mode", async () => raid.heal(task.heal), 10000);
+      // A kill is the server's kill line, from the moment the raid can engage. A boss that is gone
+      // from the fight without one fled or reset: Lodizal left two fights at 40 s with an eighth of
+      // his health, still stood at his spawn point, and the task had called the second a kill.
+      const tEngage = now();
+      const killed = () => Boolean(killedSince(i, enemyPattern(boss.name), tEngage));
       // Run To Target first, so the leader stands at the boss before the fight: in the first raid
-      // he stood 12 minutes under an attack order. A boss out of reach does not hold the fight.
+      // he stood 12 minutes under an attack order. A boss out of reach does not hold the fight. The
+      // raid engages on arrival, and a weak or wounded boss can die before the attack order.
       await step(`move to ${boss.name}`, async () => {
+        if (killed()) return;
         raid.position();
         for (let k = 0; k < 30; k++) {
           await sleep(2000);
+          if (killed()) return;
           const d = distance();
           if (d != null && d <= RAID_REACH) return;
         }
         log(`task raid: the raid is ${Math.round(distance() ?? -1)} away from ${boss.name} after a minute`);
       }, 75000);
       const t0 = now();
-      await step(`attack ${boss.name}`, () => raid.attack(), 30000);
       task.fight = { boss: boss.name, startedAt: t0, orders: [], deaths: 0, revives: 0, trace: [] };
-      if (task.nuke) await step("nuke order", async () => raid.nuke(task.nuke), 10000);
+      if (!killed()) await step(`attack ${boss.name}`, () => raid.attack(), 30000);
+      if (task.nuke && !killed()) await step("nuke order", async () => raid.nuke(task.nuke), 10000);
       // An effect the group cannot cast is recorded and does not hold the fight.
-      if (task.effects?.length) {
+      if (task.effects?.length && !killed()) {
         await step("effect orders", async () => {
           for (const kind of task.effects) {
             const o = await raid.effect(kind).catch((e) => ({ kind, error: e?.message ?? String(e) }));
@@ -1878,7 +1886,6 @@
           }
         }, 20000 * task.effects.length);
       }
-      const bossAlive = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => x.spawnInstanceId === boss.spawnInstanceId);
       const outcome = await step(`fight ${boss.name}`, async () => {
         let traced = 0;
         let dead = false;
@@ -1886,10 +1893,12 @@
         let healSeq = 0;
         const healers = new Set();
         const bossName = enemyPattern(boss.name);
-        while (now() < task.startedAt + task.minutes * 60000) {
+        const roster = (s) => s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
+        task.fight.roster = roster(raid.state());
+        while (!killed() && now() < task.startedAt + task.minutes * 60000) {
           await sleep(2000);
           const s = raid.state();
-          task.fight.roster = s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
+          task.fight.roster = roster(s);
           task.fight.leaderDamage = s.leaderDamage;
           task.fight.log = s.log.slice(-15);
           if (now() - traced >= 5000) {
@@ -1929,10 +1938,12 @@
             if (s.roster.some((m) => m.alive)) continue;
           } else dead = false;
           if (s.combat) continue;
-          if (killedSince(i, enemyPattern(boss.name), t0) || !bossAlive()) return "killed";
+          // The kill line can come a moment after the fight's end, as Lodizal's did.
+          await sleep(3000);
+          if (killed()) break;
           return s.leaderDead || !s.roster.some((m) => m.alive) ? "wiped" : "ended";
         }
-        return "time is up";
+        return killed() ? "killed" : "time is up";
       }, task.minutes * 60000 + 60000);
       Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
       task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
@@ -1947,8 +1958,9 @@
       });
     }
     // Raid kills leave their corpses to the leader's RAID LOOT tab instead of Auto Loot, and the
-    // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted.
-    if (task.fight?.outcome === "killed") {
+    // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted. The tab is
+    // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
+    if (task.fight) {
       await keepReserve(i, true);
       const loot = await step("collect the loot", () => collectRaidLoot(i), 120000);
       task.fight.loot = loot;
