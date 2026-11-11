@@ -44,19 +44,15 @@ export function dailyCandidates(daily) {
  * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
- * - `paid`: whether an hour of raid time runs now.
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
  * already has a summoned casino boss"), so the other potions wait for it. A group kill comes
  * next, since it needs no raid time, for an open-world spawn only: a summon or a
  * potion has been used inside raid mode only. A raid runs as soon as one is due, the most valuable
  * first, because a free summon comes back 24 hours after its use and the account's platinum far
- * outruns the raid time it buys. A potion's raid is led by its holder. A potion keeps, so its
- * raid buys no hour of its own and runs inside one that a summon or a standing boss opened:
- * Tolapumj's loot was worth three minutes of a group's progress, and its raid bought an hour for
- * 10,000 pp.
+ * outruns the raid time it buys. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {}, paid = true }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {} }) {
   const skipped = [];
   const ways = [];
   const add = (c, source) => {
@@ -70,7 +66,6 @@ export function nextBossKill({ daily = null, potions = [], standing = [], odds =
   for (const b of dailyCandidates(daily)) add(b, "summon");
   for (const p of potions) {
     if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
-    else if (!paid) skipped.push({ key: p.key, why: "its potion keeps until an hour of raid time runs" });
     else add(p, "potion");
   }
   const rank = (w) => (w.source === "standing" ? 0 : w.way === "group" ? 1 : 2);
