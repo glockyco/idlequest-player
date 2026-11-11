@@ -548,7 +548,7 @@ class Daemon {
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
     this.coordinatedAt = now;
-    const { decide, assignZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -765,10 +765,12 @@ class Daemon {
         this.log(`coordinator: ${a.label} ${a.kind} not queued: ${e.message}`);
       }
     }
-    // Zone rotations by measured XP per hour. A tab given a task this pass keeps its rotation.
+    // Zone rotations by measured XP per hour, with the model's rates as the prior of a zone with
+    // little time. A tab given a task this pass keeps its rotation.
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
     const tasked = new Set(actions.map((a) => a.label));
-    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, crowdFactor: this.crowdFactor })) {
+    const model = await this.predictedRates(new Set(tabs.flatMap((t) => bandZones(rows, t.members[0]?.level ?? 0))));
+    for (const z of assignZones({ now, tabs: tabs.map((t) => (tasked.has(t.label) ? { ...t, task: { status: "running" } } : t)), rows, rates, crowdFactor: this.crowdFactor, model })) {
       const tab = tabs.find((t) => t.label === z.label);
       const changed = await this.relay.evaluate(tab.targetId, call(applySettingsInPage, { s: { rotation: z.rotation } }), { timeout: 10000 }).catch(() => []);
       if (!changed?.length) continue;

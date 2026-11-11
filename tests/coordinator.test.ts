@@ -473,6 +473,27 @@ test("a group goes where it adds most to the account, counting what it takes fro
   expect(assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: curve })[0].rotation[0]).toBe("runnyeye");
 });
 
+test("a group within two levels of the next band row also ranks that row's zones", () => {
+  const rows = [[14, ["warrens", "kurn"]], [18, ["befallen"]]];
+  const rates = measured({ befallen: 900000, kurn: 800000, warrens: 580000 });
+  // At 15 the next row is three levels away, so the group keeps to its own row.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "warrens" })], rows, rates })[0].rotation).not.toContain("befallen");
+  // At 16 it is two away, and Befallen pays most.
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 16, { zone: "warrens" })], rows, rates })[0].rotation[0]).toBe("befallen");
+});
+
+test("an unmeasured zone ranks where the model puts it against the measured zones", () => {
+  const rows = [[14, ["kurn", "runnyeye", "guktop"]]];
+  const rates = measured({ kurn: 800000, runnyeye: 600000 });
+  const rotation = (model?: (z: string) => number) => assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "warrens" })], rows, rates, model })[0].rotation;
+  // Without a model the unmeasured Upper Guk ranks as the median measured zone, ahead of Runnyeye.
+  expect(rotation()).toEqual(["kurn", "guktop", "runnyeye"]);
+  // The model puts it at half of Runnyeye, and the measured zones pay what the model says.
+  expect(rotation((z) => ({ kurn: 800000, runnyeye: 600000, guktop: 300000 })[z]!)).toEqual(["kurn", "runnyeye", "guktop"]);
+  // The measured zones pay twice the model, so its 350k for Upper Guk counts as 700k.
+  expect(rotation((z) => ({ kurn: 400000, runnyeye: 300000, guktop: 350000 })[z]!)).toEqual(["kurn", "guktop", "runnyeye"]);
+});
+
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
   // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
   const other = tab("Z", "G9", 40, { zone: "kurn", crowdedAt: { kurn: NOW - 10 * 60000 } });

@@ -27,6 +27,9 @@ the other groups' departure with every spawn point up.
 A rotation that already holds the right zones stays only while the group should stay in its zone,
 since the bot moves along its rotation only when a zone runs dry.
 
+A group within two levels of the next band row also ranks that row's zones (`bandZones`), so the
+groups of one band spread over more zones than one row holds.
+
 ## Why
 
 A fixed loss per extra group cannot fit what the samples show at matched leader levels:
@@ -43,7 +46,8 @@ to zones that measure worse.
 The model alone misjudges the zones the account shares most. Beside three other groups at level
 42, a group earned 0.65 of its rate alone in Solusek's Eye and 0.74 in Paw, where the model gives
 0.50 and 0.49. With the model's factors those zones looked worse to share than they are, so five to
-seven groups gathered in Kaesora and idled for crowding.
+seven groups gathered in Kaesora and idled for crowding. One band row's three zones also served
+nine groups.
 
 ## Open
 

@@ -437,14 +437,25 @@ const mean = (t) => t.members.reduce((a, m) => a + (m.level ?? 0), 0) / Math.max
 export const ZONE_DEFAULTS = {
   // Zones in a rotation: the bot hunts the first and moves along when a zone runs dry.
   keep: 3,
-  // Hours of the row's median rate a zone's own measurement is weighed against, so a zone with
-  // little time there ranks near the median and gets tried, and its own rate takes over with time.
+  // Hours of a zone's prior rate its own measurement is weighed against, so a zone with little time
+  // there ranks at the prior and gets tried, and its own rate takes over with time.
   priorHours: 0.5,
   // A group leaves its zone for one worth this share more.
   margin: 0.2,
   // A rotation set this recently stays, so the group can arrive before the crowds shift again.
   settleMin: 10,
 };
+
+// A group this many levels below the next band row also ranks that row's zones: the XP model rates
+// them close to its own row's best a few levels early, and many groups at one band crowd one row.
+const NEXT_BAND_LEVELS = 2;
+
+/** The zones a group at `level` ranks: its band row's, and the next row's within `NEXT_BAND_LEVELS`. */
+export function bandZones(rows, level) {
+  const sorted = [...rows].sort((a, b) => a[0] - b[0]);
+  const next = sorted.find(([min]) => min > level);
+  return [...new Set([...(sorted.findLast(([min]) => level >= min)?.[1] ?? []), ...(next && level >= next[0] - NEXT_BAND_LEVELS ? next[1] : [])])];
+}
 
 /** Zones any tab found crowded by other players in the last 45 minutes (`crowdedAt`), which hold for every group. */
 export function crowdedZones(tabs, now) {
@@ -453,7 +464,8 @@ export function crowdedZones(tabs, now) {
 
 /**
  * Each group's zone rotation (docs/plans/controller.md, principle 4): the `keep` zones of the band
- * row at its leader's level (`rows`, data/band-rotations.json) with the most measured XP per hour
+ * row at its leader's level (`rows`, data/band-rotations.json, with the next row near it,
+ * `bandZones`) with the most measured XP per hour
  * (`rates`, tools/lib/rates.mjs), best first. The bot stays in a zone of its rotation and moves
  * along it when the zone runs dry, and moves to the first zone when its own is not in the
  * rotation. A group stays in its zone, and keeps its rotation, until the best zone is worth
@@ -465,13 +477,15 @@ export function crowdedZones(tabs, now) {
  * would earn `(n+1) f(n)` with this one (docs/plans/zone-crowding.md: a zone supplies so many kills
  * an hour, which the groups share). Valued at its own share alone, a sixth group in Solusek's Eye
  * looked as good as a third in Kaesora while it added a third as much. A zone's measured rate is
- * weighed against `priorHours` of the median rate of the row's zones with that much time, so a
- * zone with little time there ranks near the median and gets tried. Busy groups keep their rotation and
+ * weighed against `priorHours` of a prior: the XP model's rate there (`model(zone, level)`, tools/
+ * predict.mjs) at the median ratio of measured to modeled rate in the row's zones with that much
+ * time, or the median of their measured rates where the model has none. So a zone with little time
+ * there ranks where the model puts it among the measured ones and gets tried. Busy groups keep their rotation and
  * count for the zone they are in. Groups an experiment holds are assigned like the others, because
  * crowding the arms unevenly confounds an experiment more than a change of zone does. Returns
  * `[{ label, rotation, why }]` for the rotations whose zones change.
  */
-export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = () => 1, cfg = ZONE_DEFAULTS }) {
+export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = () => 1, model = () => null, cfg = ZONE_DEFAULTS }) {
   const out = [];
   const crowd = new Map();
   const occupy = (zone) => zone && crowd.set(zone, (crowd.get(zone) ?? 0) + 1);
@@ -482,20 +496,23 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
   const busyZones = crowdedZones(tabs, now);
   for (const t of [...tabs].filter((x) => !fixed(x)).sort((a, b) => mean(a) - mean(b))) {
     const level = t.members[0]?.level ?? 0;
-    const row = [...rows].sort((a, b) => b[0] - a[0]).find(([min]) => level >= min)?.[1] ?? [];
+    const row = bandZones(rows, level);
     if (!row.length) continue;
-    const zones = row.map((z, k) => ({ z, k, e: estimate(rates, z, level, now) }));
+    const zones = row.map((z, k) => ({ z, k, e: estimate(rates, z, level, now), m: model(z, level) }));
     const solid = zones.filter((m) => m.e?.hours >= cfg.priorHours);
-    const known = (solid.length ? solid : zones.filter((m) => m.e)).map((m) => m.e.xph).sort((a, b) => a - b);
-    const median = known.length ? known[Math.floor(known.length / 2)] : 1;
-    const xph = (e) => (e ? (e.hours * e.xph + cfg.priorHours * median) / (e.hours + cfg.priorHours) : median);
+    const base = solid.length ? solid : zones.filter((m) => m.e);
+    const mid = (xs) => (xs.length ? xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null);
+    const median = mid(base.map((m) => m.e.xph)) ?? 1;
+    const scale = mid(base.filter((m) => m.m > 0).map((m) => m.e.xph / m.m)) ?? 1;
+    const prior = (m) => (m.m > 0 ? scale * m.m : median);
+    const xph = (m) => (m.e ? (m.e.hours * m.e.xph + cfg.priorHours * prior(m)) / (m.e.hours + cfg.priorHours) : prior(m));
     // What one more group adds to the account in a zone, in shares of the zone's rate alone.
     const gain = (z) => {
       const n = crowd.get(z) ?? 0;
       const f = (k) => (k > 0 ? crowdFactor(z, level, k) : 1);
       return (n + 1) * f(n) - n * f(n - 1);
     };
-    const ranked = zones.map((m) => ({ ...m, xph: xph(m.e), value: (xph(m.e) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    const ranked = zones.map((m) => ({ ...m, xph: xph(m), value: (xph(m) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
     const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
