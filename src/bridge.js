@@ -281,7 +281,8 @@
   // Kill log built from the combat messages the server broadcasts, and the item ids of the loot
   // packets by item name, which the loot lines printed from them lack (`lootOf`). `faults` names the
   // client's faults the page supervisor reloads a page for (tools/lib/page.mjs): `lootless` counts
-  // the kills in a row without a "You loot" line, which a failed zone load can stop.
+  // the kills in a row without a "You loot" line, which a failed zone load can stop, and `desync` is
+  // the time the client last refused travel for want of its zone's state (`changeZone`).
   const kills = window.iq?.kills ?? [];
   const faults = window.iq?.faults ?? { lootless: 0 };
   const KILL_RE = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
@@ -890,7 +891,15 @@
     const dest = shortName ? zones.find((z) => z.shortName === shortName) : zones.find((z) => z.zoneidnumber === cb.currentZone);
     const change = functions.zoneChange;
     if (!dest || !change) throw new Error(`zone change function or zone ${shortName ?? cb.currentZone} not found`);
-    await change(dest);
+    // The client refuses travel without the zone state the server sends at world entry, which a
+    // session resumed through a server restart can lack, until a reconnect.
+    try {
+      await change(dest);
+      faults.desync = 0;
+    } catch (e) {
+      if (/zone is not synchronized/i.test(e?.message ?? "")) faults.desync = Date.now();
+      throw e;
+    }
     const t0 = Date.now();
     while (stores.combat.getState().isZoneLoading && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 500));
     await new Promise((r) => setTimeout(r, 2000));

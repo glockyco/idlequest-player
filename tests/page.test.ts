@@ -69,6 +69,12 @@ test("a page reloads once 25 kills in a row brought no loot line, and one dip of
   expect(step(1, game({ heap: { used: 2600, limit: 4000 } }), T0 + 12 * MIN + 30 * SEC, { exported: true })).toBeNull();
 });
 
+test("a page whose client refused travel for want of its zone's state reloads, which reconnects it", () => {
+  const step = fleetOf(1);
+  expect(step(0, game({ faults: { lootless: 0, desync: 0 } }), T0, { exported: true })).toBeNull();
+  expect(step(0, game({ faults: { lootless: 0, desync: T0 } }), T0 + 30 * SEC, { exported: true })).toBe("reload");
+});
+
 test("older code installs outside a raid, at most every two minutes", () => {
   const step = fleetOf(1);
   expect(step(0, game({ code: "c0", raid: true }), T0)).toBeNull();

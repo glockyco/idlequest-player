@@ -244,7 +244,11 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   instance 0, so changing to the zone you are in re-enters it at the safe spot. The client's
   `setCurrentZone` then clears the target and all engaged mobs, stops AutoLevel unless a merchant
   trip expected the zone, and drops an active Farm Items plan when the zone differs
-  (`main.pretty.js:189476-189497`). That makes it the escape from a bad fight.
+  (`main.pretty.js:189476-189497`). That makes it the escape from a bad fight. The request carries
+  the zone state of the server's last character data (`stateSessionId`, `zoneRevision`), and
+  without it the client refuses travel with "Your zone is not synchronized. Reconnect before
+  travelling." (`V8` in `BpHyB6iC.js` of release 20261110T154736). A page that entered the world
+  from the character select after a server restart had none, and only a reconnect sends it.
 - A zone load that fails sets the message of a small store (`message`, `retry`, `retryToken`,
   `fail`, `clear`), which the global loading overlay shows as the Loading Failed window. Its TRY
   AGAIN calls the store's `retry`, which loads the zone again, and nothing plays until then. The

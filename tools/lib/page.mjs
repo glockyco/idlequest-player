@@ -12,8 +12,9 @@
 //   install  the bridge or the bot is missing, or runs older code outside a raid, at most every
 //            `installEveryMin` per tab, and at once after the tab's sign-in
 //   reload   the heap's floor over `heapWindowMin` stays at `heapShare` of its limit, because the
-//            client keeps memory it no longer needs, or the last `lootlessKills` kills brought no
-//            loot line, which a failed zone load can leave behind, once every row is on disk, at a
+//            client keeps memory it no longer needs, the last `lootlessKills` kills brought no
+//            loot line, which a failed zone load can leave behind, or the client refused travel
+//            for want of its zone's state, which only a reconnect restores, once every row is on disk, at a
 //            quiet moment, and one page of the fleet per `reloadGapMin`. A character select whose
 //            connection stayed down for `offlineSec` is a session the server ended without the login
 //            form ("Log in before entering the world."), so its reload counts as a sign-in
@@ -37,9 +38,11 @@ const quiet = (snap) => snap.bot?.task?.status !== "running" && !snap.raid && !s
 /**
  * Why the page should reload, or null: the floor of its heap readings (`heap`, `{ t, used }` since it
  * loaded) over the last `heapWindowMin`, which counts because the heap saws up and down by hundreds
- * of MB between collections, or the bridge's count of kills in a row without a loot line.
+ * of MB between collections, the bridge's count of kills in a row without a loot line, or a travel
+ * the client refused for want of its zone's state.
  */
 function reloadReason(heap, snap, now, cfg) {
+  if (snap.faults?.desync) return "the client refused travel for want of its zone's state (\"Your zone is not synchronized. Reconnect before travelling.\")";
   const lootless = snap.faults?.lootless ?? 0;
   if (lootless >= cfg.lootlessKills) return `the last ${lootless} kills brought no loot line, which the client loses in a failed zone load`;
   const limit = snap.heap?.limit;

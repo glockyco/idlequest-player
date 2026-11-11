@@ -458,11 +458,13 @@ the repository's (`codeVersion`, outside raids). iqd loads `src/install.mjs` onc
 that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
 world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
 enters the world as its leader and regroups by itself, and a tab without them gets its group from
-`data/roster.json`. The supervisor reloads a page for two faults of the client: a JS heap whose
+`data/roster.json`. The supervisor reloads a page for three faults of the client: a JS heap whose
 floor, the lowest reading over 10 minutes, stays at half its limit, because the client keeps memory
-it no longer needs, and 25 kills in a row without a "You loot" line, which a failed zone load can
+it no longer needs, 25 kills in a row without a "You loot" line, which a failed zone load can
 leave behind although the bridge repairs that in the page (docs/client-internals.md, Loot
-messages). A reload waits for a moment without a task, fight, raid or zone load, with every
+messages), and a travel the client refused for want of its zone's state, which a page that entered
+the world through a server restart can lack until it reconnects (docs/client-internals.md, Zone
+change). A reload waits for a moment without a task, fight, raid or zone load, with every
 recorded row on disk, one tab of the fleet per 10 minutes. A crashed tab needs a new tab, which iqd
 cannot open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
 
