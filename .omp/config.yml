@@ -8,6 +8,9 @@ modelRoles:
   # so they do not spend Fable's weekly limit, and the model cycle offers Opus beside Fable.
   slow: anthropic/claude-opus-5-5
 
+# Sessions here are long development runs, for which Anthropic recommends high effort on Fable 5.2.
+defaultThinkingLevel: high
+
 # Role changes made with /model in this repository are saved here, not in the global config.
 modelRoleStorage: project
 
