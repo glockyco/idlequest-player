@@ -1462,11 +1462,13 @@ test("a summoned enemy that is up already sends the member to the fight", async 
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
 // and ends in a kill, a wipe or, with outcome "fled", a boss that leaves the fight alive. A kill
 // shows as the server's kill line and leaves one drop on the corpse. `leaderFalls` kills the
-// leader once, mid-fight, `endFails` makes that many calls of `end` throw, and `diesOnArrival`
-// has the raid engage and kill the boss while it walks there, before any attack order.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false } = {}) {
+// leader once, mid-fight, `endFails` makes that many calls of `end` throw, `diesOnArrival`
+// has the raid engage and kill the boss while it walks there, before any attack order, and
+// `stalls` leaves the raid standing in combat under its first attack order until a second one.
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false, stalls = false } = {}) {
   const calls: string[] = [];
   const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
+  let started = false;
   let drops: { id: string; name: string }[] = [];
   const page = f.iq as unknown as { events: { t: number; seq: number; type?: string; text: string }[] };
   const die = () => {
@@ -1495,8 +1497,10 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
     },
     attack: async () => {
       calls.push(`attack ${f.combat.targetNPC?.name}`);
-      if (r.combat) return;
+      if (started) return;
       r.combat = true;
+      if (stalls) return void (stalls = false);
+      started = true;
       if (leaderFalls) setTimeout(() => (r.leaderDead = true), fightMs / 2);
       // An add joins the fight and heals the boss, as Phinigel's seahorse did.
       if (healer)
@@ -1546,6 +1550,22 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
   Object.assign(f.runtime, { selectEnemyTarget: (ids: number[]) => (f.combat.targetNPC = ids[0] === 1099 ? { spawnInstanceId: 8, name: "a_swirlspine_seahorse" } : { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
   return calls;
 }
+
+test("a raid that deals no damage gets its attack order again", async () => {
+  vi.useFakeTimers();
+  try {
+    // Tolapumj on 2026-11-11: the tab reconnected a minute into the fight, the boss was back at
+    // full health, and the raid stood in combat under its old order until a new one.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, stalls: true });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(calls.filter((c) => c.startsWith("attack"))).toEqual(["attack Lord_Nagafen", "attack Lord_Nagafen"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", orders: [{ kind: "attack", why: "no damage for 20 s", result: "attacked" }] } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 test("a raid task buys time when none is left, recruits, sets its orders, kills its target and ends the raid", async () => {
   vi.useFakeTimers();

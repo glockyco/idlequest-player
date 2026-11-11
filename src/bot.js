@@ -1816,6 +1816,8 @@
   };
   // How close Run To Target brings the leader before the attack, in the scene's distance units.
   const RAID_REACH = 30;
+  // A raid in combat that deals no damage this long stands under an order it does not follow.
+  const RAID_STALL_MS = 20000;
   // A raid fights one target with the leader and recruited account characters in the client's raid
   // mode (`window.iq.raid`, docs/client-internals.md "How a raid fight runs"), where AutoLevel is off
   // and a member casts only on an order. The task buys an hour of raid time when none is left and
@@ -1918,6 +1920,8 @@
         let reviveAt = 0;
         let healSeq = 0;
         const healers = new Set();
+        let progress = null;
+        let progressAt = now();
         const bossName = enemyPattern(boss.name);
         const roster = (s) => s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
         task.fight.roster = roster(raid.state());
@@ -1933,6 +1937,20 @@
             const l = s.leader ?? {};
             task.fight.trace.push({ s: Math.round((now() - t0) / 1000), hp: l.hp, order: `${l.order}#${l.revision}`, aa: l.autoAttack, cast: l.casting, nav: l.navigating, pos: l.pos ?? null, d: distance() == null ? null : Math.round(distance()), boss: e?.hp ?? null, up: s.roster.filter((m) => m.alive).length });
             if (task.fight.trace.length > 240) task.fight.trace.shift();
+          }
+          // Tolapumj's fight on 2026-11-11: the tab reconnected a minute in, the boss was back at
+          // full health, and the raid only healed under its old attack order until a new one,
+          // which had him dead in 35 s.
+          const mark = `${s.enemies.reduce((a, e) => a + (e.hp ?? 0), 0)}|${s.roster.reduce((a, m) => a + (m.damage ?? 0), 0)}`;
+          if (mark !== progress) {
+            progress = mark;
+            progressAt = now();
+          } else if (s.combat && !s.leaderDead && now() - progressAt >= RAID_STALL_MS) {
+            progressAt = now();
+            if (!i.stores.combat.getState().targetNPC?.spawnInstanceId) rt.selectEnemyTarget([boss.npcId]);
+            const r = await raid.attack().then(() => "attacked", (err) => `not attacked: ${err?.message ?? err}`);
+            task.fight.orders.push({ kind: "attack", why: `no damage for ${RAID_STALL_MS / 1000} s`, result: r });
+            log(`task raid: no damage for ${RAID_STALL_MS / 1000} s, so the attack order goes out again (${r})`);
           }
           // An engaged enemy that heals the boss undoes the raid's damage: Phinigel's swirlspine
           // seahorse healed him 10,000 every 30 s, four times from about 6,000 back to 15,000. The
