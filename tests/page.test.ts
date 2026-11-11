@@ -86,6 +86,16 @@ test("older code installs outside a raid and a young task, at most every two min
   expect(step(0, game({ code: "c0" }), T0 + 270 * SEC)).toBe("install");
 });
 
+test("a task holds an install only while its page is in the world", () => {
+  // Groups 6 and 9 on 2026-11-11: the server signed every tab out at 22:38, the sign-in left these
+  // two at the character select under their camp tasks, and their pages ran code from before the
+  // bot failed such a task, which waited for the tasks.
+  const step = fleetOf(1);
+  const camp = { code: "c0", bot: { task: { status: "running", startedAt: T0 } } };
+  expect(step(0, game(camp), T0 + 10 * SEC)).toBeNull();
+  expect(step(0, game({ ...camp, screen: "select" }), T0 + 20 * SEC)).toBe("install");
+});
+
 test("a character select without a connection for a minute reloads, so the login form shows", () => {
   const step = fleetOf(1);
   const select = game({ screen: "select", conn: { connected: false } });
