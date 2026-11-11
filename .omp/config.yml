@@ -1,0 +1,16 @@
+# Settings for omp sessions started in this repository. They merge over ~/.omp/agent/config.yml.
+
+# Sessions here start on Claude Fable 5.2. The other roles (task, smol, advisor) come from the
+# global config, so delegated work stays on the smaller models.
+modelRoles:
+  default: anthropic/claude-fable-5-2
+
+# Role changes made with /model in this repository are saved here, not in the global config.
+modelRoleStorage: project
+
+# Play runs unattended, so a session that reaches Fable's weekly limit goes on with Opus 5.5
+# instead of stopping.
+retry:
+  fallbackChains:
+    anthropic/claude-fable-5-2:
+      - anthropic/claude-opus-5-5
