@@ -17,7 +17,7 @@ have to reimplement the combat engine, so this project drives the real client in
   errands for named drops and raises alerts, with or without a script attached.
 - `src/client.mjs` injects both into a browser tab and calls them from a script.
 
-Agents that play the account follow [AGENTS.md](AGENTS.md).
+Agents that work on this repository follow [AGENTS.md](AGENTS.md). Operating a game tab by hand is described in [docs/runbook.md](docs/runbook.md).
 
 Protocol and client internals: [docs/client-internals.md](docs/client-internals.md).
 
@@ -566,7 +566,7 @@ names the running client and `iq.missingApi` lists the missing parts.
 - AutoLevel stays off: `iq.botReport()` shows `paused` with a reason and an end time, and
   `enabled`. `iq.resumeBot()` ends a pause and `iq.setBot({ enabled: true })` turns the bot back on.
 - `watch` or `evaluate` throws or never returns: the tab is gone or its renderer crashed, and the
-  bot went with it. Bring the group back with `restoreGroup` (`AGENTS.md`, "Session start").
+  bot went with it. Bring the group back with `restoreGroup` (`docs/runbook.md`, "Driving a game tab from a session").
 - `travelTo` fails with `no such zone`: pass the zone's short name (`misty`) or its long name as
   the game spells it. AutoLevel must be stopped first (use `pausedAutoLevel`).
 - An item stays on the cursor: `iq.bagSpace().cursor` names it, and looting and cleanup stop until

@@ -36,7 +36,7 @@ The bot's rows are in `data/band-rotations.json`. This section gives the evidenc
 
 The party stayed in Permafrost from 23 to 28 (255 minutes at 2.3M to 2.5M) and in Unrest from 29 to 31, so the "rotation" is a safeguard, not a schedule. The bot moves on when the XP per hour of play over the last 10 minutes falls below a share of the visit's best or after repeated guard escapes.
 
-Groups that share a zone contest its enemies: with seven groups in Misty Thicket and Toxxulia Forest, the client gave up targets "already engaged by another player" and sometimes stopped AutoLevel. Each bot therefore orders a new row, and picks the next zone, by how few of the browser's other groups hunt each zone (`AGENTS.md`, `rotate`), so a row needs as many safe zones as groups share its levels.
+Groups that share a zone contest its enemies: with seven groups in Misty Thicket and Toxxulia Forest, the client gave up targets "already engaged by another player" and sometimes stopped AutoLevel. Each bot therefore orders a new row, and picks the next zone, by how few of the browser's other groups hunt each zone (`docs/runbook.md`, `rotate`), so a row needs as many safe zones as groups share its levels.
 
 | Party level | Rotation | Measured | Model | Notes |
 | --- | --- | --- | --- | --- |

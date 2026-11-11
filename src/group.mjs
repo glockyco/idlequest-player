@@ -74,7 +74,7 @@ export function makeName(letter) {
 /**
  * Sign in on the login form from the login files in `~/.config/idlequest`, without printing them,
  * and wait for character select. The inputs are set with the native value setter, never focused,
- * because focusing opens a password manager's autofill menu, which detaches the tab (AGENTS.md).
+ * because focusing opens a password manager's autofill menu, which detaches the tab (docs/runbook.md).
  */
 export async function signIn(tab, { timeoutMs = 120000 } = {}) {
   const end = Date.now() + timeoutMs;
