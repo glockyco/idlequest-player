@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { bossValues, dailyCandidates, killId, nextBossKill, potionSpent } from "../tools/lib/boss-plan.mjs";
+import { bossValues, dailyCandidates, killId, nextBossKill, potionSpent, standingBosses } from "../tools/lib/boss-plan.mjs";
 
 const boss = (key: string, status = "available") => ({ key, name: key, zone: `${key}zone`, status });
 const daily = (resetsRemaining: number, bosses: object[]) => ({ resetsRemaining, resetLimit: 2, bosses });
@@ -57,4 +57,30 @@ test("a potion a raid task used is spent until the next survey, and one a task n
   // A newer survey lists what the bags hold after that raid, and another holder's potion is its own.
   expect(potionSpent([{ t: 200, id, status: "done", step: "fight Lodizal" }], p, 300)).toBe(false);
   expect(potionSpent([{ t: 200, id, status: "done", step: "fight Lodizal" }], { ...p, who: "Thalgrimm" }, 100)).toBe(false);
+});
+
+test("a summoned boss that no raid killed stands until one does, and comes before every other potion", () => {
+  const casino = [{ key: "lodizal", name: "Lodizal", zone: "iceclad", itemId: 990113 }, { key: "tolapumj", name: "Tolapumj", zone: "sebilis", itemId: 990107 }];
+  const id = "boss:potion:990113:Tagujazolu";
+  const raid = (t: number, rest: object) => ({ t, kind: "raid", id, ...rest });
+  const NOW = 10_000_000;
+  // The fight ended without a kill: Lodizal fled and stands at his spawn point.
+  const fled = [raid(1000, { status: "done", step: "fight Lodizal", result: "ended Lodizal in 49 s with 71 of 71 standing" })];
+  expect(standingBosses(fled, casino, NOW)).toEqual([{ key: "lodizal", name: "Lodizal", zone: "iceclad", itemId: 990113, who: "Tagujazolu", since: 1000, fights: 1 }]);
+  // A task that never reached him changes nothing, and neither does a potion the server refused.
+  const again = [...fled, raid(2000, { status: "failed", step: "stop" }), { t: 2500, kind: "raid", id: "boss:potion:990107:Ibaegrix", status: "failed", step: "use potion 990107" }];
+  expect(standingBosses(again, casino, NOW).map((s) => [s.key, s.fights])).toEqual([["lodizal", 1]]);
+  // A kill ends it, and so does a raid that finds him gone.
+  expect(standingBosses([...again, raid(3000, { status: "done", step: "collect the loot", result: "killed Lodizal in 55 s with 71 of 71 standing, looted 6 items" })], casino, NOW)).toEqual([]);
+  expect(standingBosses([...again, raid(3000, { status: "failed", step: "target" })], casino, NOW)).toEqual([]);
+  expect(standingBosses(fled, casino, 1000 + 25 * 3600000)).toEqual([]);
+
+  // While he stands, his raid runs without a potion, and the other potion waits.
+  const standing = standingBosses(fled, casino, NOW);
+  const potions = [{ key: "tolapumj", name: "Tolapumj", zone: "sebilis", itemId: 990107, who: "Ibaegrix" }];
+  const odds = { lodizal: { raid: win }, tolapumj: { raid: win } };
+  const plan = nextBossKill({ daily: daily(0, []), potions, standing, odds, value: { tolapumj: 9 } });
+  expect(plan.kill).toMatchObject({ key: "lodizal", source: "standing", who: "Tagujazolu", zone: "iceclad" });
+  expect(killId(plan.kill)).toBe(id);
+  expect(plan.skipped).toEqual([{ key: "tolapumj", why: "Lodizal stands summoned, and the server takes no other potion until it is dead" }]);
 });

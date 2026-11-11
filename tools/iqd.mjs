@@ -18,7 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
-import { bossValues, killId, nextBossKill, potionSpent } from "./lib/boss-plan.mjs";
+import { bossValues, killId, nextBossKill, potionSpent, standingBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -389,6 +389,8 @@ const CROWD_PRIOR_H = 2;
 const GEAR_RETRY_MIN = 10;
 // A boss kill whose raid task failed is tried again this long after it, or at once under new code.
 const RAID_RETRY_MIN = 30;
+// A potion the server refused is tried again this long after, whatever the code (`bossPass`).
+const REFUSED_RETRY_MIN = 360;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
 // (`bossPlan` of the boss pass) and a casino boss potion a day, 3,366 pp at 9 dice by the casino
 // panel's own odds (docs/plans/systems-research.md, "Boss summons and daily allowance").
@@ -1019,17 +1021,28 @@ class Daemon {
     // The survey is the last gear pass's, so a potion a raid used since then is left out (`potionSpent`).
     const surveyAt = metaGet(this.db, "gear")?.t ?? 0;
     const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName }))).filter((p) => !potionSpent(history, p, surveyAt));
-    const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions], targets: this.targetWants, hoursPerLevel });
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, odds: odds.odds, value });
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, price: st.time?.pricePp ?? null });
+    // A casino boss a raid summoned and did not kill, which blocks every other potion until it is dead.
+    const standing = standingBosses(history, casino, now);
+    const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions, ...standing], targets: this.targetWants, hoursPerLevel });
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, standing, price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
-    if (!kill || raiding || now < retryTime(history.filter((h) => h.id === killId(kill)).at(-1), RAID_RETRY_MIN, this.code)) return null;
+    const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
+    // A standing boss is fought again at the next pass, three times, before its raids wait like a
+    // failure. A potion the server refused waits six hours, since the refusal names a summoned
+    // boss this history does not know, and its raid would buy an hour of raid time to be refused.
+    // The refusal is over once a raid has killed a casino boss after it, the one that stood.
+    const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
+    const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
+    const retryMin = kill?.source === "standing" && kill.fights < 3 ? 0 : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
+    if (!kill || raiding || now < retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code)) return null;
     const leader = kill.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     if (!tab || tab.task?.status === "running" || !kill.zone) return null;
     const members = [...groupOf.keys()].filter((n) => n !== leader);
-    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : { bossKey: kill.key };
-    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${kill.source === "potion" ? `${kill.who}'s potion` : "a free summon"}` };
+    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : { bossKey: kill.key };
+    const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : "a free summon";
+    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
   }
 
   /**

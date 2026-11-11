@@ -41,14 +41,18 @@ export function dailyCandidates(daily) {
  * The next boss kill, or null with the reasons in `skipped`.
  * - `daily`: `iq.raid.bosses()` of a leader at 46 or more: `{ resetsRemaining, resetLimit, bosses: [{ key, name, zone, status }] }`.
  * - `potions`: casino potions the survey finds, `[{ key, name, zone, itemId, who }]`, `who` the holder.
+ * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
- * A group kill goes first, since it needs no raid time, for an open-world spawn only: a summon or a
+ * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
+ * that summoned it, and the server refuses every other potion while it stands ("Your account
+ * already has a summoned casino boss"), so the other potions wait for it. A group kill comes
+ * next, since it needs no raid time, for an open-world spawn only: a summon or a
  * potion has been used inside raid mode only. A raid runs as soon as one is due, the most valuable
  * first, because a free summon comes back 24 hours after its use and the account's platinum far
  * outruns the raid time it buys. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], odds = {}, value = {} }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {} }) {
   const skipped = [];
   const ways = [];
   const add = (c, source) => {
@@ -58,14 +62,18 @@ export function nextBossKill({ daily = null, potions = [], odds = {}, value = {}
     else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
+  for (const s of standing) add(s, "standing");
   for (const b of dailyCandidates(daily)) add(b, "summon");
-  for (const p of potions) add(p, "potion");
-  const rank = (w) => (w.way === "group" ? 0 : 1);
+  for (const p of potions) {
+    if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
+    else add(p, "potion");
+  }
+  const rank = (w) => (w.source === "standing" ? 0 : w.way === "group" ? 1 : 2);
   return { kill: ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0))[0] ?? null, skipped };
 }
 
-/** The coordinator's history id of a kill's raid task: a potion with its holder, or a summon's boss. */
-export const killId = (k) => (k.source === "potion" ? `boss:potion:${k.itemId}:${k.who}` : `boss:summon:${k.key}`);
+/** The coordinator's history id of a kill's raid task: a potion's boss with its holder, or a summon's boss. */
+export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : `boss:summon:${k.key}`);
 
 // The raid task's steps before it uses its potion (`raidTask` of src/bot.js). A task that ended
 // at one of them left the potion in the bags.
@@ -80,4 +88,38 @@ const BEFORE_POTION = /^(become |stop$|travel to |raid time$|open the raid$|recr
 export function potionSpent(history, p, surveyAt) {
   const id = killId({ ...p, source: "potion" });
   return history.some((h) => h.id === id && h.t >= surveyAt && !(h.status && h.status !== "done" && BEFORE_POTION.test(h.step ?? "")));
+}
+
+// A summoned casino boss is taken as gone a day after its last raid, when the next potion is due.
+const STANDING_MS = 24 * 3600000;
+
+/**
+ * The casino bosses that stand summoned, from the raid tasks on record (`history`, the
+ * coordinator's, with each task's status, step and result) and the casino table `bosses`
+ * (`[{ key, name, zone, itemId }]`): `[{ key, name, zone, itemId, who, since, fights }]`, `who` the
+ * character that used the potion and `fights` the raids that fought the boss without a kill. A
+ * boss stands from the task that used its potion until a task kills it ("killed" in its result)
+ * or finds no such enemy to target, which is a boss that expired. A task that ended before it
+ * reached the boss changes nothing. Lodizal stood for 90 minutes and three fights, and a second
+ * potion's raid bought an hour of raid time for 10,000 pp to be refused.
+ */
+export function standingBosses(history, bosses, now) {
+  const state = new Map();
+  for (const h of history) {
+    const m = /^boss:potion:(\d+):(.+)$/.exec(h.id ?? "");
+    if (!m || h.kind !== "raid") continue;
+    const early = h.status && h.status !== "done" && BEFORE_POTION.test(h.step ?? "");
+    const refused = h.status === "failed" && /^use potion /.test(h.step ?? "");
+    if (early || refused) continue;
+    const killed = h.status === "done" && /^killed /.test(h.result ?? "");
+    const gone = h.status === "failed" && h.step === "target";
+    if (killed || gone) state.delete(h.id);
+    else state.set(h.id, { itemId: Number(m[1]), who: m[2], since: state.get(h.id)?.since ?? h.t, last: h.t, fights: (state.get(h.id)?.fights ?? 0) + (h.status ? 1 : 0) });
+  }
+  const out = [];
+  for (const s of state.values()) {
+    const boss = bosses.find((b) => b.itemId === s.itemId);
+    if (boss && now - s.last < STANDING_MS) out.push({ key: boss.key, name: boss.name, zone: boss.zone, itemId: s.itemId, who: s.who, since: s.since, fights: s.fights });
+  }
+  return out;
 }
