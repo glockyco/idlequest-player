@@ -1389,11 +1389,20 @@
   };
   const withTimeout = (p, ms, what) => Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)))]);
   const activeName = (i) => (i.stores.screen.getState().currentScreen === "game" ? (i.stores.character.getState().characterProfile?.name ?? null) : null);
-  /** Stop AutoLevel and let the fight at hand end, by itself or by the guard's escape from a dead one. */
+  /**
+   * Stop AutoLevel and let the fight at hand end. A fight that still runs after `CALM_LEAVE_SEC`
+   * is left through the guard: with AutoLevel held, the enemies of a crowded dungeon attack the
+   * standing party one after another, and in Chardok the fight outlasted two waits of 70 s with
+   * kills in between. A fight without combat lines is left by the `deadFight` remedy.
+   */
+  const CALM_LEAVE_SEC = 45;
   const calm = async (i) => {
     holdAutoLevel(i.stores.combat.getState(), "a task");
     const busy = () => i.stores.skills.getState().inCombat || i.guard?.phase === "leaving" || i.stores.combat.getState().isZoneLoading;
-    for (let k = 0; k < 70 && busy(); k++) await sleep(1000);
+    for (let k = 0; k < 70 && busy(); k++) {
+      if (k === CALM_LEAVE_SEC && i.stores.skills.getState().inCombat && typeof i.leaveFight === "function") i.leaveFight(`a task waited ${CALM_LEAVE_SEC} s for the fight to end`);
+      await sleep(1000);
+    }
     if (busy()) throw new Error("the fight did not end");
   };
   const becomeActive = async (i, name) => {

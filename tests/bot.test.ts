@@ -1682,6 +1682,25 @@ test("any task that takes the tab ends a running errand as finished, not failed"
   }
 });
 
+test("a task's stop leaves a fight that still runs after 45 s", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    fakeRaid(f, { timeLeft: true });
+    // Chardok: with AutoLevel held, enemy after enemy attacks the standing party, so the fight never
+    // ends by itself. The guard's escape ends it some seconds after it is asked.
+    const left: string[] = [];
+    f.skills.inCombat = true;
+    Object.assign(f.iq, { leaveFight: (why: string) => (left.push(why), setTimeout(() => (f.skills.inCombat = false), 5000), true) });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(left).toEqual(["a task waited 45 s for the fight to end"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid end that fails is tried again, and a raid left on asks for attention", async () => {
   vi.useFakeTimers();
   try {
