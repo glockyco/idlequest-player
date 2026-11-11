@@ -991,6 +991,10 @@
     const cbNow = stores.combat.getState();
     // Raid bosses stand far above the leader by design, and the raid controls command each fight.
     if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading || stores.raid?.getState?.().raidModeActive) return;
+    // The escape is a request to the server, so the guard waits while the connection is down. In
+    // the server's restart of 2026-11-11 a dying leader's escape failed three times in three
+    // seconds ("WorldSocket not connected"), each counted as an escape, and the cap fell from 5 to 2.
+    if (!socket.isConnected) return;
     guard.hp.push({ t: Date.now(), hp: stores.character.getState().characterProfile?.curHp ?? 0 });
     while (guard.hp[0].t < Date.now() - 10000) guard.hp.shift();
     // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
