@@ -21,8 +21,9 @@ export const ACQUIRE = {
   wearLevels: 10,
   // The share of its time a group idled on an errand in a zone another group played (group 4, once).
   sharedCost: 0.4,
-  // A visit travels, reads the zone's spawn list, kills the enemy if it is up and leaves, about six
-  // minutes without XP, until visits are measured.
+  // A visit travels, reads the zone's spawn list, kills the enemy if it is up and leaves. One that
+  // found nothing up took about 1.6 minutes to the group's next fight, but a visit's deadline comes
+  // from these hours too and has to leave the walk to an enemy that is up.
   visitHours: 0.1,
   // A camp runs this long, and the next pass sends the group again while the enemy still pays.
   campMin: 30,

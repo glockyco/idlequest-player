@@ -126,7 +126,7 @@ for raids. A leader that carries too little for a purchase pulls the largest acc
 | Survival | AC and HP count for one sixth of the leveling model's 0.5% per 100, until the damage each member takes is measured |
 | T | assumed 10 levels, while each gear pass records how long items stay in a slot (`wear` table, `tools/lib/wear.mjs`), which replaces the assumption once replaced stints span the level bands |
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
-| `visitHours` 0.1 | assumed, to be measured from the first visits |
+| `visitHours` 0.1 | measured at about 1.6 minutes from a visit's start to the group's next fight for a visit that found nothing up, and kept higher, because the visit's deadline comes from the same hours and has to leave the walk to an enemy that is up. Next: a deadline apart from the expected cost, checked against the scenarios where a cheaper visit beats a camp or an errand |
 | Kill chance | the model fitted to every simulated fight, the simulator per pair of group and target, and the group's live fights per enemy at its level |
 | Deaths | their cost measured from the fight logs (`tools/fights.mjs`), their number per fight from the simulator or the model |
 | Kill shares | modeled: an enemy's points over their respawn against the group's kills per hour from the gear pass, until trips are measured |
