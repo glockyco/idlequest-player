@@ -1038,7 +1038,9 @@ class Daemon {
       if (survey.some((r) => r.characterName === p.name && mine.includes(r.itemId))) return [];
       return mine.map((rewardId) => ({ rewardId, to: p.name, pieces: (this.itemModel.pieces.get(rewardId) ?? []).filter((x) => !carried.has(x.itemId)).map((x) => ({ ...x, name: this.itemModel.names.get(x.itemId) })) })).filter((e) => e.pieces.length);
     });
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
+    const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;

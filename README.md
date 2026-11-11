@@ -290,8 +290,8 @@ bun tools/fights.mjs
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
 and slot where it adds most to its group's XP rate (`xpGain` in `tools/lib/gear-plan.mjs`): armor and jewelry as a set by what they add to the wearer's melee and spells (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste, mana and regeneration, a little for AC and HP), weighed by the wearer's measured share of the party's damage, and by the party time they save, with the
-client's haste and regeneration caps, the main hand by `weaponRatio` against what the hand
-swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
+client's haste and regeneration caps, a weapon by its stats like armor and by `weaponRatio`
+against what the hand swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
 saves the group (docs/client-internals.md, Bard instruments). Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
 buys in one city for at most the account's last hour of income less the raid budget's share
@@ -314,7 +314,8 @@ The plan also lists the gear that enemies of every live zone drop (`liveDrops` i
 `tools/lib/gear-data.mjs`), where it beats what a character wears, and the pieces a hunt gets of
 the class epics the account can finish (`huntPieces` in `tools/lib/epic-model.mjs`), each worth
 the epic's reward to its character, shared by the pieces it lacks. It ranks the enemies by the
-value an hour of hunting them brings to the account (`targets`). Each coordinator pass sends the free groups on the trips that earn most, best pair of
+value an hour of hunting them brings to the account (`targets`), and the pieces the epics hand in
+stay unworn, since a hand-in takes them from the bags. Each coordinator pass sends the free groups on the trips that earn most, best pair of
 group and zone first: a trip hunts every wanted enemy of its zone that pays, as an errand inside
 normal hunting when the zone is in the group's rotation, and as a camp or a short visit when it is
 not. A group's chance against an enemy comes from a model fitted to every simulated fight, the

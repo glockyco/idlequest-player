@@ -270,18 +270,19 @@ export const fits = (item, p, slot) =>
  * (`huntPieces` in tools/lib/epic-model.mjs). Each piece is worth the reward's gain to `to`, shared by
  * the pieces it lacks, and its sources join the targets with `slot` "epic", not the per-slot
  * `drops`. A target keeps its hardest enemy's level and hit points and, in `also`, the enemies a
- * chain of deaths brings, which its hunt kills too.
+ * chain of deaths brings, which its hunt kills too. `unworn` lists items no move puts on, the
+ * pieces a quest hands in, since a hand-in takes them from the bags.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
  * `xpGain`'s unit, tenths of a percent of the wearer's group's XP rate, and `minGain` is 0.05% of it.
  * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
  * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
- * worn now (`setValue`, plus a Bard's walk value, weapons left out), after this pass's moves, and after the moves and every wanted drop; and for each
+ * worn now (`setValue`, a weapon for its stats, plus a Bard's walk value), after this pass's moves, and after the moves and every wanted drop; and for each
  * of the 22 slots of the paper doll (`DOLL_SLOTS`) the item worn now (`{ itemId, name }`), the last
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], copyValue = (w) => w.gain, killsPerHour = 0 }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], unworn = new Set(), copyValue = (w) => w.gain, killsPerHour = 0 }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -296,13 +297,14 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   const free = survey.filter((r) => r.location === "Carried" && (!r.blockReason || r.blockReason === "Already on this character.") && items.has(r.itemId) && !(bags.has(r.characterName) && bagInstrument(items.get(r.itemId))));
   const goods = shop.filter((s) => items.has(s.itemId) && s.price <= buyPp).map((s) => ({ characterName: null, itemId: s.itemId, itemName: items.get(s.itemId).Name, itemInstanceId: `shop:${s.itemId}`, buy: s }));
 
-  // A character's armor and jewelry by the set score, plus for a Bard the walk its percussion
-  // instrument, worn or in the bags, speeds up.
-  // A shield or an instrument in the off hand counts with its stats, a weapon there does not.
-  const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s, i]) => ARMOR_SLOTS.includes(s) || (s === SECONDARY && !(i?.damage > 0))).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
+  // A character's worn items by the set score, a weapon for its stats as well, since its swings
+  // count apart (`meleeGain`), plus for a Bard the walk its percussion instrument, worn or in the
+  // bags, speeds up.
+  const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s) || s === PRIMARY || s === SECONDARY).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p) => {
     const item = items.get(r.itemId);
+    if (unworn.has(r.itemId)) return [];
     // A lore item is one per character, so a second copy is refused.
     if (isLore(item) && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
@@ -333,17 +335,17 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
         const gain = gainIn(SECONDARY);
         if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain });
       }
-      // A one-hander counts for its swings, with the chance that they happen, and replaces only
-      // a weapon or nothing.
+      // A one-hander counts for its stats and its swings, with the chance that they happen, and
+      // replaces only a weapon or nothing.
       if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
-        const gain = meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+        const gain = gainIn(SECONDARY) + meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
         if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
       }
     }
-    // A main hand that swings harder replaces one only if it does not carry fewer stats, because
-    // casters and priests often wear a main hand for its stats.
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY)) && setValue([item], p) >= (held ? setValue([held], p) : 0)) {
-      const gain = meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+    // A main hand counts for its stats and its swings against the one it replaces, so a caster
+    // keeps a main hand worn for its stats unless the new one's stats and swings beat it.
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY))) {
+      const gain = gainIn(PRIMARY) + meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
       if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;

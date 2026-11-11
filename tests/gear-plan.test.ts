@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { damageShares, fists, itemCard, mergeSurvey, planGear, walkValue } from "../tools/lib/gear-plan.mjs";
+import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, walkValue } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -231,6 +231,22 @@ test("the off hand takes a one-hander for a Warrior from level 13, a shield for 
   // A two-hander in the main hand takes neither.
   const axe = row("Me", 5, "Equipped", 13, 1);
   expect(moves("warrior", 30, [axe, ...carried])).toEqual([]);
+});
+
+test("a main hand counts for its stats as well as its swings, so a caster takes a stat staff, and a quest piece kept unworn moves nowhere", () => {
+  const caster = new Map([
+    ...items,
+    item(8, "Mana Staff", { slots: 1 << 13, damage: 5, delay: 40, itemtype: 4, mana: 60, aint: 10 }),
+    item(9, "Iron Mace", { slots: 1 << 13, damage: 9, delay: 30, itemtype: 3 }),
+  ]);
+  const crow = (who: string, id: number, location: string, slot: number, inst: number) => ({ ...row(who, 1, location, slot, inst), itemId: id, itemName: caster.get(id)!.Name });
+  const wiz = { name: "Wiz", cls: "wizard", level: 30, race: "" };
+  const survey = [crow("Wiz", 9, "Equipped", 13, 1), crow("Holder", 8, "Carried", 25, 2)];
+  // A Wizard's output has no melee share, so the staff's mana and INT are its whole gain over the
+  // mace, which carries no stats.
+  const moves = planGear({ survey, items: caster, people: [wiz] }).moves;
+  expect(moves.map((m) => [m.item, m.slot, m.gain])).toEqual([["Mana Staff", "primary", expect.closeTo(setValue([caster.get(8)], wiz), 1)]]);
+  expect(planGear({ survey, items: caster, people: [wiz], unworn: new Set([8]) }).moves).toEqual([]);
 });
 
 test("a Monk's fists follow the client's table by race", () => {
