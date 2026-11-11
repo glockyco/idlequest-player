@@ -4,6 +4,9 @@
 # global config, so delegated work stays on the smaller models.
 modelRoles:
   default: anthropic/claude-fable-5-2
+  # The reviewer agent runs on `slow`, which follows `default` when unset. Reviews stay on Opus 5.5
+  # so they do not spend Fable's weekly limit, and the model cycle offers Opus beside Fable.
+  slow: anthropic/claude-opus-5-5
 
 # Role changes made with /model in this repository are saved here, not in the global config.
 modelRoleStorage: project
