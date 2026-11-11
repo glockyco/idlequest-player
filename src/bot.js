@@ -129,6 +129,7 @@
     cursorAlerted: false,
     offlineSince: null,
     offlineAlerted: false,
+    selectSince: null, // since when the page stands at the character select
     idleCases: {}, // cause -> { rung, at, began, errand, alerted }: the idle causes the remedy table works on
     heldAt: 0, // the last time a hold kept AutoLevel off or the bot stopped it, which the activity label reads
     heldBy: null, // what that hold was
@@ -1189,8 +1190,16 @@
     }
   };
 
+  // A task that waits to change characters does so within a second of the page's return
+  // (`untilSwitchable`), so a page that stands this long at the character select with no switch
+  // under way was left there, and its task played in the world. The coordinator brings a task
+  // that failed so back after `TASK_AGAIN_MS`.
+  const TASK_SELECT_MS = 20000;
+  const TASK_AGAIN_MS = 120000;
   const watchConnection = (i) => {
-    const ok = i.socket.isConnected && i.stores.screen.getState().currentScreen === "game";
+    const screen = i.stores.screen.getState().currentScreen;
+    state.selectSince = screen === "characterSelect" ? (state.selectSince ?? now()) : null;
+    const ok = i.socket.isConnected && screen === "game";
     if (ok) {
       state.offlineSince = null;
       state.offlineAlerted = false;
@@ -1199,7 +1208,15 @@
     state.offlineSince ??= now();
     if (!state.offlineAlerted && now() - state.offlineSince > 60000) {
       state.offlineAlerted = true;
-      alert("offline", `not in the game world for over a minute (screen ${i.stores.screen.getState().currentScreen}, connected ${i.socket.isConnected})`, true);
+      alert("offline", `not in the game world for over a minute (screen ${screen}, connected ${i.socket.isConnected})`, true);
+    }
+    // Only the bot enters the world from the character select, and a task's pause keeps it from
+    // that. After the server's restart of 2026-11-11 the sign-in left group 1 there under a camp
+    // task with 16 minutes of its pause to go. Such a task fails, and the tab comes back.
+    const t = state.task;
+    if (t?.status === "running" && state.selectSince && now() - state.selectSince >= TASK_SELECT_MS && !(state.switching && !state.switching.done)) {
+      Object.assign(t, { status: "failed", error: "the page was left at the character select, as a restart of the server leaves it", nextAt: now() + TASK_AGAIN_MS });
+      settleTask(t);
     }
   };
 
@@ -2050,6 +2067,16 @@
       : task.kind === "raid" || task.kind === "gear" || task.kind === "casino"
         ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
+  /**
+   * A task's end, once for each task: its time, its alert and the end of its pause. A failure
+   * that says when to come back is handled by the coordinator's retry, so it only notes.
+   */
+  const settleTask = (task) => {
+    if (task.endedAt) return;
+    task.endedAt = now();
+    alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
+    endPause(`the ${task.kind} task`);
+  };
   const runTask = (task) => {
     // A task takes the tab, so a running errand ends here, as finished and not failed.
     if (state.errand) endErrand(iq(), `${task.kind} task took the tab`, false);
@@ -2078,16 +2105,11 @@
     (async () => {
       try {
         await TASKS[task.kind](iq(), task, step);
-        if (mine()) task.status = "done";
+        if (mine() && task.status === "running") task.status = "done";
       } catch (e) {
         if (mine() && task.status === "running") Object.assign(task, e instanceof TaskStopped ? { status: "stopped" } : e instanceof TaskLater ? { status: "waiting", result: e.message, nextAt: e.at } : { status: "failed", error: String(e?.message ?? e), ...(e?.retryAfterMs ? { nextAt: now() + e.retryAfterMs } : {}) });
       } finally {
-        if (mine()) {
-          task.endedAt = now();
-          // A failure that says when to come back is handled by the coordinator's retry, so it only notes.
-          alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
-          endPause(`the ${task.kind} task`);
-        }
+        if (mine()) settleTask(task);
       }
     })();
     return task;

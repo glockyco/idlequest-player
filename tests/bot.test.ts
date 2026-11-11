@@ -1796,6 +1796,45 @@ test("a camping the server could not confirm signs the page out, and the quest's
   }
 });
 
+test("a task whose page is left at the character select fails, and the bot enters the world again", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    // A step that plays in the world and does not end, as a camp waits on its spawn points.
+    let talking = false;
+    Object.assign(f.iq, { talkToNpc: () => ((talking = true), new Promise(() => {})) });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "freporte", npc: "Kargek Redblade", say: ["favor"], expect: "Wax Sealed Note" }] });
+    for (let k = 0; k < 60 && !talking; k++) {
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    expect([talking, f.sheet.characterProfile.name, f.bot.state.task.status]).toEqual([true, "Tagujazolu", "running"]);
+    // The server restarts, and the page supervisor's sign-in leaves the page at the character select.
+    f.screen.currentScreen = "characterSelect";
+    f.commands.length = 0;
+    vi.advanceTimersByTime(10000);
+    await f.bot.tick();
+    await flush();
+    expect(f.bot.state.task.status).toBe("running");
+    // The bot saw the character select at that tick, and 20 s on the page is still there.
+    vi.advanceTimersByTime(21000);
+    await f.bot.tick();
+    await flush();
+    expect(f.bot.state.task).toMatchObject({ status: "failed", error: expect.stringContaining("character select") });
+    expect(f.bot.state.task.nextAt).toBeGreaterThan(Date.now());
+    expect(f.bot.state.alerts.filter((a) => a.kind === "task").map((a) => a.wake)).toEqual([false]);
+    // The task's pause is over, so the bot enters the world as its leader.
+    vi.advanceTimersByTime(2000);
+    await f.bot.tick();
+    await flush();
+    expect(f.commands).toEqual(["session.enterWorld Me"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest NPC's point is looked at once: the NPC goes on, a respawn ends as waiting, and the gathered leader's party camps an occupant", async () => {
   vi.useFakeTimers();
   try {
