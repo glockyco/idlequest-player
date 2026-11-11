@@ -145,11 +145,18 @@ test("wake alerts keep their text, deaths have their own kind, level-up alerts b
     { seq: 5, kind: "death", wake: false, text: "a goblin has been slain!" },
     { seq: 6, kind: "levelUp", wake: true, text: "You have gained a level! Welcome to level 36" },
     { seq: 7, kind: "lootFull", wake: true, text: "3 item(s) left on corpses" },
+    // An outcome the coordinator already acts on asks for nobody.
+    { seq: 8, kind: "raid", wake: true, text: "killed Tolapumj", killed: "Tolapumj" },
+    { seq: 9, kind: "errand", wake: true, text: "Gauntlets of Potence in droga: idle (crowded) in Mines of Droga" },
+    { seq: 10, kind: "raid", wake: true, text: "raid mode is still on: Request timeout" },
   ];
   const res = run(() => ok(snap({ bot: bot({ alerts }) })), 1, 30);
   expect(res.items.map((i) => [i.severity, i.kind, i.text])).toEqual([
     ["act", "death", "You have been slain by a goblin"],
     ["act", "alert-lootFull", "3 item(s) left on corpses"],
+    ["info", "alert-raid", "killed Tolapumj"],
+    ["info", "alert-errand", "Gauntlets of Potence in droga: idle (crowded) in Mines of Droga"],
+    ["act", "alert-raid", "raid mode is still on: Request timeout"],
   ]);
 });
 

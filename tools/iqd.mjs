@@ -195,7 +195,9 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   for (const a of snap.bot.alerts ?? []) {
     if (!a.wake || a.kind === "levelUp") continue; // level-ups are reported by the level rules below
     const kind = a.kind === "death" ? "death" : `alert-${a.kind}`;
-    item("act", kind, `${kind}:${snap.pageSession}:${a.seq}`, a.text);
+    // A raid's kill and an errand's end are outcomes: the progress record keeps the kill, and the
+    // coordinator decides about the errand at its next pass. They inform and ask for nobody.
+    item(a.killed || a.kind === "errand" ? "info" : "act", kind, `${kind}:${snap.pageSession}:${a.seq}`, a.text);
   }
 
   const leader = snap.leader;
