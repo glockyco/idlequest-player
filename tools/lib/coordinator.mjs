@@ -417,7 +417,17 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const queuedFor = new Map();
   // Wanted enemies by zone, leaving out zones found crowded.
   const zones = new Map();
-  for (const x of targets) if (!crowded.has(x.zone)) (zones.get(x.zone) ?? zones.set(x.zone, []).get(x.zone)).push(x);
+  // The enemies a hunt found no route to in the last day ("no route to a Paebala warrior" in its
+  // result): the client finds no place to stand and fight them, so no trip names them.
+  const noRoute = new Set();
+  for (const h of history) {
+    const said = now - h.t < 86400000 ? /no route to ([^()]+?)(?: \(|$)/.exec(h.result ?? "") : null;
+    if (!said) continue;
+    const names = said[1].split(", ").map((n) => n.trim().toLowerCase());
+    const ids = new Set(h.ids ?? (h.id ? [h.id] : []));
+    for (const x of targets) if (ids.has(targetId(x)) && names.includes(String(x.npc).replace(/#/g, "").toLowerCase())) noRoute.add(targetId(x));
+  }
+  for (const x of targets) if (!crowded.has(x.zone) && !noRoute.has(targetId(x))) (zones.get(x.zone) ?? zones.set(x.zone, []).get(x.zone)).push(x);
   // The enemies of a camp the client stopped in the last day ("Spawn Camp stopped: Navigation
   // recovery could not find a supported combat position."): it cannot camp their points, and the
   // hunt went on as a visit, so the next trips are visits too. The client stopped 17 camps on
@@ -479,6 +489,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     let why;
     if (on.length) why = { state: "hunting", group: on[0].group, groups };
     else if (x.items.every((w) => claimed.has(slotKey(w)))) why = { state: "covered", by: [...new Set(x.items.map((w) => claimed.get(slotKey(w)).npc))] };
+    else if (noRoute.has(id)) why = { state: "noRoute" };
     else if (crowded.has(x.zone)) why = { state: "crowded" };
     else if (tabs.length && !inTime(x, tabs[0])) why = { state: "time", when: x.when };
     else if (chance == null) why = { state: "untested", level: x.npcLevel ?? null };

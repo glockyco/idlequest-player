@@ -302,6 +302,15 @@ test("a rare spawn gets a short visit, and a camp clears the target's spawn poin
   expect(after.actions.filter((a) => a.spec.points)).toEqual([]);
   const later = decide({ killChance: byLevel, now: NOW + 23 * 3600000, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel, points: { "target-unrest-a-fiend": [11, 12] }, history: stopped });
   expect(later.actions[0].spec.points).toEqual([11, 12]);
+  // A hunt whose result names an enemy the client found no route to keeps trips off that enemy
+  // for a day, and off no other enemy of the trip.
+  const fiend = rare("a fiend", "unrest", 300);
+  const ghoul = rare("a ghoul", "unrest", 300);
+  const lost = [{ t: NOW - 2 * 3600000, label: "A", kind: "hunt", id: "target-unrest-a-fiend", ids: ["target-unrest-a-fiend", "target-unrest-a-ghoul"], status: "done", result: "none of a fiend|a ghoul up, no route to a fiend" }];
+  const barred = decide({ killChance: byLevel, now: NOW, tabs, targets: [fiend, ghoul], hoursPerLevel, history: lost });
+  expect(barred.targets["target-unrest-a-fiend"].state).toBe("noRoute");
+  expect(barred.actions.map((a) => a.spec.keep)).toEqual(["a ghoul"]);
+  expect(decide({ killChance: byLevel, now: NOW + 23 * 3600000, tabs, targets: [fiend], hoursPerLevel, history: lost }).targets["target-unrest-a-fiend"].state).not.toBe("noRoute");
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {

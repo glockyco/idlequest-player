@@ -225,6 +225,7 @@ function reasonOf(t, now) {
     case "untested": return { kind: "wait", text: "kill chance not known yet", tip: "No group has fought it, the simulator has not fought it, and the model fitted to all fights on file has no fit yet." };
     case "time": return { kind: "out", text: `${w.when} only` };
     case "crowded": return { kind: "out", text: "zone crowded" };
+    case "noRoute": return { kind: "out", text: "no way to it", tip: "The game found no place for the group to stand and fight it on the last trip. The next try is a day after that trip." };
     case "noPace": return { kind: "out", text: `no XP rate for ${w.taker}'s group yet` };
     case "covered": return { kind: "covered", text: `covered by ${w.by.join(", ")}` };
     default: return { kind: "out", text: "not planned yet" };

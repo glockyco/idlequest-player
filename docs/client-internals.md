@@ -144,6 +144,13 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   closest alive spawn on the camped points whose schedule is open, skipping charmed spawns and
   those evading or owned by another character, whatever its name. It applies no level or con limit
   (release 20261110T154736, `Bip1bGL8.js:7392-7414`), so a camp takes placeholders of any con.
+- A target the client finds no place to stand and fight gets the lines "No usable route. Recovering
+  near a Paebala warrior." and "Navigation recovery could not find a supported combat position.
+  Looking for another target.". Under Enemy Targets the other target is the same one while it is the
+  closest, so the pair repeats every 15 s (group 10 in Dragon Necropolis, 2026-11-12). A Spawn Camp
+  ends itself with "Spawn Camp stopped: Navigation recovery could not find a supported combat
+  position.". A hunt leaves such an enemy out and names it in its result, and the coordinator plans
+  no trip to it for a day (`noRouteSince` in `src/bot.js`, `noRoute` in `tools/lib/coordinator.mjs`).
 
 ### Readiness wait and cure passes
 

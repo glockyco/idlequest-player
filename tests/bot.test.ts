@@ -1377,6 +1377,49 @@ test("a camp the client stops is started once more and then goes on as a hunt fo
   }
 });
 
+test("a hunt leaves an enemy the client finds no route to and goes on with the others", async () => {
+  vi.useFakeTimers();
+  try {
+    // Group 10 in Dragon Necropolis on 2026-11-12: the client found no route to a Paebala warrior
+    // every 15 s for 11 minutes, and the hunt kept choosing it until it was stopped by hand.
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    const warrior = { spawnInstanceId: 1, npcId: 123001, name: "a_Paebala_warrior", level: 55 };
+    const chelaki = { spawnInstanceId: 2, npcId: 123002, name: "a_Chelaki", level: 54 };
+    let up = [warrior, chelaki];
+    const picked: number[][] = [];
+    f.runtime.combatScene.getAliveCombatTargetList = () => up;
+    Object.assign(f.runtime, {
+      selectEnemyTarget: (ids: number[]) => {
+        picked.push(ids);
+        // The client takes the nearest of them, the warrior while it is among them.
+        if (ids.includes(warrior.npcId)) {
+          Object.assign(f.combat, { targetNPC: warrior });
+          setTimeout(() => {
+            f.say("No usable route. Recovering near a Paebala warrior.");
+            f.say("Navigation recovery could not find a supported combat position. Looking for another target.");
+          }, 1000);
+        } else {
+          Object.assign(f.combat, { targetNPC: chelaki });
+          setTimeout(() => {
+            up = [warrior];
+            f.say("You have defeated a Chelaki and gained 114145 experience!");
+          }, 3000);
+        }
+      },
+    });
+    const t0 = Date.now();
+    f.bot.hunt({ zone: "necropolis", keep: "a Chelaki|a Paebala warrior", minutes: 30 });
+    await runToEnd(f);
+    expect(picked).toEqual([[123001, 123002], [123002]]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "none of a Chelaki|a Paebala warrior up, no route to a Paebala warrior" });
+    expect(Date.now() - t0).toBeLessThan(120000);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a visit that finds none of its enemies up names the first respawn of the points it watches", async () => {
   vi.useFakeTimers();
   try {

@@ -1676,14 +1676,37 @@
   };
   // What a failed directed kill saw, for its error.
   const fightState = (i) => `in combat ${Boolean(i.stores.skills.getState().inCombat)}, target ${i.stores.combat.getState().targetNPC?.name ?? "none"}, last line: ${(i.events ?? []).at(-1)?.text ?? "none"}`;
-  const directedKill = async (i, wanted) => {
+  // The client's lines when it finds no place to stand and fight its target: "No usable route.
+  // Recovering near a Paebala warrior." and then "Navigation recovery could not find a supported
+  // combat position. Looking for another target.". The other target is the same one while that is
+  // the nearest of the wanted: group 10 in Dragon Necropolis got the pair every 15 s for 11
+  // minutes (2026-11-12).
+  const NO_ROUTE = /^No usable route\. Recovering near (.+?)\.$/;
+  const NO_PLACE = /^Navigation recovery could not find a supported combat position/;
+  /** The enemy the client gave up on since `t0`, by its name in the client's line, or null. */
+  const noRouteSince = (i, t0) => {
+    const evs = i.events ?? [];
+    let noPlace = false;
+    for (let k = evs.length - 1; k >= 0 && evs[k].t >= t0; k--) {
+      const text = evs[k].text ?? "";
+      if (NO_PLACE.test(text)) noPlace = true;
+      else if (noPlace && NO_ROUTE.test(text)) return NO_ROUTE.exec(text)[1];
+    }
+    return null;
+  };
+  /**
+   * Fight the wanted enemies that are up through Enemy Targets: "killed", "none" when none is up,
+   * "lost" when no fight came of it, or "noroute:<name>" when the client found no route to the one
+   * it chose, whose kind then joins `skip` and is left out of the next call.
+   */
+  const directedKill = async (i, wanted, skip = new Set()) => {
     const rt = runtime(i);
     if (!rt?.selectEnemyTarget) throw new Error("the client's Enemy Targets action was not found");
     const cb = () => i.stores.combat.getState();
     // An enemy that attacked first, such as a script spawn at a corpse, is already the party's
     // fight, so its kill is only awaited.
     const engaged = () => i.stores.skills.getState().inCombat && wanted.test(cb().targetNPC?.name ?? "");
-    const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? ""));
+    const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? "") && !skip.has(t.npcId));
     // The server can take a spawn out of automated combat (`automatedCombatExcluded`), as it does
     // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it
     // out. Outside a raid a player can still select it and press Attack, which starts the same
@@ -1708,6 +1731,13 @@
         return "killed";
       }
       const busy = i.stores.skills.getState().inCombat || rt.combatApproach?.attempt || rt.buffPhaseActive;
+      // By the line's name, because a line about a kind already left out can still arrive.
+      const gaveUp = i.stores.skills.getState().inCombat ? null : noRouteSince(i, t0);
+      const stuck = gaveUp == null ? [] : alive.filter((t) => foeKey(String(t.name ?? "").replace(/#/g, "")) === foeKey(gaveUp));
+      if (stuck.length) {
+        for (const t of stuck) skip.add(t.npcId);
+        return `noroute:${gaveUp}`;
+      }
       if (!busy && now() - t0 > 15000) return "lost";
     }
     return "lost";
@@ -1775,6 +1805,8 @@
       holdAutoLevel(cb(), "the camp's end"); // ends the camp as well
     }
   };
+  // Tries at a fight in a row that came to nothing before a hunt gives its enemies up.
+  const HUNT_LOST_MAX = 3;
   const huntTask = async (i, task, step) => {
     const wanted = enemyPattern(task.keep);
     const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
@@ -1788,6 +1820,8 @@
       const zones = [].concat(task.zone);
       let at = 0;
       let empty = 0; // zones in a row without a wanted enemy
+      let lost = 0; // tries in a row that came to no fight
+      const skip = new Set(); // the kinds of enemy the client found no route to
       await step(`travel to ${zones[at]}`, () => i.changeZone(zones[at]), 90000);
       task.kills = 0;
       let seen = now();
@@ -1805,13 +1839,20 @@
           Object.assign(task, { campStopped: r.stopped, points: [] });
           continue;
         }
-        const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted), 200000);
+        const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted, skip), 200000);
         if (r === "killed") {
           task.kills++;
           seen = now();
           empty = 0;
+          lost = 0;
           // The hunt loots under the task's pause, so it keeps the bag reserve itself.
           await keepReserve(i, true);
+        } else if (r.startsWith("noroute:")) {
+          task.noRoute = [...new Set([...(task.noRoute ?? []), r.slice(8)])];
+          log(`task hunt: the client finds no route to ${r.slice(8)}, so the hunt goes on without it`);
+        } else if (r === "lost") {
+          // Fights that never start would otherwise fill the hunt's whole time.
+          if (++lost >= HUNT_LOST_MAX) return void (task.result = `no fight came of ${lost} tries at ${task.keep}`);
         } else if (r === "none") {
           empty++;
           if (empty >= zones.length && now() - seen >= task.waitMin * 60000) {
@@ -1823,7 +1864,7 @@
             const due = watched.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
             if (due.length) task.nextAt = Math.min(...due);
             const held = watched.filter((s) => s.state === "alive").length;
-            return void (task.result = `none of ${task.keep} up${task.nextAt ? `, next spawn at ${new Date(task.nextAt).toTimeString().slice(0, 8)}` : held ? `, other spawns hold ${held} of its points` : ""}${task.campStopped ? ` (${task.campStopped})` : ""}`);
+            return void (task.result = `none of ${task.keep} up${task.nextAt ? `, next spawn at ${new Date(task.nextAt).toTimeString().slice(0, 8)}` : held ? `, other spawns hold ${held} of its points` : ""}${task.noRoute?.length ? `, no route to ${task.noRoute.join(", ")}` : ""}${task.campStopped ? ` (${task.campStopped})` : ""}`);
           }
           if (empty >= zones.length) await sleep(zones.length > 1 ? 60000 : 10000);
           if (zones.length > 1) {
