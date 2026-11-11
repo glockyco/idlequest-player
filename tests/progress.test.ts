@@ -1,7 +1,7 @@
 // Checks the progress record (tools/lib/progress.mjs) and its dashboard rows. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { aaChanges, chainChanges, gearChanges, lootProgress, progressCounts, recordProgress, snapshotProgress } from "../tools/lib/progress.mjs";
+import { aaChanges, chainChanges, equipProgress, gearChanges, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "../tools/lib/progress.mjs";
 import { itemIdsOf, progressRows } from "../tools/lib/dashboard.mjs";
 
 const leader = (level: number) => ({ id: 1, name: "Tank", level, class: "Warrior" });
@@ -54,6 +54,24 @@ test("a loot line of a wanted item is progress, once, and coin, other items and 
   expect(recordProgress(db, lootProgress({ events, name: "Mage", itemFor }))).toBe(0);
 });
 
+test("a copy put back into the loot window was not looted, and each further copy has one taker fewer", () => {
+  const row = (seq: number, text: string) => ({ ses: 7, seq, t: seq, type: "LOOT", text });
+  // Two clubs lay on Lodizal's corpse on 2026-11-11. The first was taken, put back and taken again,
+  // which made three loot lines, and all three rows named the one character the club was for.
+  const club = "Club of the Ice Ocean";
+  const events = [row(1, `You loot ${club}.`), row(2, `You return ${club} to the loot window.`), row(3, `You loot ${club}.`), row(4, `You loot ${club}.`), row(5, `You loot ${club}.`)];
+  // Two characters can use the club, Tank best. `nth` counts the copies before this one.
+  const itemFor = (_item: string, nth: number) => (nth === 0 ? { for: "Tank", piece: false } : nth < 2 ? { for: null, more: 2 - nth, piece: false } : null);
+  expect(lootProgress({ events, name: "Tank", itemFor }).map((e) => [e.t, e.text])).toEqual([
+    [3, "Tank looted Club of the Ice Ocean for Tank"],
+    [4, "Tank looted another Club of the Ice Ocean, which 1 other character can use"],
+  ]);
+  // A copy whose loot line came with an earlier batch is taken back by the caller.
+  const undone: [string, number][] = [];
+  expect(lootProgress({ events: [row(6, `You return ${club} to the loot window.`)], name: "Tank", itemFor, unloot: (item: string, t: number) => undone.push([item, t]) })).toEqual([]);
+  expect(undone).toEqual([[club, 6]]);
+});
+
 const sheet = (worn: string, wornId: number, plan: Record<string, unknown> = {}) => [{ slotNum: 1, slot: "head", worn: { itemId: wornId, name: worn }, move: null, drop: null, ...plan }];
 
 test("gear counts an upgrade the earlier pass planned or one that raised the set score", () => {
@@ -63,6 +81,27 @@ test("gear counts an upgrade the earlier pass planned or one that raised the set
   expect(gearChanges({ before, after, t: 9 }).map((e) => [e.name, e.text, e.data.slots[0].gain])).toEqual([["Tank", "Tank wears Helm (head)", 3.5]]);
   const rose = { ...after, scores: { ...after.scores, Mage: { now: 9, target: 40 } } };
   expect(gearChanges({ before, after: rose, t: 9 }).map((e) => e.name)).toEqual(["Tank", "Mage"]);
+});
+
+test("an equip line of a planned move is a gear row at its own time, and the gear pass does not report it again", () => {
+  const db = openDb(":memory:");
+  const move = (itemId: number, item: string) => ({ move: { itemId, item, from: "Bank", gain: 3.5 } });
+  const sheets = { Tank: sheet("Cap", 1, move(2, "Helm")), Mage: sheet("Hood", 5, move(6, "Circlet of Mist")) };
+  const line = (seq: number, text: string) => ({ ses: 7, seq, t: 100 + seq, type: "SYSTEM", text });
+  // Bard's flute is no move of the plan, so the gear pass judges it.
+  const rows = equipProgress({ events: [line(1, "Tank equips Helm."), line(2, "Bard equips Flute."), line(3, "Mage equips Circlet of Mist.")], sheets, task: 90 });
+  expect(rows.map((e) => [e.t, e.name, e.text, e.data.slots])).toEqual([
+    [101, "Tank", "Tank wears Helm (head)", [{ slot: "head", item: "Helm", itemId: 2, was: "Cap", wasId: 1, gain: 3.5 }]],
+    [103, "Mage", "Mage wears Circlet of Mist (head)", [{ slot: "head", item: "Circlet of Mist", itemId: 6, was: "Hood", wasId: 5, gain: 3.5 }]],
+  ]);
+  // One gear task's equips are one row of the feed.
+  recordProgress(db, rows);
+  expect(progressRows(db, 0).map((r) => [r.text, r.detail])).toEqual([["Tank and Mage wear 2 upgrades", "slot score +7"]]);
+  const worn = wornSheets(sheets, rows);
+  expect(worn.Tank[0]).toMatchObject({ worn: { itemId: 2, name: "Helm" }, move: null });
+  const scores = { Tank: { now: 10, target: 40 }, Mage: { now: 8, target: 40 } };
+  const after = { sheets: { Tank: sheet("Helm", 2), Mage: sheet("Circlet of Mist", 6) }, scores: { Tank: { now: 12, target: 40 }, Mage: { now: 9, target: 40 } } };
+  expect(gearChanges({ before: { sheets: worn, scores }, after, t: 200 })).toEqual([]);
 });
 
 test("the feed names a looted item and an upgrade's new and replaced items by id, and an empty slot replaced nothing", () => {

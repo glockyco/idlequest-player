@@ -65,15 +65,15 @@ Progress is a change in the state a goal bar measures. iqd records each change o
 | Kind | Source | Milestone |
 | --- | --- | --- |
 | level | A tab snapshot shows a character above its last stored level, one event per level gained. | Levels 46, 50, 55 and 60, which open AA and raids, higher spells and the cap. |
-| gear | Two gear passes: a slot holds an item the earlier pass queued for it, or the character's set score rose. | None. |
+| gear | A gear task's equip line of a move the gear pass queued, at the time of the line. Two gear passes for what has no such line: a slot holds an item the earlier pass queued for it, or the character's set score rose. | None. |
 | item | A loot line of an item the account still wants: a chain piece its needers lack copies of, an opportunity item with copies missing, or a gear target. | None. |
 | chain | Two coordinator passes: a character became a holder of a chain's reward, or started a chain. | A finished chain. Starting one is a minor step. |
 | aa | Two AA states of a character: a trained rank, or earned points. | None. Earned points are a minor step. |
 | raid | The bot's raid alert of a kill. | A boss of `data/raid-goal.json`, whose count the raid bar shows. |
 
-- An item counts from its loot line, because Inventory Search cannot tell a new copy from a search that missed one. A copy beyond what the account lacks is surplus and does not count.
+- An item counts from its loot line, because Inventory Search cannot tell a new copy from a search that missed one. A copy beyond what the account lacks is surplus and does not count: of a gear target's item the first copy since the gear pass is for the character the row names, each further one for one of the other characters that can use it, and one beyond those is not listed. A copy that goes back into the loot window, as a second copy of a lore item does, was not looted.
 - A character whose party a gear pass cannot read keeps its last worn items (README, gear plan), so a party that reappears is not counted as new gear.
-- A group's ordinary level-ups of one day share a row, and so do the upgrades of one gear pass, because twelve parties level about hourly and a pass upgrades a dozen characters. A click opens the row's events. A group's level-ups to one milestone share a row within half an hour.
+- A group's ordinary level-ups of one day share a row, and so do the upgrades of one gear task or one gear pass, because twelve parties level about hourly and a task upgrades a dozen characters. A click opens the row's events. A group's level-ups to one milestone share a row within half an hour.
 - An item shows as its icon and name with the game's item window on hover, and an upgrade shows the replaced item's icon before the new one, or an empty box for a slot that was empty. Rows record item ids, the loot line's from its loot packet, and the cards come from the card store (`tools/lib/cards.mjs`), which the sheet and Most wanted read too.
 - The bars' green numbers count levels, gear slots, wanted items, finished chains, AA ranks and raid kills. Minor steps do not count.
 - `iqd status` prints the same 24-hour counts and the latest milestone.

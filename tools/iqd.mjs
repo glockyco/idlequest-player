@@ -23,7 +23,7 @@ import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs"
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
-import { PROGRESS_SCHEMA, aaChanges, chainChanges, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress } from "./lib/progress.mjs";
+import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { pageStep } from "./lib/page.mjs";
 import { screenInPage } from "../src/install.mjs";
@@ -1150,6 +1150,7 @@ class Daemon {
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;
+    this.targetsAt = now;
     // The per-character report for the dashboard: the scores in `gearPlan`, the slots in
     // `gearSheets`, and in the card store the card (name, icon, stats) of every item the dashboard
     // names: each slot's worn item, move and drop, every target's items and the items the upgrades
@@ -1457,9 +1458,19 @@ class Daemon {
         if (got.events.length) {
           await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
           cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
-          const looted = lootProgress({ events: got.events, name: snap.leader.name, itemFor: (item) => this.itemFor(item) });
+          const who = snap.leader.name;
+          const looted = lootProgress({ events: got.events, name: who, itemFor: (item, nth) => this.itemFor(item, nth), unloot: (item, t) => this.unloot(who, item, t) });
           recordProgress(this.db, looted, this.groups());
           this.keepCards(looted.map((r) => r.data.itemId));
+          // A gear task's moves at the time they were worn. The gear pass sees them up to an hour later.
+          if (got.events.some((e) => e.type === "SYSTEM" && / equips /.test(e.text ?? ""))) {
+            const plan = metaGet(this.db, "gearSheets");
+            const worn = equipProgress({ events: got.events, sheets: plan?.sheets, task: snap.bot?.task?.kind === "gear" ? snap.bot.task.startedAt : null });
+            if (worn.length) {
+              recordProgress(this.db, worn, this.groups());
+              metaSet(this.db, "gearSheets", { ...plan, sheets: wornSheets(plan.sheets, worn) });
+            }
+          }
           // Each kill and escape, per enemy, for the kill chances of gear targets (tools/lib/fight-record.mjs).
           recordFights(this.db, this.groups().get(snap.leader.name) ?? snap.leader.name, fightOutcomes(got.events, snap.leader.level));
         }
@@ -1517,15 +1528,27 @@ class Daemon {
 
   /**
    * What a looted item is for, for the progress feed: a chain piece (`pieceFor` of the last
-   * coordinator pass, or the meta key `wanted` before the first), or a gear target's taker. Null
-   * for an item nobody wants.
+   * coordinator pass, or the meta key `wanted` before the first), or a gear target's item. Of that
+   * the first copy since the gear pass that set the targets is for the target's best taker, each
+   * further one for one of the other characters it serves (`more` of them), and a copy beyond those
+   * for nobody. `nth` counts the copies of the rows being read, which the record does not hold yet.
+   * Null for an item nobody wants.
    */
-  itemFor(item) {
+  itemFor(item, nth = 0) {
     this.pieceFor ??= new Map(Object.entries(metaGet(this.db, "wanted") ?? {}));
     if (this.pieceFor.has(item)) return { for: this.pieceFor.get(item), piece: true };
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
-    const to = this.targetWants.flatMap((x) => x.items ?? []).find((w) => w.item === item)?.to;
-    return to ? { for: to, piece: false } : null;
+    const w = this.targetWants.flatMap((x) => x.items ?? []).find((x) => x.item === item);
+    if (!w) return null;
+    this.targetsAt ??= metaGet(this.db, "gear")?.t ?? 0;
+    const n = nth + this.db.query("SELECT COUNT(*) AS n FROM progress WHERE kind = 'item' AND item = ? AND t >= ?").get(item, this.targetsAt).n;
+    if (n === 0) return { for: w.to, piece: false };
+    return n < (w.takers ?? 1) ? { for: null, more: w.takers - n, piece: false } : null;
+  }
+
+  /** Take back the last loot row of `item` by `name` in the minute before `t`, when that copy went back into the loot window. */
+  unloot(name, item, t) {
+    this.db.query("DELETE FROM progress WHERE id = (SELECT id FROM progress WHERE kind = 'item' AND name = ? AND item = ? AND t BETWEEN ? AND ? ORDER BY t DESC, id DESC LIMIT 1)").run(name, item, t - 60000, t);
   }
 
   /**

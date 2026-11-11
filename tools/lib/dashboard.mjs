@@ -703,13 +703,13 @@ const nameList = (list) => (list.length > 1 ? `${list.slice(0, -1).join(", ")} a
 
 /**
  * The row an event shares with others, or null for one that stands alone. Twelve parties level
- * about once an hour each and a gear pass upgrades a dozen characters, so a group's ordinary
- * level-ups of one day share a row, and so do the upgrades of one gear pass. A group's level-ups
- * to one milestone level share a row within half an hour.
+ * about once an hour each and a gear task or a gear pass upgrades a dozen characters, so a group's
+ * ordinary level-ups of one day share a row, and so do the upgrades of one gear task (`data.task`)
+ * or one gear pass. A group's level-ups to one milestone level share a row within half an hour.
  */
 function mergeKey(r, data) {
   if (r.kind === "level") return r.sig >= 2 ? `level:${r.grp}:${data.level}` : `levels:${r.grp}:${new Date(r.t).toDateString()}`;
-  if (r.kind === "gear") return `gear:${r.t}`;
+  if (r.kind === "gear") return `gear:${data.task ?? r.t}`;
   return null;
 }
 

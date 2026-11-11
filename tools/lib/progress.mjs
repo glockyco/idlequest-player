@@ -3,7 +3,7 @@
 // collector observes that state, so the dashboard can show what moved the bars and when:
 //
 //   level  a character's level, from the tab snapshots (`levelUps`)
-//   gear   the items a character wears, from two gear passes (`gearChanges`)
+//   gear   the items a character wears, from a gear task's equip lines (`equipProgress`) and, for what those miss, from two gear passes (`gearChanges`)
 //   item   a copy of an item the account wants, from the loot lines of the tabs' event streams (`lootProgress`)
 //   chain  a character that finished or started a quest chain, from two coordinator passes (`chainChanges`)
 //   aa     a trained AA rank or earned AA points, from two AA states (`aaChanges`)
@@ -91,23 +91,43 @@ export function snapshotProgress({ snap, levels, now, goal = [] }) {
 // "You loot Ink of the Dark!" names an item and "You loot 3 gold, 2 silver!" coin. A raid corpse's
 // item, taken from the RAID LOOT tab, ends with a period: "You loot Kedge Backbone."
 const LOOT_LINE = /^You loot (?!\d)(.+)[!.]$/;
+// A copy the character cannot hold, such as a second one of a lore item, goes back to the corpse.
+const RETURN_LINE = /^You return (.+) to the loot window\.$/;
 
 /**
  * The items the account wants among a tab's new event rows (`events`, as the bridge exports them,
- * each loot line with its item's id), from their loot lines, with what each is for from
- * `itemFor(item)` (`{ for, piece }`, or null for an item nobody wants). `name` is the character
- * that looted, the tab's active character. A loot line names the copy at the moment it came in,
- * which hunts, errands and drops during leveling all produce, and a later move between characters
- * adds nothing. The key is the row's page session and sequence, because a tab that switches
- * characters can export one row into the logs of several characters.
+ * each loot line with its item's id), from their loot lines. `itemFor(item, nth)` says what the
+ * copy is for, where `nth` counts the copies of the item earlier in these rows: `{ for, piece }`
+ * for a copy with a named taker, `{ more }` for a further copy that `more` other characters can
+ * use, or null for a copy nobody wants. `name` is the character that looted, the tab's active
+ * character. A copy put back into the loot window was not looted: its row is left out, or, when
+ * its loot line came with earlier rows, `unloot(item, t)` takes it back. A loot line names the
+ * copy at the moment it came in, which hunts, errands and drops during leveling all produce, and
+ * a later move between characters adds nothing. The key is the row's page session and sequence,
+ * because a tab that switches characters can export one row into the logs of several characters.
  */
-export function lootProgress({ events, name, itemFor }) {
+export function lootProgress({ events, name, itemFor, unloot = () => {} }) {
   const out = [];
+  const seen = new Map();
   for (const e of events) {
-    const item = e.type === "LOOT" ? LOOT_LINE.exec(e.text ?? "")?.[1] : null;
-    const w = item ? itemFor(item) : null;
+    if (e.type !== "LOOT") continue;
+    const back = RETURN_LINE.exec(e.text ?? "")?.[1];
+    if (back) {
+      const at = out.findLastIndex((r) => r.item === back);
+      if (at < 0) unloot(back, e.t);
+      else {
+        out.splice(at, 1);
+        seen.set(back, seen.get(back) - 1);
+      }
+      continue;
+    }
+    const item = LOOT_LINE.exec(e.text ?? "")?.[1];
+    const nth = seen.get(item) ?? 0;
+    const w = item ? itemFor(item, nth) : null;
     if (!w) continue;
-    out.push({ t: e.t, kind: "item", sig: 1, name, item, text: `${name} looted ${item}${w.for ? ` for ${w.for}` : ""}`, data: { item, itemId: e.itemId ?? null, for: w.for ?? null, piece: Boolean(w.piece) }, key: `loot:${e.ses}:${e.seq}` });
+    seen.set(item, nth + 1);
+    const text = w.more ? `${name} looted another ${item}, which ${w.more} other character${w.more === 1 ? "" : "s"} can use` : `${name} looted ${item}${w.for ? ` for ${w.for}` : ""}`;
+    out.push({ t: e.t, kind: "item", sig: 1, name, item, text, data: { item, itemId: e.itemId ?? null, for: w.for ?? null, piece: Boolean(w.piece) }, key: `loot:${e.ses}:${e.seq}` });
   }
   return out;
 }
@@ -160,6 +180,33 @@ export function gearChanges({ before, after, t }) {
     out.push({ t, kind: "gear", sig: 1, name, text: `${name} wears ${shown.map((c) => `${c.item} (${c.slot})`).join(", ")}`, data: { slots: shown, score: sb && sa ? { before: sb.now, after: sa.now, target: sa.target } : null }, key: `gear:${name}:${t}` });
   }
   return out;
+}
+
+// A transfer that equips, as a gear task's moves do, logs "Tagujazolu equips Club of the Ice Ocean."
+const EQUIP_LINE = /^(\S+) equips (.+)\.$/;
+
+/**
+ * The planned moves a tab's new event rows show carried out: an equip line whose character has
+ * the item as the queued move of a slot in `sheets` (the slots of `gearSheets`). The event carries
+ * the time of the line, the move's `gain` and `task`, the start of the gear task that ran it, by
+ * which the feed puts one task's upgrades into one row. An equip the plan did not queue is left to
+ * `gearChanges`, which knows whether it raised the set score.
+ */
+export function equipProgress({ events, sheets, task = null }) {
+  const out = [];
+  for (const e of events) {
+    const [, name, item] = (e.type === "SYSTEM" ? EQUIP_LINE.exec(e.text ?? "") : null) ?? [];
+    const s = sheets?.[name]?.find((x) => x.move?.item === item);
+    if (!s) continue;
+    out.push({ t: e.t, kind: "gear", sig: 1, name, text: `${name} wears ${item} (${s.slot})`, data: { slots: [{ slot: s.slot, item, itemId: s.move.itemId, was: s.worn?.name ?? null, wasId: s.worn?.itemId ?? null, gain: s.move.gain ?? null }], score: null, task }, key: `equip:${e.ses}:${e.seq}` });
+  }
+  return out;
+}
+
+/** `sheets` with the upgrades of `equipProgress` worn and their moves done, so the next gear pass finds nothing new in those slots. */
+export function wornSheets(sheets, equips) {
+  const done = new Map(equips.flatMap((e) => e.data.slots.map((s) => [`${e.name}:${s.slot}:${s.itemId}`, s])));
+  return Object.fromEntries(Object.entries(sheets).map(([name, slots]) => [name, slots.map((x) => (done.has(`${name}:${x.slot}:${x.move?.itemId}`) ? { ...x, worn: { itemId: x.move.itemId, name: x.move.item }, move: null } : x))]));
 }
 
 /**
