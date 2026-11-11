@@ -334,6 +334,9 @@ an agent sleeps in one `wait` call instead of polling the tabs. It runs outside 
 changes nothing in the game and needs no injection: it evaluates one read-only expression per tab
 through the relay's browser-level CDP endpoint (`src/cdp.mjs`) and attaches only to pages whose URL
 starts with `https://idlequest.net/play`. Every attach is logged in the `attach_log` table.
+It also asks the browser to treat each game tab as focused, because the browser throttles the
+timers of a hidden tab and its fights stop ending. The tabs therefore need not be in front while
+iqd runs.
 
 Start it once as a long-lived process, for example as an omp service named `iqd` that is ready at the
 log line `iqd started`, or with `nohup`. A second `run` refuses to start while one is active.

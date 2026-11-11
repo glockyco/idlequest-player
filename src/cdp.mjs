@@ -4,7 +4,9 @@
 // This client attaches only to pages whose URL starts with GAME_URL_PREFIX, re-checks that before
 // every attach and detaches at once from any other page the relay attaches on its own. It never
 // opens, navigates, closes or activates a tab. Callers can only `evaluate` an expression in a game
-// tab.
+// tab. It asks the browser to treat every game tab it evaluates in as focused, because the browser
+// throttles the timers of a hidden tab and the client simulates combat in the page, so fights in a
+// hidden tab stop ending.
 import { EventEmitter } from "node:events";
 
 export const RELAY_URL = "ws://127.0.0.1:9224/cdp";
@@ -13,6 +15,9 @@ export const GAME_URL_PREFIX = "https://idlequest.net/play";
 export const isGameTarget = (info) => info?.type === "page" && typeof info.url === "string" && info.url.startsWith(GAME_URL_PREFIX);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** How long a tab's focus emulation counts as set before it is asked for again. */
+const FOCUS_MS = 60000;
 
 /**
  * Events: `connected`, `disconnected`, `tab-added` (info), `tab-updated` (info), `tab-removed`
@@ -26,6 +31,7 @@ export class Relay extends EventEmitter {
   #sessions = new Map(); // targetId -> sessionId
   #attaching = new Map(); // targetId -> Promise<sessionId>
   #tabs = new Map(); // targetId -> target info of game pages
+  #focused = new Map(); // targetId -> { sessionId, t } of the last focus emulation request
   #stopped = false;
   #loop = null;
   #pollTimer = null;
@@ -232,6 +238,18 @@ export class Relay extends EventEmitter {
   }
 
   /**
+   * Ask the browser to treat the tab as focused and visible. Asked again for a new session and
+   * every minute, because nothing reports when the browser drops the setting.
+   */
+  async #keepFocused(targetId, sessionId) {
+    const last = this.#focused.get(targetId);
+    const now = Date.now();
+    if (last?.sessionId === sessionId && now - last.t < FOCUS_MS) return;
+    this.#focused.set(targetId, { sessionId, t: now });
+    await this.#send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId).catch(() => this.#focused.delete(targetId));
+  }
+
+  /**
    * Evaluate an expression in a game tab and return its value (`returnByValue`, promises awaited).
    * Throws when the tab is unknown, the page throws or the call takes longer than `timeout` ms.
    */
@@ -239,6 +257,7 @@ export class Relay extends EventEmitter {
     const info = this.#tabs.get(targetId);
     if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
     const sessionId = await this.#sessionFor(targetId);
+    await this.#keepFocused(targetId, sessionId);
     let res;
     try {
       res = await this.#send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true, timeout }, sessionId, timeout + 1000);
