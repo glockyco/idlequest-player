@@ -18,6 +18,9 @@ export const DEFAULTS = {
   // A hunt for an epic or quest piece, whose value the gear model does not price, starts only while
   // the tab's hunts took less than this share of its last hour.
   huntShare: 0.15,
+  // A piece hunt needs this many minutes of that share left, since a trip and a clear of the
+  // points take about two and a shorter hunt ends with nothing.
+  minHuntMin: 5,
   // A task running this long, half again the hour that raises the long-task alert, waits for
   // something that is not coming (an NPC that never spawns), so it stops and the tab hunts again.
   taskStopMin: 90,
@@ -274,12 +277,13 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
     if (!due(last, o.retryMin ?? 30)) continue;
-    if (o.kind !== "errand" && huntMs(tab.label) >= cfg.huntShare * 3600000) continue;
     // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
-    // A hunt runs at most for what is left of the tab's hunt share of the hour.
+    // A hunt runs at most for what is left of the tab's hunt share of the hour, and only when that
+    // leaves `minHuntMin` for the trip and a clear of the points.
     const left = Math.floor((cfg.huntShare * 3600000 - huntMs(tab.label)) / 60000);
-    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.max(1, Math.min(o.minutes ?? 20, left)) };
+    if (o.kind !== "errand" && left < cfg.minHuntMin) continue;
+    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.min(o.minutes ?? 20, left) };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
 

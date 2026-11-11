@@ -293,7 +293,7 @@ test("hunts stop for a tab once they took its share of the last hour", () => {
   const ring = { ...page, id: "ring" };
   const busy = [6, 4].map((m) => ({ t: NOW - m * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW + 3600000, ms: 4.5 * 60000 }));
   expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy }).actions).toEqual([]);
-  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy.slice(0, 1) }).actions).toHaveLength(1);
+  expect(decide({ now: NOW, tabs, opportunities: [ring], history: [{ ...busy[0], ms: 3 * 60000 }] }).actions).toHaveLength(1);
 });
 
 test("an errand opportunity queues an errand, and a tab on an errand gets no other task", () => {
@@ -544,13 +544,15 @@ test("a rotation set within the settle time stays while the group travels", () =
   expect(assignZones({ now: NOW, tabs: [{ ...travelling, rotationSetAt: NOW - 15 * 60000 }], rows: ROWS, rates: RATES })).toHaveLength(1);
 });
 
-test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share", () => {
+test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share, if that is enough", () => {
   const tabs = [tab("A", "G1", 40)];
   // A camp started 9 minutes ago is still running, so 0.15 h minus 9 minutes leaves none.
   expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] }).actions).toEqual([]);
   // One finished 2-minute hunt leaves 7 minutes for the next.
   const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] }).actions;
   expect(a.spec.minutes).toBe(7);
+  // A finished 5-minute hunt leaves 4, too little for a trip and a clear of the points.
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 300000 }] }).actions).toEqual([]);
 });
 
 test("no two quest chains give the same reward to the same class, and every hunt names a chain that exists", async () => {
