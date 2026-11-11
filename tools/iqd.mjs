@@ -583,7 +583,6 @@ class Daemon {
     // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
-    this.coordinatedAt = now;
     const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
@@ -592,7 +591,10 @@ class Daemon {
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
       // `stale`: the page runs older code than the tabs should, which the supervisor replaces between tasks.
       .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.code), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
+    // The five minutes count from a pass that has tabs to work with: the first cycle of a run can
+    // come before any tab is read, and its empty pass then held the next one back for five minutes.
     if (!tabs.length) return;
+    this.coordinatedAt = now;
     // Crowding by other players holds for every group, and a tab's own reports end with the tab, so
     // the account remembers the newest report per zone for 45 minutes and every tab carries the same
     // map. A machine restart had sent group 1 straight back to two crowded zones. A report from a zone
