@@ -1095,8 +1095,10 @@
   /**
    * Walk towards quest NPC `name`. The client only opens the dialogue of an NPC loaded in the scene
    * near the party, so a spawned NPC is walked to by its spawn position with the client's own ground
-   * navigation, which also finds ways into places such as a jail cell. Without a spawn record the
-   * Path To row walks there.
+   * navigation, which also finds ways into places such as a jail cell. An NPC that is dead throws
+   * with its respawn time as `nextAt`, because the Path To list leaves out NPCs the client does not
+   * mark findable (a ghoul scribe in Lower Guk, Baenar Swiftsong). Without a spawn record the Path
+   * To row walks there.
    */
   const walkTowards = async (name) => {
     const spawn = spawnOf(name);
@@ -1104,6 +1106,7 @@
       worldPort().navigateToGroundPositionEQ({ x: spawn.x, y: spawn.y, z: spawn.z ?? 0 }, () => {}, () => {});
       return;
     }
+    if (spawn && spawn.nextRespawnAtMs > Date.now()) throw Object.assign(new Error(`${name} is not up, next spawn at ${new Date(spawn.nextRespawnAtMs).toTimeString().slice(0, 8)}`), { nextAt: spawn.nextRespawnAtMs });
     const row = await pathToFind(() => pathToRow(name));
     if (!row) throw new Error(`quest NPC "${name}" is not in the Path To list`);
     row.click();
@@ -1139,6 +1142,7 @@
     await walkTowards(name);
     let still = 0;
     let walks = 1;
+    let nearest = Infinity;
     let hailedAt = 0;
     let was = null;
     for (let end = Date.now() + timeoutMs; !dialogueOpen(); ) {
@@ -1158,8 +1162,12 @@
       if (still < 6 || Date.now() - hailedAt < 15000 || dialogueLoading()) continue;
       const spawn = spawnOf(name);
       const distance = spawn && lastPos ? Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y) : null;
-      // A trade from afar is refused, so a stop short of the NPC walks again before hailing.
-      if (distance != null && distance > 40 && walks < 4) {
+      // A trade from afar is refused, so a stop short of the NPC walks again before hailing. A long
+      // walk across a large zone stops several times (Maligar lies 7,000 units into West Karana), so
+      // walks go on while each one brings the party nearer.
+      const closer = distance != null && distance < nearest - 20;
+      if (distance != null) nearest = Math.min(nearest, distance);
+      if (distance != null && distance > 40 && (walks < 4 || closer)) {
         walks++;
         still = 0;
         await walkTowards(name);
@@ -1210,30 +1218,40 @@
     // Each trade slot holds one item, as the quest scripts count them (Tykar Renlin takes four Drom's
     // Champagnes in four slots), so a stack gives one unit through the cursor and keeps the rest.
     const cursorRow = () => (ch().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
-    for (let k = 0; k < items.length; k++) {
-      const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
-      if (!found) throw new Error(`no ${items[k]} in the bags`);
-      let from = { bag: found.bag, slot: found.slot };
-      if ((found.quantity ?? 1) > 1) {
-        ch().splitItemToCursor(from, 1);
-        for (let j = 0; j < 20 && !cursorRow(); j++) await pause(200);
-        if (!cursorRow()) throw new Error(`could not take one ${items[k]} from its stack`);
-        await pause(400);
-        from = { bag: 0, slot: 30 };
+    // A trade cut short before Give takes back what it placed with the window's Cancel, which
+    // returns the offered items to the bags, so a retry finds them there again.
+    let give = null;
+    try {
+      for (let k = 0; k < items.length; k++) {
+        const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
+        if (!found) throw new Error(`no ${items[k]} in the bags`);
+        let from = { bag: found.bag, slot: found.slot };
+        if ((found.quantity ?? 1) > 1) {
+          ch().splitItemToCursor(from, 1);
+          for (let j = 0; j < 20 && !cursorRow(); j++) await pause(200);
+          if (!cursorRow()) throw new Error(`could not take one ${items[k]} from its stack`);
+          await pause(400);
+          from = { bag: 0, slot: 30 };
+        }
+        ch().moveItemToSlot(from, { bag: 0, slot: slots[k] });
+        await pause(800);
       }
-      ch().moveItemToSlot(from, { bag: 0, slot: slots[k] });
-      await pause(800);
+      give = buttonByText(/^Give$/i, win);
+      if (!give || give.disabled) throw new Error("the Give button is disabled");
+    } catch (e) {
+      buttonByText(/^Cancel$/i, win)?.click();
+      for (let k = 0; k < 20 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(200);
+      throw e;
     }
-    const give = buttonByText(/^Give$/i, win);
-    if (!give || give.disabled) throw new Error("the Give button is disabled");
     give.click();
     for (let k = 0; k < 30 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(300);
     await pause(600);
     const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
     if (closeNote && stores.combat.getState().isNoteOpen) stores.combat.getState().toggleNote();
-    // The server refuses a trade whose items do not match its view of the bags, as after a pull a
-    // moment before, and refreshes the inventory, so the caller can trade again.
-    if (events.some((e) => e.seq > since && /^The NPC does not want these items/.test(e.text))) throw new Error("the NPC did not want these items");
+    // The server refuses a trade whose items do not match its view of the bags, as after a pull or
+    // a reward a moment before, and refreshes the inventory, so the caller can trade again.
+    const refused = events.find((e) => e.seq > since && /^(The NPC does not want these items|Those items changed)/.test(e.text));
+    if (refused) throw new Error(`the trade was refused: ${refused.text}`);
     return { dialogues: dialogues.slice(-2), lines: events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest|level/i.test(e.text)).map((e) => e.text) };
   };
   /** Sell what the cursor holds with the client's own sale. Resolves with its reply, or null for an empty cursor. */

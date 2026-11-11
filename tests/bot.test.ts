@@ -1754,6 +1754,31 @@ test("a quest NPC's point is looked at once: the NPC goes on, a respawn ends as 
   }
 });
 
+test("a step whose NPC is down until its respawn ends as waiting until then, without a second try", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const respawn = Date.now() + 25 * 60000;
+    let talks = 0;
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Empty Ink Vial" ? 1 : 0),
+      talkToNpc: async () => {
+        talks++;
+        throw Object.assign(new Error("a ghoul scribe is not up, next spawn at 22:40:00"), { nextAt: respawn });
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "gukbottom", npc: "a ghoul scribe", give: ["Empty Ink Vial"], expect: "Ink of the Dark" }] });
+    await runToEnd(f);
+    expect(talks).toBe(1);
+    expect(f.bot.state.task).toMatchObject({ status: "waiting", nextAt: respawn + 30000 });
+    expect(f.bot.state.alerts.filter((a) => a.kind === "task").map((a) => a.wake)).toEqual([false]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a trade the NPC refuses is tried again after talking to the NPC", async () => {
   vi.useFakeTimers();
   try {
@@ -1768,7 +1793,7 @@ test("a trade the NPC refuses is tried again after talking to the NPC", async ()
       // The first trade meets a stale view of the bags, which the server refuses and refreshes.
       giveToNpc: async () => {
         calls.push("give");
-        if (calls.filter((c) => c === "give").length === 1) throw new Error("the NPC did not want these items");
+        if (calls.filter((c) => c === "give").length === 1) throw new Error("the trade was refused: The NPC does not want these items.");
         words = 1;
       },
     });

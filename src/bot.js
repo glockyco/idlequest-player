@@ -1566,7 +1566,7 @@
       if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
       if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give).catch(async (e) => {
-        if (!/did not want/.test(e?.message ?? "")) throw e;
+        if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
         log(`quest: ${s.npc} refused the trade, so ${m.name} trades again after the bags refresh`);
         await sleep(2000);
         await i.talkToNpc(s.npc, []);
@@ -1936,7 +1936,9 @@
         try {
           return await withTimeout(fn(), timeoutMs, label);
         } catch (e) {
-          // An error that says when to come back would only repeat now.
+          // An action that names when it can work again (`nextAt`, such as a quest NPC's respawn)
+          // waits for then, and an error that says when to come back would only repeat now.
+          if (Number.isFinite(e?.nextAt)) throw new TaskLater(e.message, e.nextAt + 30000);
           if (e instanceof TaskStopped || e instanceof TaskLater || attempt >= 2 || e?.retryAfterMs) throw e;
           log(`task ${task.kind}: ${label} failed, trying once more: ${e?.message ?? e}`);
           await sleep(3000);
