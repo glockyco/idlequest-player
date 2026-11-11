@@ -350,6 +350,8 @@
   //   recover    the readiness wait before a pull (HP, mana, pets, cures) or its retry, or someone
   //              below full HP or mana while AutoLevel runs, as in its 5 s pause after each kill
   //   idle       nothing happens, and why names what holds the party:
+  //     deadFight    in combat with no combat line for 45 s: a connection lost mid-fight leaves the
+  //                  client's combat flag on with nobody attacking, and nothing but leaving ends it
   //     loadFailed   a zone load failed and its Loading Failed window is open, so nothing plays
   //     held         AutoLevel off since one of the bot's holds (`autoLevelHold` in src/bot.js)
   //     clientPause  AutoLevel off since the client paused it ("AutoLevel paused: ...")
@@ -371,6 +373,9 @@
     // AutoLevel waits this long after each won fight before it looks for the next enemy (`Dt`,
     // 5 s, in the client's combat runtime), plus a second of sampling slack.
     const AFTER_KILL_MS = 6000;
+    // A fight goes quiet for at most 29 s (8,100 fights of twelve groups over ten hours), and the two
+    // dead ones in them stood for six and ten minutes, until someone left them by hand.
+    const DEAD_FIGHT_MS = 45000;
     // The client's lines that stop AutoLevel (CAUokwED.js): its supervisor's pause, the target
     // approach's abandon when AutoLevel had stopped or fought a single target (while AutoLevel
     // runs, the client tries another target after 500 ms), and the target search that found nothing.
@@ -397,7 +402,9 @@
       if (v.dead) return ["dead"];
       if (v.zoneLoading) return ["travel", "zone"];
       if (v.escaping) return ["travel", "escape"];
-      if (v.inCombat) return ["fight"];
+      // A raid's fights are the raid task's, and a hidden page's timers are throttled, which slows
+      // every fight to a few lines a minute.
+      if (v.inCombat) return v.fightQuietMs > DEAD_FIGHT_MS && !v.raid && !v.hidden ? ["idle", "deadFight"] : ["fight"];
       if (v.pause != null) return ["task", v.pause];
       if (v.trip) return ["travel", v.trip === "death-return" ? "deathReturn" : "restock"];
       const rt = v.runtime;
@@ -435,9 +442,14 @@
     return journeyHelper;
   };
   // When AutoLevel last ran and the client's latest line that stopped it, which the rules weigh
-  // against the bot's holds. A reinstall takes both from the buffers.
+  // against the bot's holds, and when the fight at hand began and showed its last combat line. A
+  // reinstall takes them from the buffers.
   let ranAt = samples.findLast((s) => s.run)?.t ?? 0;
   let lastStop = null;
+  const FIGHT_LINE = /^(COMBAT_|SPELL_CAST|EXPERIENCE_GAIN)/;
+  let fightLineAt = events.findLast((e) => FIGHT_LINE.test(e.type ?? ""))?.t ?? 0;
+  let fightSince = 0;
+  let fighting = false;
   const noteStop = (e) => {
     const cause = ACTIVITY_RULES.stopCause(e);
     if (cause) lastStop = { t: e.t, cause };
@@ -448,6 +460,9 @@
     const p = stores.character.getState().characterProfile;
     const cb = stores.combat.getState();
     const t = Date.now();
+    const inCombat = Boolean(stores.skills.getState().inCombat);
+    if (inCombat && !fighting) fightSince = t;
+    fighting = inCombat;
     if (cb.isRunning) ranAt = t;
     const bot = window.iqBot?.state;
     const rt = runtime();
@@ -457,7 +472,10 @@
       dead: !(p?.curHp > 0),
       zoneLoading: Boolean(cb.isZoneLoading),
       escaping: guard.phase === "leaving",
-      inCombat: Boolean(stores.skills.getState().inCombat),
+      inCombat,
+      fightQuietMs: inCombat ? t - Math.max(fightSince, fightLineAt) : 0,
+      raid: Boolean(stores.raid?.getState?.().raidModeActive),
+      hidden: document.visibilityState !== "visible",
       pause: (bot?.pauseUntil ?? 0) > t ? String(bot.pauseReason ?? "").slice(0, 40) : null,
       trip: journey()?.phase ?? null,
       runtime: rt
@@ -633,6 +651,7 @@
       const e = { ses: session, seq: ++seqs.event, t: m.timestamp ?? Date.now(), type: m.type, text: m.text, ...damageOf(m.type, m.text), ...lootOf(m.type, m.text) };
       events.push(e);
       noteStop(e);
+      if (FIGHT_LINE.test(e.type ?? "")) fightLineAt = e.t;
       // Only a coin or item line ends a run, because a client without its loot messages still shows
       // lines such as "Uncollected items remain on the corpse".
       if (e.type === "LOOT" && /^You loot /.test(e.text ?? "")) faults.lootless = 0;

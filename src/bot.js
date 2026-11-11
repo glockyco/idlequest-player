@@ -763,10 +763,12 @@
   // (`untilKill`). While a hold keeps AutoLevel off, only a cause marked `always` acts. An errand
   // hunts its zone on purpose, so its ladder leaves out the rungs that change the zone or the
   // limits, unless the cause names its own (`errand`): a crowded errand zone, whose enemies other
-  // players take, ends the errand. "afterKill" and "lootSettle" are the client's own waits after a
-  // kill, and "unknown" has no remedy.
+  // players take, ends the errand. A dead fight is left the way the guard leaves a dangerous one,
+  // also under a task, whose "stop" step would wait for its end in vain. "afterKill" and
+  // "lootSettle" are the client's own waits after a kill, and "unknown" has no remedy.
   const REMEDIES = {
     loadFailed: { afterSec: 0, rungs: ["tryAgain"], always: true },
+    deadFight: { afterSec: 0, rungs: ["leaveFight"], always: true },
     // AutoLevel off: it starts at once after a hold or a contested target, 5 s after the client
     // paused it, and after `restartAfterSec` when nothing explains the stop.
     held: { afterSec: 0, rungs: ["start"] },
@@ -851,6 +853,8 @@
       alert("loadFailed", "the zone did not finish loading; pressed Try Again");
       return "pressed Try Again";
     },
+    // The guard's escape enters the zone again, which ends the fight for the client and the server.
+    leaveFight: (i) => (typeof i.leaveFight === "function" && i.leaveFight("the fight showed no combat line for 45 s") ? "left the fight through the guard" : null),
   };
   // The setters overwrite each other in this order (docs/client-internals.md).
   const setLimits = (cb, l) => {
@@ -1368,11 +1372,12 @@
   };
   const withTimeout = (p, ms, what) => Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)))]);
   const activeName = (i) => (i.stores.screen.getState().currentScreen === "game" ? (i.stores.character.getState().characterProfile?.name ?? null) : null);
-  /** Stop AutoLevel and let the fight at hand end. */
+  /** Stop AutoLevel and let the fight at hand end, by itself or by the guard's escape from a dead one. */
   const calm = async (i) => {
     holdAutoLevel(i.stores.combat.getState(), "a task");
-    for (let k = 0; k < 70 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
-    if (i.stores.skills.getState().inCombat) throw new Error("the fight did not end");
+    const busy = () => i.stores.skills.getState().inCombat || i.guard?.phase === "leaving" || i.stores.combat.getState().isZoneLoading;
+    for (let k = 0; k < 70 && busy(); k++) await sleep(1000);
+    if (busy()) throw new Error("the fight did not end");
   };
   const becomeActive = async (i, name) => {
     // A switch already under way for someone else finishes first.

@@ -11,6 +11,9 @@ interface View {
   zoneLoading: boolean;
   escaping: boolean;
   inCombat: boolean;
+  fightQuietMs: number;
+  raid: boolean;
+  hidden: boolean;
   pause: string | null;
   trip: string | null;
   runtime: { attempt: string | null; buffPhase: boolean; retrying: boolean; pendingLoot: number; waitingTargets: boolean } | null;
@@ -33,7 +36,7 @@ const rules: Rules = new Function(`${block}\nreturn ACTIVITY_RULES;`)();
 
 const rest = { attempt: null, buffPhase: false, retrying: false, pendingLoot: 0, waitingTargets: false };
 // A page at rest: AutoLevel on, the party full, nothing pending and no kill lately.
-const view = (over: Partial<View> = {}): View => ({ loadFailed: false, dead: false, zoneLoading: false, escaping: false, inCombat: false, pause: null, trip: null, runtime: rest, running: true, partyFull: true, sinceKillMs: 60000, ranAt: 0, stop: null, heldAt: 0, ...over });
+const view = (over: Partial<View> = {}): View => ({ loadFailed: false, dead: false, zoneLoading: false, escaping: false, inCombat: false, fightQuietMs: 0, raid: false, hidden: false, pause: null, trip: null, runtime: rest, running: true, partyFull: true, sinceKillMs: 60000, ranAt: 0, stop: null, heldAt: 0, ...over });
 const off = (ranAt: number, stop: Stop | null, heldAt: number) => rules.label(view({ running: false, ranAt, stop, heldAt }))[1];
 
 test("AutoLevel off takes the cause of the latest evidence since it last ran", () => {
@@ -70,4 +73,12 @@ test("a failed load, a missing runtime and the waits after a kill get their own 
   expect(rules.label(view({ partyFull: false, sinceKillMs: 8000, runtime: { ...rest, pendingLoot: 1 } }))).toEqual(["recover"]);
   expect(rules.label(view({ runtime: { ...rest, waitingTargets: true } }))).toEqual(["idle", "crowded"]);
   expect(rules.label(view())).toEqual(["idle", "noTarget"]);
+});
+
+test("a fight without a combat line for 45 s is dead, except in a raid and on a hidden page", () => {
+  expect(rules.label(view({ inCombat: true, fightQuietMs: 29000 }))).toEqual(["fight"]);
+  // A task's pause does not hide it, because the task's stop waits for this fight.
+  expect(rules.label(view({ inCombat: true, fightQuietMs: 46000, pause: "task raid: stop", running: false }))).toEqual(["idle", "deadFight"]);
+  expect(rules.label(view({ inCombat: true, fightQuietMs: 46000, raid: true }))).toEqual(["fight"]);
+  expect(rules.label(view({ inCombat: true, fightQuietMs: 46000, hidden: true }))).toEqual(["fight"]);
 });

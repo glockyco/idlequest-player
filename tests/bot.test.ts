@@ -849,6 +849,20 @@ test("a failed zone load gets Try Again also under a pause, and every new failur
   }
 });
 
+test("a dead fight is left through the guard, also under a task's pause", async () => {
+  const f = await install();
+  const left: string[] = [];
+  Object.assign(f.iq, { leaveFight: (why: string) => left.push(why) });
+  f.bot.pause(5, "task raid: stop");
+  f.skills.inCombat = true;
+  Object.assign(f.activity, { act: "idle", why: "deadFight", since: Date.now() });
+  await f.bot.tick();
+  expect(left).toEqual(["the fight showed no combat line for 45 s"]);
+  // The same dead fight is not left twice: an escape that did not end it wakes a script.
+  await f.bot.tick();
+  expect([left.length, f.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)]).toEqual([1, [true]]);
+});
+
 test("a root that outlasts a fight is dispelled only when that saves time, and cures go back off", async () => {
   vi.useFakeTimers();
   try {
