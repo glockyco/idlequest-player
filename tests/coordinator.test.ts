@@ -295,6 +295,13 @@ test("a rare spawn gets a short visit, and a camp clears the target's spawn poin
   expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [hangman], hoursPerLevel }).actions).toEqual([expect.objectContaining({ kind: "hunt", spec: { zone: "trakanon", keep: "Hangman", item: "Noose", waitMin: 0, minutes: 6 } })]);
   const camp = decide({ killChance: byLevel, now: NOW, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel, points: { "target-unrest-a-fiend": [11, 12] } });
   expect(camp.actions[0].spec.points).toEqual([11, 12]);
+  // The client stopped the last camp there, as in Dragon Necropolis on 2026-11-11, so the points
+  // are not camped again for a day: a visit, or nothing where a visit does not pay.
+  const stopped = [{ t: NOW - 2 * 3600000, label: "A", kind: "hunt", id: "target-unrest-a-fiend", ids: ["target-unrest-a-fiend"], status: "done", result: "none of a fiend up (Spawn Camp stopped: Navigation recovery could not find a supported combat position.)" }];
+  const after = decide({ killChance: byLevel, now: NOW, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel, points: { "target-unrest-a-fiend": [11, 12] }, history: stopped });
+  expect(after.actions.filter((a) => a.spec.points)).toEqual([]);
+  const later = decide({ killChance: byLevel, now: NOW + 23 * 3600000, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel, points: { "target-unrest-a-fiend": [11, 12] }, history: stopped });
+  expect(later.actions[0].spec.points).toEqual([11, 12]);
 });
 
 test("a piece is hunted by its group until owned, waits for its time of day and for its retry", () => {

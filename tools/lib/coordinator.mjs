@@ -418,6 +418,11 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // Wanted enemies by zone, leaving out zones found crowded.
   const zones = new Map();
   for (const x of targets) if (!crowded.has(x.zone)) (zones.get(x.zone) ?? zones.set(x.zone, []).get(x.zone)).push(x);
+  // The enemies of a camp the client stopped in the last day ("Spawn Camp stopped: Navigation
+  // recovery could not find a supported combat position."): it cannot camp their points, and the
+  // hunt went on as a visit, so the next trips are visits too. The client stopped 17 camps on
+  // 2026-11-11.
+  const noCamp = new Set(history.filter((h) => now - h.t < 86400000 && /Spawn Camp stopped/.test(h.result ?? "")).flatMap((h) => h.ids ?? (h.id ? [h.id] : [])));
   for (;;) {
     const withTrips = { ...ctx, tabs: [...tabs, ...occupied] };
     let best = null;
@@ -426,7 +431,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         // An enemy a group hunts now is not waiting for its next hunt, so its retry time does not hold a further group.
         const open = xs.filter((x) => left(x) >= ACQUIRE.minSupply && inTime(x, t)).map((x) => withClaims(shared(x)));
         if (!open.length) continue;
-        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && (taken.has(targetId(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind))));
+        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && !(kind === "camp" && noCamp.has(targetId(x))) && (taken.has(targetId(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind))));
         if (w && net(w) > 0 && (!best || net(w) > net(best.w))) best = { t, w };
       }
     }
