@@ -156,6 +156,21 @@ test("a target counts each item once at its best taker and each character slot o
   expect(targets[0].rate).toBeCloseTo(walkValue(18, walk), 1);
 });
 
+test("an epic piece is worth the reward's gain to its character, shared by the pieces it lacks, and its target names the chain's enemies", () => {
+  const people = [{ name: "B1", cls: "bard", level: 30, race: "", walk }];
+  const survey = [bRow("B1", 22, "Equipped", 14, 1)];
+  const items2 = new Map([...bardItems, item(25, "Big Drum", { slots: 1 << 14, bardtype: 26, bardvalue: 20, itemtype: 26 })]);
+  const source = (also: string[]) => ({ zone: "kurn", npc: "a keeper", npcLevel: 30, hours: 2, drop: 1, spawn: 1, also });
+  const epics = [{ rewardId: 25, to: "B1", pieces: [{ itemId: 900, name: "Piece A", sources: [source(["a guardian"])] }, { itemId: 901, name: "Piece B", sources: [source([])] }] }];
+  const { targets, drops } = planGear({ survey, items: items2, people, epics });
+  const share = Math.round((walkValue(20, walk) / 2) * 100) / 100;
+  const keeper = targets.find((t) => t.npc === "a keeper")!;
+  expect(keeper.items.map((w) => [w.item, w.slot, w.gain]).sort()).toEqual([["Piece A", "epic", share], ["Piece B", "epic", share]]);
+  expect(keeper.also).toEqual(["a guardian"]);
+  // Pieces are hunted for their epic, not worn, so they stay out of the per-slot drops.
+  expect(drops).toEqual([]);
+});
+
 test("a leader's carried item that Inventory Search does not list stays out of the moves", () => {
   const people = [{ name: "War", cls: "warrior", level: 30, race: "" }];
   const loose = { ...row("Lead", 6, "Carried", 0, 9), characterName: "Lead", characterId: 9, bag: 22 };

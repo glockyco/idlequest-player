@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { rows } from "./lib/content.mjs";
-import { chanceOf, dependencies, epicTree, loadEpicModel } from "./lib/epic-model.mjs";
+import { chanceOf, dependencies, epicTree, loadEpicModel, missingKinds } from "./lib/epic-model.mjs";
 
 const REPO = new URL("../", import.meta.url).pathname;
 const { values: opt } = parseArgs({ options: { steps: { type: "boolean" }, class: { type: "string" }, hand: { type: "boolean" } } });
@@ -64,7 +64,7 @@ for (const [cls, rewards] of classes) {
     // A blocker is a gap or a branch blocked for its own reason, not only through a blocked input.
     const blockers = tree.blocked.filter((b) => b.reasons.some((r) => r !== "an input cannot be had"));
     unreadable += unread.length;
-    console.log(`${cls}: ${names.get(reward)} [${reward}], ${tree.steps.length} steps, ${Number.isFinite(tree.cost) ? "open" : "blocked"}, ${tree.gaps.length} gaps, ${blockers.length} blocked branches, ${raids.length} raid kills, ${unread.length} unread`);
+    console.log(`${cls}: ${names.get(reward)} [${reward}], ${tree.steps.length} steps, ${Number.isFinite(tree.cost) ? "open" : "blocked"}, ${tree.gaps.length} gaps, ${blockers.length} blocked branches, ${raids.length} raid kills, ${unread.length} unread${missingKinds(model, tree).length ? `, needs ${missingKinds(model, tree).join(", ")}` : ""}`);
     if (!opt.steps && !opt.class) continue;
     for (const s of tree.steps) console.log(`  ${Number.isFinite(s.cost) ? "" : "x "}${s.item ? `${names.get(s.item)} [${s.item}]: ${wayText(s.way)}` : branchText(s.branch)}`);
     for (const g of tree.gaps) console.log(`  gap: ${names.get(g)} [${g}] has no source`);

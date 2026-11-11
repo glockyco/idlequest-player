@@ -5,26 +5,30 @@ import { readFile } from "node:fs/promises";
 import { casinoBosses } from "./client-tables.mjs";
 import { rows } from "./content.mjs";
 import { doneItems } from "./coordinator.mjs";
-import { dependencies, epicTree, loadEpicModel, treeNeeds } from "./epic-model.mjs";
+import { dependencies, epicTree, huntPieces, loadEpicModel, missingKinds, treeNeeds } from "./epic-model.mjs";
 
 /**
  * What demand is computed from, read once because it changes only with a content or client update:
  * the class `epics` (`data/epics.json`), the copies each epic reward's chosen steps take
- * (`epicNeeds`, by reward, from the epic model's `epicTree`), the epic model's script `branches`,
+ * (`epicNeeds`, by reward, from the epic model's `epicTree`) and the pieces of them a hunt gets
+ * (`pieces`, by reward, `huntPieces`) for the epics the account can finish, whose steps are open and
+ * use the kinds the bot has (`missingKinds`), the epic model's script `branches`,
  * the casino's potion `bosses`, item `names` by id and `ids` by name.
  */
 export async function loadItemModel(root) {
   const [model, bosses, epics] = await Promise.all([loadEpicModel(root), casinoBosses(), readFile(new URL("../../data/epics.json", import.meta.url), "utf8").then(JSON.parse)]);
   const classes = Object.entries(epics);
   await model.addStatic([...new Set(classes.flatMap(([, rewards]) => rewards.flatMap((r) => [...dependencies(model, r).items])))]);
-  const epicNeeds = new Map(classes.flatMap(([cls, rewards]) => rewards.map((r) => [r, treeNeeds(epicTree(model, cls, r))])));
+  const trees = new Map(classes.flatMap(([cls, rewards]) => rewards.map((r) => [r, epicTree(model, cls, r)])));
+  const epicNeeds = new Map([...trees].map(([r, tree]) => [r, treeNeeds(tree)]));
+  const pieces = new Map([...trees].filter(([, tree]) => Number.isFinite(tree.cost) && !missingKinds(model, tree).length).map(([r, tree]) => [r, huntPieces(model, tree)]));
   const names = new Map();
   const ids = new Map();
   for await (const i of rows("items", root)) {
     names.set(i.id, i.Name);
     ids.set(i.Name, [...(ids.get(i.Name) ?? []), i.id]);
   }
-  return { epicNeeds, branches: model.branches, bosses, epics, names, ids };
+  return { epicNeeds, pieces, branches: model.branches, bosses, epics, names, ids };
 }
 
 /**

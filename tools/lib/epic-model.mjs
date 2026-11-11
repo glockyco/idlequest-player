@@ -4,8 +4,8 @@
 // spawn or an NPC's loot. Costs are rough hours of one group, for choosing between ways, not for
 // planning time.
 import { readdir, readFile } from "node:fs/promises";
-import { contentRoot, craftableRecipes, liveSpawnRows, rows } from "./content.mjs";
-import { loadSources, liveZoneNames } from "./gear-data.mjs";
+import { contentRoot, craftableRecipes, rows } from "./content.mjs";
+import { dropRow, loadSources, liveZoneNames, spawnSites } from "./gear-data.mjs";
 import { meets, parseScript, scriptOwner } from "./quest-script.mjs";
 
 // Rough hours of one group, for choosing between ways to get a piece: talking or buying in passing,
@@ -55,17 +55,20 @@ const addWay = (ways, id, way) => id > 0 && (ways.get(id) ?? ways.set(id, []).ge
 
 /**
  * The model from its parts: parsed `scripts` (`loadScripts`), the `npcs` rows of npc_types, `spawns`,
- * each `{ npcId, zone }` for a live static spawn point in a live zone, `loot`, the loot of each loot
- * table as `Map<loottableId, [{ item, p }]>`, the recipe and summoning spell `edges` (`craftEdges`),
+ * each `{ npcId, zone, points?, respawn?, spawn?, when? }` for a live static spawn site in a live
+ * zone (`spawnSites`), `loot`, the loot of each loot table as `Map<loottableId, [{ item, p }]>`, the
+ * recipe and summoning spell `edges` (`craftEdges`),
  * the Tradeskill Bank's `catalog`, `Map<itemId, price>`, and other `sources`, each `{ item, way }`.
  * The catalog sells recipe ingredients into the bank, from which a craft takes them, so it prices a
  * combine's inputs and is no way to an item otherwise. The model holds every script branch,
  * `{ file, zone, npc, npcIds, event, when, actions, inputs, line }` with `inputs` the items its trade
- * takes, the NPCs (`npcs`), the NPCs with a static spawn (`staticIds`), the branches that spawn each
- * NPC (`spawners`), and `ways`, the ways to get each item, `Map<itemId, [way]>`, each `{ kind, ... }`:
+ * takes, the NPCs (`npcs`), the NPCs with a static spawn (`staticIds`) and their sites (`sites`,
+ * `Map<npcId, Map<zone, site>>`), the branches that spawn each NPC (`spawners`), and `ways`, the ways
+ * to get each item, `Map<itemId, [way]>`, each `{ kind, ... }`:
  * - `script`: a branch gives it (`branch`, and `chance` when the script picks one of several);
  * - `scene`: the loot of an NPC that script branches spawn (`npcId`, `drop`);
- * - `drop`: a static NPC's loot (`npc`, `zone`, `level`, `drop`, `spawn`, `points`, `respawn`);
+ * - `drop`: a static NPC's loot (`npc`, `zone`, `level`, `hp`, `drop`, `spawn`, `points`, `respawn`,
+ *   `when`);
  * - `buy`: a merchant (`npc`, `zone`);
  * - `ground`: an enabled ground spawn (`zone`, `respawn`);
  * - `combine` and `cast`: a tradeskill recipe or a summoning spell (`inputs`).
@@ -79,11 +82,13 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
     (idsOfName.get(nameKey(name)) ?? idsOfName.set(nameKey(name), []).get(nameKey(name))).push(n.id);
   }
   const staticIds = new Set();
+  const sites = new Map();
   const zonesOf = new Map();
   const inZone = (id, zone) => (zonesOf.get(id) ?? zonesOf.set(id, new Set()).get(id)).add(zone);
-  for (const s of spawns) {
-    staticIds.add(s.npcId);
-    inZone(s.npcId, s.zone);
+  for (const { npcId, zone, ...site } of spawns) {
+    staticIds.add(npcId);
+    inZone(npcId, zone);
+    (sites.get(npcId) ?? sites.set(npcId, new Map()).get(npcId)).set(zone, { points: 1, respawn: Infinity, spawn: 1, when: null, ...site });
   }
 
   const branches = [];
@@ -126,7 +131,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
     if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, inputs: e.inputs });
   }
   for (const { item, way } of sources) addWay(ways, item, way);
-  return { scripts, npcs, staticIds, branches, spawners, ways, catalog };
+  return { scripts, npcs, staticIds, sites, branches, spawners, ways, catalog };
 }
 
 // Spell effect 32 summons the item its base value names.
@@ -171,10 +176,7 @@ export async function loadEpicModel(root) {
   const npcs = [];
   for await (const n of rows("npc_types", root)) npcs.push({ id: n.id, name: n.name, level: n.level, hp: n.hp, loottable: n.loottable_id });
   const live = await liveZoneNames(root);
-  const groupNpcs = new Map();
-  for await (const e of liveSpawnRows("spawnentry", root)) (groupNpcs.get(e.spawngroupID) ?? groupNpcs.set(e.spawngroupID, []).get(e.spawngroupID)).push(e.npcID);
-  const spawns = [];
-  for await (const s of liveSpawnRows("spawn2", root)) if (live.has(s.zone)) for (const npcId of groupNpcs.get(s.spawngroupID) ?? []) spawns.push({ npcId, zone: s.zone });
+  const spawns = [...(await spawnSites(root, { zoneName: live }))].flatMap(([npcId, zones]) => [...zones].map(([zone, site]) => ({ npcId, zone, ...site })));
   const drops = new Map();
   for await (const d of rows("lootdrop_entries", root)) (drops.get(d.lootdrop_id) ?? drops.set(d.lootdrop_id, []).get(d.lootdrop_id)).push(d);
   const loot = new Map();
@@ -192,7 +194,7 @@ export async function loadEpicModel(root) {
   const model = buildEpicModel({ scripts, npcs, spawns, loot, edges, catalog, sources });
   const addStatic = async (itemIds) => {
     const { sources: drops, sellers } = await loadSources(root, { itemIds: new Set(itemIds), zoneName: live });
-    for (const [item, list] of drops) for (const s of list) addWay(model.ways, item, { kind: "drop", npcId: s.npcId, npc: s.npc, zone: s.zoneShort, level: s.level, drop: s.drop, spawn: s.spawn, points: s.points, respawn: s.respawn });
+    for (const [item, list] of drops) for (const s of list) addWay(model.ways, item, { kind: "drop", npcId: s.npcId, npc: s.npc, zone: s.zoneShort, level: s.level, hp: s.hp, drop: s.drop, spawn: s.spawn, points: s.points, respawn: s.respawn, when: s.when });
     for (const [item, list] of sellers) for (const s of list) addWay(model.ways, item, { kind: "buy", npc: s.npc, zone: s.zoneShort });
   };
   return { ...model, failed, disabled, addStatic };
@@ -507,6 +509,91 @@ export function epicTree(model, cls, reward) {
   };
   doItem(reward);
   return { steps, gaps, blocked, cost: pick.itemCost(reward) };
+}
+
+/**
+ * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
+ * steps"): a raid kill, of an NPC above level 60, a ground pickup, a summoning cast, a hand-in with
+ * coin, a hand-in of more than four items, or an item a branch wants held. A timer or a signal branch
+ * runs by itself, and dropped pieces come from hunts.
+ */
+export function missingKinds(model, tree) {
+  const out = new Set();
+  for (const s of tree.steps) {
+    if (s.item) {
+      if (s.way.kind === "ground") out.add("ground pickup");
+      if (s.way.kind === "cast") out.add("summoning cast");
+      if ((s.way.kind === "drop" || s.way.kind === "scene") && (s.way.level ?? 0) > GROUP_MAX_LEVEL) out.add("raid kill");
+      continue;
+    }
+    const b = s.branch;
+    if (b.when.some((c) => c.trade?.coin)) out.add("coin hand-in");
+    if (Object.values(b.inputs).reduce((a, n) => a + n, 0) > 4) out.add("hand-in of more than four items");
+    if (s.held.length) out.add("held item");
+    if (b.event === "death" && b.npcIds.some((id) => (model.npcs.get(id)?.level ?? 0) > GROUP_MAX_LEVEL)) out.add("raid kill");
+  }
+  return [...out];
+}
+
+/**
+ * How a hunt meets NPC `npcId`: at its own static spawns, or through a chain of deaths that starts
+ * at a static NPC, each death spawning the next with its branch's chance `q`. A death that spawns
+ * its own NPC again, with chance `r`, keeps that NPC's line going, so a line ends in the next NPC
+ * with the chance `q / (1 - r)`, after `1 / q` deaths on average. Returns `{ root, yield, kills,
+ * also, level, hp }`: the static NPC, the copies of `npcId` one of its spawns brings, the kills one
+ * meeting takes, the chain's other NPCs by name, and the hardest NPC's level and hit points, or null
+ * when only a hand-in or a keyword spawns it.
+ */
+function meeting(model, npcId, seen = new Set()) {
+  const npc = model.npcs.get(npcId);
+  if (model.staticIds.has(npcId)) return { root: npcId, yield: 1, kills: 1, also: [], level: npc?.level ?? 0, hp: npc?.hp ?? null };
+  let best = null;
+  for (const b of model.spawners.get(npcId) ?? []) {
+    if (b.event !== "death") continue;
+    const q = chanceOf(b);
+    for (const dying of b.npcIds) {
+      if (dying === npcId || seen.has(dying)) continue;
+      const prev = meeting(model, dying, new Set([...seen, npcId]));
+      if (!prev) continue;
+      const r = (model.spawners.get(dying) ?? []).filter((x) => x.event === "death" && x.npcIds.includes(dying)).reduce((s, x) => s + chanceOf(x), 0);
+      const m = {
+        root: prev.root,
+        yield: prev.yield * Math.min(1, q / Math.max(q, 1 - r)),
+        kills: prev.kills / Math.max(q, 1e-3) + 1,
+        also: [...prev.also, npc?.name ?? `#${npcId}`],
+        level: Math.max(prev.level, npc?.level ?? 0),
+        hp: Math.max(prev.hp ?? 0, npc?.hp ?? 0) || null,
+      };
+      if (!best || m.kills / m.yield < best.kills / best.yield) best = m;
+    }
+  }
+  return best;
+}
+
+/**
+ * The pieces of epic tree `tree` (`epicTree`) that a hunt gets rather than a chain step, each
+ * `{ itemId, sources }` with `sources` drop rows of the roster gear plan (`dropRow`): every live
+ * static NPC that drops the piece, and for the loot of an NPC a chain of deaths spawns (`meeting`),
+ * the static NPC at the chain's start, whose spawns give the piece at the chain's yield times its
+ * drop, after the chain's kills, with the chain's other NPCs in `also`, which the hunt kills too.
+ */
+export function huntPieces(model, tree) {
+  const out = [];
+  for (const s of tree.steps) {
+    if (!s.item || !Number.isFinite(s.cost)) continue;
+    let sources = [];
+    if (s.way.kind === "drop") {
+      sources = (model.ways.get(s.item) ?? []).filter((w) => w.kind === "drop").map((w) => ({ ...dropRow(s.item, { ...w, zoneShort: w.zone }), also: [] }));
+    } else if (s.way.kind === "scene") {
+      const m = meeting(model, s.way.npcId);
+      if (!m) continue;
+      const root = model.npcs.get(m.root)?.name ?? `#${m.root}`;
+      sources = [...(model.sites.get(m.root) ?? [])].map(([zone, site]) => ({ ...dropRow(s.item, { zoneShort: zone, npc: root, level: m.level, hp: m.hp, spawn: site.spawn, drop: m.yield * s.way.drop, points: site.points, respawn: site.respawn, when: site.when, kills: m.kills / Math.max(s.way.drop, 1e-3) }), also: m.also }));
+    }
+    sources = sources.filter((r) => r.itemId != null);
+    if (sources.length) out.push({ itemId: s.item, sources });
+  }
+  return out;
 }
 
 /**

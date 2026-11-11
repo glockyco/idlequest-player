@@ -59,7 +59,8 @@ now.
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
 progress the epic adds to its character's group, shared by the pieces still missing, so trips and
-camps take it by expected value like any drop. A piece that needs a raid joins the raid way and the
+camps take it by expected value like any drop. Only an epic the account can finish has its pieces
+hunted: its steps are open and use the kinds the bot has (`missingKinds`). A piece that needs a raid joins the raid way and the
 boss kills of [raids.md](raids.md).
 
 ### Order

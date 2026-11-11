@@ -357,7 +357,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     if (!best) break;
     const { t, w } = best;
     const ids = w.members.map((m) => targetId(m.x));
-    const keep = [...new Set(w.members.map((m) => m.x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))].join("|");
+    // A target's `also` are the enemies a chain of deaths brings to it, which the hunt kills too.
+    const keep = [...new Set(w.members.flatMap((m) => [m.x.npc, ...(m.x.also ?? [])]).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))].join("|");
     // A trip for one enemy ends once its best item is in the bags, and one for several runs its time.
     const item = w.members.length === 1 ? { item: w.members[0].x.items[0].item } : {};
     const pts = [...new Set(w.members.flatMap((m) => points[targetId(m.x)] ?? []))];

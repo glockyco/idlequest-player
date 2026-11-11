@@ -265,6 +265,12 @@ export const fits = (item, p, slot) =>
  * must not sell: the copies this pass's moves take, the copies it buys, and for an item the account
  * holds no free copy of, as many copies as characters would still gain from one after the moves,
  * which covers the drops. A copy beyond that demand is surplus.
+ * `epics` lists the class epics characters still lack, each `{ rewardId, to, pieces: [{ itemId, name,
+ * sources }] }` with the pieces a hunt gets that the account does not hold and their drop rows
+ * (`huntPieces` in tools/lib/epic-model.mjs). Each piece is worth the reward's gain to `to`, shared by
+ * the pieces it lacks, and its sources join the targets with `slot` "epic", not the per-slot
+ * `drops`. A target keeps its hardest enemy's level and hit points and, in `also`, the enemies a
+ * chain of deaths brings, which its hunt kills too.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
  * `xpGain`'s unit, tenths of a percent of the wearer's group's XP rate, and `minGain` is 0.05% of it.
@@ -275,7 +281,7 @@ export const fits = (item, p, slot) =>
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], copyValue = (w) => w.gain, killsPerHour = 0 }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], copyValue = (w) => w.gain, killsPerHour = 0 }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -431,6 +437,25 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       }
     }
   }
+  for (const e of epics) {
+    const p = people.find((x) => x.name === e.to);
+    if (!p || !items.has(e.rewardId) || !e.pieces.length) continue;
+    const gain = Math.max(0, ...offer(virtual(e.rewardId), p).map((o) => o.gain));
+    if (gain < 2 * minGain) continue;
+    const share = Math.round((gain / e.pieces.length) * 100) / 100;
+    for (const piece of e.pieces) {
+      for (const d of piece.sources) {
+        const k = `${p.name}:epic ${piece.itemId}`;
+        const entry = { item: piece.name, itemId: piece.itemId, to: p.name, slot: "epic", gain: share, zone: d.zone, npc: d.npc, hours: Math.round(100 * copyHours(d, d, killsPerHour)) / 100 };
+        const tk = `${d.zone}|${d.npc}`;
+        const t = byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: null, npcHp: null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, when: d.when ?? null, offers: [] }).get(tk);
+        t.npcLevel = Math.max(t.npcLevel ?? 0, d.npcLevel ?? 0) || null;
+        t.npcHp = Math.max(t.npcHp ?? 0, d.npcHp ?? 0) || null;
+        t.also = [...new Set([...(t.also ?? []), ...(d.also ?? [])])];
+        t.offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, ...(d.kills != null ? { kills: d.kills } : {}), key: k });
+      }
+    }
+  }
   return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], targets: rankTargets(byTarget, copyValue), characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }
 
@@ -457,7 +482,7 @@ function rankTargets(byTarget, copyValue) {
         items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
       }
       const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
-      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, npcHp: t.npcHp, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
+      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, npcHp: t.npcHp, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, also: t.also ?? [], rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
     })
     .filter((t) => t.rate > 0)
     .sort((a, b) => b.rate - a.rate);

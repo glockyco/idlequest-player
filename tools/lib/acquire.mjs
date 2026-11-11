@@ -92,9 +92,10 @@ export const copyValue = (w, hoursPerLevel = {}, hours = 0) => {
 /**
  * The hunting hours for one copy of item `w` from enemy `x` for a group that kills `killsPerHour`:
  * the respawns bound it (`w.hours`, every point cleared as it respawns), and so does the kill rate,
- * since each kill is the enemy with the `spawn` chance and drops the item with the `drop` chance.
+ * since each kill is the enemy with the `spawn` chance and drops the item with the `drop` chance,
+ * unless the source counts the kills a copy takes (`w.kills`).
  */
-export const copyHours = (w, x, killsPerHour) => Math.max(w.hours, killsPerHour > 0 ? 1 / (killsPerHour * (x.spawn ?? 1) * (w.drop ?? 1)) : 0);
+export const copyHours = (w, x, killsPerHour) => Math.max(w.hours, killsPerHour > 0 ? (w.kills ?? 1 / ((x.spawn ?? 1) * (w.drop ?? 1))) / killsPerHour : 0);
 
 /**
  * The ways tab `t` can hunt gear target `x` (an enemy of the gear plan's `targets`), each

@@ -311,9 +311,10 @@ content update, `bun tools/epic-model.mjs` lists each class epic's steps, gaps a
 take, and fails while a chosen step uses a script idiom the analyzer cannot read. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of every live zone drop (`liveDrops` in
-`tools/lib/gear-data.mjs`), where it beats what a character wears, and ranks the enemies by the
-value an hour of hunting them brings to the account
-(`targets`). Each coordinator pass sends the free groups on the trips that earn most, best pair of
+`tools/lib/gear-data.mjs`), where it beats what a character wears, and the pieces a hunt gets of
+the class epics the account can finish (`huntPieces` in `tools/lib/epic-model.mjs`), each worth
+the epic's reward to its character, shared by the pieces it lacks. It ranks the enemies by the
+value an hour of hunting them brings to the account (`targets`). Each coordinator pass sends the free groups on the trips that earn most, best pair of
 group and zone first: a trip hunts every wanted enemy of its zone that pays, as an errand inside
 normal hunting when the zone is in the group's rotation, and as a camp or a short visit when it is
 not. A group's chance against an enemy comes from a model fitted to every simulated fight, the

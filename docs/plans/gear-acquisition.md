@@ -71,6 +71,8 @@ Every live zone's loot tables are a source, for every item the gear plan values:
 
 So groups at 60 need to kill enemies of their own level, and the last few percent, and some casters' best weapons, come from enemies of 66 to 70, which take a raid.
 
+The pieces of the class epics the account can finish are targets as well ([epic model](epic-model.md)): a piece is worth its reward's gain to the character that lacks the epic, shared by the pieces it lacks. A piece that an enemy drops after a chain of scripted deaths comes from the static enemy that starts the chain, as the Iksar Scale comes from the black reavers of the City of Mist: each static spawn yields the piece at the chain's yield, after the chain's kills (`kills` of the drop row), the hunt kills the chain's enemies too (`also`), and the hardest of them sets the target's level.
+
 ## Kill chance
 
 Whether a group kills an enemy is a kill chance per group and enemy, not a level margin. Three kinds

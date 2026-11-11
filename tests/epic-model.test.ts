@@ -1,7 +1,7 @@
 // Checks the epic model (tools/lib/epic-model.mjs) on small worlds built from script fixtures: the
 // ways it chooses, their order, and why a way is closed. Run with `bun test`.
 import { expect, test } from "bun:test";
-import { buildEpicModel, epicTree, treeNeeds } from "../tools/lib/epic-model.mjs";
+import { buildEpicModel, epicTree, huntPieces, treeNeeds } from "../tools/lib/epic-model.mjs";
 import { parseScript, scriptOwner } from "../tools/lib/quest-script.mjs";
 
 const script = (file: string, lua: string) => ({ file, ...scriptOwner(file), ...parseScript(lua) });
@@ -164,4 +164,19 @@ test("a branch behind a random roll costs its tries, so a sure hand-in beats a g
     sources: [{ item: 40, way: { kind: "ground", zone: "z", respawn: 60 } }],
   });
   expect(epicTree(model, "Cleric", 30).steps.map(describe)).toEqual(["ground 40", "trade give 30"]);
+});
+
+test("a piece a chain of deaths brings comes from the static enemy that starts it, whose every line ends in the named", () => {
+  // A reaver's death respawns a reaver on rolls 1 to 8 and the named otherwise, so each static
+  // spawn of the reaver brings the named once, after five reaver kills on average.
+  const reaver = `function event_death_complete(e)\n  local roll = math.random(10)\n  if roll <= 8 then\n    eq.spawn2(90010, 0, 0, 0, 0, 0, 0)\n  else\n    eq.unique_spawn(90174, 0, 0, 0, 0, 0, 0)\n  end\nend`;
+  const sentinel = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 1674}) then\n    e.other:SummonItem(10651)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("citymist/90010.lua", reaver), script("emeraldjungle/Spirit_Sentinel.lua", sentinel)],
+    npcs: [{ id: 90010, name: "a_black_reaver", level: 50, hp: 9980, loottable: 0 }, { id: 90174, name: "#Lord_Rak`Ashiir", level: 54, hp: 11000, loottable: 7 }, { id: 3, name: "Spirit_Sentinel", level: 50, loottable: 0 }],
+    spawns: [{ npcId: 90010, zone: "citymist", points: 1, respawn: 7200, spawn: 1 }, { npcId: 3, zone: "emeraldjungle" }],
+    loot: new Map([[7, [{ item: 1674, p: 1 }]]]),
+  });
+  const pieces = huntPieces(model, epicTree(model, "Shaman", 10651));
+  expect(pieces).toEqual([{ itemId: 1674, sources: [expect.objectContaining({ zone: "citymist", npc: "a black reaver", npcLevel: 54, npcHp: 11000, drop: 1, kills: 6, hours: 2, also: ["Lord Rak`Ashiir"] })] }]);
 });

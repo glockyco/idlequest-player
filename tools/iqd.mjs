@@ -995,7 +995,10 @@ class Daemon {
       this.drops = dropped.drops;
       for (const [id, i] of dropped.items) this.items.set(id, i);
     }
-    const missing = new Set(survey.map((r) => r.itemId).filter((i) => !this.items.has(i)));
+    // The class epics' rewards, which the plan values for the characters still lacking them.
+    this.itemModel ??= await loadItemModel();
+    const rewards = Object.values(this.itemModel.epics).flat();
+    const missing = new Set([...survey.map((r) => r.itemId), ...rewards].filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows("items", contentRoot())) if (missing.has(i.id)) this.items.set(i.id, i);
     // An item's proc, worn and focus effects count in its worth, so their spells come along, read again
     // only when an item new to the pass has one.
@@ -1026,7 +1029,16 @@ class Daemon {
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    // Each character's class epic it does not hold, with the pieces a hunt gets that the account
+    // holds none of (docs/plans/epic-model.md, step 3).
+    const carried = new Set(survey.map((r) => r.itemId));
+    const epicsOf = (cls) => Object.entries(this.itemModel.epics).find(([c]) => c.toLowerCase().replace(/ /g, "") === cls)?.[1] ?? [];
+    const epics = people.flatMap((p) => {
+      const mine = epicsOf(p.cls);
+      if (survey.some((r) => r.characterName === p.name && mine.includes(r.itemId))) return [];
+      return mine.map((rewardId) => ({ rewardId, to: p.name, pieces: (this.itemModel.pieces.get(rewardId) ?? []).filter((x) => !carried.has(x.itemId)).map((x) => ({ ...x, name: this.itemModel.names.get(x.itemId) })) })).filter((e) => e.pieces.length);
+    });
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;

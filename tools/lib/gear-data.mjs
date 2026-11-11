@@ -224,6 +224,52 @@ export async function liveZoneNames(root) {
   return zoneName;
 }
 
+/**
+ * Where each NPC of `npcIds` (a Set, or every NPC when null) spawns in the zones of `zoneName`:
+ * `Map<npcId, Map<zone, { points, respawn, spawn, when }>>`, with `points` its spawn points there,
+ * `respawn` their shortest respawn time in seconds (Infinity when none has one), `spawn` the best
+ * chance that one of its points spawns it, and `when` "night" or "day" when every point spawns only
+ * then (`spawnTimes`), else null.
+ */
+export async function spawnSites(root, { npcIds = null, zoneName }) {
+  const groups = new Map(); // npc id -> [{ g, chance }]
+  const groupTotal = new Map();
+  const needGroups = new Set();
+  for await (const s of liveSpawnRows("spawnentry", root)) {
+    groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
+    if (npcIds && !npcIds.has(s.npcID)) continue;
+    (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push({ g: s.spawngroupID, chance: s.chance });
+    needGroups.add(s.spawngroupID);
+  }
+  const timeOf = await spawnTimes(root);
+  const pointsOf = new Map(); // group -> {zone -> {n, respawn, when}}
+  for await (const sp of liveSpawnRows("spawn2", root)) {
+    if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone)) continue;
+    const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
+    const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity, when: new Set() }).get(sp.zone);
+    r.n++;
+    r.when.add(timeOf(sp.zone, sp._condition) ?? "always");
+    if (sp.respawntime > 0) r.respawn = Math.min(r.respawn, sp.respawntime); // 0 means no respawn timer
+  }
+  const sites = new Map();
+  for (const [npcId, list] of groups) {
+    const byZone = new Map();
+    for (const { g, chance } of list) for (const [zone, r] of pointsOf.get(g) ?? []) {
+      const z = byZone.get(zone) ?? byZone.set(zone, { points: 0, respawn: Infinity, spawn: 0, when: new Set() }).get(zone);
+      z.points += r.n;
+      z.respawn = Math.min(z.respawn, r.respawn);
+      z.spawn = Math.max(z.spawn, chance / groupTotal.get(g));
+      for (const w of r.when) z.when.add(w);
+    }
+    for (const z of byZone.values()) {
+      const only = z.when.size === 1 ? [...z.when][0] : null;
+      z.when = only === "night" || only === "day" ? only : null;
+    }
+    if (byZone.size) sites.set(npcId, byZone);
+  }
+  return sites;
+}
+
 // Sources of the items in `itemIds`: item -> lootdrop -> loottable -> NPC -> spawns -> zone.
 //   sources  item id -> [{ npcId, npc, level, hp, zone, zoneShort, drop, spawn, points, respawn, when }]
 //              drop     chance that one kill of the NPC drops the item
@@ -253,47 +299,17 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
     if (n.level <= maxNpcLevel && itemsOfLt.has(n.loottable_id) && !skipNpc(n)) npcsOfLt.set(n.id, { id: n.id, name: n.name, level: n.level, hp: Number(n.hp) || null, lt: n.loottable_id });
     if (n.merchant_id && itemsOfMerchant.has(n.merchant_id)) merchantNpcs.set(n.id, { name: n.name, items: itemsOfMerchant.get(n.merchant_id) });
   }
-  const groups = new Map(); // npc id -> [{group, chance}]
-  const groupTotal = new Map();
-  const needGroups = new Set();
-  for await (const s of liveSpawnRows("spawnentry", root)) {
-    groupTotal.set(s.spawngroupID, (groupTotal.get(s.spawngroupID) ?? 0) + s.chance);
-    if (npcsOfLt.has(s.npcID) || merchantNpcs.has(s.npcID)) {
-      (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push({ g: s.spawngroupID, chance: s.chance });
-      needGroups.add(s.spawngroupID);
-    }
-  }
-  const timeOf = await spawnTimes(root);
-  const pointsOf = new Map(); // group -> {zone -> {n, respawn, when}}
-  for await (const sp of liveSpawnRows("spawn2", root)) {
-    if (!needGroups.has(sp.spawngroupID) || !zoneName.has(sp.zone)) continue;
-    const z = pointsOf.get(sp.spawngroupID) ?? pointsOf.set(sp.spawngroupID, new Map()).get(sp.spawngroupID);
-    const r = z.get(sp.zone) ?? z.set(sp.zone, { n: 0, respawn: Infinity, when: new Set() }).get(sp.zone);
-    r.n++;
-    r.when.add(timeOf(sp.zone, sp._condition) ?? "always");
-    if (sp.respawntime > 0) r.respawn = Math.min(r.respawn, sp.respawntime); // 0 means no respawn timer
-  }
+  const sites = await spawnSites(root, { npcIds: new Set([...npcsOfLt.keys(), ...merchantNpcs.keys()]), zoneName });
   const sources = new Map();
   for (const npc of npcsOfLt.values()) {
-    const byZone = new Map();
-    for (const { g, chance } of groups.get(npc.id) ?? []) for (const [zone, r] of pointsOf.get(g) ?? []) {
-      const z = byZone.get(zone) ?? byZone.set(zone, { n: 0, respawn: Infinity, spawn: 0, when: new Set() }).get(zone);
-      z.n += r.n;
-      z.respawn = Math.min(z.respawn, r.respawn);
-      z.spawn = Math.max(z.spawn, chance / groupTotal.get(g));
-      for (const w of r.when) z.when.add(w);
-    }
-    for (const [zone, z] of byZone) for (const [item, p] of itemsOfLt.get(npc.lt)) {
+    for (const [zone, z] of sites.get(npc.id) ?? []) for (const [item, p] of itemsOfLt.get(npc.lt)) {
       const list = sources.get(item) ?? sources.set(item, []).get(item);
-      const only = z.when.size === 1 ? [...z.when][0] : null;
-      list.push({ npcId: npc.id, npc: npc.name.replace(/_/g, " "), level: npc.level, hp: npc.hp, zone: zoneName.get(zone), zoneShort: zone, drop: p, spawn: z.spawn, points: z.n, respawn: z.respawn, when: only === "night" || only === "day" ? only : null });
+      list.push({ npcId: npc.id, npc: npc.name.replace(/_/g, " "), level: npc.level, hp: npc.hp, zone: zoneName.get(zone), zoneShort: zone, drop: p, spawn: z.spawn, points: z.points, respawn: z.respawn, when: z.when });
     }
   }
   const sellers = new Map();
   for (const [id, m] of merchantNpcs) {
-    const zones = new Set();
-    for (const { g } of groups.get(id) ?? []) for (const zone of (pointsOf.get(g) ?? new Map()).keys()) zones.add(zone);
-    for (const zone of zones) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone), zoneShort: zone });
+    for (const zone of (sites.get(id) ?? new Map()).keys()) for (const item of m.items) (sellers.get(item) ?? sellers.set(item, []).get(item)).push({ npc: m.name.replace(/_/g, " "), zone: zoneName.get(zone), zoneShort: zone });
   }
   return { sources, sellers };
 }
@@ -324,10 +340,12 @@ export const farmHours = (s) => (s.respawn > 0 && Number.isFinite(s.respawn) && 
 
 // A drop row for the roster gear plan: the enemy, its level, spawn chance, points and respawn, the
 // item's drop chance, and `hours`, the expected hunting for one copy while every spawn point of the
-// enemy is cleared as it respawns. Null when the enemy has no spawn timer.
-const dropRow = (itemId, s) => {
+// enemy is cleared as it respawns. `kills`, when the source gives it, is the kills one copy takes
+// where that differs from one over the spawn and drop chances, as for a piece a chain of deaths
+// spawns. Null when the enemy has no spawn timer.
+export const dropRow = (itemId, s) => {
   const hours = farmHours(s) / Math.max(1, s.points);
-  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, npcHp: s.hp ?? null, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn, when: s.when ?? null } : null;
+  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, npcHp: s.hp ?? null, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn, when: s.when ?? null, ...(s.kills != null ? { kills: s.kills } : {}) } : null;
 };
 
 /**
