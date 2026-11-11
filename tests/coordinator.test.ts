@@ -541,6 +541,20 @@ test("an unmeasured zone ranks where the model puts it against the measured zone
   expect(rotation((z) => ({ kurn: 400000, runnyeye: 300000, guktop: 350000 })[z]!)).toEqual(["kurn", "guktop", "runnyeye"]);
 });
 
+test("a zone that paid nothing in its trial ranks at what it paid, not at the model's rate", () => {
+  // High Keep on 2026-11-11: no XP in 12 minutes at levels 43 to 50 against a model rate of 2.9M,
+  // which kept it in the rotations and put it first for group 8 at level 50.
+  const rows = [[14, ["kurn", "runnyeye", "guktop", "warrens"]]];
+  const cell = (xp: number, s: number) => ({ 15: { s, xp, t: NOW } });
+  const rates = (guktopSec: number) => ({ kurn: cell(800000, 3600), runnyeye: cell(600000, 3600), warrens: cell(500000, 3600), guktop: cell(0, guktopSec) });
+  const model = (z: string) => ({ kurn: 800000, runnyeye: 600000, warrens: 500000, guktop: 1200000 })[z]!;
+  const rotation = (sec: number) => assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena" })], rows, rates: rates(sec), model })[0].rotation;
+  // Four minutes without XP are no trial yet: the model's 1.2M still makes most of the estimate.
+  expect(rotation(240)[0]).toBe("guktop");
+  // Eight minutes are, and the zone is out whatever the model says.
+  expect(rotation(480)).toEqual(["kurn", "runnyeye", "warrens"]);
+});
+
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {
   // Kurn was crowded ten minutes ago in another group's tab, so the group starts in Runnyeye.
   const other = tab("Z", "G9", 40, { zone: "kurn", crowdedAt: { kurn: NOW - 10 * 60000 } });

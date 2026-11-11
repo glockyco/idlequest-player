@@ -526,6 +526,12 @@ export const ZONE_DEFAULTS = {
   // Hours of a zone's prior rate its own measurement is weighed against, so a zone with little time
   // there ranks at the prior and gets tried, and its own rate takes over with time.
   priorHours: 0.5,
+  // A zone that pays under `deadShare` of its prior over `trialHours` is one the model does not
+  // hold for, so its measured rate stands alone. High Keep and the Temple of Solusek Ro paid no XP
+  // at all in 0.20 and 0.74 hours at levels 43 to 50 on 2026-11-11, and their priors of 2.9M and
+  // 2.3M an hour kept them in the rotations, High Keep first for group 8 at level 50.
+  trialHours: 0.1,
+  deadShare: 0.25,
   // A group leaves its zone for one worth this share more.
   margin: 0.2,
   // A rotation set this recently stays, so the group can arrive before the crowds shift again.
@@ -591,7 +597,8 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     const median = mid(base.map((m) => m.e.xph)) ?? 1;
     const scale = mid(base.filter((m) => m.m > 0).map((m) => m.e.xph / m.m)) ?? 1;
     const prior = (m) => (m.m > 0 ? scale * m.m : median);
-    const xph = (m) => (m.e ? (m.e.hours * m.e.xph + cfg.priorHours * prior(m)) / (m.e.hours + cfg.priorHours) : prior(m));
+    const dead = (m) => m.e.hours >= cfg.trialHours && m.e.xph < cfg.deadShare * prior(m);
+    const xph = (m) => (!m.e ? prior(m) : dead(m) ? m.e.xph : (m.e.hours * m.e.xph + cfg.priorHours * prior(m)) / (m.e.hours + cfg.priorHours));
     // What one more group adds to the account in a zone, in shares of the zone's rate alone.
     const gain = (z) => {
       const n = crowd.get(z) ?? 0;
