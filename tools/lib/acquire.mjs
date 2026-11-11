@@ -30,6 +30,9 @@ export const ACQUIRE = {
   // Below this chance for its best group, a target counts as out of every group's reach on the
   // dashboard. The decision itself weighs any chance by its expected value (`ways`).
   tooStrong: 0.05,
+  // The share of a group's hunting time its fights take (58.7% over 34 group-hours on 2026-11-11),
+  // so its usual fight lasts this share of the time between two of its kills.
+  fightShare: 0.59,
 };
 
 // What a death costs beyond a won fight, in seconds of the party's time: the fight and the wait
@@ -43,11 +46,12 @@ const SURE = { p: 1, fights: 0, deaths: 0, leaderDeaths: 0 };
 /**
  * A group's chance against an enemy and what one fight costs it: the prior of tools/lib/kill-prior.mjs
  * (`prior`, `{ p, deaths, leaderDeaths }`) as `priorWeight` fights, the simulator's fights of its six
- * (`sim`, `{ kills, fights, deathsPerFight, leaderDeathsPerFight }`, tools/kill-odds.mjs) and its
+ * (`sim`, `{ kills, fights, meanSec, deathsPerFight, leaderDeathsPerFight }`, tools/kill-odds.mjs) and its
  * fight record at its level (`record`, `{ kills, escapes }`, tools/lib/fight-record.mjs), each a
  * fight of evidence, so the pair's own fights outweigh the prior as they come. Deaths per fight come
  * from the simulator where it fought the pair, else from the prior. `{ p, fights, deaths,
- * leaderDeaths }`, or null with none of the three.
+ * leaderDeaths }`, with `sec`, the simulator's seconds per won fight, where it won one, or null
+ * with none of the three.
  */
 export function killChanceOf({ record = null, sim = null, prior = null, priorWeight = 1 }) {
   const live = (record?.kills ?? 0) + (record?.escapes ?? 0);
@@ -57,8 +61,20 @@ export function killChanceOf({ record = null, sim = null, prior = null, priorWei
   const p = (w * (prior?.p ?? 0) + (record?.kills ?? 0) + (simulated ? sim.kills : 0)) / (w + live + simulated);
   const deaths = simulated ? sim.deathsPerFight : (prior?.deaths ?? 0);
   const leaderDeaths = simulated ? (sim.leaderDeathsPerFight ?? 0) : (prior?.leaderDeaths ?? 0);
-  return { p, fights: live + simulated, deaths, leaderDeaths };
+  return { p, fights: live + simulated, deaths, leaderDeaths, ...(simulated && sim.meanSec > 0 ? { sec: sim.meanSec } : {}) };
 }
+
+/**
+ * The kills an hour a group makes of an enemy it fights for `k.sec` seconds, from its usual
+ * `killsPerHour`: its time per kill grows as the fight does against its usual fight
+ * (`fightShare`). Group 2's simulated fight with a Disciple of Innoruuk takes 293 s where its
+ * usual one takes about 38, so it kills 7 of them an hour and not 56. Without a fight time or a
+ * kill rate the usual rate stands.
+ */
+export const paceOf = (killsPerHour, k) => {
+  if (!(killsPerHour > 0) || !(k?.sec > 0)) return killsPerHour;
+  return killsPerHour / Math.max(1, k.sec / ((ACQUIRE.fightShare * 3600) / killsPerHour));
+};
 
 /**
  * The hours of tab `t`'s progress one fight's deaths cost (`k` of `killChanceOf`): each companion
@@ -124,7 +140,7 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  */
 export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, killChance = null } = {}, k = SURE) {
   const perFight = deathHours(t, k, hoursPerLevel);
-  const copies = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, killsPerHour[t.group]) / k.p);
+  const copies = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, paceOf(killsPerHour[t.group], k)) / k.p);
   const values = x.items.map((w, j) => copyValue(w, hoursPerLevel, copies[j]));
   const perHour = values.reduce((s, v, j) => s + v / copies[j], 0);
   const hours = 1 / copies.reduce((s, h) => s + 1 / h, 0);
@@ -180,17 +196,18 @@ export function trip(t, xs, ctx = {}, due = () => true) {
   const zone = fought[0].x.zone;
   const options = [];
   for (const kind of (t.rotation ?? []).includes(zone) ? ["errand"] : ["camp", "visit"]) {
-    const members = fought.filter((m) => due(m.x, kind)).map((m) => ({ x: m.x, w: ways(t, m.x, ctx, m.k).find((w) => w.kind === kind) }));
+    const members = fought.filter((m) => due(m.x, kind)).map((m) => ({ x: m.x, k: m.k, w: ways(t, m.x, ctx, m.k).find((w) => w.kind === kind) }));
     if (!members.length) continue;
     const { zoneRate } = members[0].w;
     let kept;
     let hours;
     let value;
     if (kind === "visit") {
-      // Each target's pay per visit: its drops less its deaths. Without a kill rate a kill takes no time.
-      const perKill = kills > 0 ? 1 / kills : 0;
-      kept = members.filter((m) => m.w.value - (m.w.cost - ACQUIRE.visitHours) > zoneRate * m.w.up * chainKills(m.x) * perKill);
-      hours = ACQUIRE.visitHours + kept.reduce((s, m) => s + m.w.up * chainKills(m.x) * perKill, 0);
+      // Each target's pay per visit: its drops less its deaths. A kill takes the group's time per
+      // kill of that enemy, and none without a kill rate.
+      const perKill = (m) => (kills > 0 ? 1 / paceOf(kills, m.k) : 0);
+      kept = members.filter((m) => m.w.value - (m.w.cost - ACQUIRE.visitHours) > zoneRate * m.w.up * chainKills(m.x) * perKill(m));
+      hours = ACQUIRE.visitHours + kept.reduce((s, m) => s + m.w.up * chainKills(m.x) * perKill(m), 0);
       value = kept.reduce((s, m) => s + m.w.value - (m.w.cost - ACQUIRE.visitHours), 0);
     } else {
       hours = kind === "errand" ? 1 : ACQUIRE.campMin / 60;
@@ -199,7 +216,7 @@ export function trip(t, xs, ctx = {}, due = () => true) {
       const paying = members
         .map((m) => {
           const deathRate = (m.w.cost - zoneRate * m.w.hours) / m.w.hours;
-          return { ...m, deathRate, pay: m.w.value / m.w.hours - deathRate, share: kills > 0 && m.x.respawn > 0 ? Math.min(1, (m.x.points ?? 1) / (m.x.respawn / 3600) / kills) : 0 };
+          return { ...m, deathRate, pay: m.w.value / m.w.hours - deathRate, share: kills > 0 && m.x.respawn > 0 ? Math.min(1, (m.x.points ?? 1) / (m.x.respawn / 3600) / paceOf(kills, m.k)) : 0 };
         })
         .filter((m) => m.pay > 0)
         .sort((a, b) => b.pay / (b.share || 1e-9) - a.pay / (a.share || 1e-9));

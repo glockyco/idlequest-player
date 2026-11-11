@@ -1,6 +1,6 @@
 // Checks the gear acquisition model (tools/lib/acquire.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { ACQUIRE, bestWay, copyHours, copyValue, deathHours, elasticity, killChanceOf, netRate, trip, ways } from "../tools/lib/acquire.mjs";
+import { ACQUIRE, bestWay, copyHours, copyValue, deathHours, elasticity, killChanceOf, netRate, paceOf, trip, ways } from "../tools/lib/acquire.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
 const member = (name: string, level: number) => ({ name, level });
@@ -74,6 +74,23 @@ test("live fights count beside the simulator's, and neither means no kill chance
   // Two live escapes after four simulated wins: four of six fights won.
   expect(killChanceOf({ record: { kills: 0, escapes: 2 }, sim: { kills: 4, fights: 4, deathsPerFight: 0, leaderDeathsPerFight: 0 } })!.p).toBeCloseTo(4 / 6);
   expect(killChanceOf({ record: { kills: 3, escapes: 1 } })).toEqual({ p: 0.75, fights: 4, deaths: 0, leaderDeaths: 0 });
+});
+
+test("an enemy that takes longer to kill is hunted at its own pace", () => {
+  // Group 2 on 2026-11-11: 56 kills an hour where it hunts, and a simulated 293 s for one Disciple
+  // of Innoruuk, against about 38 s for its usual fight.
+  expect(paceOf(56, { sec: 293 })).toBeCloseTo(56 / (293 / ((0.59 * 3600) / 56)), 5);
+  expect(paceOf(56, { sec: 20 })).toBe(56);
+  expect(paceOf(56, {})).toBe(56);
+  expect(killChanceOf({ sim: { kills: 4, fights: 4, meanSec: 293, deathsPerFight: 0, leaderDeathsPerFight: 0 } })!.sec).toBe(293);
+  // A camp of a common enemy whose copies come by the kill: a fifth of the kills, a fifth of the copies.
+  const x = { npc: "a disciple", zone: "hateplane", npcLevel: 56, spawn: 1, points: 7, respawn: 640, items: [{ ...item(100, 0.01, 0.02), respawnHours: 0.01 }] };
+  const t = { ...tab(48, "frozenshadow"), group: "G2" };
+  const ctx = { hoursPerLevel: { X1: 1 }, killsPerHour: { G2: 60 } };
+  const k = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
+  const quick = ways(t, x, ctx, k).find((w: { kind: string }) => w.kind === "camp")!;
+  const slow = ways(t, x, ctx, { ...k, sec: 5 * 35.4 }).find((w: { kind: string }) => w.kind === "camp")!;
+  expect(slow.hours / quick.hours).toBeCloseTo(5, 5);
 });
 
 test("a hunt is valued at its kill chance, and every fight pays its deaths", () => {
