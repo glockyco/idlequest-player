@@ -361,8 +361,9 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const keep = [...new Set(w.members.flatMap((m) => [m.x.npc, ...(m.x.also ?? [])]).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))].join("|");
     // A trip for one enemy ends once its best item is in the bags, and one for several runs its time.
     const item = w.members.length === 1 ? { item: w.members[0].x.items[0].item } : {};
+    // A camp kills whatever stands on its targets' points, and a visit watches them for their respawn.
     const pts = [...new Set(w.members.flatMap((m) => points[targetId(m.x)] ?? []))];
-    const spec = w.kind === "errand" ? { zone: w.zone, keep, ...item, minutes: 60 } : { zone: w.zone, keep, ...item, ...(w.kind === "camp" && pts.length ? { points: pts } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.max(1, Math.round(w.hours * 60)) : ACQUIRE.campMin };
+    const spec = w.kind === "errand" ? { zone: w.zone, keep, ...item, minutes: 60 } : { zone: w.zone, keep, ...item, ...(pts.length ? { [w.kind === "camp" ? "points" : "watch"]: pts } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.max(1, Math.round(w.hours * 60)) : ACQUIRE.campMin };
     const why = `${t.group} ${w.kind === "errand" ? "hunts" : w.kind === "camp" ? "camps" : "visits"} ${w.zone} for ${w.members.map((m) => m.x.npc).join(", ")}: ${describeTrip(w)}`;
     out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id: ids[0], ids, spec, why });
     for (const m of w.members) {

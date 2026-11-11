@@ -1334,6 +1334,30 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
   }
 });
 
+test("a visit that finds none of its enemies up names the first respawn of the points it watches", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    Object.assign(f.runtime, { selectEnemyTarget: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => [];
+    const respawn = Date.now() + 3600000;
+    // Another point of the zone respawns sooner, but the visit waits only on its own.
+    const spawns = [
+      { name: "a_black_reaver", spawn2Id: 3265732, currentHp: 0, state: "respawning", nextRespawnAtMs: respawn },
+      { name: "a_shade", spawn2Id: 7, currentHp: 0, state: "respawning", nextRespawnAtMs: Date.now() + 60000 },
+    ];
+    Object.assign(f.iq, { zoneSpawns: { spawns } });
+    f.bot.hunt({ zone: "citymist", keep: "a black reaver", item: "Iksar Scale", watch: [3265732] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", nextAt: respawn });
+    expect(f.bot.state.task.result).toMatch(/^none of a black reaver up, next spawn at /);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a summoned enemy that is up already sends the member to the fight", async () => {
   vi.useFakeTimers();
   try {

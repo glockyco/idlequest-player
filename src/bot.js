@@ -1725,7 +1725,17 @@
           await keepReserve(i, true);
         } else if (r === "none") {
           empty++;
-          if (empty >= zones.length && now() - seen >= task.waitMin * 60000) return void (task.result = `none of ${task.keep} up`);
+          if (empty >= zones.length && now() - seen >= task.waitMin * 60000) {
+            // The first respawn of the points the hunt watches, for the scheduler to come back then,
+            // from the zone's spawn list as the server sends it now. A point another spawn holds has
+            // no respawn time, so the scheduler's own retry stands.
+            if ((task.watch ?? []).length) await i.refreshSpawns?.().catch(() => {});
+            const watched = (i.zoneSpawns?.spawns ?? []).filter((s) => (task.watch ?? []).includes(s.spawn2Id));
+            const due = watched.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
+            if (due.length) task.nextAt = Math.min(...due);
+            const held = watched.filter((s) => s.state === "alive").length;
+            return void (task.result = `none of ${task.keep} up${task.nextAt ? `, next spawn at ${new Date(task.nextAt).toTimeString().slice(0, 8)}` : held ? `, other spawns hold ${held} of its points` : ""}`);
+          }
           if (empty >= zones.length) await sleep(zones.length > 1 ? 60000 : 10000);
           if (zones.length > 1) {
             at = (at + 1) % zones.length;
@@ -2480,13 +2490,14 @@
      * `minutes`. With `points`, the wanted enemies' spawn points (spawn2 ids, `spawnPoints` in
      * tools/lib/content.mjs), the hunt camps them with the client's Spawn Camp instead, which kills
      * placeholders too, and ends once every point waits, with `nextAt` set to the first respawn
-     * (`campPoints`). Returns a copy of the task, which `state.task` keeps up to date.
+     * (`campPoints`). With `watch`, such points without the camp: a hunt that finds none of its
+     * enemies up sets `nextAt` to the first respawn among them. Returns a copy of the task, which `state.task` keeps up to date.
      */
-    hunt({ zone, keep, item = null, minutes = 20, waitMin = 0, points = [] }) {
+    hunt({ zone, keep, item = null, minutes = 20, waitMin = 0, points = [], watch = [] }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!zone || !keep) throw new Error("a hunt needs zone and keep");
       new RegExp(keep);
-      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, minutes, waitMin, points, startedAt: now() };
+      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, minutes, waitMin, points, watch, startedAt: now() };
       log(`task hunt: ${keep} in ${zone}${item ? ` for ${item}` : ""}, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },

@@ -56,7 +56,7 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | Camp | hours per copy | 1, since the client's Spawn Camp holds the enemy's points and earns no XP while it waits for their respawns | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival, `1 - (1 - spawn)^points`, times the kill chance and each drop chance and copy value |
 
-A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
+A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. When none is up, it names the first respawn of the enemy's spawn points (`watch` of `iqBot.hunt`), and the coordinator sends the next visit then instead of after an hour. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
 
 ## Where the copies are
 
