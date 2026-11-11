@@ -573,6 +573,13 @@ test("a zone that paid nothing in its trial ranks at what it paid, not at the mo
   // 23:51 ended in a High Keep rated at nothing.
   const three = assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena" })], rows: [[14, ["kurn", "runnyeye", "guktop"]]], rates: rates(480), model })[0].rotation;
   expect(three).toEqual(["kurn", "runnyeye"]);
+  // Short tries at other levels count together: High Keep paid nothing in 82 to 382 s at each of
+  // levels 46, 47, 48 and 50, and group 1 at 54 went there for a trial of its own (2026-11-12).
+  const spread = { kurn: { 20: { s: 3600, xp: 800000, t: NOW } }, runnyeye: { 20: { s: 3600, xp: 600000, t: NOW } }, warrens: { 20: { s: 3600, xp: 500000, t: NOW } }, guktop: { 14: { s: 200, xp: 0, t: NOW }, 15: { s: 200, xp: 0, t: NOW }, 16: { s: 200, xp: 0, t: NOW }, 20: { s: 100, xp: 0, t: NOW } } };
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 20, { zone: "najena" })], rows: [[14, ["kurn", "runnyeye", "guktop", "warrens"]]], rates: spread, model })[0].rotation).toEqual(["kurn", "runnyeye", "warrens"]);
+  // A zone that paid at those levels is none of this: the model's rate at the group's level stands.
+  const paid = { ...spread, guktop: { 14: { s: 200, xp: 80000, t: NOW }, 15: { s: 200, xp: 80000, t: NOW }, 16: { s: 200, xp: 80000, t: NOW } } };
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 20, { zone: "najena" })], rows: [[14, ["kurn", "runnyeye", "guktop", "warrens"]]], rates: paid, model })[0].rotation[0]).toBe("guktop");
 });
 
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {

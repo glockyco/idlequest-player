@@ -61,19 +61,19 @@ export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = 
 }
 
 /**
- * XP per hour in `zone` for a leader at `level`, from the levels within two of it, the nearer
+ * XP per hour in `zone` for a leader at `level`, from the levels within `span` of it, the nearer
  * weighing more, and the hours behind it after decay to `now`: `{ xph, hours }`, or null without
  * any time there.
  */
-export function estimate(rates, zone, level, now) {
+export function estimate(rates, zone, level, now, span = 2) {
   let s = 0;
   let xp = 0;
   let hours = 0;
-  for (let d = -2; d <= 2; d++) {
+  for (let d = -span; d <= span; d++) {
     const cell = rates[zone]?.[level + d];
     if (!cell?.s) continue;
     const fade = weight(cell.t, now);
-    const w = 1 - Math.abs(d) / 3;
+    const w = 1 - Math.abs(d) / (span + 1);
     s += cell.s * fade * w;
     xp += cell.xp * fade * w;
     hours += (cell.s * fade) / 3600;

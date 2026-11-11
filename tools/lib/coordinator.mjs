@@ -548,6 +548,10 @@ export const ZONE_DEFAULTS = {
   // 2.3M an hour kept them in the rotations, High Keep first for group 8 at level 50.
   trialHours: 0.1,
   deadShare: 0.25,
+  // A zone's trial also counts its time at the levels this far away, where the levels within two
+  // have less than a trial. Zones that never pay were otherwise tried by every group at every
+  // level: High Keep took 20 minutes without XP in six tries from level 38 to 54.
+  trialSpan: 8,
   // A group leaves its zone for one worth this share more.
   margin: 0.2,
   // A rotation set this recently stays, so the group can arrive before the crowds shift again.
@@ -606,15 +610,17 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     const level = t.members[0]?.level ?? 0;
     const row = bandZones(rows, level);
     if (!row.length) continue;
-    const zones = row.map((z, k) => ({ z, k, e: estimate(rates, z, level, now), m: model(z, level) }));
+    const zones = row.map((z, k) => ({ z, k, e: estimate(rates, z, level, now), wide: estimate(rates, z, level, now, cfg.trialSpan), m: model(z, level) }));
     const solid = zones.filter((m) => m.e?.hours >= cfg.priorHours);
     const base = solid.length ? solid : zones.filter((m) => m.e);
     const mid = (xs) => (xs.length ? xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null);
     const median = mid(base.map((m) => m.e.xph)) ?? 1;
     const scale = mid(base.filter((m) => m.m > 0).map((m) => m.e.xph / m.m)) ?? 1;
     const prior = (m) => (m.m > 0 ? scale * m.m : median);
-    const dead = (m) => m.e.hours >= cfg.trialHours && m.e.xph < cfg.deadShare * prior(m);
-    const xph = (m) => (!m.e ? prior(m) : dead(m) ? m.e.xph : (m.e.hours * m.e.xph + cfg.priorHours * prior(m)) / (m.e.hours + cfg.priorHours));
+    // What a zone's trial measured: at the levels within two, or failing that over the wider span.
+    const trial = (m) => [m.e, m.wide].find((e) => e?.hours >= cfg.trialHours) ?? null;
+    const dead = (m) => Boolean(trial(m)) && trial(m).xph < cfg.deadShare * prior(m);
+    const xph = (m) => (dead(m) ? trial(m).xph : !m.e ? prior(m) : (m.e.hours * m.e.xph + cfg.priorHours * prior(m)) / (m.e.hours + cfg.priorHours));
     // What one more group adds to the account in a zone, in shares of the zone's rate alone.
     const gain = (z) => {
       const n = crowd.get(z) ?? 0;
