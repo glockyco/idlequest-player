@@ -769,7 +769,7 @@ class Daemon {
       if (chances.has(key)) return chances.get(key);
       const level = t.members[0]?.level ?? 0;
       const prior = odds?.prior && x.npcLevel != null ? priorOf(odds.prior, x.npcLevel - level, x.npcHp) : null;
-      const k = killChanceOf({ prior, record: recordCounts(this.db, { grp: t.group, npc: x.npc, level, now }), sim: odds?.odds?.[`${x.zone}|${npcKey(x.npc)}`]?.groups?.[t.group] ?? null, levelsAbove: x.npcLevel != null ? x.npcLevel - level : null });
+      const k = killChanceOf({ prior, record: recordCounts(this.db, { grp: t.group, npc: x.npc, level, now }), sim: odds?.odds?.[`${x.zone}|${npcKey(x.npc)}`]?.groups?.[t.group] ?? null });
       chances.set(key, k);
       return k;
     };

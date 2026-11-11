@@ -26,6 +26,8 @@ test("a group's record counts its recent fights at its current level, and only i
   recordFights(db, "G1", [fight(T0, 52, "kill"), fight(T0 + 1, 52, "escape"), fight(T0 + 2, 52, "kill")]);
   // A fight at another level and one three weeks old stay out.
   recordFights(db, "G1", [fight(T0 + 3, 51, "kill"), fight(T0 - 20 * 86400000, 52, "kill")]);
+  // A fight the guard left by its level rule was refused, not lost.
+  recordFights(db, "G1", [{ t: T0 + 4, npc: "lady vox", level: 52, outcome: "escape", rule: "level" }]);
   expect(recordCounts(db, { grp: "G1", npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 2, escapes: 1 });
   expect(recordCounts(db, { grp: "G2", npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 0, escapes: 0 });
 });

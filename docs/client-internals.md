@@ -451,9 +451,9 @@ in a row without one, which the bridge counts (`faults.lootless`, tools/lib/page
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
-it works while no script is attached. While a mob is engaged it checks five things: a mob
-`levelGap` or more levels above the leader (`levelGapLow` for a mob fighting the party while the
-leader is at most level `lowLevelMax`), a mob whose biggest hit times `hitsToKill` reaches the
+it works while no script is attached. While a mob is engaged it checks five things: while the
+leader is at most level `lowLevelMax`, a mob fighting the party from `levelGapLow` levels above
+the leader, a mob whose biggest hit times `hitsToKill` reaches the
 lowest max HP in the party, a leader at `dyingHpPct` HP or less who would be dead within
 `dyingSec` at the HP lost over the last `dyingWindowSec`, a party member newly dead, and a Cleric
 under `healerManaPct` mana while someone

@@ -40,10 +40,6 @@ const DEATH_SEC = { member: 38, leader: 85 };
 // A sure kill without deaths, for a way valued apart from any group's chance.
 const SURE = { p: 1, fights: 0, deaths: 0, leaderDeaths: 0 };
 
-// The guard leaves a fight with an enemy this many levels above the leader, and an errand does not
-// widen its level range to one (`levelGap` in src/bridge.js, `widenForErrand` in src/bot.js).
-export const GUARD_LEVEL_GAP = 8;
-
 /**
  * A group's chance against an enemy and what one fight costs it: the prior of tools/lib/kill-prior.mjs
  * (`prior`, `{ p, deaths, leaderDeaths }`) as `priorWeight` fights, the simulator's fights of its six
@@ -51,11 +47,9 @@ export const GUARD_LEVEL_GAP = 8;
  * fight record at its level (`record`, `{ kills, escapes }`, tools/lib/fight-record.mjs), each a
  * fight of evidence, so the pair's own fights outweigh the prior as they come. Deaths per fight come
  * from the simulator where it fought the pair, else from the prior. `{ p, fights, deaths,
- * leaderDeaths }`, or null with none of the three. An enemy `levelsAbove` the leader by the guard's
- * gap is never fought, so its chance is zero until the leader has the level.
+ * leaderDeaths }`, or null with none of the three.
  */
-export function killChanceOf({ record = null, sim = null, prior = null, priorWeight = 1, levelsAbove = null }) {
-  if (levelsAbove != null && levelsAbove >= GUARD_LEVEL_GAP) return { p: 0, fights: 0, deaths: 0, leaderDeaths: 0 };
+export function killChanceOf({ record = null, sim = null, prior = null, priorWeight = 1 }) {
   const live = (record?.kills ?? 0) + (record?.escapes ?? 0);
   const simulated = sim && !sim.error ? sim.fights : 0;
   const w = prior ? priorWeight : 0;

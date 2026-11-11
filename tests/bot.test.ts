@@ -651,9 +651,9 @@ test("an errand widens AutoLevel's range for its enemies, keeps the others in th
     f.bot.config.limits = { minCon: 10, maxCon: 10, maxLevelDiff: 1 };
     Object.assign(f.me, { level: 7 });
     Object.assign(f.runtime, { getAutoCombatLevelBounds: () => ({ minLevel: f.combat.minCon <= 2 ? 3 : f.combat.minCon <= 4 ? 5 : 7, maxLevel: 7 + f.combat.maxLevelDiff }) });
-    // A level 15 wisp lies 8 levels up, where the guard (levelGap 8) leaves the fight, so the range stops at 11.
+    // A level 15 wisp lies 8 levels up, and up to level 8 the guard leaves a fight with an enemy 6 levels up, so the range stops at 11.
     Object.assign(f.iq, { zoneSpawns: { spawns: [{ name: "a_willowisp", level: 9 }, { name: "a_greater_wisp", level: 11 }, { name: "an_elder_wisp", level: 15 }, { name: "a_skeleton", level: 8 }] } });
-    Object.assign(f.guard, { config: { enabled: true, levelGap: 8 } });
+    Object.assign(f.guard, { config: { enabled: true, lowLevelMax: 8, levelGapLow: 6 } });
     await f.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 60 });
     expect(f.combat.maxLevelDiff).toBe(4);
     expect(f.combat.minCon).toBe(10);

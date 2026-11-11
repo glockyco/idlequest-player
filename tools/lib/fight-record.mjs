@@ -38,9 +38,10 @@ export function recordFights(db, grp, rows) {
 /**
  * Group `grp`'s kills and escapes against enemy `npc` in the last `days`, while its leader stood at
  * `level`: the group's strength changes with every level, so older fights at lower levels say
- * little about the next one. `{ kills, escapes }`.
+ * little about the next one. An escape by the guard's level rule was a fight refused at its first
+ * second, which says nothing about how it would have gone, so it does not count. `{ kills, escapes }`.
  */
 export function recordCounts(db, { grp, npc, level, now = Date.now(), days = 14 }) {
-  const r = db.query("SELECT SUM(outcome = 'kill') AS kills, SUM(outcome = 'escape') AS escapes FROM fights WHERE grp = ? AND npc = ? AND t >= ? AND level = ?").get(grp, npcKey(npc), now - days * 86400000, level);
+  const r = db.query("SELECT SUM(outcome = 'kill') AS kills, SUM(outcome = 'escape' AND rule IS NOT 'level') AS escapes FROM fights WHERE grp = ? AND npc = ? AND t >= ? AND level = ?").get(grp, npcKey(npc), now - days * 86400000, level);
   return { kills: r?.kills ?? 0, escapes: r?.escapes ?? 0 };
 }

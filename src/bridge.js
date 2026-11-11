@@ -671,8 +671,11 @@
   // dangerous it stops AutoLevel, leaves the fight with the game's own zone-change request (the
   // one the Travel window sends) and, when AutoLevel was running, starts it again with the same limits.
   // Triggers, each checked once a second while a mob is engaged:
-  //   level   a mob is `levelGap` or more levels above the leader, or `levelGapLow` while it fights
-  //           the party and the leader is at most level `lowLevelMax`
+  //   level   while the leader is at most level `lowLevelMax`, a mob that fights the party is
+  //           `levelGapLow` or more levels above the leader. Above that level an enemy's level
+  //           decides nothing: the simulator kills level 56 enemies of the Plane of Hate with
+  //           groups of 46 to 48 without a death, and where it said so for an enemy and a group,
+  //           the group won all 182 live fights (2026-11-11)
   //   hit     a mob's biggest hit times `hitsToKill` reaches the lowest max HP in the party, from
   //           leader level `hitFromLevel`: below it members have 35 to 60 HP, so nearly every
   //           mob qualifies and the party would escape instead of fighting
@@ -684,7 +687,6 @@
   if (guardPrev?.timerId) clearInterval(guardPrev.timerId);
   const GUARD_DEFAULTS = {
     enabled: true,
-    levelGap: 8,
     hitsToKill: 3,
     hitFromLevel: 6,
     healerManaPct: 10,
@@ -727,7 +729,7 @@
     /** The guard's settings, its phase and the escapes of the last hour. */
     guardStatus: () => ({ config: guard.config, overrides: guard.overrides, phase: guard.phase, trips: guard.trips }),
     /**
-     * Change guard settings, e.g. `{ levelGap: 6 }`, `{ retreatZone: "lfaydark" }` or
+     * Change guard settings, e.g. `{ hitsToKill: 4 }`, `{ retreatZone: "lfaydark" }` or
      * `{ enabled: false }`. `null` restores a setting's default.
      */
     setGuard(partial) {
@@ -867,9 +869,8 @@
     // ("pet_<...>"). Ids of the form "npc:<id>" are other NPCs, such as a guard fighting a kobold.
     const atParty = (id) => id != null && !String(id).startsWith("npc:");
     const fighting = (m) => atParty(m.hateTargetId) || atParty(m.currentTargetId) || atParty(m.chaseTargetId);
-    const gap = (m) => (p.level <= cfg.lowLevelMax && fighting(m) ? Math.min(cfg.levelGap, cfg.levelGapLow) : cfg.levelGap);
     for (const mob of cfg.fightingOnly ? mobs.filter(fighting) : mobs) {
-      if (mob.level >= p.level + gap(mob)) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
+      if (p.level <= cfg.lowLevelMax && fighting(mob) && mob.level >= p.level + cfg.levelGapLow) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
       if (p.level >= (cfg.hitFromLevel ?? 0) && maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
     }

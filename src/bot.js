@@ -2238,9 +2238,9 @@
   // of Nektulos for a level 7 party that pulls levels 7 and 8. The errand widens the range just
   // enough to take them in, and `avoidTargets` keeps every other enemy outside the normal range
   // skipped, so the party hunts its usual band besides them. The levels come from the zone's
-  // spawn list, so this waits until the party is in the zone. The range stops below the guard's
-  // level gap, because the guard leaves every fight with an enemy that far above the leader: a
-  // level 14 party widened to Najena's level 22 magicians escaped its first pull.
+  // spawn list, so this waits until the party is in the zone. Up to the guard's `lowLevelMax` the
+  // range stops below its level gap, because there the guard leaves every fight with an enemy
+  // that far above the leader.
   const widenForErrand = (i, e) => {
     const rt = runtime(i);
     const cb = () => i.stores.combat.getState();
@@ -2249,7 +2249,8 @@
     e.startLevel ??= i.stores.character.getState().characterProfile?.level ?? 0;
     const wanted = enemyPattern(e.keep);
     const lvl = i.stores.character.getState().characterProfile?.level ?? 0;
-    const gap = i.guard?.config?.enabled ? i.guard.config.levelGap : Infinity;
+    const g = i.guard?.config;
+    const gap = g?.enabled && lvl <= g.lowLevelMax ? g.levelGapLow : Infinity;
     const levels = (i.zoneSpawns?.spawns ?? []).filter((s) => wanted.test(s.name ?? "")).map((s) => s.level).filter((l) => Number.isFinite(l) && l < lvl + gap);
     if (!levels.length) return;
     const lo = Math.min(...levels);
