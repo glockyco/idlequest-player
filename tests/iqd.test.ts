@@ -271,12 +271,19 @@ test("items of a label no tab shows close: a condition at once, an event after i
   expect(notes()[2]).toEqual(["Gone", "alert-task", "expired"]);
 });
 
-test("status stays within 40 lines with many open items", () => {
+test("status lists what needs a person, counts what a mechanism handles, and stays within 40 lines", () => {
   const db = openDb(":memory:");
-  for (let i = 0; i < 30; i++) raiseItem(db, { severity: "act", kind: "death", session: "Tagu", key: `death:${i}`, text: `character ${i} was slain` });
+  // Deaths and a young stall are handled without anyone, and a stall of eleven minutes is not.
+  raiseItem(db, { t: T0 - 11 * 60000, severity: "act", kind: "stall", session: "Edro", key: "stall:b", text: "no kill for 15 min" });
+  raiseItem(db, { t: T0 - 60000, severity: "act", kind: "stall", session: "Tagu", key: "stall:a", text: "no kill for 5 min" });
+  for (let i = 0; i < 3; i++) raiseItem(db, { t: T0, severity: "act", kind: "death", session: "Tagu", key: `death:${i}`, text: `character ${i} was slain` });
+  for (let i = 0; i < 30; i++) raiseItem(db, { t: T0, severity: "act", kind: "alert-bags", session: "Tagu", key: `bags:${i}`, text: `bag ${i} holds only kept items` });
   const text = renderStatus(db, T0);
   expect(text.split("\n").length).toBeLessThanOrEqual(40);
-  expect(text).toContain("and 22 more");
+  expect(text).toContain("Needs you (31), handled without you: 3 deaths, 1 stalls");
+  expect(text).toContain("no kill for 15 min");
+  expect(text).not.toContain("was slain");
+  expect(text).toContain("and 23 more");
 });
 
 test("a later finished task settles a failed one, and playing again settles an idle alert", () => {

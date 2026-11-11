@@ -504,13 +504,16 @@ read from the page's buffers without removing anything, once each, so
 `tools/analyze.mjs runs/live/<leader>` works on them and `iq.exportRun` can still run on the same
 tab.
 
-`wait` returns every unresolved item at or above its severity (`act` above `decide` above `info`)
-that no earlier `wait` of that severity returned, prints it with the status and exits 0. After the
-time is up it prints the status and exits 0 as well. Between `wait` calls nothing is lost, because
-the position is stored in the database. The first `wait` of a severity starts after the items that
-exist then, and `status` lists those.
+An open item needs a person when it is a decision, when no mechanism handles its kind, or when it
+is still open after the ten minutes its mechanism takes, as a stall, a signed-out tab or a missing
+bridge (`tools/lib/attention.mjs`). The dashboard's "Needs you", `status` and `wait` all go by that
+rule. `wait` returns every such item that no earlier `wait` returned, prints it with the status and
+exits 0. With `--severity decide` it returns only decisions, and with `--severity info` every open
+item. After the time is up it prints the status and exits 0 as well. Between `wait` calls nothing
+is lost, because the items already returned are stored in the database. The first `wait` of a
+severity starts after the items that count then, and `status` lists those.
 
-`status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Each session line shows what the party does now and for how long, its rates and the idle share of the last 10 minutes. Open `info` items are counted, not listed.
+`status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Each session line shows what the party does now and for how long, its rates and the idle share of the last 10 minutes. It lists the items that need a person and counts the others by kind.
 
 The bridge labels every recorded second with what the party does (`act`, and `why` for idle and travel time): fight, approach, recover, travel, task, dead or idle. The labels and their order are in the "Activity" section of `src/bridge.js`, `iq.activity()` returns the current one and `iq.activitySeconds(ms)` sums them.
 

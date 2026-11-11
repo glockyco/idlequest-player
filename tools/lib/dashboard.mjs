@@ -5,6 +5,7 @@
 import { THRESHOLDS, sessionSummary } from "../iqd.mjs";
 import { MINUTE_MS } from "./minutes.mjs";
 import { targetId, targetRetryMin } from "./acquire.mjs";
+import { KINDS, needsPerson } from "./attention.mjs";
 import { retryTime, worldHold } from "./coordinator.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 import { progressCounts } from "./progress.mjs";
@@ -280,43 +281,14 @@ const taskLabel = (catalog, h) => (h.id ? `${taskName(catalog, h.id)}${h.ids?.le
 
 // ---- Attention -----------------------------------------------------------------------------------
 
-/** A stall item older than this needs a person: the bot's own recoveries run in the first minutes. */
-export const STALL_AGE_MS = 10 * 60000;
-/**
- * What each open attention kind is called, and whether a mechanism handles it: `retry` kinds are
- * tried again by the coordinator or the bot, `ends` kinds end by themselves or by the bot's own
- * remedy. A kind in neither list needs a person, so a new kind is never hidden.
- */
-export const KINDS = {
-  "alert-task": { label: "failed tasks", how: "retried by the coordinator" },
-  "alert-cursor": { label: "items on the cursor", how: "the bot puts them away", ends: true },
-  "alert-lootFull": { label: "loot left on corpses", how: "the bot clears bag space", ends: true },
-  "alert-guard": { label: "guard escapes", how: "the guard re-enters the zone", ends: true },
-  "alert-errand": { label: "ended errands", how: "the rotation takes over", ends: true },
-  "alert-crowded": { label: "crowded zones", how: "the rotation moves on", ends: true },
-  "alert-rotate": { label: "rotation moves", how: "the rotation moves on", ends: true },
-  "alert-autoLevelRestarted": { label: "AutoLevel restarts", how: "the bot restarts it", ends: true },
-  "alert-raid": { label: "raid kills", how: "nothing to do", ends: true },
-  "alert-deaths": { label: "death costs", how: "the rotation changes zones", ends: true },
-  death: { label: "deaths", how: "the bot buys a resurrection", ends: true },
-  longtask: { label: "long tasks", how: "the coordinator stops them", ends: true },
-  stall: { label: "stalls", how: "the bot restarts AutoLevel", ends: true, needsAfterMs: STALL_AGE_MS },
-  nokill: { label: "no kill", how: "the bot restarts AutoLevel", ends: true, needsAfterMs: STALL_AGE_MS },
-  gone: { label: "tabs gone", how: "the tab may answer again", ends: true, needsAfterMs: STALL_AGE_MS },
-  nobridge: { label: "tabs without bridge", how: "the collector injects the bridge again", ends: true, needsAfterMs: STALL_AGE_MS },
-  "alert-switch": { label: "failed switches", how: "the bot tries again", ends: true, needsAfterMs: STALL_AGE_MS },
-  "alert-clientUpdate": { label: "client updates", how: "the collector checks each new release", ends: true },
-};
 /** What one item of each kind is called on the page. */
-const TITLE = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing", "alert-task": "Task failed", "alert-cursor": "Item on the cursor", "alert-lootFull": "Loot left on a corpse", "alert-guard": "Guard escape", "alert-errand": "Errand ended", "alert-crowded": "Zone crowded", "alert-rotate": "Zone move failed", "alert-autoLevelRestarted": "AutoLevel restarted", "alert-raid": "Raid kill", "alert-deaths": "Deaths", death: "Death", longtask: "Task ran long", "alert-clientUpdate": "Client update" };
+const TITLE = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing", "alert-task": "Task failed", "alert-cursor": "Item on the cursor", "alert-lootFull": "Loot left on a corpse", "alert-guard": "Guard escape", "alert-errand": "Errand ended", "alert-crowded": "Zone crowded", "alert-rotate": "Zone move failed", "alert-autoLevelRestarted": "AutoLevel restarted", "alert-raid": "Raid not ended", "alert-deaths": "Deaths", death: "Death", longtask: "Task ran long", "alert-clientUpdate": "Client update" };
 export const itemTitle = (kind) => TITLE[kind] ?? kind;
 
 /**
- * Open attention items split into those a person must act on and those a mechanism handles. A
- * person is needed for a decision, a sign-in, a bags alert, a stall, gone tab or lost bridge older
- * than ten minutes, and for any kind that no list names. Needs of one kind with one text on several
- * tabs share a card that lists their groups. The handled items come back as counts per kind for
- * one muted line.
+ * Open attention items split into those a person must act on and those a mechanism handles
+ * (`needsPerson`, tools/lib/attention.mjs). Needs of one kind with one text on several tabs share a
+ * card that lists their groups. The handled items come back as counts per kind for one muted line.
  */
 export function needsYouView(open, now, groupOf = new Map()) {
   const cards = new Map();
@@ -324,8 +296,7 @@ export function needsYouView(open, now, groupOf = new Map()) {
   for (const a of open) {
     if (a.severity === "info") continue;
     const k = KINDS[a.kind];
-    const ageMs = now - a.t;
-    const person = a.severity === "decide" || !k || (k.needsAfterMs != null && ageMs > k.needsAfterMs);
+    const person = needsPerson(a, now);
     if (person) {
       const key = `${a.kind}|${a.text}`;
       const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: itemTitle(a.kind), groups: [], text: a.text };

@@ -27,6 +27,7 @@ import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, l
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { pageStep } from "./lib/page.mjs";
 import { commitFor, deployed, readDeploy, reverted, writeDeploy } from "../src/deploy.mjs";
+import { KINDS, needsPerson } from "./lib/attention.mjs";
 import { screenInPage } from "../src/install.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -1849,9 +1850,13 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
   const ms = db.query("SELECT t, grp, text FROM progress WHERE sig >= 2 ORDER BY t DESC LIMIT 1").get();
   out.push(cut(`Progress (24 h): ${c.level} levels, ${c.gear} gear slots, ${c.item} items, ${c.chain} chains, ${c.aa} AA ranks, ${c.raid} raid kills${ms ? ` | latest milestone ${dur(now - ms.t)} ago: ${ms.grp ? `${ms.grp} ` : ""}${ms.text}` : ""}`, 150));
 
+  // What waits for a person, by the rule the dashboard's "Needs you" uses (tools/lib/attention.mjs).
   const items = db.query("SELECT * FROM attention WHERE resolved IS NULL ORDER BY id").all();
-  const urgent = items.filter((a) => a.severity !== "info");
-  out.push(`Attention (${urgent.length} open${items.length > urgent.length ? `, ${items.length - urgent.length} info` : ""})`);
+  const urgent = items.filter((a) => needsPerson(a, now));
+  const handled = new Map();
+  for (const a of items) if (a.severity !== "info" && !needsPerson(a, now)) handled.set(KINDS[a.kind].label, (handled.get(KINDS[a.kind].label) ?? 0) + 1);
+  const info = items.filter((a) => a.severity === "info").length;
+  out.push(`Needs you (${urgent.length})${handled.size ? `, handled without you: ${[...handled].sort((a, b) => b[1] - a[1]).map(([label, n]) => `${n} ${label}`).join(", ")}` : ""}${info ? `, ${info} info` : ""}`);
   for (const a of urgent.slice(0, 8)) out.push(cut(`  #${a.id} ${a.severity} ${a.kind} ${clock(a.t)} ${a.text}`, 150));
   if (urgent.length > 8) out.push(`  and ${urgent.length - 8} more`);
 
@@ -2015,19 +2020,27 @@ async function cmdWait({ values, runs }) {
   if (!SEVERITY_RANK[sev]) throw new Error("--severity must be act, decide or info");
   const maxMs = Number(values["max-minutes"] ?? 60) * 60000;
   const db = openDb(join(runs, "iq.db"));
-  const key = `wait:${sev}`;
-  let cursor = metaGet(db, key);
-  if (cursor == null) {
-    cursor = db.query("SELECT COALESCE(MAX(id), 0) AS m FROM attention").get().m;
-    metaSet(db, key, cursor);
+  // At "act" an item counts once it needs a person, which a stall or a sign-out does only after
+  // the minutes its mechanism takes (tools/lib/attention.mjs), at "decide" only a decision counts,
+  // and at "info" every open item does.
+  const counts = (a, now) => (sev === "info" ? true : sev === "decide" ? a.severity === "decide" : needsPerson(a, now));
+  const open = () => db.query("SELECT * FROM attention WHERE resolved IS NULL ORDER BY id").all();
+  // The open items earlier waits returned. An item can come to need a person long after it was
+  // raised, so a cursor over the ids would pass it by.
+  const key = `waited:${sev}`;
+  let seen = metaGet(db, key);
+  if (seen == null) {
+    seen = open().filter((a) => counts(a, Date.now())).map((a) => a.id);
+    metaSet(db, key, seen);
   }
-  const kinds = Object.keys(SEVERITY_RANK).filter((s) => SEVERITY_RANK[s] >= SEVERITY_RANK[sev]);
-  const q = db.query(`SELECT * FROM attention WHERE resolved IS NULL AND id > ? AND severity IN (${kinds.map(() => "?").join(",")}) ORDER BY id`);
   const deadline = Date.now() + maxMs;
   for (;;) {
-    const rows = q.all(cursor, ...kinds);
+    const now = Date.now();
+    const items = open();
+    const rows = items.filter((a) => counts(a, now) && !seen.includes(a.id));
     if (rows.length) {
-      metaSet(db, key, rows.at(-1).id);
+      const still = new Set(items.map((a) => a.id));
+      metaSet(db, key, [...seen.filter((id) => still.has(id)), ...rows.map((a) => a.id)]);
       for (const a of rows) console.log(`ATTENTION #${a.id} ${a.severity} ${a.kind}${a.session ? ` [${a.session}]` : ""} ${clock(a.t)}: ${a.text}`);
       console.log("");
       console.log(renderStatus(db, Date.now()));
