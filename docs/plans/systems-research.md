@@ -29,6 +29,8 @@ All 72 ranks cost 5.4 billion XP and 144,000 platinum per character. The same re
 
 A rank adds 2 stat points for 75M XP, while a level costs 5M at 30, 17M at 45 and 50M at 55 at the base race and class factor (89M at 59, `tools/lib/xp.mjs`) and gives far more: HP, mana, spells and the weapon damage cap. XP therefore goes to levels until 60, and to AA from 60: the share is 100% with the level rule pausing it below 60 for the player and the companions. Metabolism and lung capacity add nothing to play the bot runs (the server refills food from carried meals, leveling plan lever 5, and no route is underwater), and run speed does not stack with Bard and Shaman speed songs. The order by value per point is the casting stat for casters and priests below its cap (INT for Magician, Wizard, Necromancer and Enchanter, WIS for Cleric, Druid and Shaman), STA for tanks and everyone after that, then the resists a raid target uses, then regeneration, with STR, DEX and AGI for melee. Mana gains per casting-stat point halve above 200 and stats cap at 255, so a stat at its cap is skipped (`.re/js/main.pretty.js:21063,21821-21823,21894-21900,20576-20585`).
 
+The coordinator sets the share and the rule in every pass and trains the points a character holds, in that order per class (`aaOrder` in `tools/lib/coordinator.mjs`, `aaInPage` in `tools/iqd.mjs`), with the window's own purchase request. A refused rank is tried again an hour later. Open until the first character holds a point at 60: the purchase has run only against the tests' stand-in for the server, the order does not skip a stat at its cap, and nothing brings a character the 2,000 platinum a rank costs when it carries less.
+
 ## 2. Tradeskills
 
 ### Availability and mechanics

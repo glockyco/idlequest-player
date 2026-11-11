@@ -484,14 +484,18 @@ export function applySettingsInPage(a) {
 }
 
 /**
- * Make the tab's AA settings match `a`: `allocation` percent for the active character and its
- * account companions, and the level rule that pauses it below `a.level` for both
- * (docs/plans/systems-research.md, section 1). Uses the Alternate Advancement window's own
- * request. The server refuses both below the unlock level (46), so the allocation covers the
- * characters past it and the rule waits for the host to reach it. The allocation goes first,
- * because the window does not allocate while the rule pauses a character. Returns what it changed
- * and the AA state of the active character (`state`) and of each party member past the unlock
- * level (`members`), which the window reads with the member as `target`:
+ * Make the tab's AA settings match `a` and train the points its characters hold: `allocation`
+ * percent for the active character and its account companions, and the level rule that pauses it
+ * below `a.level` for both (docs/plans/systems-research.md, section 1). Uses the Alternate
+ * Advancement window's own request. The server refuses both below the unlock level (46), so the
+ * allocation covers the characters past it and the rule waits for the host to reach it. The
+ * allocation goes first, because the window does not allocate while the rule pauses a character.
+ * A character with a point and an order in `a.orders` (`{ name: [ability ids] }`) then trains the
+ * first ability of its order below its maximum, a rank a request as the window's Train button
+ * does, with the rank it holds and the price `a.rankPp`, so the server refuses on any other state.
+ * Returns what it changed, the names whose training the server refused (`refused`), and the AA
+ * state of the active character (`state`) and of each party member past the unlock level
+ * (`members`), which the window reads with the member as `target`:
  * `{ name, level, points, spent, ranks, names, maxRanks, allocation }`, where `names` maps ability
  * ids to names and `maxRanks` sums the catalog's maximum ranks. Returns null on a page without the
  * bridge, as one the supervisor reloaded during the pass, which has nothing to set yet.
@@ -517,13 +521,35 @@ export async function aaInPage(a) {
     if (!r?.success) throw new Error(r?.error ?? `${scope} level rule refused`);
     done.push(`${scope} paused below ${a.level}`);
   }
+  const refused = [];
+  const train = async (s, target) => {
+    const order = a.orders?.[s.characterName];
+    // At most a level's worth of points a pass, so a pass stays short.
+    for (let n = 0; order && n < 12 && (s.points ?? 0) >= 1; n++) {
+      const next = order.map((id) => (s.abilities ?? []).find((x) => x.id === id)).find((x) => x && (s.ranks?.[x.id] ?? 0) < x.maxRank);
+      if (!next) break;
+      const have = s.ranks?.[next.id] ?? 0;
+      const res = await send("purchase", { abilityId: next.id, expectedRank: have, expectedCostPlatinum: a.rankPp, ...(target ? { target } : {}) }).catch((e) => ({ error: e.message }));
+      if (!res?.success || !res.state) {
+        refused.push(s.characterName);
+        done.push(`${s.characterName} could not train ${next.name} ${have + 1}: ${res?.error ?? "no answer"}`);
+        break;
+      }
+      done.push(`${s.characterName} trained ${next.name} ${have + 1}`);
+      s = res.state;
+    }
+    return s;
+  };
   const view = (s) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null });
+  const party = r.state.party ?? [];
+  const state = view(await train(r.state, null));
   const members = [];
-  for (const m of (r.state.party ?? []).filter((x) => x.characterId !== host && x.level >= unlock && x.leaseId)) {
-    const rm = await window.iq.query(1237, { action: "get", hostCharacterId: host, target: { characterId: m.characterId, leaseId: m.leaseId } }).catch(() => null);
-    if (rm?.success) members.push(view(rm.state));
+  for (const m of party.filter((x) => x.characterId !== host && x.level >= unlock && x.leaseId)) {
+    const target = { characterId: m.characterId, leaseId: m.leaseId };
+    const rm = await window.iq.query(1237, { action: "get", hostCharacterId: host, target }).catch(() => null);
+    if (rm?.success) members.push(view(await train(rm.state, target)));
   }
-  return { done, state: view(r.state), members };
+  return { done, refused, state, members };
 }
 
 // ---- Recorder files -----------------------------------------------------------------------------
@@ -596,7 +622,7 @@ class Daemon {
     // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY, aaOrder } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -833,9 +859,14 @@ class Daemon {
     // each party member past 46, kept per character in the meta key `aa` for the dashboard.
     const aa = metaGet(this.db, "aa") ?? {};
     const aaBefore = structuredClone(aa);
+    // A character whose training the server refused, as for want of the rank's platinum, is asked
+    // again an hour later.
+    this.aaRefused ??= new Map();
     for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
-      const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
+      const orders = Object.fromEntries(t.members.filter((m) => !(now - this.aaRefused.get(m.name) < 3600000)).map((m) => [m.name, aaOrder(m.class)]));
+      const r = await this.relay.evaluate(t.targetId, call(aaInPage, { ...AA_POLICY, orders }), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
       for (const s of [r?.state, ...(r?.members ?? [])].filter(Boolean)) aa[s.name] = { ...s, t: now };
+      for (const name of r?.refused ?? []) this.aaRefused.set(name, now);
       if (!r?.done?.length) continue;
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${r.done.join("; ")}`);
       this.log(`coordinator: ${t.label} aa: ${r.done.join("; ")}`);

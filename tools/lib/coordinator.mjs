@@ -35,7 +35,23 @@ export const DEFAULTS = {
  * points for 75M XP while a level below 60 gives far more for less (docs/plans/systems-research.md,
  * section 1).
  */
-export const AA_POLICY = { allocation: 100, level: 60 };
+export const AA_POLICY = { allocation: 100, level: 60, rankPp: 2000 };
+
+const AA = { str: 50001, sta: 50002, agi: 50003, dex: 50004, int: 50005, wis: 50006, cha: 50007, magic: 50008, cold: 50009, fire: 50010, poison: 50011, disease: 50012, run: 50013, regen: 50014, metabolism: 50015, lungs: 50016 };
+const CASTING = { magician: AA.int, wizard: AA.int, necromancer: AA.int, enchanter: AA.int, cleric: AA.wis, druid: AA.wis, shaman: AA.wis };
+
+/**
+ * The order in which a class trains its abilities, as ability ids (docs/plans/systems-research.md,
+ * "When and what to train"): the casting stat for casters and priests, stamina, for the others
+ * stamina and the melee stats, then the resists, regeneration, and last what adds little to the
+ * play the bot runs. Every ability is in it, so a character ends with every rank.
+ */
+export function aaOrder(cls) {
+  const casting = CASTING[String(cls ?? "").toLowerCase()];
+  const melee = [AA.str, AA.dex, AA.agi];
+  const first = casting ? [casting, AA.sta] : [AA.sta, ...melee];
+  return [...new Set([...first, AA.magic, AA.fire, AA.cold, AA.poison, AA.disease, AA.regen, ...melee, AA.int, AA.wis, AA.cha, AA.run, AA.metabolism, AA.lungs])];
+}
 
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
 export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
