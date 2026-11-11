@@ -625,13 +625,15 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
   const reached = members.filter((m) => (m.level ?? 0) >= AA_LEVEL).length;
   const kills = db.query("SELECT t, name, text, data FROM progress WHERE kind = 'raid' ORDER BY t").all().map((r) => ({ t: r.t, by: r.name, text: r.text, ...JSON.parse(r.data ?? "{}") }));
   const killed = [...new Set(kills.map((k) => k.goal).filter(Boolean))];
+  const bosses = metaRow(db, "bossPlan");
+  const lately = kills.filter((k) => k.t > now - DAY);
   return {
     recent: progressCounts(db, now - DAY),
     levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from } : null },
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
-    raids: { share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters },
+    raids: { share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: lately.filter((k) => k.goal).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters },
   };
 }
 

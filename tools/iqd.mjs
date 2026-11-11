@@ -1046,7 +1046,9 @@ class Daemon {
     const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
     const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value, first });
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, raiding, standing, price: st.time?.pricePp ?? null });
+    // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
+    const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a

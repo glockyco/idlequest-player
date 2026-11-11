@@ -79,6 +79,21 @@ function barRow(title, share, bar, text, after = null) {
 /** What moved a goal bar in the last 24 hours, as a green "+N unit" beside its value. */
 const delta = (n, unit) => (n > 0 ? ` <span class="up" title="in the last 24 hours, listed under Progress">+${n} ${unit}</span>` : "");
 
+/**
+ * The raid bar's line: the goal's bosses killed, the one a raid goes for next with its simulated
+ * fights and when it can be summoned, and the other bosses killed in the last day, which do not
+ * move the bar.
+ */
+function raidNote(R) {
+  const next = R.next[0];
+  const when = !next ? "" : R.resets > 0 ? ", at the next raid" : R.resetAt ? `, when the free summons return at ${hhmm(R.resetAt)}` : "";
+  return [
+    R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : R.reached < R.characters ? `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.` : "None of them yet.",
+    next ? `Next: ${esc(next.name)}${next.raid ? `, killed in ${next.raid.kills} of ${next.raid.fights} simulated fights` : ""}${when}.` : "",
+    R.others ? `${R.others} other boss${R.others === 1 ? "" : "es"} killed in the last 24 hours.` : "",
+  ].filter(Boolean).join(" ");
+}
+
 function renderGoal(s) {
   const g = s.goal;
   const L = g.levels;
@@ -102,7 +117,7 @@ function renderGoal(s) {
       : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} steps${delta(r.chain, "steps")}`, `${g.epics.needers} characters still need theirs. ${g.epics.missingCopies} pieces to find.`),
     R.share == null
       ? barRow("Raid kills", null, none(), `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`)
-      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(r.raid, "kills")}`, R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`),
+      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(R.recent, "kills")}`, raidNote(R)),
     latest ? `<p class="gx latest">Latest milestone ${ago(s.now, latest.t)}: ${latest.group ? `<span class="grp">${esc(latest.group)}</span> ` : ""}${esc(latest.text)}</p>` : "",
   ].join("");
 }
