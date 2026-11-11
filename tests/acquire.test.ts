@@ -68,11 +68,15 @@ test("outside the rotation a camp and a visit each cost their whole time", () =>
 
 const sure = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
 
-test("live fights count beside the simulator's, and neither means no kill chance", () => {
+test("a group's own fights replace the simulator's, and no evidence means no kill chance", () => {
   expect(killChanceOf({})).toBeNull();
   expect(killChanceOf({ sim: { kills: 4, fights: 4, deathsPerFight: 1.25, leaderDeathsPerFight: 0.25 } })).toEqual({ p: 1, fights: 4, deaths: 1.25, leaderDeaths: 0.25 });
-  // Two live escapes after four simulated wins: four of six fights won.
-  expect(killChanceOf({ record: { kills: 0, escapes: 2 }, sim: { kills: 4, fights: 4, deathsPerFight: 0, leaderDeathsPerFight: 0 } })!.p).toBeCloseTo(4 / 6);
+  // The group's own fights replace the simulator's, which knows nothing of the enemies that join:
+  // two live escapes after four simulated wins leave the prior's one fight against them.
+  const sim = { kills: 4, fights: 4, meanSec: 46, deathsPerFight: 0, leaderDeathsPerFight: 0 };
+  expect(killChanceOf({ record: { kills: 0, escapes: 2 }, sim, prior: { p: 0.9, deaths: 0.1, leaderDeaths: 0 } })).toEqual({ p: 0.3, fights: 6, deaths: 0, leaderDeaths: 0, sec: 46 });
+  expect(killChanceOf({ record: { kills: 0, escapes: 2 }, sim })!.p).toBe(0);
+  expect(killChanceOf({ record: { kills: 3, escapes: 0 }, sim: { ...sim, kills: 2 }, prior: { p: 0.6, deaths: 0, leaderDeaths: 0 } })!.p).toBeCloseTo(0.9);
   expect(killChanceOf({ record: { kills: 3, escapes: 1 } })).toEqual({ p: 0.75, fights: 4, deaths: 0, leaderDeaths: 0 });
 });
 

@@ -48,20 +48,24 @@ const SURE = { p: 1, fights: 0, deaths: 0, leaderDeaths: 0 };
 
 /**
  * A group's chance against an enemy and what one fight costs it: the prior of tools/lib/kill-prior.mjs
- * (`prior`, `{ p, deaths, leaderDeaths }`) as `priorWeight` fights, the simulator's fights of its six
- * (`sim`, `{ kills, fights, meanSec, deathsPerFight, leaderDeathsPerFight }`, tools/kill-odds.mjs) and its
- * fight record at its level (`record`, `{ kills, escapes }`, tools/lib/fight-record.mjs), each a
- * fight of evidence, so the pair's own fights outweigh the prior as they come. Deaths per fight come
- * from the simulator where it fought the pair, else from the prior. `{ p, fights, deaths,
- * leaderDeaths }`, with `sec`, the simulator's seconds per won fight, where it won one, or null
- * with none of the three.
+ * (`prior`, `{ p, deaths, leaderDeaths }`) as `priorWeight` fights, and the group's fight record at
+ * its level (`record`, `{ kills, escapes }`, tools/lib/fight-record.mjs), each a fight of evidence.
+ * The simulator's fights of its six (`sim`, `{ kills, fights, meanSec, deathsPerFight,
+ * leaderDeathsPerFight }`, tools/kill-odds.mjs) count only until the group has fought the enemy
+ * itself, because the simulator fights one enemy and a live fight has the ones that join. Of 25
+ * pairs the simulator won four of four without a death (2026-11-12), 19 had 37 live kills and no
+ * escape, and six, all group 1's in dungeons, had 1 kill and 8 escapes: a wanderer in The Hole
+ * brought three templebound spirits. Deaths per fight come from the simulator where it fought the
+ * pair, else from the prior. `{ p, fights, deaths, leaderDeaths }`, with `sec`, the simulator's
+ * seconds per won fight, where it won one, or null with none of the three.
  */
 export function killChanceOf({ record = null, sim = null, prior = null, priorWeight = 1 }) {
   const live = (record?.kills ?? 0) + (record?.escapes ?? 0);
   const simulated = sim && !sim.error ? sim.fights : 0;
   const w = prior ? priorWeight : 0;
   if (!live && !simulated && !w) return null;
-  const p = (w * (prior?.p ?? 0) + (record?.kills ?? 0) + (simulated ? sim.kills : 0)) / (w + live + simulated);
+  const counted = live ? 0 : simulated;
+  const p = (w * (prior?.p ?? 0) + (record?.kills ?? 0) + (counted ? sim.kills : 0)) / (w + live + counted);
   const deaths = simulated ? sim.deathsPerFight : (prior?.deaths ?? 0);
   const leaderDeaths = simulated ? (sim.leaderDeathsPerFight ?? 0) : (prior?.leaderDeaths ?? 0);
   return { p, fights: live + simulated, deaths, leaderDeaths, ...(simulated && sim.meanSec > 0 ? { sec: sim.meanSec } : {}) };

@@ -85,8 +85,8 @@ The pieces of the class epics the account can finish are targets as well ([epic 
 ## Kill chance
 
 Whether a group kills an enemy is a kill chance per group and enemy, not a level margin. Three kinds
-of fights are its evidence, and each fight counts once, so the pair's own fights outweigh the rest
-as they come:
+of fights are its evidence. The model counts as one fight, the simulator's fights count until the
+group has fought the enemy itself, and from then on the group's own fights decide beside the model:
 
 - a model fitted to every simulated fight of every group (`tools/lib/kill-prior.mjs`), counted as
   one fight: the chance falls with the enemy's level above the group's leader and with its hit
@@ -111,6 +111,8 @@ errand, camp or visit, else a raid.
 The guard does not judge an enemy by its level above leader level 8, because level says little about a fight: the level 55 and 56 enemies of the Plane of Hate hit for at most 234, the simulator kills them with most groups of 46 to 48 without a death, and group 7 at 45 loses every fight against the level 51 Knight there. The guard's rules that read the fight itself still end it: the leader dying, three hits killing a member, a member down and a healer without mana.
 
 Measured on 2026-11-11, with the level rule at eight levels still on: 23,230 kills, 78 escapes by level, 62 by a dying leader, 52 by a member down, 43 by the healer's mana, and 8 leader deaths. At leader levels of 35 and more, among fights with an enemy of one known level, six levels up gave 32 kills, 11 escapes of a dying leader and 2 leader deaths, seven levels up 10 kills and 6 such escapes, and no fight ever ran eight or more up. Where the simulator won four of four without a death, the group won all 182 live fights of 18 pairs, and where it won with deaths, 9 of 14. Compare a day without the rule against these: leader deaths, escapes by rule, and the kills of groups under 50 in the Plane of Hate.
+
+The simulator fights one enemy, and a live fight has the ones that join. On 2026-11-12, of 25 pairs the simulator won four of four without a death, 19 had 37 live kills and no escape, and six had 1 kill and 8 escapes, all of them group 1's in dungeons: a wanderer in The Hole brought three templebound spirits of level 56. So the simulator's fights leave the chance once the group has a fight of its own with the enemy.
 
 ## Migration
 
