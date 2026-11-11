@@ -19,6 +19,15 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
    await iq.botReport();
    ```
 
+   A session's browser reaches only one of the game tabs, because they share a title and an address. Any group's tab is reached through the collector's record of it, and the step is written to the steps by hand that the dashboard counts per day:
+
+   ```sh
+   bun tools/iqd.mjs page G10 'window.iqBot.stopTask()' --why "the hunt stands without a route to its enemy"
+   bun tools/iqd.mjs page G10 'window.iqBot.state.task' --read   # changes nothing, so it is not recorded
+   ```
+
+   Record a step taken any other way with `bun tools/iqd.mjs note`, also an edit of the database, so that a day's count of steps by hand is true.
+
 2. Recover on your own. Never wait for a person while the game can be played:
    - A tab at the login form is signed in again by `iqd run --recover` after a minute (README, "Monitoring"). Do not sign it in by hand meanwhile, because the server refuses a burst of sign-ins ("Too many login attempts").
    - A group's tab is gone, cannot be reached, answers "Selected tab is not ready" for a minute or still shows the login form after five minutes: run `restoreGroup({ browser, attach, id })` from `src/group.mjs` with the group's id from `data/roster.json`. It opens a tab of its own, signs in, enters the world as the group's leader with the other members, restores the bot's rotation and starts AutoLevel, in about half a minute. Then close the old tab with `tab.close()`. A new tab opens visible, so the engine loads. A hidden tab never finishes "Preparing game engine…" and keeps CONNECT disabled. Chrome detaches the relay from a tab when a password manager's autofill menu opens in it, and then hides the tab until its URL changes.

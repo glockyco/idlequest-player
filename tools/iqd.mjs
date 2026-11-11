@@ -1909,6 +1909,9 @@ const HELP = `iqd <command>
                                  block until a new unresolved attention item appears
   ack <id> [note]                resolve an attention item
   note <text> [--session leader] [--actor agent]
+  page <group or leader> <expression> --why <reason> [--read]
+                                 evaluate the expression in the group's game tab and record it as a step by
+                                 hand with its reason; --read for an expression that changes nothing, unrecorded
   job add --purpose .. --cmd .. --out ..
   job done <id> [result]
 Global option: --runs <dir> (default runs/ of this repository, or $IQD_RUNS)`;
@@ -1918,7 +1921,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" }, why: { type: "string" }, read: { type: "boolean" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -2096,6 +2099,31 @@ async function cmdNote({ values, positionals, runs }) {
   console.log(`noted #${id}`);
 }
 
+/**
+ * Evaluate an expression in a group's game tab, by the tab the collector plays the group in, and
+ * record it among the steps by hand that the dashboard counts per day. A session's browser reaches
+ * only one of the game tabs, because they share a title and an address, so steps by hand went
+ * through scripts that recorded nothing, and 2026-11-11 counted none of about ten.
+ */
+async function cmdPage({ values, positionals, runs }) {
+  const [, who, ...rest] = positionals;
+  const expression = rest.join(" ");
+  if (!who || !expression || !(values.why || values.read)) throw new Error("usage: iqd page <group or leader> <expression> --why <reason> [--read]");
+  const db = openDb(join(runs, "iq.db"));
+  const leader = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((g) => g.id === who)?.members[0] ?? who;
+  const target = db.query("SELECT target_id FROM sessions WHERE ended IS NULL AND leader = ? ORDER BY id DESC LIMIT 1").get(leader)?.target_id;
+  if (!target) throw new Error(`no open tab plays ${who}`);
+  const relay = new Relay();
+  await relay.start();
+  try {
+    for (let k = 0; k < 50 && !relay.tabs().has(target); k++) await Bun.sleep(100);
+    if (!values.read) db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'agent', ?)").run(Date.now(), leader, `${values.why}: ${expression}`.slice(0, 400));
+    console.log(JSON.stringify(await relay.evaluate(target, expression, { timeout: 15000 })));
+  } finally {
+    await relay.stop();
+  }
+}
+
 async function cmdJob({ values, positionals, runs }) {
   const db = openDb(join(runs, "iq.db"));
   const sub = positionals[1];
@@ -2114,7 +2142,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);
