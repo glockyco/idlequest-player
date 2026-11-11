@@ -1,0 +1,56 @@
+// Checks the XP event detection (tools/lib/xp-events.mjs). Run with `bun test`.
+import { expect, test } from "bun:test";
+import { factorAt, foldKills, killFactor, killPools, normalXp } from "../tools/lib/xp-events.mjs";
+
+// The Tower of Frozen Shadow's multiplier in the client, and kills recorded there on 2026-11-11.
+const FROZEN = 1.62666667;
+const line = (t: number, text: string) => ({ t, type: "EXPERIENCE_GAIN", text });
+
+test("a kill's XP lines sum to its pool, and other lines and later shares stay out", () => {
+  const events = [
+    line(1000, "You have defeated a shrouded bat and gained 79553 experience!"),
+    { t: 1000, type: "FACTION_CHANGE", text: "Your faction standing with Tserrina Syl`Tor could not possibly get any worse." },
+    ...["Domeyafun", "Ewbanaqoa", "Ugfeu", "Edroun"].map((n) => line(1200, `${n} gains 78080 experience.`)),
+    line(1300, "Qigaa gains 76607 experience."),
+    line(9000, "Qigaa gains 500 experience."),
+    line(20000, "You have slain a rat, but gain no experience."),
+  ];
+  expect(killPools(events)).toEqual([{ t: 1000, pool: 468480, lines: 6 }]);
+});
+
+test("the pool of a kill tells the event factor, and a kill with a share missing tells nothing", () => {
+  // A level 40 enraged vampire pays 234,240 at normal XP and 468,480 at double XP.
+  expect(killFactor({ pool: 234240, lines: 6, mult: FROZEN })).toBe(1);
+  expect(killFactor({ pool: 468480, lines: 6, mult: FROZEN })).toBe(2);
+  // Rounded shares move the sum by a point or two.
+  expect(killFactor({ pool: 468478, lines: 6, mult: FROZEN })).toBe(2);
+  // One member dead: five shares of six.
+  expect(killFactor({ pool: 468480 - 78080, lines: 5, mult: FROZEN })).toBeNull();
+  expect(killFactor({ pool: 468480, lines: 6, mult: 0 })).toBeNull();
+});
+
+test("an event starts and ends after three kills in a row, from the first of them", () => {
+  const k = (t: number, factor: number | null) => ({ t, factor });
+  let log = foldKills(null, [k(10, 1), k(20, 2), k(30, 1), k(40, 2), k(50, 2)]);
+  // One misfit and two kills are no event yet.
+  expect(log.spans).toEqual([]);
+  log = foldKills(log, [k(60, null), k(70, 2)]);
+  expect(log.spans).toEqual([{ from: 40, to: null, factor: 2 }]);
+  // A tab exported later still holds kills from before the start: one at the old factor changes
+  // nothing, and one at the new factor shows the event began that much earlier.
+  log = foldKills(log, [k(25, 1), k(26, 1), k(27, 1), k(80, 2)]);
+  expect(log.spans).toEqual([{ from: 40, to: null, factor: 2 }]);
+  log = foldKills(log, [k(35, 2)]);
+  expect(log.spans).toEqual([{ from: 35, to: null, factor: 2 }]);
+  // The end is found the same way, and moves back to an earlier kill at normal XP.
+  log = foldKills(log, [k(100, 1), k(110, 1), k(120, 1), k(130, 1)]);
+  expect(log.spans).toEqual([{ from: 35, to: 100, factor: 2 }]);
+  log = foldKills(log, [k(95, 1), k(90, 2)]);
+  expect(log.spans).toEqual([{ from: 35, to: 95, factor: 2 }]);
+  expect([factorAt(log, 34), factorAt(log, 35), factorAt(log, 94), factorAt(log, 95)]).toEqual([1, 2, 2, 1]);
+});
+
+test("XP gained in an event counts at its normal worth, and a death's loss stays", () => {
+  const log = { spans: [{ from: 100, to: null, factor: 2 }], pending: null };
+  expect([normalXp(log, 1000, 50), normalXp(log, 1000, 150), normalXp(log, -4000, 150)]).toEqual([1000, 500, -4000]);
+});

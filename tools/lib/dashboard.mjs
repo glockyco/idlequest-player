@@ -635,12 +635,15 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
  * One entry per success criterion of the goal (docs/plans/leveling-plan.md): `share` is its bar
  * from 0 to 1 and null where nothing measures it yet, with the numbers the collector has. `recent`
  * is what moved the bars in the last 24 hours (`progressCounts`). The raid bar is the share of the
- * goal's bosses (`raidGoal`, data/raid-goal.json) that a raid task has killed.
+ * goal's bosses (`raidGoal`, data/raid-goal.json) that a raid task has killed. `levels.event` is
+ * the XP event that runs at `now` (the collector's meta key `xpEvents`), `{ factor, since }`, whose
+ * XP the estimate to the target counts at its normal worth.
  */
 export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [] }) {
   const members = roster.groups.flatMap((g) => g.members);
   const eta = (plan?.groups ?? []).filter((g) => g.eta?.[roster.target]).map((g) => ({ group: groupOf.get(g.leader) ?? null, leader: g.leader, ...g.eta[roster.target], slowest: g.slowest }));
   const slowest = eta.sort((a, b) => b.hours - a.hours)[0] ?? null;
+  const span = (metaRow(db, "xpEvents")?.spans ?? []).find((s) => now >= s.from && (s.to == null || now < s.to));
   const coordinator = metaRow(db, "coordinator");
   const gear = metaRow(db, "gear");
   const sheet = gearView(db, { roster });
@@ -653,7 +656,7 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
   const killed = [...new Set(kills.map((k) => k.goal).filter(Boolean))];
   return {
     recent: progressCounts(db, now - DAY),
-    levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null },
+    levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from } : null },
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },

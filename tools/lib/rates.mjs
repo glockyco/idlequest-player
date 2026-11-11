@@ -35,13 +35,16 @@ const addTo = (cells, key, sec, xp, t) => {
  * seconds alone-equivalent. A pair of samples counts when it is one second of play by one character
  * in one zone at one level, outside tasks (`act` "task", or `busy`) and errands (`busy`). Deaths
  * count with the XP they lose. `crowding`, when given, gets the same play raw by the number of
- * other groups, `{ [zone]: { [level]: { [n]: { s, xp, t } } } }`, for `crowdShare`.
+ * other groups, `{ [zone]: { [level]: { [n]: { s, xp, t } } } }`, for `crowdShare`. `normal(dxp, t)`
+ * gives an XP step at its normal worth (`normalXp` of tools/lib/xp-events.mjs), so the hours of an
+ * XP event do not lift the zones hunted in it above the others.
  */
-export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = () => 1, crowding = null }) {
+export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = () => 1, crowding = null, normal = (dxp) => dxp }) {
   for (let k = 1; k < samples.length; k++) {
     const a = samples[k - 1];
     const b = samples[k];
-    const dxp = xpStep(a, b);
+    const raw = xpStep(a, b);
+    const dxp = raw == null ? null : normal(raw, b.t);
     if (a.ses !== b.ses || a.zone !== b.zone || a.lvl !== b.lvl || dxp == null) continue;
     if (a.busy || b.busy || a.act === "task" || b.act === "task") continue;
     const dt = b.t - a.t;

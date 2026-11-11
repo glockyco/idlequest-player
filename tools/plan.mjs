@@ -14,7 +14,9 @@
 //                                groups in its zone
 // A group's rate at a future level is the model's rate there times the group's calibration: its measured
 // rate now over the model's rate at its current level. The measured rate is the kill XP, so death losses and
-// hand-ins in the window are put back. The model is fitted to group 1 (tools/calibrate.mjs), the other groups
+// hand-ins in the window are put back, and the kill XP of an XP event (tools/lib/xp-events.mjs, the
+// collector's meta key `xpEvents`) counts at its normal worth, because the levels ahead mostly come after it.
+// The model is fitted to group 1 (tools/calibrate.mjs), the other groups
 // deal less, so a calibration measured below level 15 holds up to five levels above the current one and then
 // fades to 1.00 at --fade-level (default 20), where the groups have the gear the model assumes. Above level 50
 // no band row exists, so the model rate is the mean of the three best zones.
@@ -39,6 +41,7 @@ import { join } from "node:path";
 import { conLimits, cfgFromFlags, evalZone, loadZones } from "./predict.mjs";
 import { factor, xpStart } from "./lib/xp.mjs";
 import { xpStep } from "./lib/samples.mjs";
+import { normalXp } from "./lib/xp-events.mjs";
 
 const here = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -146,6 +149,7 @@ function eta(g, target) {
 
 // Playing groups from the collector's database.
 const db = new Database(join(here, "runs/iq.db"), { readonly: true });
+const xpEvents = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'xpEvents'").get()?.v ?? "null");
 const sessions = db.query("SELECT leader, snap FROM sessions WHERE ended IS NULL").all().map((r) => ({ leader: r.leader, snap: JSON.parse(r.snap ?? "{}") }));
 const playing = sessions.filter(({ snap }) => snap.bot?.enabled !== false && snap.autoLevel?.running);
 const readLines = (file) => readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -181,8 +185,8 @@ for (const { leader, snap } of playing) {
     if (dxp < 0) lost -= dxp;
     else if (dxp >= 137200 && dxp % 137200 === 0) stone += dxp;
     else {
-      kill += dxp;
-      block.kill += dxp;
+      kill += normalXp(xpEvents, dxp, b.t);
+      block.kill += normalXp(xpEvents, dxp, b.t);
     }
     if (block.secs >= 600) {
       blockRates.push((block.kill * 3600) / block.secs);

@@ -19,6 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { bossValues, killId, nextBossKill, potionSpent } from "./lib/boss-plan.mjs";
+import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
@@ -413,6 +414,11 @@ export async function bossStateInPage() {
   return { daily, time };
 }
 
+/** The client's zone list as `[[zone id, XP multiplier, long name]]`, for the XP event detection (tools/lib/xp-events.mjs). */
+export function zoneXpInPage() {
+  return (window.iq?.stores?.staticData?.getState?.().zones ?? []).filter((z) => z.zoneExpMultiplier > 0).map((z) => [z.zoneidnumber, z.zoneExpMultiplier, z.longName ?? null]);
+}
+
 /** Give a bot without a leader its group's leader and members by name, from the account's character list. */
 export function setGroupInPage(a) {
   const chars = window.iq.stores.roster?.getState?.().characters ?? [];
@@ -551,6 +557,10 @@ class Daemon {
     this.trackers = new Map(); // targetId -> tracker
     this.lastSnap = new Map(); // characterId -> last stored snapshot { t, level, maxHp, maxMana, zone }
     this.stopped = false;
+    // The XP events found in the kill lines (tools/lib/xp-events.mjs), null until the first look,
+    // and the client's zone multipliers the detection needs, read from a tab once per run.
+    this.xpEvents = metaGet(db, "xpEvents");
+    this.zoneXp = null;
     for (const r of db.query("SELECT * FROM sessions WHERE ended IS NULL").all()) {
       const state = r.state ? JSON.parse(r.state) : {};
       this.trackers.set(r.target_id, { targetId: r.target_id, rowId: r.id, label: r.leader ?? `tab:${r.target_id.slice(-4)}`, leader: r.leader, state });
@@ -568,6 +578,9 @@ class Daemon {
    */
   async coordinatePass(now) {
     if (!this.coordinate || now - this.coordinatedAt < 300000) return;
+    // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
+    // for the event log, which the first export of a run brings (`noteKills`).
+    if (!this.xpEvents) return;
     this.coordinatedAt = now;
     const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
@@ -694,13 +707,14 @@ class Daemon {
     const { xpStart } = await import("./lib/xp.mjs");
     const hoursPerLevel = {};
     const sinceMinute = Math.floor((now - 2 * 3600000) / 60000);
+    // The pace is for the hours ahead, so the XP of an XP event counts at its normal worth.
     for (const t of tabs) {
       let xp = 0;
       let sec = 0;
-      for (const m of this.db.query("SELECT sec, xp FROM minutes WHERE grp = ? AND minute >= ?").all(t.group, sinceMinute)) {
+      for (const m of this.db.query("SELECT minute, sec, xp FROM minutes WHERE grp = ? AND minute >= ?").all(t.group, sinceMinute)) {
         const s = JSON.parse(m.sec);
         if (s.task > 0) continue;
-        xp += m.xp;
+        xp += normalXp(this.xpEvents, m.xp, m.minute * 60000);
         sec += Object.values(s).reduce((a, b) => a + b, 0);
       }
       const xph = sec >= 1800 ? (3600 * xp) / sec : 0;
@@ -906,11 +920,12 @@ class Daemon {
       return (s) => [...(there.get(minute(s)) ?? [])].filter((g) => g !== own).length;
     };
     const crowding = {};
-    for (const name of names) accumulate({}, await read(name), { zoneOf, others: others(name), crowding });
+    const normal = (dxp, t) => normalXp(this.xpEvents, dxp, t);
+    for (const name of names) accumulate({}, await read(name), { zoneOf, others: others(name), crowding, normal });
     this.crowding = crowding;
     this.crowdCache?.clear();
     const rates = {};
-    for (const name of names) accumulate(rates, await read(name), { zoneOf, others: others(name), factor: this.crowdFactor });
+    for (const name of names) accumulate(rates, await read(name), { zoneOf, others: others(name), factor: this.crowdFactor, normal });
     this.log(`zone rates: read the samples of ${names.length} characters`);
     return (this.rates = rates);
   }
@@ -1415,6 +1430,8 @@ class Daemon {
       for (let i = 0; i < 12; i++) {
         const got = await this.relay.evaluate(tr.targetId, call(drainInPage, { s: cur.s, e: cur.e, maxS: 2000, maxE: 4000 }), { timeout: 10000 });
         if (!got) return false;
+        // The kills' XP event factor first, so the rates count this batch's XP at its normal worth.
+        if (got.events.length) await this.noteKills(tr, got).catch((e) => this.log(`xp events: ${e.message}`));
         if (got.samples.length) {
           await appendFile(join(dir, "samples.jsonl"), got.samples.map((r) => JSON.stringify(r)).join("\n") + "\n");
           cur.s = { ses: got.samples.at(-1).ses ?? 0, seq: got.samples.at(-1).seq };
@@ -1530,9 +1547,76 @@ class Daemon {
     const last = samples.at(-1);
     if (this.rates && this.zoneNames && this.crowdFactor) {
       const others = [...this.trackers.values()].filter((o) => o !== tr && o.lastSample && last.t - o.lastSample.t < 120000).map((o) => o.lastSample.zone);
-      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), others: (s) => others.filter((z) => z === s.zone).length, factor: this.crowdFactor, crowding: this.crowding });
+      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), others: (s) => others.filter((z) => z === s.zone).length, factor: this.crowdFactor, crowding: this.crowding, normal: (dxp, t) => normalXp(this.xpEvents, dxp, t) });
     }
     tr.lastSample = last;
+  }
+
+  /**
+   * Find the XP event factor in a tab's new kill lines (tools/lib/xp-events.mjs) and keep the
+   * account's event log in the db meta key `xpEvents`. The tabs are exported side by side, so the
+   * first look of a run is shared (`xpReady`): it reads the client's zone multipliers from the
+   * tab, and with no log yet it builds one from the recorded kills (`scanXpEvents`), so an event
+   * that began while the collector was down has its true start.
+   */
+  async noteKills(tr, got) {
+    this.xpReady ??= (async () => {
+      const rows = await this.relay.evaluate(tr.targetId, call(zoneXpInPage, {}), { timeout: 10000 });
+      if (!rows?.length) throw new Error("the page has no zone list yet");
+      this.zoneXp = rows;
+      this.zoneXpOf = new Map(rows.map(([id, mult]) => [id, mult]));
+      if (!this.xpEvents) this.saveXpEvents(await this.scanXpEvents(Date.now() - 48 * 3600000), true);
+    })().catch((e) => {
+      this.xpReady = null;
+      throw e;
+    });
+    await this.xpReady;
+    const places = [...(tr.lastSample ? [tr.lastSample] : []), ...got.samples].map((s) => [s.t, s.zone]);
+    this.saveXpEvents(foldKills(this.xpEvents, killFactors(got.events, places, (zone) => this.zoneXpOf.get(zone))));
+  }
+
+  /** Keep the event log `next`, and write and log it when its spans changed or `always`. */
+  saveXpEvents(next, always = false) {
+    const changed = JSON.stringify(next.spans) !== JSON.stringify(this.xpEvents?.spans ?? []);
+    this.xpEvents = next;
+    if (!changed && !always) return;
+    metaSet(this.db, "xpEvents", next);
+    const last = next.spans.at(-1);
+    const at = (t) => new Date(t).toLocaleString("sv-SE").slice(5, 19);
+    this.log(!last ? "xp events: none on record" : last.to == null ? `xp event: kills pay ${last.factor} times their XP since ${at(last.from)}` : `xp event: kills pay their normal XP again since ${at(last.to)}`);
+  }
+
+  /**
+   * The XP event log of the kills recorded since `since`, from the end of every character's
+   * events file: the kills in time order across the account, each in the zone its "You have
+   * entered" line named last.
+   */
+  async scanXpEvents(since) {
+    const byName = new Map(this.zoneXp.filter((z) => z[2]).map(([id, , name]) => [name, id]));
+    const dir = join(this.runs, "live");
+    const kills = [];
+    for (const name of await readdir(dir).catch(() => [])) {
+      const file = Bun.file(join(dir, name, "events.jsonl"));
+      if (!(await file.exists())) continue;
+      const text = await file.slice(Math.max(0, file.size - 160e6)).text();
+      const events = [];
+      const places = [];
+      for (const line of text.slice(text.indexOf("\n") + 1).split("\n")) {
+        if (!line.includes('"EXPERIENCE_GAIN"') && !line.includes("You have entered ")) continue;
+        try {
+          const e = JSON.parse(line);
+          if (!(e.t >= since)) continue;
+          const zone = e.type === "SYSTEM" ? byName.get(/^You have entered (.+)\.$/.exec(e.text ?? "")?.[1]) : null;
+          if (zone != null) places.push([e.t, zone]);
+          else if (e.type === "EXPERIENCE_GAIN") events.push(e);
+        } catch {
+          /* a line cut short by a crash */
+        }
+      }
+      kills.push(...killFactors(events.sort((a, b) => a.t - b.t), places.sort((a, b) => a[0] - b[0]), (zone) => this.zoneXpOf.get(zone)));
+    }
+    this.log(`xp events: read ${kills.filter((k) => k.factor != null).length} recorded kills`);
+    return foldKills(null, kills);
   }
 
   async loop() {
