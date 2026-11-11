@@ -1239,7 +1239,13 @@ class Daemon {
     await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
     // A minute or so of downloads and checks, so it runs beside the cycles.
     void this.checkRelease(Date.now()).catch((e) => this.log(`client check: ${e.message}`));
-    await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
+    // A pass takes minutes when it surveys the items or is the first of a run, and the cycles
+    // waited for it: for three minutes after the start of 2026-11-12 00:03 no tab was looked at,
+    // so a tab the server signed out then would have waited as long for its sign-in. The pass runs
+    // beside the cycles, one at a time.
+    this.pass ??= this.coordinatePass(Date.now())
+      .catch((e) => this.log(`coordinator: ${e.message}`))
+      .finally(() => (this.pass = null));
     await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
   }
 
