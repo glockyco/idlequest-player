@@ -198,7 +198,10 @@ export function worldHold(history, id, code = null) {
  */
 export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
-  const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
+  // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
+  // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
+  // fought three raids on the code of an hour before.
+  const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand || t.stale).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
   // (`due`), and the two kinds without one, hand-ins and farm joins, wait `failHoldMin` after a failure.
   const free = (t) => !busy.has(t.label) && !out.some((o) => o.label === t.label);

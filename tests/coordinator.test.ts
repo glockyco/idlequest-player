@@ -259,6 +259,12 @@ test("during an XP event what can run on any day waits, and a gear trip must pay
   expect(trip(150, 2).targets["target-unrest-a-fiend"]).toMatchObject({ state: "event", factor: 2 });
 });
 
+test("a tab whose page still runs older code takes no task until its deploy", () => {
+  const fresh = tab("A", "G1", 50);
+  expect(decide({ now: NOW, tabs: [fresh] }).actions.map((a) => a.kind)).toEqual(["casino"]);
+  expect(decide({ now: NOW, tabs: [{ ...fresh, stale: true }] }).actions).toEqual([]);
+});
+
 test("a rare spawn gets a short visit, and a camp clears the target's spawn points", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
   // 2% on each of 6 points: up on arrival 11% of the time, so a 6-minute visit adds 0.114 x 1.26

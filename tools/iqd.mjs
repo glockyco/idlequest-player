@@ -590,7 +590,8 @@ class Daemon {
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
+      // `stale`: the page runs older code than the tabs should, which the supervisor replaces between tasks.
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.code), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
     if (!tabs.length) return;
     // Crowding by other players holds for every group, and a tab's own reports end with the tab, so
     // the account remembers the newest report per zone for 45 minutes and every tab carries the same
@@ -1038,7 +1039,7 @@ class Daemon {
     if (!kill || raiding || now < retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code)) return null;
     const leader = kill.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
-    if (!tab || tab.task?.status === "running" || !kill.zone) return null;
+    if (!tab || tab.stale || tab.task?.status === "running" || !kill.zone) return null;
     const members = [...groupOf.keys()].filter((n) => n !== leader);
     const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : { bossKey: kill.key };
     const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : "a free summon";
