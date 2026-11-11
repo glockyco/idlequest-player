@@ -1,7 +1,7 @@
 // Checks the measured zone rates (tools/lib/rates.mjs). Run with `bun test`. Cells decay between
 // samples, so seconds and XP come out a little below their sums.
 import { expect, test } from "bun:test";
-import { accumulate, estimate } from "../tools/lib/rates.mjs";
+import { accumulate, crowdShare, estimate } from "../tools/lib/rates.mjs";
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 3600000;
@@ -62,4 +62,15 @@ test("samples older than their cell add at their weight instead of growing the c
   expect(rates.kurn[10].s).toBeCloseTo(3600.5, 3);
   expect(rates.kurn[10].xp).toBeCloseTo(1e6 + 50, 1);
   expect(rates.kurn[10].t).toBe(NOW);
+});
+
+test("the crowd share compares the rate beside others with the rate alone at the same level, so the groups' levels stay out of it", () => {
+  // Level 10 earns 100 XP a second alone, level 12 240 alone and 120 beside two other groups.
+  // Pooled over both levels, alone would earn 170 and the share would read 0.71.
+  const run = (from: number, lvl: number, rate: number) => Array.from({ length: 11 }, (_, k) => at(from + k, rate * k, { lvl, ses: from }));
+  const crowding = {};
+  const others = (s: { t: number }) => (s.t >= NOW + 200000 ? 2 : 0);
+  for (const samples of [run(0, 10, 100), run(100, 12, 240), run(200, 12, 120)]) accumulate({}, samples, { zoneOf, others, crowding });
+  expect(crowdShare(crowding, "kurn", 11, 2, NOW + 210000)!.share).toBeCloseTo(0.5, 3);
+  expect(crowdShare(crowding, "kurn", 11, 3, NOW + 210000)).toBeNull();
 });

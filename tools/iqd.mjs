@@ -14,7 +14,7 @@ import { join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
-import { accumulate, zoneNames } from "./lib/rates.mjs";
+import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
@@ -379,6 +379,8 @@ export function drainInPage(a) {
 
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
+// Hours of a zone's own crowding measurement the crowding model's share counts as (`crowdFactors`).
+const CROWD_PRIOR_H = 2;
 // A pass that failed, such as an Inventory Search the server timed out, comes again this soon.
 const GEAR_RETRY_MIN = 10;
 // The raid budget a gear pass leaves untouched: an hour of raid time and a casino boss potion a day
@@ -665,6 +667,8 @@ class Daemon {
     // minute totals, minutes with a task left out (another member is active then, and a trip zone
     // pays its own rate): the pace at which gear pays (`copyValue` in tools/lib/acquire.mjs). A
     // character at 60 earns AA XP at the pace of level 59.
+    // The crowd factors follow the zones' measured crowding, which grows every cycle.
+    this.crowdCache?.clear();
     const rates = await this.loadRates();
     const { estimate } = await import("./lib/rates.mjs");
     const { xpStart } = await import("./lib/xp.mjs");
@@ -773,6 +777,7 @@ class Daemon {
       this.log(`coordinator: ${z.label} zone: ${z.rotation.join(", ")}, ${z.why}`);
     }
     metaSet(this.db, "zoneRates", rates);
+    metaSet(this.db, "zoneCrowding", this.crowding);
     // AA settings for each party, outside tasks, which may have another character active. The
     // window's state also names the active character's points, spent points and ranks, kept per
     // character in the meta key `aa` for the dashboard.
@@ -838,16 +843,19 @@ class Daemon {
   }
 
   /**
-   * The measured zone rates alone (tools/lib/rates.mjs), kept in the db's meta key `zoneRates` and
-   * grown by `addRates`. Without them, the first call reads every character's recorded samples once
-   * and counts, for each minute and zone, the other roster groups that recorded samples there.
+   * The measured zone rates alone (tools/lib/rates.mjs), kept in the db's meta key `zoneRates`, and
+   * the play by crowding behind the crowd factors, kept in `zoneCrowding`, both grown by `addRates`.
+   * Without them, the first call reads every character's recorded samples and counts, for each minute
+   * and zone, the other roster groups that recorded samples there: the crowding first, and then the
+   * rates alone at the crowd factors it gives.
    */
   async loadRates() {
     this.zoneNames ??= await zoneNames();
     this.crowdFactor ??= await this.crowdFactors();
     if (this.rates) return this.rates;
     const saved = metaGet(this.db, "zoneRates");
-    if (saved) return (this.rates = saved);
+    this.crowding = metaGet(this.db, "zoneCrowding");
+    if (saved && this.crowding) return (this.rates = saved);
     const dir = join(this.runs, "live");
     const read = async (name) => {
       const out = [];
@@ -874,11 +882,17 @@ class Daemon {
         (there.get(k) ?? there.set(k, new Set()).get(k)).add(groupOf.get(name) ?? name);
       }
     }
-    const rates = {};
-    for (const name of names) {
+    const zoneOf = (id) => this.zoneNames.get(id);
+    const others = (name) => {
       const own = groupOf.get(name) ?? name;
-      accumulate(rates, await read(name), { zoneOf: (id) => this.zoneNames.get(id), others: (s) => [...(there.get(minute(s)) ?? [])].filter((g) => g !== own).length, factor: this.crowdFactor });
-    }
+      return (s) => [...(there.get(minute(s)) ?? [])].filter((g) => g !== own).length;
+    };
+    const crowding = {};
+    for (const name of names) accumulate({}, await read(name), { zoneOf, others: others(name), crowding });
+    this.crowding = crowding;
+    this.crowdCache?.clear();
+    const rates = {};
+    for (const name of names) accumulate(rates, await read(name), { zoneOf, others: others(name), factor: this.crowdFactor });
     this.log(`zone rates: read the samples of ${names.length} characters`);
     return (this.rates = rates);
   }
@@ -1217,9 +1231,12 @@ class Daemon {
 
   /**
    * The zone choice's `crowdFactor(zone, level, n)`: the share of its rate alone a zone pays a group
-   * at `level` while `n` other groups hunt there, as tools/predict.mjs models it (every kill empties
-   * a point until its respawn, and the groups share the zone's spawn rate), docs/plans/zone-crowding.md.
-   * The zones are read once and each factor is kept. A zone the model lacks counts as shared evenly.
+   * at `level` while `n` other groups hunt there (docs/plans/zone-crowding.md). The zone's own
+   * measurement (`crowdShare`) and the model of tools/predict.mjs (every kill empties a point until
+   * its respawn, and the groups share the zone's spawn rate) are weighed by hours, the model as
+   * `CROWD_PRIOR_H` hours, so the measurement takes over in a zone the groups share often. A
+   * measured share above one counts as one. A zone the model lacks counts as shared evenly. The
+   * factors are kept until the next pass clears them (`crowdCache`).
    */
   async crowdFactors() {
     const predict = await import("./predict.mjs");
@@ -1232,7 +1249,9 @@ class Daemon {
         const z = this.zoneModels.get(zone);
         const at = (crowd) => (z ? predict.evalZone(z, { ...predict.cfgFromFlags(level), crowd }).xph : undefined);
         const alone = at(0);
-        this.crowdCache.set(key, alone > 0 ? at(n) / alone : 1 / (1 + n));
+        const modeled = alone > 0 ? at(n) / alone : 1 / (1 + n);
+        const m = crowdShare(this.crowding, zone, level, n, Date.now());
+        this.crowdCache.set(key, m ? (m.hours * Math.min(1, m.share) + CROWD_PRIOR_H * modeled) / (m.hours + CROWD_PRIOR_H) : modeled);
       }
       return this.crowdCache.get(key);
     };
@@ -1455,7 +1474,7 @@ class Daemon {
     const last = samples.at(-1);
     if (this.rates && this.zoneNames && this.crowdFactor) {
       const others = [...this.trackers.values()].filter((o) => o !== tr && o.lastSample && last.t - o.lastSample.t < 120000).map((o) => o.lastSample.zone);
-      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), others: (s) => others.filter((z) => z === s.zone).length, factor: this.crowdFactor });
+      accumulate(this.rates, tr.lastSample ? [tr.lastSample, ...samples] : samples, { zoneOf: (id) => this.zoneNames.get(id), others: (s) => others.filter((z) => z === s.zone).length, factor: this.crowdFactor, crowding: this.crowding });
     }
     tr.lastSample = last;
   }

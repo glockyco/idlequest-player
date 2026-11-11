@@ -3,12 +3,16 @@
 ## Decision
 
 A zone supplies a number of in-band kills an hour, and the account's groups in it share that
-supply: they lose little until their combined demand exceeds it, then a lot. iqd takes each
-group's share from the physical model in `tools/predict.mjs`: `crowdFactor(zone, level, n)` is
-`predict(zone, level, n) / predict(zone, level, 0)`, the share of its rate alone a group earns
-beside `n` others. In that model every kill empties a point until its respawn, the other groups'
-kills empty the same candidates, which lengthens the walk, and kills cannot exceed the zone's spawn
-rate shared among the groups. A zone the model lacks counts as shared evenly.
+supply: they lose little until their combined demand exceeds it, then a lot. `crowdFactor(zone,
+level, n)` in `tools/iqd.mjs` is the share of its rate alone a group earns beside `n` others. It
+weighs the zone's own measurement by its hours against the physical model in `tools/predict.mjs`
+as two hours (`CROWD_PRIOR_H`), so the measurement takes over in a zone the account shares often.
+The measured share (`crowdShare` in `tools/lib/rates.mjs`) is the zone's XP per hour beside `n`
+others over its rate alone at the same leader level, from levels within two of the group's, and
+counts as at most one. The model's share is `predict(zone, level, n) / predict(zone, level, 0)`. In
+that model every kill empties a point until its respawn, the other groups' kills empty the same
+candidates, which lengthens the walk, and kills cannot exceed the zone's spawn rate shared among
+the groups. A zone the model lacks counts as shared evenly.
 
 `assignZones` in `tools/lib/coordinator.mjs` values a zone for a group by what it adds to the
 account there: its rate alone times `(n+1) f(n) - n f(n-1)`, its own share less what it takes
@@ -36,11 +40,14 @@ A fixed loss per extra group cannot fit what the samples show at matched leader 
 The earlier weight of 0.5 a group valued Solusek's Eye at a third with four others and sent groups
 to zones that measure worse.
 
+The model alone misjudges the zones the account shares most. Beside three other groups at level
+42, a group earned 0.65 of its rate alone in Solusek's Eye and 0.74 in Paw, where the model gives
+0.50 and 0.49. With the model's factors those zones looked worse to share than they are, so five to
+seven groups gathered in Kaesora and idled for crowding.
+
 ## Open
 
 - The factors count each other group fully. `tools/plan.mjs` and `tools/calibrate.mjs` count
   another group as half (`--crowd-weight`), a fit from earlier runs that today's crowded rates do
   not support. Refit it with `tools/calibrate.mjs --fit` once a day of crowded stretches per zone
   exists, and use one value in both places.
-- Fit the factors to the measured rates per number of groups once the rates alone stop moving, and
-  replace the model's factors where they disagree beyond the measurement noise.

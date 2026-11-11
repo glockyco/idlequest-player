@@ -422,10 +422,11 @@ farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mj
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, best first by the XP per hour measured there at levels
 within two of the leader's (`tools/lib/rates.mjs`). The rates are rates alone: time outside tasks
-and errands counts, and time shared with other groups counts at the share of the zone the crowding
-model gives them (docs/plans/zone-crowding.md). Older time weighs less, halving every 24 hours. iqd
-keeps the rates in the db's meta key `zoneRates`, built once from `runs/live/*/samples.jsonl` and
-grown from every new sample. A zone with little time there ranks near the row's median, so it gets
+and errands counts, and time shared with other groups counts at the share of the zone the crowd
+factors give them (docs/plans/zone-crowding.md). Older time weighs less, halving every 24 hours. iqd
+keeps the rates in the db's meta key `zoneRates` and the time by crowding behind the factors in
+`zoneCrowding`, built once from `runs/live/*/samples.jsonl` and grown from every new sample. A zone
+with little time there ranks near the row's median, so it gets
 tried, and a zone other groups hunt in counts for what one more group adds to the account there,
 its own share less what it takes from the others. A group stays in its zone
 until another zone is worth 20% more, and the bot moves along its rotation by itself when a zone
