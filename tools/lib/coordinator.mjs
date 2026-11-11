@@ -189,12 +189,14 @@ export function worldHold(history, id, code = null) {
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
  * - `rolled`: when each character last rolled the casino, `{ [name]: ms }`.
+ * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
+ *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
  * per tab, where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and a trip
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
@@ -202,6 +204,13 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const free = (t) => !busy.has(t.label) && !out.some((o) => o.label === t.label);
   const failedLately = (label, match) => history.some((h) => h.label === label && h.status === "failed" && match(h) && now - h.t < cfg.failHoldMin * 60000);
   const due = (last, retryMin) => now >= retryTime(last, retryMin, code);
+  // An hour of hunting in an XP event is worth `xpFactor` normal hours, and a quest chain, a piece
+  // hunt or a gear trip can run on any day. So the chains and the piece hunts, whose value no
+  // model prices, wait for the event's end, and a gear trip goes only when it pays for its time at
+  // that worth. What a day loses when it passes, the casino roll and the boss kills, still runs,
+  // and so do errands, which hunt on, and gear moves, which take minutes and raise the XP rate.
+  const event = xpFactor > 1;
+  const net = (w) => (w.value - xpFactor * w.cost) / w.hours;
 
   // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
   // a hunt without one, still running or ended unseen, by the time since it started, at most the
@@ -230,7 +239,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
-  for (const [id, q] of Object.entries(quests)) {
+  for (const [id, q] of event ? [] : Object.entries(quests)) {
     // A quest that uses up a dropped item runs for as many members as the account holds copies
     // outside the chain's needers (`have`), and for every member already past the step that uses
     // it up (`started`, from `progressItems`). A pull never takes another needer's copy (`avoid`).
@@ -284,7 +293,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // A hunt runs at most for what is left of the tab's hunt share of the hour, and only when that
     // leaves `minHuntMin` for the trip and a clear of the points.
     const left = Math.floor((cfg.huntShare * 3600000 - huntMs(tab.label)) / 60000);
-    if (o.kind !== "errand" && left < cfg.minHuntMin) continue;
+    if (o.kind !== "errand" && (event || left < cfg.minHuntMin)) continue;
     const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.min(o.minutes ?? 20, left) };
     out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
@@ -369,7 +378,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         const open = xs.filter((x) => !targetEval[targetId(x)] && inTime(x, t)).map(withClaims);
         if (!open.length) continue;
         const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && due(lastHunt(targetId(x)), targetRetryMin(kind)));
-        if (w && netRate(w) > 0 && (!best || netRate(w) > netRate(best.w))) best = { t, w };
+        if (w && net(w) > 0 && (!best || net(w) > net(best.w))) best = { t, w };
       }
     }
     if (!best) break;
@@ -399,7 +408,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     if (targetEval[id]) continue;
     const on = hunted.get(id);
     const reach = tabs.filter((t) => t.members.length).map((t) => ({ t, w: bestWay(t, x, ctx) })).filter((p) => p.w);
-    const best = reach.reduce((a, b) => (!a || netRate(b.w) > netRate(a.w) ? b : a), null);
+    const best = reach.reduce((a, b) => (!a || net(b.w) > net(a.w) ? b : a), null);
     const plan = best ? planOf(best.t, x, best.w) : null;
     // The best chance any group has against it, which says whether a target is out of every
     // group's reach (below `ACQUIRE.tooStrong`) or only not worth it yet.
@@ -414,6 +423,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     else if (!best || chance < ACQUIRE.tooStrong) why = { state: "tooStrong", level: x.npcLevel ?? null, chance };
     else if (!x.items.some((w) => hoursPerLevel[w.to] > 0)) why = { state: "noPace", taker: taker(x) };
     else if (netRate(best.w) <= 0) why = { state: "notWorth" };
+    else if (net(best.w) <= 0) why = { state: "event", factor: xpFactor };
     else if (!allowed(best.t, best.w.kind)) why = { state: "experiment", group: best.t.group };
     else if (!hunter(best.t)) why = { state: "busy", group: best.t.group, only: reach.length === 1, on: holding(best.t) };
     else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) why = { state: "retry", at: retryTime(lastHunt(id), targetRetryMin(best.w.kind), code) };

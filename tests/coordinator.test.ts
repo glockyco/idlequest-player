@@ -241,6 +241,24 @@ test("each gear target says why it is not hunted", () => {
   expect(decide({ killChance: byLevel, now: NOW, tabs: [{ ...tabs[0], gameHour: 22 }], targets: [{ ...target("a dread wolf", "paw", 38), when: "night" }], hoursPerLevel }).actions).toMatchObject([{ kind: "errand" }]);
 });
 
+test("during an XP event what can run on any day waits, and a gear trip must pay for its time twice", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw")];
+  const kinds = (input: object) => decide({ now: NOW, tabs, ...input }).actions.map((a) => a.kind);
+  const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
+  const bard = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
+  expect([kinds({ tabs: bard, quests }), kinds({ tabs: bard, quests, xpFactor: 2 })]).toEqual([["quest"], []]);
+  expect([kinds({ opportunities: [page], missing: { p3: 1 } }), kinds({ opportunities: [page], missing: { p3: 1 }, xpFactor: 2 })]).toEqual([["hunt"], []]);
+  // An errand hunts on, and a day without its casino roll is a potion lost.
+  expect(kinds({ opportunities: [{ ...page, kind: "errand" }], missing: { p3: 1 }, xpFactor: 2 })).toEqual(["errand"]);
+  expect(kinds({ tabs: [tab("A", "G1", 50)], xpFactor: 2 })).toEqual(["casino"]);
+  // A visit of 0.1 hours: a copy worth 0.3 hours pays for it twice, one worth 0.15 only once.
+  const trip = (gain: number, xpFactor: number) => decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a fiend", "unrest", gain)], hoursPerLevel, xpFactor });
+  expect(trip(300, 2).actions).toMatchObject([{ kind: "hunt" }]);
+  expect(trip(150, 1).actions).toMatchObject([{ kind: "hunt" }]);
+  expect(trip(150, 2).actions).toEqual([]);
+  expect(trip(150, 2).targets["target-unrest-a-fiend"]).toMatchObject({ state: "event", factor: 2 });
+});
+
 test("a rare spawn gets a short visit, and a camp clears the target's spawn points", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
   // 2% on each of 6 points: up on arrival 11% of the time, so a 6-minute visit adds 0.114 x 1.26

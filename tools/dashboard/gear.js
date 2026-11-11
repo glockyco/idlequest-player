@@ -220,6 +220,7 @@ function reasonOf(t, now) {
     case "outbid": return { kind: "wait", text: "groups on better targets" };
     case "experiment": return { kind: "wait", text: `${w.group} in an experiment` };
     case "notWorth": return { kind: "out", text: "not worth a trip yet", tip: planTip };
+    case "event": return { kind: "wait", text: "after the XP event", tip: `Kills pay ${w.factor} times their XP now, so the trip's time costs that much more. ${planTip ?? ""}` };
     case "tooStrong": return { kind: "out", text: `too strong${w.level ? ` (level ${w.level})` : ""}`, tip: `The best group kills it in ${Math.round(100 * (w.chance ?? 0))}% of its fights, by its own fights, the simulator's and the model fitted to all fights on file.` };
     case "untested": return { kind: "wait", text: "kill chance not known yet", tip: "No group has fought it, the simulator has not fought it, and the model fitted to all fights on file has no fit yet." };
     case "time": return { kind: "out", text: `${w.when} only` };

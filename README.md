@@ -428,14 +428,19 @@ removed before its end puts its groups back on `without` and registers no job. A
 coordinator task while a task or errand runs or a pause holds, and the next one as soon as it ends:
 each quest, hunt and target comes back on its own retry time, a failure at once after a deploy,
 which may have fixed it, unless it failed at the same step as the run before it, and a hand-in or
-farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`).
+farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`). While an XP
+event multiplies kill XP (`tools/lib/xp-events.mjs`), quest chains and piece hunts wait for its end
+and a gear trip goes only when its value pays the event's factor times its cost, because an hour
+of hunting is then worth that many normal hours.
 
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, and of the next row from two levels below it
 (`bandZones`), best first by the XP per hour measured there at levels within two of the leader's
 (`tools/lib/rates.mjs`). The rates are rates alone: time outside tasks and errands counts, and time
 shared with other groups counts at the share of the zone the crowd factors give them
-(docs/plans/zone-crowding.md). Older time weighs less, halving every 24 hours. iqd keeps the rates
+(docs/plans/zone-crowding.md). XP gained in an XP event counts at its normal worth, so the zones
+hunted in it do not outrank the others (docs/plans/leveling-plan.md, XP events). Older time weighs
+less, halving every 24 hours. iqd keeps the rates
 in the db's meta key `zoneRates` and the time by crowding behind the factors in `zoneCrowding`,
 built once from `runs/live/*/samples.jsonl` and grown from every new sample. A zone with little
 time there ranks where the XP model (`tools/predict.mjs`) puts it among the measured zones, so it

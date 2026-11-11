@@ -14,6 +14,12 @@ Consequences:
 - Every member gets a share, so all six characters level together, within a level or two of each other because the race and class factors differ.
 - A character far below the party gets nothing, so a high group cannot carry a new character. A level 2 Wizard in group 1's level 36 to 38 party received no XP on 4 kills, while the others got their usual 24k to 28k each. Where the cut-off lies between those levels is not measured.
 
+### XP events
+
+The server can multiply kill XP for a while. On 2026-11-11 it paid double from 17:54:26 for Veteran's Day, announced to end at midnight Pacific time, 09:00 on 2026-11-12 here. The whole pool doubles, so the kill lines show it: the XP lines of one kill sum to 90 × the client's zone multiplier × NPC level² × the event's factor (the client's zone list carries the snapshot's multipliers times 4/3, Kedge Keep 1.853 for 1.39), and only one factor makes the level a whole number. The collector reads the factor from every kill it exports and keeps the events in the db meta key `xpEvents` (`tools/lib/xp-events.mjs`).
+
+An event changes what an hour is worth, not which zone or gear is better, so everything that plans ahead counts an event's XP at its normal worth: the zone rates, the paces behind the gear values and the hours to 60. Counted raw, Kedge Keep stood at 5.8M XP per hour against 4.7M for the Tower of Frozen Shadow at level 47, because nearly all of its 11 hours were event hours, and six groups crowded into it. At normal worth the two are 3.2M and 3.3M. While an event runs, an hour of hunting is worth its factor in normal hours, so the coordinator leaves quest chains and piece hunts for after it and sends a gear trip only when its value pays that many times its cost. Over the three hours before that rule, tasks took 7% of the groups' time.
+
 ## Levers, ranked
 
 Time is the scarce resource. A level took about 70 minutes at 31 (3,070,100 XP at 2.4M to 2.6M XP/h), and the step levels take longer ([how long it takes](raid-roster.md#how-long-it-takes)), so a lever is worth what it saves over the remaining levels, and a change worth a few percent is not worth the time to test it. Re-check the top levers at every second level.
