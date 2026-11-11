@@ -47,8 +47,9 @@ export function killPools(events) {
 /**
  * The event factor a kill's `pool` shows in a zone with the client's multiplier `mult`, or null
  * when none or more than one of `FACTORS` gives a whole enemy level. Each of the `lines` shares is
- * rounded, so the pool may be off by half a point for each. A kill that paid fewer shares than the
- * party has characters, with one dead or away, fits none.
+ * rounded, so the pool may be off by half a point for each. The pool must be the whole party's:
+ * the lines of a kill that paid fewer characters sum to a part of it, which fits a factor only by
+ * chance (`killFactors` leaves such kills out).
  */
 export function killFactor({ pool, lines = 1, mult }) {
   if (!(pool > 0 && mult > 0)) return null;
@@ -60,17 +61,23 @@ export function killFactor({ pool, lines = 1, mult }) {
   return fits.length === 1 ? fits[0] : null;
 }
 
+/** A full party, whose kills show the whole pool. */
+export const PARTY = 6;
+
 /**
- * The factor of each kill in `events`, `[{ t, factor }]`, for `foldKills`. `places` says where the
- * party was, `[[t, zone]]` oldest first, and `multOf(zone)` gives the client's multiplier there. A
- * kill before the first place has no zone and so no factor.
+ * The factor of each kill in `events`, `[{ t, factor, source }]`, for `foldKills`. `places` says
+ * where the party was, `[[t, zone]]` oldest first, `multOf(zone)` gives the client's multiplier
+ * there, and `source` names the tab the events are from. A kill before the first place has no
+ * zone and so no factor, and neither has a kill with other than `shares` XP lines: of the kills
+ * logged with the leader's line alone on 2026-11-10, four fit a factor 1.5 by chance within 94
+ * seconds, in two tabs.
  */
-export function killFactors(events, places, multOf) {
+export function killFactors(events, places, multOf, source = null, shares = PARTY) {
   let i = 0;
   return killPools(events).map((k) => {
     while (i + 1 < places.length && places[i + 1][0] <= k.t) i++;
     const zone = places.length && places[i][0] <= k.t ? places[i][1] : null;
-    return { t: k.t, factor: zone == null ? null : killFactor({ ...k, mult: multOf(zone) }) };
+    return { t: k.t, factor: zone == null || k.lines !== shares ? null : killFactor({ ...k, mult: multOf(zone) }), source };
   });
 }
 
@@ -79,14 +86,16 @@ export function killFactors(events, places, multOf) {
 const SLACK_MS = 120000;
 
 /**
- * Fold `kills` (`[{ t, factor }]`) into the event log `log`, `{ spans: [{ from, to, factor }],
+ * Fold `kills` (`[{ t, factor, source }]`) into the event log `log`, `{ spans: [{ from, to, factor }],
  * pending }`, and return the new log. `spans` are the periods with a factor other than 1, `to`
- * null while one runs. The factor changes once `need` kills in a row show another one, from the
- * time of the first of them, so a misfit kill starts no event. A kill from before the last change
- * moves that change back to its own time when it shows the new factor within `SLACK_MS` of it,
- * and is left out otherwise.
+ * null while one runs. The factor changes once `need` kills in a row from at least `tabs` tabs
+ * show another one, from the time of the first of them. So a misfit kill starts no event, and
+ * neither does one tab whose zone is taken for another, which can fit a factor because the
+ * multipliers of two zones can stand 3 to 2 (Permafrost and the Mines of Droga) or 2 to 1.
+ * A kill from before the last change moves that change back to its own time when it shows the
+ * new factor within `SLACK_MS` of it, and is left out otherwise.
  */
-export function foldKills(log, kills, need = 3) {
+export function foldKills(log, kills, need = 3, tabs = 2) {
   const spans = (log?.spans ?? []).map((s) => ({ ...s }));
   let pending = log?.pending ?? null;
   for (const k of [...kills].filter((x) => x.factor != null).sort((a, b) => a.t - b.t)) {
@@ -99,11 +108,13 @@ export function foldKills(log, kills, need = 3) {
       continue;
     }
     if (k.factor === (open?.factor ?? 1)) {
-      pending = null;
+      // A kill at the standing factor from before the pending ones says nothing about now.
+      if (!pending || k.t >= pending.since) pending = null;
       continue;
     }
-    pending = pending?.factor === k.factor ? { ...pending, n: pending.n + 1, since: Math.min(pending.since, k.t) } : { factor: k.factor, n: 1, since: k.t };
-    if (pending.n < need) continue;
+    const by = pending?.factor === k.factor ? pending.by : [];
+    pending = { factor: k.factor, n: (pending?.factor === k.factor ? pending.n : 0) + 1, since: Math.min(pending?.factor === k.factor ? pending.since : k.t, k.t), by: by.includes(k.source ?? null) ? by : [...by, k.source ?? null] };
+    if (pending.n < need || pending.by.length < tabs) continue;
     if (open) open.to = pending.since;
     if (k.factor !== 1) spans.push({ from: pending.since, to: null, factor: k.factor });
     pending = null;

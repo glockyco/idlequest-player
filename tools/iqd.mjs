@@ -1586,7 +1586,7 @@ class Daemon {
     });
     await this.xpReady;
     const places = [...(tr.lastSample ? [tr.lastSample] : []), ...got.samples].map((s) => [s.t, s.zone]);
-    this.saveXpEvents(foldKills(this.xpEvents, killFactors(got.events, places, (zone) => this.zoneXpOf.get(zone))));
+    this.saveXpEvents(foldKills(this.xpEvents, killFactors(got.events, places, (zone) => this.zoneXpOf.get(zone), tr.label)));
   }
 
   /** Keep the event log `next`, and write and log it when its spans changed or `always`. */
@@ -1627,7 +1627,7 @@ class Daemon {
           /* a line cut short by a crash */
         }
       }
-      kills.push(...killFactors(events.sort((a, b) => a.t - b.t), places.sort((a, b) => a[0] - b[0]), (zone) => this.zoneXpOf.get(zone)));
+      kills.push(...killFactors(events.sort((a, b) => a.t - b.t), places.sort((a, b) => a[0] - b[0]), (zone) => this.zoneXpOf.get(zone), name));
     }
     this.log(`xp events: read ${kills.filter((k) => k.factor != null).length} recorded kills`);
     return foldKills(null, kills);
