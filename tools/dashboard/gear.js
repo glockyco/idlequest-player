@@ -238,17 +238,37 @@ const gainTag = (g) => `<span class="gain">+${g >= 10 ? Math.round(g) : g.toFixe
 const dropLine = (w, cards) => `<span class="drop">${itemChip(cards[w.itemId], w.item)} <span class="muted">for ${esc(w.to)}</span> ${gainTag(w.gain)}</span>`;
 const ORDER = { now: 0, next: 1, wait: 2, out: 3, covered: 4 };
 
+// The list shows this many enemies and this many drops of each. The rest opens on a click.
+const WANTED_ROWS = 10;
+const WANTED_DROPS = 3;
+// What the reader opened in the list, kept across the page's refreshes.
+const wantedOpen = new Set();
+const more = (key, label, body) => `<details data-open="${esc(key)}"${wantedOpen.has(key) ? " open" : ""}><summary class="muted small">${esc(label)}</summary>${body}</details>`;
+
 /** The most wanted enemies, hunted first, without those whose drops another hunt covers. */
 function renderWanted(rows, cards, now = Date.now()) {
   const el = $("wanted");
   const shown = rows.map((t) => ({ ...t, r: reasonOf(t, now) })).filter((t) => t.r.kind !== "covered").sort((a, b) => ORDER[a.r.kind] - ORDER[b.r.kind]);
   if (!shown.length) return void (el.innerHTML = `<p class="muted">No wanted drops in the last gear pass.</p>`);
-  el.innerHTML = `<table class="wanted"><thead><tr><th>Enemy</th><th>Status</th><th>Drops</th></tr></thead><tbody>${shown
-    .map((t) => `<tr><td>${esc(t.npc)}<div class="muted small">${esc(t.zone)}</div></td><td>${reasonTag(t.r)}</td><td>${t.items.map((w) => dropLine(w, cards)).join("<br>")}</td></tr>`)
+  const drops = (t) => {
+    const lines = t.items.map((w) => dropLine(w, cards));
+    // One line more than the limit is shown as it is, because "1 more" takes a line too.
+    if (lines.length <= WANTED_DROPS + 1) return lines.join("<br>");
+    return `${lines.slice(0, WANTED_DROPS).join("<br>")}${more(`${t.zone}|${t.npc}`, `${lines.length - WANTED_DROPS} more drops`, lines.slice(WANTED_DROPS).join("<br>"))}`;
+  };
+  const table = (list) => `<table class="wanted"><thead><tr><th>Enemy</th><th>Status</th><th>Drops</th></tr></thead><tbody>${list
+    .map((t) => `<tr><td>${esc(t.npc)}<div class="muted small">${esc(t.zone)}</div></td><td>${reasonTag(t.r)}</td><td>${drops(t)}</td></tr>`)
     .join("")}</tbody></table>`;
+  const rest = shown.slice(WANTED_ROWS);
+  el.innerHTML = `<p class="muted small">Enemies whose drops would raise a character's output, with what the coordinator does about each. The percentage is what the item adds to the output of the character it is for.</p>${table(shown.slice(0, WANTED_ROWS))}${rest.length ? more("rest", `${rest.length} more enemies`, table(rest)) : ""}`;
 }
 
 function initGear() {
+  // `toggle` does not bubble, so it is caught on its way down.
+  $("wanted").addEventListener("toggle", (e) => {
+    const key = e.target.dataset?.open;
+    if (key) e.target.open ? wantedOpen.add(key) : wantedOpen.delete(key);
+  }, true);
   $("gear-rows").addEventListener("click", (e) => {
     const b = e.target.closest(".gchip");
     if (b) pickCharacter(b.dataset.char);
