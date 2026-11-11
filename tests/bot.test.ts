@@ -1943,8 +1943,22 @@ test("the reserve discards surplus without a price first, then sells surplus che
     await clean();
     expect(acts).toEqual(["discard Battle Plans", "discard Shaded Torch", "sell Rusty Mace", "sell Fine Cloak", "sell Small Bronze Helm"]);
     expect(inv.map((r) => r.itemInstanceId)).toEqual([103, 104]);
-    // With only kept items left and the reserve still short, one alert lists them.
+    // With only kept items left and the reserve still short, a party member takes the demanded copy,
+    // and the gear plan's copy, which its move takes from the leader, stays.
+    f.party.companions = [{ companionType: 2, characterId: 20, name: "Edroun", curHp: 100, maxHp: 100 }];
+    const given: string[] = [];
+    (f.iq as unknown as { giveItem: (item: string, id: number) => Promise<{ ok: boolean }> }).giveItem = async (item, id) => {
+      given.push(`${item} to ${id}`);
+      drop(inv.find((r) => r.itemDetails.Name === item));
+      return { ok: true };
+    };
     f.bot.config.minFreeSlots = 9;
+    await f.bot.cleanup();
+    expect(given).toEqual(["Power of Fire to 20"]);
+    expect(inv.map((r) => r.itemInstanceId)).toEqual([104]);
+    expect(f.bot.state.alerts.filter((a) => a.kind === "bags")).toEqual([]);
+    // When what is left still leaves too little room, one alert lists it.
+    f.bot.config.minFreeSlots = 10;
     await f.bot.cleanup();
     expect(f.bot.state.alerts.filter((a) => a.kind === "bags").map((a) => a.wake)).toEqual([true]);
   } finally {

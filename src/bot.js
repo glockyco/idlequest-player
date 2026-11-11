@@ -209,7 +209,8 @@
    * plan's `gearKeepInstances` and of the reagents of the leader's class spells, and food and drink
    * up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
-   * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`.
+   * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`,
+   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand" or "reagent".
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -225,8 +226,10 @@
       const name = d.Name ?? d.name;
       const row = { bag: r.bag, slot: r.slot, id: r.itemid, instanceId: r.itemInstanceId, name, quantity: r.quantity ?? 1, price: d.price ?? 0 };
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
-      const wanted = config.gearKeepInstances.includes(r.itemInstanceId) || (demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true));
-      if (supply || wanted || reagents.has(r.itemid)) out.keep.push(row);
+      const move = config.gearKeepInstances.includes(r.itemInstanceId);
+      const wanted = !move && demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true);
+      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : null;
+      if (why) out.keep.push({ ...row, why });
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
     }
@@ -309,10 +312,38 @@
     }
     if (sold.length) log(`sold ${sold.length} surplus item(s) for ${copper} copper (${sold.join(", ")}); ${i.bagSpace().free} slots free`);
     if (gone.length) log(`discarded ${gone.length} surplus item(s) without a sale price (${gone.join(", ")}); ${i.bagSpace().free} slots free`);
+    // Kept copies the leader does not use itself go to a party member's bags, outside the reserve,
+    // where a quest step pulls them from when it runs (docs/plans/items.md, "Place").
+    if (!queue.length && i.bagSpace().free < config.minFreeSlots) await storeKept(i, f.keep.filter((k) => k.why === "demand"));
     if (!queue.length && i.bagSpace().free < config.minFreeSlots && now() - (state.keptFullAlertAt ?? 0) > 3600000) {
       state.keptFullAlertAt = now();
-      alert("bags", `${i.bagSpace().free} bag slots free and only kept items left: ${f.keep.map((k) => k.name).join(", ")}`, true);
+      alert("bags", `${i.bagSpace().free} bag slots free and only kept items left, which no party member took: ${f.keep.map((k) => k.name).join(", ")}`, true);
     }
+  };
+  /**
+   * Give the kept copies `rows` to party members with room, one item at a time up to
+   * `sellPerTick`, until `targetFreeSlots` are free. A copy every member refuses, such as a casino
+   * potion the server never lets move, waits an hour before the next try.
+   */
+  const storeKept = async (i, rows) => {
+    const members = (i.stores.companions.getState().companions ?? []).filter((c) => c.companionType === 2);
+    state.storeRefused ??= {};
+    const stored = [];
+    for (const k of rows) {
+      if (i.bagSpace().free >= Math.max(config.minFreeSlots, config.targetFreeSlots) || stored.length >= config.sellPerTick) break;
+      if (now() - (state.storeRefused[k.instanceId] ?? 0) < 3600000) continue;
+      let to = null;
+      for (const m of members) {
+        const r = await (async () => i.giveItem(k.name, Number(m.characterId), { equip: false, settle: () => settleHeld(i) }))().catch(() => null);
+        if (r?.ok && rowAt(i, k)?.itemInstanceId !== k.instanceId) {
+          to = m.name;
+          break;
+        }
+      }
+      if (to) stored.push(`${k.name} to ${to}`);
+      else state.storeRefused[k.instanceId] = now();
+    }
+    if (stored.length) log(`stored ${stored.length} kept item(s) with party members (${stored.join(", ")}); ${i.bagSpace().free} slots free`);
   };
 
   // Raid mode turns AutoLevel off and the leader commands each fight (main.pretty.js:72297-72300),

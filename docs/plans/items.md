@@ -36,7 +36,7 @@ A class epic's demand is the items its chosen steps take (`treeNeeds` of `epicTr
 
 ### Place (item task)
 
-The gear task becomes the item task. It moves gear to be worn, and kept copies to the character who uses them or to storage. While raid mode is on, raid loot goes from the RAID LOOT tab straight to its recipient with the tab's Give Item and Equip Item.
+Quest steps pull the pieces they need from any account character when they run (`pullOne`), so a kept copy needs no delivery to its user, only room: the bag reserve gives the demanded copies a leader carries to party members with room when nothing else can go (`storeKept`). The gear task moves gear to be worn. While raid mode is on, raid loot goes from the RAID LOOT tab straight to its recipient with the tab's Give Item and Equip Item.
 
 ### Value
 
@@ -50,8 +50,8 @@ Gear has two kits, because leveling value (XP rate) and raid value (a boss fight
 | --- | --- | --- | --- |
 | 1 | Quest graph, `data/epics.json`, chain and step demand, the casino table read from the client, all in one `demand` map. | `questItemIds`, `keepItemIdRange`, `gearKeepCounts`, `setGearKeepInPage`, `questKeepItems` and the chain part of `keepNames` | Done |
 | 2 | The hunts' and errands' items in the demand, and each tab's share of it. | `keepNames`, `data/quest-items.json` and `tools/quest-items.mjs` | Done |
-| 3 | One held-item routine in the bot (`settleHeld`), cursor primitives in the bridge (`placeCursor`, `giveCursor`), passed to the bridge's actions as `settle`, and the raid loot step on the same routine. | `clearCursorAfterTrade`, the auto-place in `giveItem` and `craftItem`, and `collectLoot`'s placement | Under way |
-| 4 | The item task delivers kept copies and stores them, and gives raid loot straight to its recipient with the raid window's Give Item and Equip Item. | Kept copies in the leader's bags | Open |
+| 3 | One held-item routine in the bot (`settleHeld`), cursor and raid loot primitives in the bridge (`placeCursor`, `giveCursor`, `raid.loot`), passed to the bridge's actions as `settle`. | `clearCursorAfterTrade`, `collectLoot`'s placement, and the auto-place in `giveItem` and `craftItem` | Done |
+| 4 | Kept copies stored with party members by the bag reserve, and raid loot given straight to its recipient with the raid window's Give Item and Equip Item. | Kept items alone filling a leader's bags | Under way: the store step is in, the raid recipient waits for the raid kit |
 | 5 | Hand-in reward values from the scripts, for the hand-ins a coordinator task runs. | `keepItemIds`, the coordinator's hand-written `STONE_XP` | Done |
 | 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
 
