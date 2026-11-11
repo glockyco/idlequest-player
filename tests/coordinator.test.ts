@@ -553,6 +553,10 @@ test("a zone that paid nothing in its trial ranks at what it paid, not at the mo
   expect(rotation(240)[0]).toBe("guktop");
   // Eight minutes are, and the zone is out whatever the model says.
   expect(rotation(480)).toEqual(["kurn", "runnyeye", "warrens"]);
+  // With only three zones in the row it does not fill the third place either: group 3's rotation of
+  // 23:51 ended in a High Keep rated at nothing.
+  const three = assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena" })], rows: [[14, ["kurn", "runnyeye", "guktop"]]], rates: rates(480), model })[0].rotation;
+  expect(three).toEqual(["kurn", "runnyeye"]);
 });
 
 test("zones found crowded lately drop out of the rotation, and the report ages out", () => {

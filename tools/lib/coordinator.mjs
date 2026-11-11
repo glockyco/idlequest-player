@@ -608,7 +608,10 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     const ranked = zones.map((m) => ({ ...m, xph: xph(m), value: (xph(m) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
-    const top = ranked.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
+    // A zone worth under `deadShare` of the row's best fills no place: a rotation's later zones are
+    // where the bot goes when the first runs dry, and it would idle there.
+    const worth = ranked.filter((m) => m.xph >= cfg.deadShare * Math.max(...ranked.map((x) => x.xph)));
+    const top = worth.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
     // A group that stays keeps its rotation while it holds at most `keep` zones of the band row and
