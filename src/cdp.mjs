@@ -269,4 +269,13 @@ export class Relay extends EventEmitter {
     if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? "evaluate failed");
     return res.result?.value;
   }
+
+  /** A JPEG of a game tab as it shows now, as a Buffer, for the diary's pictures of kills and milestones. */
+  async screenshot(targetId, { quality = 80, timeout = 15000 } = {}) {
+    const info = this.#tabs.get(targetId);
+    if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
+    const sessionId = await this.#sessionFor(targetId);
+    const res = await this.#send("Page.captureScreenshot", { format: "jpeg", quality }, sessionId, timeout);
+    return Buffer.from(res.data, "base64");
+  }
 }

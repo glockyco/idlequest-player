@@ -9,7 +9,7 @@
 // Usage: see `iqd help` and the "Monitoring" section of the README.
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
+import { statSync, openSync, readSync, closeSync, readFileSync, existsSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -1296,7 +1296,10 @@ class Daemon {
 
     if (usable) {
       // What this look shows of the goal's progress: level-ups and raid kills.
-      recordProgress(this.db, snapshotProgress({ snap, levels, now, goal: this.raidGoal() }), this.groups());
+      const seen = snapshotProgress({ snap, levels, now, goal: this.raidGoal() });
+      const kills = seen.filter((e) => e.kind === "raid" && !this.db.query("SELECT 1 FROM progress WHERE key = ?").get(e.key));
+      recordProgress(this.db, seen, this.groups());
+      for (const e of kills) void this.killPicture(tr, e).catch((err) => this.log(`raid kill picture: ${err.message}`));
       tr.state.pageSession = snap.pageSession;
       tr.snap = snap;
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
@@ -1512,6 +1515,21 @@ class Daemon {
   leaderOf(name) {
     this.groups();
     return this.leaderOfName.get(name) ?? name;
+  }
+
+  /**
+   * A picture of the tab whose raid just killed a boss, for the diary (`diary/media/`), taken at
+   * the first look after the kill, while its kill line and its loot still stand in the chat.
+   */
+  async killPicture(tr, e) {
+    const at = new Date(e.t);
+    const day = at.toLocaleDateString("sv-SE");
+    const slug = String(e.data.boss).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const dir = join(REPO, "diary/media");
+    const first = join(dir, `${day}-${slug}-kill.jpg`);
+    const file = existsSync(first) ? join(dir, `${day}-${slug}-kill-${at.toTimeString().slice(0, 5).replace(":", "")}.jpg`) : first;
+    await writeFile(file, await this.relay.screenshot(tr.targetId));
+    this.log(`raid kill: ${e.data.boss}, picture in ${file.slice(REPO.length + 1)}`);
   }
 
   /** The bosses of the raid goal (data/raid-goal.json), read once. */
