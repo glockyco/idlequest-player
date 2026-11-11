@@ -1356,6 +1356,27 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
   }
 });
 
+test("a camp the client stops is started once more and then goes on as a hunt for what is up", async () => {
+  vi.useFakeTimers();
+  try {
+    // Group 1 in Dragon Necropolis on 2026-11-11: the client stopped the camp on arrival, and the
+    // task stood until its half hour was up.
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {}, isRunning: false });
+    let camps = 0;
+    Object.assign(f.runtime, { selectEnemyTarget: () => {}, startSpawnCamp: () => (camps++, f.say("Spawn Camp stopped: Navigation recovery could not find a supported combat position.")) });
+    const t0 = Date.now();
+    f.bot.hunt({ zone: "necropolis", keep: "a Chetari Dominator", points: [123010], minutes: 30 });
+    await runToEnd(f);
+    expect(camps).toBe(2);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 0, result: "none of a Chetari Dominator up (Spawn Camp stopped: Navigation recovery could not find a supported combat position.)" });
+    expect(Date.now() - t0).toBeLessThan(90000);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a visit that finds none of its enemies up names the first respawn of the points it watches", async () => {
   vi.useFakeTimers();
   try {

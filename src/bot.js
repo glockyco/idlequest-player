@@ -1719,6 +1719,13 @@
   // respawn becomes `nextAt`, for a scheduler to come back then and not before.
   const CAMP_WAITING = /^Waiting for (the )?next spawn|^Waiting for another player/;
   const CAMP_HELD_RETRY_MS = 15 * 60000; // a camp another player holds is tried again after this
+  // The client ends a camp it cannot run ("Spawn Camp stopped: Navigation recovery could not find a
+  // supported combat position.") and nothing starts it again. On 2026-11-11 it stopped 17 camps,
+  // which then stood for 325 minutes until their tasks' time was up, group 1 for half an hour in
+  // Dragon Necropolis. A camp that does not run for this long is started once more, and one that
+  // stops again ends with the client's reason (`stopped`).
+  const CAMP_STOPPED_MS = 8000;
+  const CAMP_STOP_LINE = /^Spawn Camp stopped: (.+)$/;
   const campPoints = async (i, task, wanted) => {
     const rt = runtime(i);
     const cb = () => i.stores.combat.getState();
@@ -1726,6 +1733,8 @@
     let kills = 0;
     let scanned = now();
     let waitingSince = null;
+    let stoppedSince = null;
+    let starts = 1;
     rt.startSpawnCamp(task.points, 0, task.keep);
     try {
       while (now() < task.startedAt + task.minutes * 60000) {
@@ -1751,6 +1760,14 @@
           const due = pts.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
           const nextAt = due.length ? Math.min(...due) : null;
           return { kills, nextAt, result: `camp cleared${nextAt ? `, next spawn at ${new Date(nextAt).toTimeString().slice(0, 8)}` : ""}` };
+        }
+        const on = cb().isRunning || i.stores.skills.getState().inCombat || CAMP_WAITING.test(cb().spawnCampStatus ?? "");
+        stoppedSince = on ? null : (stoppedSince ?? now());
+        if (stoppedSince && now() - stoppedSince > CAMP_STOPPED_MS) {
+          if (starts++ >= 2) return { kills, stopped: (i.events ?? []).findLast((e) => e.t >= task.startedAt && CAMP_STOP_LINE.test(e.text ?? ""))?.text ?? "Spawn Camp stopped" };
+          log("task hunt: the camp does not run, starting it once more");
+          rt.startSpawnCamp(task.points, 0, task.keep);
+          stoppedSince = null;
         }
       }
       return { kills, result: "time is up" };
@@ -1779,8 +1796,14 @@
         if (task.points?.length) {
           const r = await step(`camp ${task.keep}`, () => campPoints(i, task, wanted), task.minutes * 60000);
           task.kills += r.kills;
-          if (r.nextAt) task.nextAt = r.nextAt;
-          return void (task.result = r.result);
+          if (!r.stopped) {
+            if (r.nextAt) task.nextAt = r.nextAt;
+            return void (task.result = r.result);
+          }
+          // The client cannot camp these points, so the hunt fights the wanted enemies that are up, as a visit does.
+          log(`task hunt: ${r.stopped} The hunt goes on for the enemies that are up.`);
+          Object.assign(task, { campStopped: r.stopped, points: [] });
+          continue;
         }
         const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted), 200000);
         if (r === "killed") {
@@ -1800,7 +1823,7 @@
             const due = watched.filter((s) => s.nextRespawnAtMs > now()).map((s) => s.nextRespawnAtMs);
             if (due.length) task.nextAt = Math.min(...due);
             const held = watched.filter((s) => s.state === "alive").length;
-            return void (task.result = `none of ${task.keep} up${task.nextAt ? `, next spawn at ${new Date(task.nextAt).toTimeString().slice(0, 8)}` : held ? `, other spawns hold ${held} of its points` : ""}`);
+            return void (task.result = `none of ${task.keep} up${task.nextAt ? `, next spawn at ${new Date(task.nextAt).toTimeString().slice(0, 8)}` : held ? `, other spawns hold ${held} of its points` : ""}${task.campStopped ? ` (${task.campStopped})` : ""}`);
           }
           if (empty >= zones.length) await sleep(zones.length > 1 ? 60000 : 10000);
           if (zones.length > 1) {
