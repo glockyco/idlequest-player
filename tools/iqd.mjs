@@ -459,10 +459,14 @@ export function applySettingsInPage(a) {
  * request. The server refuses both below the unlock level (46), so the allocation covers the
  * characters past it and the rule waits for the host to reach it. The allocation goes first,
  * because the window does not allocate while the rule pauses a character. Returns what it changed
- * and the active character's AA state: `{ done, state: { name, level, points, spent, ranks, names, maxRanks, allocation } }`,
- * where `names` maps ability ids to names and `maxRanks` sums the catalog's maximum ranks.
+ * and the AA state of the active character (`state`) and of each party member past the unlock
+ * level (`members`), which the window reads with the member as `target`:
+ * `{ name, level, points, spent, ranks, names, maxRanks, allocation }`, where `names` maps ability
+ * ids to names and `maxRanks` sums the catalog's maximum ranks. Returns null on a page without the
+ * bridge, as one the supervisor reloaded during the pass, which has nothing to set yet.
  */
 export async function aaInPage(a) {
+  if (!window.iq?.stores) return null;
   const host = window.iq.stores.character.getState().characterProfile.id;
   const send = (action, extra) => window.iq.socket.sendCorrelatedJsonRequest(1237, 1238, { action, ...extra, hostCharacterId: host }, 10000);
   let r = await window.iq.query(1237, { action: "get", hostCharacterId: host });
@@ -482,8 +486,13 @@ export async function aaInPage(a) {
     if (!r?.success) throw new Error(r?.error ?? `${scope} level rule refused`);
     done.push(`${scope} paused below ${a.level}`);
   }
-  const s = r.state;
-  return { done, state: { name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null } };
+  const view = (s) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null });
+  const members = [];
+  for (const m of (r.state.party ?? []).filter((x) => x.characterId !== host && x.level >= unlock && x.leaseId)) {
+    const rm = await window.iq.query(1237, { action: "get", hostCharacterId: host, target: { characterId: m.characterId, leaseId: m.leaseId } }).catch(() => null);
+    if (rm?.success) members.push(view(rm.state));
+  }
+  return { done, state: view(r.state), members };
 }
 
 // ---- Recorder files -----------------------------------------------------------------------------
@@ -771,13 +780,13 @@ class Daemon {
     metaSet(this.db, "zoneRates", rates);
     metaSet(this.db, "zoneCrowding", this.crowding);
     // AA settings for each party, outside tasks, which may have another character active. The
-    // window's state also names the active character's points, spent points and ranks, kept per
-    // character in the meta key `aa` for the dashboard.
+    // window's states also name the points, spent points and ranks of the active character and of
+    // each party member past 46, kept per character in the meta key `aa` for the dashboard.
     const aa = metaGet(this.db, "aa") ?? {};
     const aaBefore = structuredClone(aa);
     for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
       const r = await this.relay.evaluate(t.targetId, call(aaInPage, AA_POLICY), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
-      if (r?.state) aa[r.state.name] = { ...r.state, t: now };
+      for (const s of [r?.state, ...(r?.members ?? [])].filter(Boolean)) aa[s.name] = { ...s, t: now };
       if (!r?.done?.length) continue;
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${r.done.join("; ")}`);
       this.log(`coordinator: ${t.label} aa: ${r.done.join("; ")}`);
