@@ -31,6 +31,17 @@ test("a raid runs as soon as one is due, the most valuable first, potions includ
   expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds }).kill).toMatchObject({ key: "lodizal" });
 });
 
+test("a boss of the raid goal that no raid has killed goes before the more valuable ones", () => {
+  // Cazic-Thule is on the daily list and in the goal, and his loot is worth little next to Nagafen's.
+  const d = daily(2, [boss("nagafen"), boss("cazic")]);
+  const odds = { nagafen: { raid: win }, cazic: { raid: win } };
+  const value = { nagafen: 1.6, cazic: 0 };
+  expect(nextBossKill({ daily: d, odds, value }).kill).toMatchObject({ key: "nagafen" });
+  expect(nextBossKill({ daily: d, odds, value, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
+  // A goal boss the simulator does not kill in every fight still waits.
+  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose } }, value, first: ["cazic"] }).kill).toMatchObject({ key: "nagafen" });
+});
+
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {
   // X1 reaches its next level in 2 hours, so a gain of 100 tenths of a percent worn 10 levels is
   // worth 2 hours: the cloak's 25% gives 0.5, and of two back pieces only the better one counts.
@@ -39,9 +50,11 @@ test("a boss is worth its wanted drops at their chances, one copy per taker's sl
     { item: "Cape", to: "X1", slot: "back", gain: 40, drop: 0.25 },
     { item: "Crook", to: "X2", slot: "primary", gain: 50, drop: 0.5 },
   ] }];
-  const values = bossValues({ bosses: [{ key: "nagafen", name: "Lord Nagafen" }, { key: "vox", name: "Lady Vox" }], targets, hoursPerLevel: { X1: 2, X2: 2 } });
+  const values = bossValues({ bosses: [{ key: "nagafen", name: "Lord Nagafen" }, { key: "vox", name: "Lady Vox" }, { key: "cazic", name: "Cazic-Thule" }], targets: [...targets, { npc: "Cazic_Thule", items: [{ item: "Bone", to: "X1", slot: "range", gain: 50, drop: 1 }] }], hoursPerLevel: { X1: 2, X2: 2 } });
   expect(values.nagafen).toBeCloseTo(0.25 * 2 + 0.5 * 1);
   expect(values.vox).toBe(0);
+  // The daily list's "Cazic-Thule" is the content's "Cazic_Thule".
+  expect(values.cazic).toBeCloseTo(1);
 });
 
 test("a potion a raid task used is spent until the next survey, and one a task never reached is not", () => {

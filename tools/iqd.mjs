@@ -23,7 +23,7 @@ import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs"
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
-import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
+import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { pageStep } from "./lib/page.mjs";
 import { commitFor, deployed, readDeploy, reverted, writeDeploy } from "../src/deploy.mjs";
@@ -1039,9 +1039,14 @@ class Daemon {
     const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName }))).filter((p) => !potionSpent(history, p, surveyAt));
     // A casino boss a raid summoned and did not kill, which blocks every other potion until it is dead.
     const standing = standingBosses(history, casino, now);
-    const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions, ...standing], targets: this.targetWants, hoursPerLevel });
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value });
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, standing, price: st.time?.pricePp ?? null });
+    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing];
+    const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
+    // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
+    const goal = this.raidGoal();
+    const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
+    const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value, first });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, raiding, standing, price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1058,7 +1063,10 @@ class Daemon {
     const members = [...groupOf.keys()].filter((n) => n !== leader);
     const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : { bossKey: kill.key };
     const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : "a free summon";
-    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
+    // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
+    // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
+    const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
+    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
   }
 
   /**

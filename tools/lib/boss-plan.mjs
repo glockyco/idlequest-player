@@ -3,6 +3,7 @@
 // finds, the kill chances and the raid time, and queues the result as a task.
 
 import { copyValue } from "./acquire.mjs";
+import { npcKey } from "./fight-record.mjs";
 
 /**
  * The worth of one kill of each boss in `bosses` (`[{ key, name }]`), in hours of a group's
@@ -11,11 +12,12 @@ import { copyValue } from "./acquire.mjs";
  * best copy for each taker's slot, since one copy fills it. A boss no target names is worth 0.
  */
 export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
-  const byName = new Map(targets.map((t) => [t.npc.replace(/^#/, "").toLowerCase(), t]));
+  // The daily list says "Cazic-Thule" for the content's "Cazic_Thule", so both go by the record's key.
+  const byName = new Map(targets.map((t) => [npcKey(t.npc), t]));
   const out = {};
   for (const b of bosses) {
     const best = new Map();
-    for (const w of byName.get(b.name.toLowerCase())?.items ?? []) {
+    for (const w of byName.get(npcKey(b.name))?.items ?? []) {
       const key = `${w.to}:${w.slot}`;
       best.set(key, Math.max(best.get(key) ?? 0, (w.drop ?? 1) * copyValue(w, hoursPerLevel)));
     }
@@ -44,15 +46,17 @@ export function dailyCandidates(daily) {
  * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
+ * - `first`: the keys of the bosses to kill before any other, the raid goal's bosses that no raid
+ *   has killed yet (data/raid-goal.json): the account has to kill each of them once, whatever they drop.
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
- * already has a summoned casino boss"), so the other potions wait for it. A group kill comes
- * next, since it needs no raid time, for an open-world spawn only: a summon or a
+ * already has a summoned casino boss"), so the other potions wait for it. A boss of `first` comes
+ * next, then a group kill, since it needs no raid time, for an open-world spawn only: a summon or a
  * potion has been used inside raid mode only. A raid runs as soon as one is due, the most valuable
  * first, because a free summon comes back 24 hours after its use and the account's platinum far
  * outruns the raid time it buys. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {} }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {}, first = [] }) {
   const skipped = [];
   const ways = [];
   const add = (c, source) => {
@@ -68,7 +72,7 @@ export function nextBossKill({ daily = null, potions = [], standing = [], odds =
     if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
     else add(p, "potion");
   }
-  const rank = (w) => (w.source === "standing" ? 0 : w.way === "group" ? 1 : 2);
+  const rank = (w) => (w.source === "standing" ? 0 : first.includes(w.key) ? 1 : w.way === "group" ? 2 : 3);
   return { kill: ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0))[0] ?? null, skipped };
 }
 
