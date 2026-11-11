@@ -1574,7 +1574,7 @@ test("a raid task buys time when none is left, recruits, sets its orders, kills 
     const calls = fakeRaid(f);
     // The leader carries the hour's price, so no balance is pulled.
     (f.me as unknown as { platinum: number }).platinum = 2000;
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500, effects: ["slow", "debuff"] });
     await runToEnd(f);
     // The heal mode stands before the fight, the raid walks to the boss first, and the nuke and
     // effect orders need the running fight. A debuff nobody can cast does not hold the fight.

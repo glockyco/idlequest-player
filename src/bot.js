@@ -2689,11 +2689,15 @@
      * `who`, the potion's holder. An hour of raid time is
      * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
-     * `iq.raid.effect`), null or empty for none. The task ends when the boss dies, the raid wipes
+     * `iq.raid.effect`), null or empty for none. No effect is ordered unless a caller names one:
+     * in all four fights of 2026-11-11 that ordered a slow and a debuff, the page stopped taking
+     * the server's messages the second the orders began and reconnected 31 to 49 s later, which
+     * ended the fight with the boss alive, and the three fights without the orders were kills. The
+     * task ends when the boss dies, the raid wipes
      * or `minutes` pass, and `task.fight` records the fight. Returns a copy of the task, which
      * `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = ["slow", "debuff"] }) {
+    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (potion && !target) throw new Error("a potion raid needs its boss as target");
