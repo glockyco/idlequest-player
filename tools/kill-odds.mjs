@@ -15,6 +15,7 @@
 // The coordinator adds each group's own fight record (tools/lib/fight-record.mjs) to these.
 //
 //   bun tools/kill-odds.mjs [--seeds 4] [--pairs 150]
+//   bun tools/kill-odds.mjs --refit    the prior alone, after a change to its model, without fights
 import { Database } from "bun:sqlite";
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
@@ -28,7 +29,7 @@ import { resolveClient } from "./raidsim/clients.mjs";
 import { rosterEntries } from "./raidsim/roster.mjs";
 import { simulate } from "./raidsim/run.mjs";
 
-const { values: opt } = parseArgs({ options: { seeds: { type: "string", default: "4" }, pairs: { type: "string", default: "150" } } });
+const { values: opt } = parseArgs({ options: { seeds: { type: "string", default: "4" }, pairs: { type: "string", default: "150" }, refit: { type: "boolean" } } });
 const read = async (path, fallback) => JSON.parse(await readFile(path, "utf8").catch(() => JSON.stringify(fallback)));
 const OUT = "runs/state/kill-odds.json";
 const FRESH_MS = 24 * 3600000;
@@ -104,6 +105,11 @@ const result = (s) => ({ t: Date.now(), kills: s.kills, fights: s.fights, meanSe
 const save = () => writeFile(OUT, JSON.stringify({ t: Date.now(), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
 
 console.log(`${enemies.size} enemies, ${pairs.length} open pairs of group and target, prior ${prior ? `fitted to ${prior.fights} fights` : "not fitted yet"}`);
+// `--refit` only writes the prior fitted again to the results on file, as after a change to its model.
+if (opt.refit) {
+  await save();
+  process.exit(0);
+}
 for (const e of enemies.values()) {
   const npc = npcOf(e);
   const old = odds[e.key] ?? {};

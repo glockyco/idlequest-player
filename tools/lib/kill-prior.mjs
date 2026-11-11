@@ -1,36 +1,36 @@
 // The prior of the kill chance (docs/plans/gear-acquisition.md, "Kill chance"): a logistic model of a
-// group's chance to win one fight, from the enemy's level above the group's leader and the log of its
-// hit points, fitted to every simulated and live fight on record. Every pair of group and enemy
-// starts from it, and the pair's own fights move the chance from there (`killChanceOf` in
-// tools/lib/acquire.mjs), so a doable target is hunted before anyone simulated it.
+// group's chance to win one fight, and models of the deaths and the leader's deaths one fight costs,
+// from the enemy's level above the group's leader and the log of its hit points, fitted to every
+// simulated fight on record. Every pair of group and enemy starts from it, and the pair's own fights
+// move the chance from there (`killChanceOf` in tools/lib/acquire.mjs), so a doable target is hunted
+// before anyone simulated it.
 
 const features = (gap, hp) => [1, gap, Math.log10(Math.max(1, hp))];
+const at = (c, x) => c[0] * x[0] + c[1] * x[1] + c[2] * x[2];
+const logistic = (z) => 1 / (1 + Math.exp(-z));
 
 /**
- * Fit the model to `obs`, `[{ gap, hp, kills, fights, deaths, leaderDeaths }]` (deaths per fight),
- * by Newton's method on the binomial log likelihood, with a unit Gaussian prior on the slopes,
- * which keeps them finite when wins and losses separate perfectly. Also the mean deaths and leader
- * deaths per won and per lost fight, which price a pair without fights of its own, and the mean
- * hit points (`hp`, from the mean of their logs), which stand in for an enemy whose hit points are
- * not known. Null with fewer than `minFights` fights, or without both wins and losses, which leave
- * the slopes free.
+ * The coefficients of a model on the three features, by Newton's method on its log likelihood with a
+ * unit Gaussian prior on the slopes: with `link` "logit" the share of each row's `trials` that are
+ * `events`, and with "log" the events per trial as a count rate. Without any event the rate is a
+ * negligible constant, since the free intercept would run off.
  */
-export function fitPrior(obs, { minFights = 20, ridge = 1, steps = 50 } = {}) {
-  const rows = obs.filter((o) => o.fights > 0 && Number.isFinite(o.gap) && o.hp > 0);
-  const fights = rows.reduce((s, o) => s + o.fights, 0);
-  const wins = rows.reduce((s, o) => s + o.kills, 0);
-  if (fights < minFights || wins === 0 || wins === fights) return null;
+function fitRate(rows, events, trials, link, { ridge, steps }) {
+  const total = rows.reduce((s, o) => s + events(o), 0);
+  if (!(total > 0)) return [-20, 0, 0];
   const X = rows.map((o) => features(o.gap, o.hp));
-  let w = [0, 0, 0];
+  // A count rate starts at the mean rate, which keeps the first steps from overshooting.
+  let w = [link === "log" ? Math.log(total / rows.reduce((s, o) => s + trials(o), 0)) : 0, 0, 0];
   for (let k = 0; k < steps; k++) {
     // Gradient and Hessian of the log likelihood with the prior, intercept left free.
     const g = w.map((v, j) => (j ? -ridge * v : 0));
     const H = [0, 1, 2].map((a) => [0, 1, 2].map((b) => (a === b && a ? ridge : 0)));
     for (const [i, x] of X.entries()) {
-      const p = 1 / (1 + Math.exp(-(w[0] * x[0] + w[1] * x[1] + w[2] * x[2])));
-      const v = rows[i].fights * p * (1 - p);
+      const n = trials(rows[i]);
+      const mu = link === "logit" ? logistic(at(w, x)) : Math.exp(at(w, x));
+      const v = link === "logit" ? n * mu * (1 - mu) : n * mu;
       for (let a = 0; a < 3; a++) {
-        g[a] += (rows[i].kills - rows[i].fights * p) * x[a];
+        g[a] += (events(rows[i]) - n * mu) * x[a];
         for (let b = 0; b < 3; b++) H[a][b] += v * x[a] * x[b];
       }
     }
@@ -38,13 +38,28 @@ export function fitPrior(obs, { minFights = 20, ridge = 1, steps = 50 } = {}) {
     w = w.map((v, j) => v + step[j]);
     if (Math.max(...step.map(Math.abs)) < 1e-9) break;
   }
-  const avg = (pick, won) => {
-    const sel = rows.map((o) => ({ n: won ? o.kills : o.fights - o.kills, v: pick(o) ?? 0 })).filter((x) => x.n > 0);
-    const n = sel.reduce((s, x) => s + x.n, 0);
-    return n ? sel.reduce((s, x) => s + x.n * x.v, 0) / n : 0;
-  };
+  return w;
+}
+
+/**
+ * Fit the model to `obs`, `[{ gap, hp, kills, fights, deaths, leaderDeaths }]` (deaths per fight):
+ * the chance to win (`w`, logistic), the deaths a fight costs (`v`, a count rate) and the leader's
+ * death in a fight (`u`, logistic), each on the same features, so an easy enemy costs few deaths
+ * even where the hard fights on record cost many. Also the mean hit points (`hp`, from the mean of
+ * their logs), which stand in for an enemy whose hit points are not known. Null with fewer than
+ * `minFights` fights, or without both wins and losses, which leave the slopes free.
+ */
+export function fitPrior(obs, { minFights = 20, ridge = 1, steps = 50 } = {}) {
+  const rows = obs.filter((o) => o.fights > 0 && Number.isFinite(o.gap) && o.hp > 0);
+  const fights = rows.reduce((s, o) => s + o.fights, 0);
+  const wins = rows.reduce((s, o) => s + o.kills, 0);
+  if (fights < minFights || wins === 0 || wins === fights) return null;
+  const opts = { ridge, steps };
+  const w = fitRate(rows, (o) => o.kills, (o) => o.fights, "logit", opts);
+  const v = fitRate(rows, (o) => (o.deaths ?? 0) * o.fights, (o) => o.fights, "log", opts);
+  const u = fitRate(rows, (o) => Math.min(1, o.leaderDeaths ?? 0) * o.fights, (o) => o.fights, "logit", opts);
   const hp = 10 ** (rows.reduce((s, o) => s + o.fights * Math.log10(o.hp), 0) / fights);
-  return { w, hp, fights, wins, deathsWon: avg((o) => o.deaths, true), deathsLost: avg((o) => o.deaths, false), leaderWon: avg((o) => o.leaderDeaths, true), leaderLost: avg((o) => o.leaderDeaths, false) };
+  return { w, v, u, hp, fights, wins };
 }
 
 // The solution s of the square system A s = b, by Gaussian elimination with partial pivoting.
@@ -75,6 +90,5 @@ function solve(A, b) {
  */
 export function priorOf(prior, gap, hp) {
   const x = features(gap, hp > 0 ? hp : prior.hp);
-  const p = 1 / (1 + Math.exp(-(prior.w[0] * x[0] + prior.w[1] * x[1] + prior.w[2] * x[2])));
-  return { p, deaths: p * prior.deathsWon + (1 - p) * prior.deathsLost, leaderDeaths: p * prior.leaderWon + (1 - p) * prior.leaderLost };
+  return { p: logistic(at(prior.w, x)), deaths: Math.exp(at(prior.v, x)), leaderDeaths: logistic(at(prior.u, x)) };
 }

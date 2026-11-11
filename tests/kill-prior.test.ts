@@ -26,12 +26,16 @@ test("the fitted chance falls with the enemy's level above the leader and with i
   expect(priorOf(prior, 3, undefined).p).toBeCloseTo(priorOf(prior, 3, 20000).p, 2);
 });
 
-test("deaths per fight weigh the won and the lost fights' deaths by the chance", () => {
-  const prior = fitPrior(fights())!;
-  // Every lost fight here cost three deaths, one of them the leader's, and a won fight none.
-  const { p, deaths, leaderDeaths } = priorOf(prior, 3, 20000);
-  expect(deaths).toBeCloseTo(3 * (1 - p), 1);
-  expect(leaderDeaths).toBeCloseTo(1 - p, 1);
+test("deaths per fight follow the enemy's level and hit points, so an easy enemy costs few", () => {
+  // Deaths a fight at a known log-linear rate, and the leader's death in a fight at a logistic one.
+  const rate = (gap: number, hp: number) => Math.exp(-1 + 0.35 * gap + 0.6 * (Math.log10(hp) - 4));
+  const leader = (gap: number) => logistic(-2 + 0.5 * gap);
+  const prior = fitPrior(fights().map((o) => ({ ...o, deaths: rate(o.gap, o.hp), leaderDeaths: leader(o.gap) })))!;
+  for (const [gap, hp] of [[-6, 5000], [0, 20000], [6, 80000]]) {
+    expect(priorOf(prior, gap, hp).deaths / rate(gap, hp)).toBeCloseTo(1, 1);
+    expect(priorOf(prior, gap, hp).leaderDeaths).toBeCloseTo(leader(gap), 1);
+  }
+  expect(priorOf(prior, -3, 10000).deaths).toBeLessThan(priorOf(prior, 3, 10000).deaths / 5);
 });
 
 test("no fit without enough fights, or without both wins and losses", () => {

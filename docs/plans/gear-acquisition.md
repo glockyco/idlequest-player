@@ -81,7 +81,8 @@ as they come:
 
 - a model fitted to every simulated fight of every group (`tools/lib/kill-prior.mjs`), counted as
   one fight: the chance falls with the enemy's level above the group's leader and with its hit
-  points, so a doable target is hunted before anyone has simulated it;
+  points, so a doable target is hunted before anyone has simulated it, and the deaths and the
+  leader's death a fight costs follow the same two;
 - the raid simulator's fights of the group's six as surveyed (`tools/kill-odds.mjs`), for the pairs
   of group and target with the highest expected value under the model and for the boss kills,
   refreshed hourly and kept for a day at the group's level. The simulator fights in the client's
@@ -92,7 +93,7 @@ as they come:
 A copy then takes `H / p` hours, and every fight, won or lost, pays its expected deaths: a
 companion's death costs 38 s and the leader's 85 s plus level² × 666.67 XP at the group's pace
 (`bun tools/fights.mjs`, "What escapes and deaths cost"). Deaths per fight come from the simulator
-for the pair, else from the model's means for won and lost fights. The choice is by expected value,
+for the pair, else from the model's rates at the enemy's level and hit points. The choice is by expected value,
 so no chance is too low in itself: the dashboard calls a target too strong when its best group's
 chance is below 5% (`tooStrong`). A target is hunted by the way that earns the most: a group's
 errand, camp or visit, else a raid.
