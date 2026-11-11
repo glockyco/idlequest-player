@@ -1,10 +1,28 @@
 // The score and farm-time rules shared by tools/gear.mjs and the raid simulator's farmed kits.
 import { expect, test } from "bun:test";
 // @ts-expect-error plain .mjs module without types
-import { CLASS_KEYS, BIT, capFor, damageBonus, expectedMult, farmHours, outputValue, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
+import { CLASS_KEYS, BIT, capFor, damageBonus, dropChance, expectedMult, farmHours, outputValue, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
 
 test("class keys line up with the class bit masks", () => {
   CLASS_KEYS.slice(1).forEach((key: string, i: number) => expect(BIT[key]).toBe(1 << i));
+});
+
+test("a lootdrop with a limit gives one of its items, and one without rolls each on its own", () => {
+  // An Elite Dragoon's weapons: four entries of chance 100, a table probability of 25 and a limit
+  // of one. Group 1's 60 kills on 2026-11-11 gave 6, 5, 3 and 2 of the four, 6.7% on average.
+  const weapons = { probability: 25, multiplier: 1, droplimit: 1, mindrop: 1 };
+  expect(dropChance({ chance: 100, sum: 400 }, weapons)).toBeCloseTo(0.0625);
+  // A Disciple's armor: seven pieces behind 42%.
+  expect(dropChance({ chance: 100, sum: 700 }, { probability: 42, droplimit: 1, mindrop: 1 })).toBeCloseTo(0.06);
+  // A single entry behind its table's probability drops at that probability.
+  expect(dropChance({ chance: 100, sum: 100 }, { probability: 50, droplimit: 1, mindrop: 1 })).toBeCloseTo(0.5);
+  // Without a limit every entry rolls on its own, the entry's multiplier that many times.
+  expect(dropChance({ chance: 25, sum: 400 }, { probability: 100 })).toBeCloseTo(0.25);
+  expect(dropChance({ chance: 25, sum: 400, entryMult: 2 }, { probability: 100 })).toBeCloseTo(1 - 0.75 ** 2);
+  // A limit of two with one sure draw: the second draw is against at least 100.
+  expect(dropChance({ chance: 10, sum: 40 }, { probability: 100, droplimit: 2, mindrop: 1 })).toBeCloseTo(1 - (1 - 10 / 40) * (1 - 10 / 100));
+  // The table rolls its lootdrop `multiplier` times.
+  expect(dropChance({ chance: 100, sum: 400 }, { ...weapons, multiplier: 2 })).toBeCloseTo(1 - (1 - 0.0625) ** 2);
 });
 
 test("the score is the stat score plus haste and regeneration", () => {

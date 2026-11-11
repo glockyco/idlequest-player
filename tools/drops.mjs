@@ -9,7 +9,7 @@
 //
 // Numbers are approximate. They come from a development snapshot and ignore content flags, the
 // server's own loot rules and quest-only drops.
-//   drop%     chance an NPC kill drops the item: table probability times the item's chance in its drop
+//   drop%     chance an NPC kill drops the item, from its loot table's probability and drop limit (`dropChance`)
 //   spawn%    chance that a spawn point of the group puts this NPC up when it respawns
 //   points    spawn points that can hold the NPC in the zone
 //   respawn   seconds between respawns at a spawn point (smallest seen)

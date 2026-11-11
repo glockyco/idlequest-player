@@ -270,23 +270,49 @@ export async function spawnSites(root, { npcIds = null, zoneName }) {
   return sites;
 }
 
+/**
+ * The chance that one kill drops an item, from its lootdrop's entry (`chance`, the entry's own
+ * `entryMult` rolls, and `sum`, the chances of every entry of the lootdrop) and the loot table's
+ * entry for that lootdrop (`probability`, `multiplier`, `droplimit`, `mindrop`), by the rules the
+ * content's tables are written for (EQEmu's `AddLootDropToNPC`): the table rolls the lootdrop
+ * `multiplier` times, each with its `probability`. A lootdrop without a limit rolls every entry on
+ * its own. One with a limit draws that many items, each one entry by its share of the chances,
+ * the first `mindrop` of them among the entries alone and the others against at least 100.
+ *
+ * An Elite Dragoon's weapons are four entries of chance 100 behind a probability of 25 and a limit
+ * of one, so each drops in 6.3% of the kills. Counted as independent rolls they came to 25% each,
+ * and group 1's 60 kills gave 6, 5, 3 and 2 of them (2026-11-11). That error made every pooled
+ * drop look four to seven times nearer than it is.
+ */
+export function dropChance({ chance, sum, entryMult = 1 }, { probability, multiplier = 1, droplimit = 0, mindrop = 0 }) {
+  const draws = Math.max(droplimit, mindrop);
+  const sure = Math.min(mindrop, draws);
+  const once = draws === 0 ? 1 - (1 - chance / 100) ** entryMult : 1 - (1 - chance / sum) ** sure * (1 - chance / Math.max(sum, 100)) ** (draws - sure);
+  return 1 - (1 - (probability / 100) * once) ** Math.max(1, multiplier);
+}
+
 // Sources of the items in `itemIds`: item -> lootdrop -> loottable -> NPC -> spawns -> zone.
 //   sources  item id -> [{ npcId, npc, level, hp, zone, zoneShort, drop, spawn, points, respawn, when }]
-//              drop     chance that one kill of the NPC drops the item
+//              drop     chance that one kill of the NPC drops the item (`dropChance`)
 //              spawn    chance that a spawn point of the group spawns this NPC
 //              points   spawn points of the NPC in the zone, respawn the shortest respawn time (s)
 //              when     "night" or "day" when every point spawns only then (`spawnTimes`), else null
 //   sellers  item id -> [{ npc, zone, zoneShort }] merchants that sell it and stand in a live zone
 // NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources.
 export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName }) {
-  const dropsByLootdrop = new Map(); // lootdrop_id -> [{item, chance, mult}]
-  for await (const e of rows("lootdrop_entries", root)) if (e.chance > 0 && itemIds.has(e.item_id)) (dropsByLootdrop.get(e.lootdrop_id) ?? dropsByLootdrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ item: e.item_id, chance: e.chance, mult: e.multiplier || 1 });
-  const ltsOfDrop = new Map(); // lootdrop_id -> [{lt, prob}]
-  for await (const e of rows("loottable_entries", root)) if (dropsByLootdrop.has(e.lootdrop_id)) (ltsOfDrop.get(e.lootdrop_id) ?? ltsOfDrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ lt: e.loottable_id, prob: e.probability });
+  const dropsByLootdrop = new Map(); // lootdrop_id -> { sum of every entry's chance, entries: [{item, chance, entryMult}] of the wanted items }
+  for await (const e of rows("lootdrop_entries", root)) {
+    if (!(e.chance > 0)) continue;
+    const d = dropsByLootdrop.get(e.lootdrop_id) ?? dropsByLootdrop.set(e.lootdrop_id, { sum: 0, entries: [] }).get(e.lootdrop_id);
+    d.sum += Number(e.chance);
+    if (itemIds.has(e.item_id)) d.entries.push({ item: e.item_id, chance: Number(e.chance), entryMult: e.multiplier || 1 });
+  }
+  const ltsOfDrop = new Map(); // lootdrop_id -> [the loot tables' entries for it]
+  for await (const e of rows("loottable_entries", root)) if (dropsByLootdrop.get(e.lootdrop_id)?.entries.length) (ltsOfDrop.get(e.lootdrop_id) ?? ltsOfDrop.set(e.lootdrop_id, []).get(e.lootdrop_id)).push({ lt: e.loottable_id, probability: Number(e.probability), multiplier: Number(e.multiplier) || 1, droplimit: Number(e.droplimit) || 0, mindrop: Number(e.mindrop) || 0 });
   const itemsOfLt = new Map(); // loottable_id -> Map(item -> p)
-  for (const [drop, lts] of ltsOfDrop) for (const { lt, prob } of lts) for (const d of dropsByLootdrop.get(drop)) {
-    const m = itemsOfLt.get(lt) ?? itemsOfLt.set(lt, new Map()).get(lt);
-    const p = (prob / 100) * (1 - (1 - d.chance / 100) ** d.mult);
+  for (const [drop, lts] of ltsOfDrop) for (const t of lts) for (const d of dropsByLootdrop.get(drop).entries) {
+    const m = itemsOfLt.get(t.lt) ?? itemsOfLt.set(t.lt, new Map()).get(t.lt);
+    const p = dropChance({ ...d, sum: dropsByLootdrop.get(drop).sum }, t);
     m.set(d.item, 1 - (1 - (m.get(d.item) ?? 0)) * (1 - p));
   }
   // Merchants: merchantlist maps a merchant id to the items it sells, and an NPC with that

@@ -5,7 +5,7 @@
 // planning time.
 import { readdir, readFile } from "node:fs/promises";
 import { contentRoot, craftableRecipes, rows } from "./content.mjs";
-import { dropRow, loadSources, liveZoneNames, spawnSites } from "./gear-data.mjs";
+import { dropChance, dropRow, loadSources, liveZoneNames, spawnSites } from "./gear-data.mjs";
 import { meets, parseScript, scriptOwner } from "./quest-script.mjs";
 
 // Rough hours of one group, for choosing between ways to get a piece: talking or buying in passing,
@@ -181,7 +181,10 @@ export async function loadEpicModel(root) {
   for await (const d of rows("lootdrop_entries", root)) (drops.get(d.lootdrop_id) ?? drops.set(d.lootdrop_id, []).get(d.lootdrop_id)).push(d);
   const loot = new Map();
   for await (const t of rows("loottable_entries", root)) {
-    for (const d of drops.get(t.lootdrop_id) ?? []) (loot.get(t.loottable_id) ?? loot.set(t.loottable_id, []).get(t.loottable_id)).push({ item: d.item_id, p: (t.probability / 100) * (1 - (1 - d.chance / 100) ** (t.multiplier ?? 1)) });
+    const ds = (drops.get(t.lootdrop_id) ?? []).filter((d) => d.chance > 0);
+    const sum = ds.reduce((s, d) => s + Number(d.chance), 0);
+    const table = { probability: Number(t.probability), multiplier: Number(t.multiplier) || 1, droplimit: Number(t.droplimit) || 0, mindrop: Number(t.mindrop) || 0 };
+    for (const d of ds) (loot.get(t.loottable_id) ?? loot.set(t.loottable_id, []).get(t.loottable_id)).push({ item: d.item_id, p: dropChance({ chance: Number(d.chance), sum, entryMult: d.multiplier || 1 }, table) });
   }
   const catalog = new Map();
   for await (const c of rows("crafting_merchant_items", root)) catalog.set(c.item_id, c.price);
