@@ -294,10 +294,19 @@ function renderCoordinator(s) {
   // The bot's results in a few words: an item got, an enemy not up, a camp waiting for its spawn.
   const ended = (o) => {
     if (o.status === "failed") return `<span class="bad" title="${esc(`${o.step ? `at ${o.step}: ` : ""}${o.error ?? ""}`)}">failed</span>`;
-    const r = o.result ?? o.status;
+    const r = String(o.result ?? o.status);
     if (/^got /.test(r)) return `<span class="got">${esc(r)}</span>`;
+    const parts = [];
     const spawn = /next spawn at (\d+:\d+)/.exec(r);
-    const words = spawn ? `spawns at ${spawn[1]}` : /^none of .* up$/.test(r) ? "not up" : r === "time is up" ? "no drop in time" : short(r, 48);
+    if (spawn) parts.push(`spawns at ${spawn[1]}`);
+    else if (/^none of .* up/.test(r)) parts.push("not up");
+    const held = /other spawns hold (\d+) of its points/.exec(r);
+    if (held) parts.push(`other spawns hold ${held[1]} of its points`);
+    const lost = /no route to ([^(]+?)(?: \(|$)/.exec(r);
+    if (lost) parts.push(`no way to ${lost[1]}`);
+    if (/Spawn Camp stopped/.test(r)) parts.push("the game stopped the camp");
+    // "time is up" ends a hunt for several enemies too, which may have looted on its way.
+    const words = parts.length ? parts.join(", ") : r === "time is up" ? "ran its time" : r.length > 48 ? `${r.slice(0, 47)}~` : r;
     return `<span class="muted" title="${esc(r)}">${esc(words)}</span>`;
   };
   const outcomes = c.outcomes.slice(0, 8).map((o) => `<li title="${esc(o.name)}"><span class="when">${dur(o.agoMs)} ago</span> <span class="grp">${esc(o.group ?? "-")}</span> <span class="name">${esc(o.subject)}</span>: ${ended(o)}</li>`);
@@ -343,7 +352,7 @@ function renderTime(s) {
   const labels = bars.map((b, n) => (new Date(b.t).getHours() % 3 === 0 ? `<text x="${(L + n * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${String(new Date(b.t).getHours()).padStart(2, "0")}</text>` : "")).join("");
   const ticks = [0, 0.5, 1].map((f) => `<line class="grid" x1="${L}" x2="${W}" y1="${(H - B - (H - B - T) * f).toFixed(1)}" y2="${(H - B - (H - B - T) * f).toFixed(1)}"/><text x="${L - 4}" y="${(H - B - (H - B - T) * f + 4).toFixed(1)}" text-anchor="end">${(cap * f).toFixed(0)}</text>`).join("");
   const legend = [...ACT.filter(([n]) => n !== "idle").map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`), ...[...causes].sort().map((c) => `<span><i style="background:${idleColor(c)}"></i>idle, ${esc(idleWord(c))}</span>`)].join("");
-  $("time-body").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${ticks}${rects}${labels}</svg><div class="legend wide">${legend}</div>`;
+  $("time-body").innerHTML = `<p class="muted small">Each bar is one hour of the last day. Its height is the number of groups that played through it, ${s.groups.length} when all did, and its colours are what they spent the hour on.</p><svg viewBox="0 0 ${W} ${H}" width="100%">${ticks}${rects}${labels}</svg><div class="legend wide">${legend}</div>`;
 }
 
 // ---- Folded sections ---------------------------------------------------------------------------
