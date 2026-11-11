@@ -77,7 +77,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   const npcs = new Map();
   const idsOfName = new Map();
   for (const n of npcRows) {
-    const name = n.name.replace(/^#/, "").replace(/_/g, " ");
+    const name = n.name.replace(/^#/, "").replace(/_/g, " ").trim();
     npcs.set(n.id, { id: n.id, name, level: n.level, hp: Number(n.hp) || null, loottable: n.loottable });
     (idsOfName.get(nameKey(name)) ?? idsOfName.set(nameKey(name), []).get(nameKey(name))).push(n.id);
   }
@@ -514,8 +514,9 @@ export function epicTree(model, cls, reward) {
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
  * steps"): a raid kill, of an NPC above level 60, a ground pickup, a summoning cast, a hand-in with
- * coin, a hand-in of more than four items, or an item a branch wants held. A timer or a signal branch
- * runs by itself, and dropped pieces come from hunts.
+ * coin, a hand-in of more than four items, an item a branch wants held, or a purchase from a merchant
+ * outside the zone of the hand-in that takes it, since a step buys only for its own hand-in. A timer
+ * or a signal branch runs by itself, and dropped pieces come from hunts.
  */
 export function missingKinds(model, tree) {
   const out = new Set();
@@ -523,6 +524,7 @@ export function missingKinds(model, tree) {
     if (s.item) {
       if (s.way.kind === "ground") out.add("ground pickup");
       if (s.way.kind === "cast") out.add("summoning cast");
+      if (s.way.kind === "buy" && !tree.steps.some((x) => x.branch && String(s.item) in x.branch.inputs && x.branch.zone === s.way.zone)) out.add("purchase in another zone");
       if ((s.way.kind === "drop" || s.way.kind === "scene") && (s.way.level ?? 0) > GROUP_MAX_LEVEL) out.add("raid kill");
       continue;
     }

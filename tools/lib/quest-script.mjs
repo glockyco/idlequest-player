@@ -356,10 +356,11 @@ export function parseScript(text) {
 
 /**
  * The NPC a script file belongs to, from its path under `effective/quests`: `{ zone, npc, npcId }`.
- * File names encode a leading `#` as `%23`, and a script named by number belongs to that NPC id.
+ * File names encode a leading `#` as `%23`, and a script named by number belongs to that NPC id. A
+ * trailing underscore, as in `Spirit_Sentinel_.lua`, is no part of the name.
  */
 export function scriptOwner(path) {
   const [zone, file] = path.split("/");
   const base = decodeURIComponent(file.replace(/\.lua$/, "")).replace(/^#/, "");
-  return /^\d+$/.test(base) ? { zone, npc: null, npcId: Number(base) } : { zone, npc: base.replace(/_/g, " "), npcId: null };
+  return /^\d+$/.test(base) ? { zone, npc: null, npcId: Number(base) } : { zone, npc: base.replace(/_/g, " ").trim(), npcId: null };
 }

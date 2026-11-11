@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { casinoBosses } from "./client-tables.mjs";
 import { rows } from "./content.mjs";
 import { doneItems } from "./coordinator.mjs";
+import { epicChains } from "./epic-chain.mjs";
 import { dependencies, epicTree, huntPieces, loadEpicModel, missingKinds, treeNeeds } from "./epic-model.mjs";
 
 /**
@@ -12,7 +13,8 @@ import { dependencies, epicTree, huntPieces, loadEpicModel, missingKinds, treeNe
  * the class `epics` (`data/epics.json`), the copies each epic reward's chosen steps take
  * (`epicNeeds`, by reward, from the epic model's `epicTree`) and the pieces of them a hunt gets
  * (`pieces`, by reward, `huntPieces`) for the epics the account can finish, whose steps are open and
- * use the kinds the bot has (`missingKinds`), the epic model's script `branches`,
+ * use the kinds the bot has (`missingKinds`), the quest chains of those epics (`chains`, by id,
+ * `epicChains`), the epic model's script `branches`,
  * the casino's potion `bosses`, item `names` by id and `ids` by name.
  */
 export async function loadItemModel(root) {
@@ -28,7 +30,8 @@ export async function loadItemModel(root) {
     names.set(i.id, i.Name);
     ids.set(i.Name, [...(ids.get(i.Name) ?? []), i.id]);
   }
-  return { epicNeeds, pieces, branches: model.branches, bosses, epics, names, ids };
+  const chains = Object.fromEntries(classes.flatMap(([cls, rewards]) => rewards.flatMap((r) => epicChains(model, trees.get(r), { cls, reward: r, names }).map(({ id, chain }) => [id, chain]))));
+  return { epicNeeds, pieces, chains, branches: model.branches, bosses, epics, names, ids };
 }
 
 /**

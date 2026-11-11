@@ -578,12 +578,16 @@ class Daemon {
     } catch {
       /* no farms file */
     }
-    let quests = {};
+    let handQuests = {};
     try {
-      quests = JSON.parse(await readFile(join(REPO, "data/quests.json"), "utf8"));
+      handQuests = JSON.parse(await readFile(join(REPO, "data/quests.json"), "utf8"));
     } catch {
       /* no quests file */
     }
+    // The chains the epic model generates run beside the hand-kept ones (docs/plans/epic-model.md,
+    // step 2).
+    this.itemModel ??= await loadItemModel();
+    const quests = { ...handQuests, ...this.itemModel.chains };
     // One search per item and pass, since chains share items. The page's `query` asks a slow
     // server up to three times, in at most 30 s.
     const searched = new Map();
@@ -713,7 +717,8 @@ class Daemon {
     const stoneXp = Object.fromEntries(Object.entries(stones.xp).map(([id, xp]) => [this.itemModel.names.get(Number(id)), xp]));
     const need = addDemand(
       chainDemand({ ...this.itemModel, members, epicHolders }),
-      stepDemand({ quests, holders, members, ids: this.itemModel.ids }),
+      // A generated chain's items are its epic's steps, which `chainDemand` counts already.
+      stepDemand({ quests: handQuests, holders, members, ids: this.itemModel.ids }),
       opportunityDemand({ opportunities, need: (o) => piecesNeeded(o, { quests, holders, members }), ids: this.itemModel.ids }),
       potionDemand(this.itemModel.bosses),
       stones.demand,

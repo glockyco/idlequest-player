@@ -333,24 +333,6 @@
       }
     ]
   },
-  "shaman-epic-spear": {
-    "class": "Shaman",
-    "minLevel": 46,
-    "reward": "Spear of Fate",
-    "needs": [
-      "Iksar Scale"
-    ],
-    "steps": [
-      {
-        "zone": "emeraldjungle",
-        "npc": "Spirit Sentinel",
-        "give": [
-          "Iksar Scale"
-        ],
-        "expect": "Spear of Fate"
-      }
-    ]
-  },
   "bard-epic-maligar": {
     "class": "Bard",
     "minLevel": 38,

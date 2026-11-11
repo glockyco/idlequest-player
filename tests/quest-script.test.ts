@@ -135,6 +135,7 @@ end`);
 test("a script file names its NPC, decoding a leading # and taking a number as the NPC's id", () => {
   expect(scriptOwner("kithicor/%23Tasi_V-ghera.lua")).toEqual({ zone: "kithicor", npc: "Tasi V-ghera", npcId: null });
   expect(scriptOwner("citymist/90000.lua")).toEqual({ zone: "citymist", npc: null, npcId: 90000 });
+  expect(scriptOwner("emeraldjungle/Spirit_Sentinel_.lua").npc).toBe("Spirit Sentinel");
 });
 
 test("the clauses of a random roll split its values, and an else takes the rest", () => {
