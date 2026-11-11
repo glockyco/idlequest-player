@@ -1413,7 +1413,9 @@
           const r = await step(`buy ${mv.item} from ${mv.buy.merchant}`, () => i.buyItem(mv.item, mv.buy.merchant, 1), 240000);
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
-        if (i.carried(mv.item) < 1) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
+        // Inventory Search finds nothing transferable on the active character itself, so a move
+        // from it gives from its bags, and a copy no longer there fails at the give.
+        if (i.carried(mv.item) < 1 && activeName(i) !== mv.from) await step(`pull ${mv.item} from ${mv.from}`, () => pullOne(i, mv.item, mv.from), 45000);
         // A transfer to oneself is refused, so a move to the active character equips from its own
         // bags, and an instrument for its bags is already there.
         const self = Number(to.id) === Number(i.stores.character.getState().characterProfile?.id);

@@ -2065,7 +2065,7 @@ test("client options are kept at the bot's values with their toggles, and set on
   expect((f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled).toBe(false);
 });
 
-test("a gear move with a merchant travels there, buys the item and gives it, and a held item is pulled", async () => {
+test("a gear move with a merchant travels there, buys the item and gives it, a held item is pulled, and the active character's own is given without a pull", async () => {
   vi.useFakeTimers();
   try {
     const f = await install();
@@ -2091,12 +2091,14 @@ test("a gear move with a merchant travels there, buys the item and gives it, and
     });
     f.bot.gear({ moves: [
       { item: "Hand Drum", from: null, to: "Edroun", slot: "secondary", buy: { merchant: "Fania Esruc", zone: "permafrost", price: 0.1 } },
-      { item: "Fine Cloak", from: "Tagujazolu", to: "Edroun", slot: "back" },
+      { item: "Fine Cloak", from: "Ugfeu", to: "Edroun", slot: "back" },
+      // Carried by the active character, on which Inventory Search finds nothing to pull.
+      { item: "Jagged Band", from: "Me", to: "Edroun", slot: "finger" },
     ] });
     await runToEnd(f);
     expect(f.moves[0]).toBe("permafrost");
-    expect(log).toEqual(["buy Hand Drum from Fania Esruc", "give Hand Drum to 20", "pull Fine Cloak from Tagujazolu", "give Fine Cloak to 20"]);
-    expect(f.bot.state.task.result).toBe("2 of 2 moves");
+    expect(log).toEqual(["buy Hand Drum from Fania Esruc", "give Hand Drum to 20", "pull Fine Cloak from Ugfeu", "give Fine Cloak to 20", "give Jagged Band to 20"]);
+    expect(f.bot.state.task.result).toBe("3 of 3 moves");
   } finally {
     vi.useRealTimers();
   }

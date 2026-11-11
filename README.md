@@ -295,7 +295,9 @@ against what the hand swings now, and for a Bard the percussion instrument in it
 saves the group (docs/client-internals.md, Bard instruments). Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
 buys in one city for at most the account's last hour of income less the raid budget's share
-(`buyBudget`), pulling coin from the largest account balance when the leader carries too little. `iqd run --coordinate` runs the plan every hour:
+(`buyBudget`), pulling coin from the largest account balance when the leader carries too little.
+Goods a merchant refused in a gear task, by not standing in the Path To list or not selling them,
+stay out of the plan for a day (`refusedGoods`). `iqd run --coordinate` runs the plan every hour:
 worn items and the leaders' bags come from each party's own inventories, the companions' carried
 items from Inventory Search. A character whose party the pass cannot read, with its tab out of the
 world or a task playing another character, keeps the worn items of the last survey. The moves run as one gear task (`iqBot.gear`), which buys or pulls

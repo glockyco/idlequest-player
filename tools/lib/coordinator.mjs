@@ -73,10 +73,10 @@ export function chainSummary({ quests = {}, holders = {}, started = {}, members 
 
 /**
  * Write the outcome of each ended bot task into its history entry: when it ended, how long it took,
- * its status (done, failed or stopped), the result or error and the step it stopped at, and when
- * the task said to come back. A failure at the step where the tab's run of the same task before it
- * failed too is a `repeat` (`retryTime`). `tasks` are the tabs' latest `bot.task` objects. Returns
- * whether an entry changed.
+ * its status (done, failed or stopped), the result or error and the step it stopped at, when the
+ * task said to come back, and a gear task's refused purchases (`refusedBuys`). A failure at the step
+ * where the tab's run of the same task before it failed too is a `repeat` (`retryTime`). `tasks` are
+ * the tabs' latest `bot.task` objects. Returns whether an entry changed.
  */
 export function settleHistory(history, tasks) {
   const byId = new Map(tasks.filter((t) => t?.id).map((t) => [t.id, t]));
@@ -94,8 +94,20 @@ export function settleHistory(history, tasks) {
       h[key] = v;
       changed = true;
     }
+    if (task.refusedBuys?.length && !h.refusedBuys) {
+      h.refusedBuys = task.refusedBuys;
+      changed = true;
+    }
   }
   return changed;
+}
+
+/**
+ * The merchant goods whose purchase a gear task saw refused within `hours`, as `merchant|item`
+ * keys, so the gear plan offers them again only after that, when the merchant may stand again.
+ */
+export function refusedGoods(history, now, hours = 24) {
+  return new Set(history.filter((h) => h.refusedBuys && now - (h.endedAt ?? h.t) < hours * 3600000).flatMap((h) => h.refusedBuys.map((b) => `${b.merchant}|${b.item}`)));
 }
 
 /**

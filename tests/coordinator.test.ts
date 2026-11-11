@@ -361,7 +361,6 @@ test("a gear task goes to a leader that can take every lore item it moves, and a
   expect(decide({ now: NOW, tabs, gear: { moves: [cloak, both] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
 });
 
-
 test("a quest chain takes a tab before a camp would", () => {
   const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];
@@ -613,6 +612,14 @@ test("settleHistory writes an ended task's outcome into its entry once, and leav
   history.push({ t: 5000, label: "A", kind: "hunt", id: "o1", task: "hunt-3" }, { t: 6000, label: "A", kind: "hunt", id: "o1", task: "hunt-4" });
   settleHistory(history, [{ id: "hunt-3", status: "failed", step: "make room", startedAt: 5100, endedAt: 5200 }, { id: "hunt-4", status: "failed", step: "travel", startedAt: 6100, endedAt: 6200 }]);
   expect(history.slice(3).map((h) => h.repeat)).toEqual([true, false]);
+});
+
+test("a gear task's refused purchase keeps those goods out of the plan for a day", () => {
+  const history = [{ t: NOW - 3600000, label: "A", kind: "gear", task: "gear-1" }];
+  const drum = { merchant: "Fania Esruc", item: "Hand Drum" };
+  expect(settleHistory(history, [{ id: "gear-1", status: "done", result: "22 of 23 moves", startedAt: NOW - 3500000, endedAt: NOW - 3400000, refusedBuys: [drum] }])).toBe(true);
+  expect([...refusedGoods(history, NOW)]).toEqual(["Fania Esruc|Hand Drum"]);
+  expect(refusedGoods(history, NOW + 24 * 3600000).size).toBe(0);
 });
 
 test("chainSummary lists holders, those who started a chain and those who still need it", () => {

@@ -292,7 +292,9 @@ export function snapshotInPage(a) {
         rotation: bot.config.rotation ?? [],
         crowdedAt: st.crowdedAt ?? {},
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, since: st.errand.since, until: st.errand.until } : null,
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null } : null,
+        // A gear task's purchases a merchant refused, by not standing in the Path To list or not
+        // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
@@ -994,6 +996,7 @@ class Daemon {
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
     recordWear(this.db, survey, now);
     const { attachEffects, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
+    const { refusedGoods } = await import("./lib/coordinator.mjs");
     const { contentRoot, rows } = await import("./lib/content.mjs");
     // The merchant goods, the gear every live zone's enemies drop, and their item rows, read once.
     if (!this.shop) {
@@ -1038,6 +1041,9 @@ class Daemon {
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
+    // Goods a merchant refused lately stay out of the plan for a day (`refusedGoods`).
+    const refused = refusedGoods(metaGet(this.db, "coordinator")?.history ?? [], now);
+    const shop = this.shop.filter((s) => !refused.has(`${s.merchant}|${this.items.get(s.itemId)?.Name}`));
     // Each character's class epic it does not hold, with the pieces a hunt gets that the account
     // holds none of (docs/plans/epic-model.md, step 3).
     const carried = new Set(survey.map((r) => r.itemId));
@@ -1049,7 +1055,7 @@ class Daemon {
     });
     // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
     const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop: this.shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;
