@@ -25,7 +25,7 @@ the hunting group gives up to get it.
 | T | the hours the copy is worn | 10 levels at the pace of the taker's group, its own XP per hour over the last two hours of minute totals without task minutes, the pace of level 59 at 60, where AA XP takes the place of levels. Without a measured pace a copy's worth is unknown, and the target says so |
 | H | the expected hunting hours for one copy at a sure kill | the longer of the respawns' bound (respawn over spawn chance, drop chance and points, from the content snapshot) and the kill rate's (one over the hunting group's kills per hour times spawn and drop chance, `copyHours`) |
 | p | the hunting group's chance to win a fight against the enemy | [Kill chance](#kill-chance) |
-| k | the share of the hunting group's XP lost while it hunts | 0 inside its rotation, the measured or modeled rate of the trip zone outside it |
+| k | the share of the hunting group's XP lost while it hunts | 0 inside its rotation, 1 outside it, where a camp or a visit earns no XP |
 | D | the deaths of the fights one copy takes, won and lost | [Kill chance](#kill-chance) |
 
 `g` is the relative gain of the group's XP rate, so `V` is in hours of the group's progress. The
