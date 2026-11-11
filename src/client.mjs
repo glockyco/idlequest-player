@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { commitFor, readDeploy } from "./deploy.mjs";
 import { installExpressions } from "./install.mjs";
 
 const here = new URL(".", import.meta.url);
@@ -32,11 +33,18 @@ async function lastCursor(path) {
 /**
  * Inject the bridge and the supervisor bot into a browser tab and return a handle with one async
  * method per bridge call. `tab` needs `evaluate(expression | function, ...args)`, `click`,
- * `clickAt`, `fill` and `waitForSelector` for page evaluation and the game's UI controls.
+ * `clickAt`, `fill` and `waitForSelector` for page evaluation and the game's UI controls. The
+ * code is that of the deployed commit (src/deploy.mjs), as the collector installs it, so a script
+ * that attaches does not put the working tree into a tab that plays. `commit` names another
+ * commit, and null the working tree, for a tab of one's own.
  */
-export async function attach(tab) {
+export async function attach(tab, { commit } = {}) {
+  if (commit === undefined) {
+    const state = await readDeploy(repoPath("runs"));
+    commit = state ? commitFor(state, null) : null;
+  }
   // The same install the collector's tab recovery uses (src/install.mjs).
-  for (const expression of await installExpressions()) await tab.evaluate(expression);
+  for (const expression of await installExpressions(commit)) await tab.evaluate(expression);
 
   const handle = {
     tab,

@@ -8,7 +8,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - The game is live while you work. `bun tools/iqd.mjs status` and <http://127.0.0.1:4790/> show what every group does.
 - The tabs play only while the collector and the browser relay run, because the collector keeps the tabs focused, signs them in and gives the groups their tasks. `tools/play.sh` runs both in the foreground of a terminal tab of its own until it is stopped. Do not start play that is stopped, and stop it only to start it again at once after a change to the collector's code, in the tab it runs in (`tern ls`, `tern send` and `tern run` reach that tab).
-- The collector installs `src/bridge.js` and `src/bot.js` from the working tree into every game tab within about two minutes, so a saved edit to either file plays the account.
+- The tabs run the page code (`src/bridge.js`, `src/bot.js`) of a commit that was deployed, not the working tree. After committing a change to either file, deploy it to one group first and then to all, and revert when the numbers get worse (README, "Deploying page code"). The collector's own code under `tools/` loads when the collector starts.
 - A game tab that is reloaded or navigated is signed out. The page supervisor (`tools/lib/page.mjs`) signs it in again from the stored login, which takes a minute or two.
 - The browser relay reaches every tab of the browser, not only the game. Use the game tabs and tabs you open yourself, and leave the others alone, because they are private.
 

@@ -463,9 +463,9 @@ holds every sign-in for the minute the server asks. A character select without a
 minute is a session the server ended ("Log in before entering the world."), so its page reloads to
 show the login form. It installs the bridge and bot as
 `attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
-otherwise at most every two minutes, and deploys them to a tab whose installed code differs from
-the repository's (`codeVersion`, outside raids). iqd loads `src/install.mjs` once, so a change to
-that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
+otherwise at most every two minutes, and installs the deployed code in a tab that runs other code
+(below), outside raids and after a task that plays in the world. iqd loads `src/install.mjs` once,
+so a change to that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
 world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
 enters the world as its leader and regroups by itself, and a tab without them gets its group from
 `data/roster.json`. The supervisor reloads a page for three faults of the client: a JS heap whose
@@ -477,6 +477,25 @@ the world through a server restart can lack until it reconnects (docs/client-int
 change). A reload waits for a moment without a task, fight, raid or zone load, with every
 recorded row on disk, one tab of the fleet per 10 minutes. A crashed tab needs a new tab, which iqd
 cannot open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
+
+### Deploying page code
+
+The tabs run the bridge and the bot of a commit that was deployed, never the working tree, so an
+edit of `src/bridge.js` or `src/bot.js` plays only after it is committed and deployed
+(`src/deploy.mjs`, state in `runs/state/deploy.json`):
+
+```sh
+bun tools/iqd.mjs deploy --canary G7   # HEAD in group 7 first, the others keep their code
+bun tools/iqd.mjs deploy               # HEAD in every group
+bun tools/iqd.mjs revert               # back to what every group ran before the last deploy
+```
+
+`deploy` takes a commit as its first argument and runs `bun test` first. The tests run on the
+working tree, so it refuses while the tree's page files differ from the commit's. `--untested`
+skips both, for a commit that is not checked out. The collector reads the state every cycle and
+installs within about two minutes, after a tab's running task, and `iqd status` names the deployed
+commit. `attach` installs the same commit. Before the first deploy the collector deploys the commit
+at HEAD. The collector's own code is the working tree's and loads when the collector starts.
 
 `--runs <dir>` or `IQD_RUNS` moves the data directory. The tables are created in `runs/iq.db` by
 `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and

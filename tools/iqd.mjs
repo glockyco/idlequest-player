@@ -26,9 +26,19 @@ import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { pageStep } from "./lib/page.mjs";
+import { commitFor, deployed, readDeploy, reverted, writeDeploy } from "../src/deploy.mjs";
 import { screenInPage } from "../src/install.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
+
+/** A git command's output in this repository, trimmed. */
+async function git(...args) {
+  const p = Bun.spawn(["git", "-C", REPO, ...args], { stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  if (code !== 0) throw new Error(`git ${args.join(" ")}: ${err.trim()}`);
+  return out.trim();
+}
+const gitHead = () => git("rev-parse", "HEAD");
 const SEVERITY_RANK = { info: 1, decide: 2, act: 3 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -590,7 +600,7 @@ class Daemon {
     const tabs = [...this.trackers.values()]
       .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
       // `stale`: the page runs older code than the tabs should, which the supervisor replaces between tasks.
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.code), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.codeOf(tr)), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
     // The five minutes count from a pass that has tabs to work with: the first cycle of a run can
     // come before any tab is read, and its empty pass then held the next one back for five minutes.
     if (!tabs.length) return;
@@ -1209,16 +1219,43 @@ class Daemon {
       if (!this.trackers.has(id)) this.trackers.set(id, { targetId: id, rowId: null, label: `tab:${id.slice(-4)}`, leader: null, state: {} });
     }
     const triggers = await this.triggers();
-    // A failed version keeps the last one, so tabs stop updating: the log names why.
-    if (this.recover) this.code = await import("../src/install.mjs").then((m) => m.codeVersion()).catch((e) => (this.log(`code version: ${e.message}`), this.code));
+    // The page code the tabs should run (src/deploy.mjs). A failed read keeps the last
+    // versions, so tabs stop updating: the log names why.
+    if (this.recover) await this.readDeployed().catch((e) => this.log(`deployed code: ${e.message}`));
     await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
     sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
-    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code });
+    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null });
     await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
     // A minute or so of downloads and checks, so it runs beside the cycles.
     void this.checkRelease(Date.now()).catch((e) => this.log(`client check: ${e.message}`));
     await this.coordinatePass(Date.now()).catch((e) => this.log(`coordinator: ${e.message}`));
     await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
+  }
+
+  /**
+   * Read which commit's page code each group runs and that code's versions: `code` for the groups
+   * outside a canary and `canaryCode` for those in one. Before the first deploy the commit at
+   * HEAD is deployed, so a new checkout plays without a step by hand.
+   */
+  async readDeployed() {
+    const { codeVersion } = await import("../src/install.mjs");
+    let state = await readDeploy(this.runs);
+    if (!state) {
+      const head = await gitHead();
+      state = deployed(null, { commit: head, now: Date.now() });
+      await writeDeploy(this.runs, state);
+      this.log(`deploy: no commit was deployed yet, so ${head.slice(0, 7)} at HEAD is`);
+    }
+    const [code, canaryCode] = await Promise.all([codeVersion(commitFor(state, null)), state.canary?.length ? codeVersion(state.commit) : null]);
+    Object.assign(this, { deploy: state, code, canaryCode });
+  }
+
+  /** The commit of page code tab `tr`'s group runs, and that code's version. */
+  commitOf(tr) {
+    return this.deploy ? commitFor(this.deploy, this.groups().get(tr.leader ?? tr.snap?.leader?.name) ?? null) : null;
+  }
+  codeOf(tr) {
+    return this.deploy?.canary?.length && this.commitOf(tr) === this.deploy.commit ? this.canaryCode : this.code;
   }
 
   /**
@@ -1313,7 +1350,7 @@ class Daemon {
     // supervisor (tools/lib/page.mjs) says what the page needs to keep playing.
     const exported = usable && snap.leader && snap.rec ? await this.exportRows(tr, snap).catch((e) => void this.log(`export ${tr.label}: ${e.message}`)) : false;
     if (this.recover) {
-      const step = pageStep({ obs, page: tr.page, fleet: this.fleet, now, code: this.code, exported: Boolean(exported) });
+      const step = pageStep({ obs, page: tr.page, fleet: this.fleet, now, code: this.codeOf(tr), exported: Boolean(exported) });
       tr.page = step.page;
       this.fleet = step.fleet;
       if (step.action) await this.pageAction(tr, step.action, now).catch((e) => this.log(`page ${tr.label}: ${e.message}`));
@@ -1392,10 +1429,11 @@ class Daemon {
       note(`reloaded the page: ${action.why}`);
       return evaluate("setTimeout(() => location.reload(), 200), true", 5000);
     }
-    for (const e of await installExpressions()) await evaluate(e, 30000);
+    const commit = this.commitOf(tr);
+    for (const e of await installExpressions(commit)) await evaluate(e, 30000);
     const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
     const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;
-    if (action.update) return this.log(`deploy ${tr.label}: code ${this.code}`);
+    if (action.update) return this.log(`deploy ${tr.label}: code ${this.codeOf(tr)} of commit ${commit?.slice(0, 7)}`);
     note(`installed the bridge and bot: ${action.why}${set ? `, and set ${g.members[0]} as leader of ${g.id}` : ""}`);
   }
 
@@ -1767,6 +1805,7 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
   const alive = d && age < (d.intervalSec * 3 + 10) * 1000;
   const state = !d ? "NOT STARTED" : !d.last ? "STOPPED" : alive ? `running (pid ${d.pid}, every ${d.intervalSec}s, last cycle ${dur(age)} ago, relay ${d.relay ? "up" : "DOWN"})` : `NOT RUNNING (last cycle ${dur(age)} ago)`;
   out.push(`iqd ${clock(now)}  daemon ${state}`);
+  if (d?.deploy) out.push(`Page code: commit ${d.deploy.commit.slice(0, 7)} since ${clock(d.deploy.at)}${d.deploy.canary?.length ? ` in ${d.deploy.canary.join(", ")}, the other groups on ${d.deploy.previous.slice(0, 7)}` : ""}`);
 
   out.push("Sessions");
   const sessions = db.query("SELECT * FROM sessions WHERE ended IS NULL ORDER BY first_seen, id").all();
@@ -1833,7 +1872,12 @@ const HELP = `iqd <command>
   run [--interval 30] [--port 4790] [--coordinate] [--recover]
                                  collect game tab state until stopped, with the dashboard on the port (0 for none);
                                  --coordinate also queues hand-ins and hunts by tools/lib/coordinator.mjs,
-                                 --recover signs tabs in again, reinstalls a missing bridge and bot, and deploys changed code
+                                 --recover signs tabs in again, reinstalls a missing bridge and bot, and installs the deployed page code
+  deploy [ref] [--canary G7,G8] [--untested]
+                                 make the tabs run the page code of a commit (default HEAD): of the named groups first,
+                                 and of every group when no group is named. Runs the tests first, which needs the
+                                 working tree's page files to be the commit's, unless --untested
+  revert                         go back to the page code every group ran before the last deploy
   serve [--port 4790]            only the dashboard, on the database as it is
   minutes [--hours 336]          rebuild the minute totals of the last hours from the recorded samples, for the
                                  time before the collector wrote them (run it while the collector is stopped)
@@ -1851,7 +1895,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -1910,6 +1954,39 @@ async function cmdRun({ values, runs }) {
     }
   }
   await daemon.loop();
+}
+
+/** A commit in a line: its short hash and subject. */
+const commitLine = async (c) => `${c.slice(0, 7)} (${await git("log", "-1", "--format=%s", c)})`;
+
+async function cmdDeploy({ values, positionals, runs }) {
+  const { PAGE_FILES } = await import("../src/install.mjs");
+  const commit = await git("rev-parse", "--verify", `${positionals[1] ?? "HEAD"}^{commit}`);
+  const canary = String(values.canary ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const groups = new Set(rosterGroups().values());
+  const unknown = canary.filter((g) => !groups.has(g));
+  if (unknown.length) throw new Error(`no group ${unknown.join(", ")} in data/roster.json`);
+  if (!values.untested) {
+    // The tests run on the working tree, so they speak for the commit only where its page files are the tree's.
+    const differ = await git("diff", "--name-only", commit, "--", ...PAGE_FILES);
+    if (differ) throw new Error(`the working tree's ${differ.split("\n").join(", ")} differ from ${commit.slice(0, 7)}, so the tests would not test it: commit or stash them, or pass --untested`);
+    const t = Bun.spawn(["bun", "test"], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(t.stdout).text(), new Response(t.stderr).text(), t.exited]);
+    if (code !== 0) throw new Error(`the tests fail, so nothing is deployed:\n${(out + err).trim().split("\n").slice(-12).join("\n")}`);
+  }
+  const before = await readDeploy(runs);
+  const state = deployed(before, { commit, canary, now: Date.now() });
+  await writeDeploy(runs, state);
+  const rest = state.canary.length ? `, first in ${state.canary.join(", ")}, while the other groups keep ${await commitLine(state.previous)}` : " in every group";
+  console.log(`deployed ${await commitLine(commit)}${rest}. The collector installs it within two minutes, after a tab's running task.`);
+}
+
+async function cmdRevert({ runs }) {
+  const before = await readDeploy(runs);
+  if (!before) throw new Error("nothing was deployed yet");
+  const state = reverted(before, Date.now());
+  await writeDeploy(runs, state);
+  console.log(`every group goes back to ${await commitLine(state.commit)}, from ${await commitLine(state.previous)}`);
 }
 
 async function cmdServe({ values, runs }) {
@@ -2006,7 +2083,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

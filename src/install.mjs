@@ -4,23 +4,39 @@
 // expression is a plain string, because the relay evaluates only strings.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const here = new URL(".", import.meta.url);
+const repo = fileURLToPath(new URL("..", here));
+
+// A commit's files never change, so each is read from git once.
+const shown = new Map();
+/** The text of the repository's `path` in `commit`, or in the working tree for no commit. */
+async function fileAt(commit, path) {
+  if (!commit) return readFile(new URL(`../${path}`, here), "utf8");
+  const key = `${commit}:${path}`;
+  if (!shown.has(key)) {
+    const p = Bun.spawn(["git", "-C", repo, "show", key], { stdout: "pipe", stderr: "pipe" });
+    const [text, err, exit] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    if (exit !== 0) throw new Error(`git show ${key}: ${err.trim()}`);
+    shown.set(key, text);
+  }
+  return shown.get(key);
+}
+
+/** The files the expressions are made of, which a deploy checks against the working tree. */
+export const PAGE_FILES = ["src/bridge.js", "data/opcodes.json", "data/class-spells.json", "src/bot.js"];
 
 /**
  * The expressions that install the bridge, give it the opcode names and the tables the bot reads
  * (the client's per-class spell table, the quest turn-in items, the band rotations), and install
- * the bot, in that order. The bot keeps its settings in the tab's sessionStorage, so a reload in
- * the same tab gets its leader, party and rotation back. The last expression stamps the page with
- * `codeVersion`, so the collector can tell a tab that runs older code.
+ * the bot, in that order, from the files of `commit` (a full hash), or from the working tree
+ * without one. The bot keeps its settings in the tab's sessionStorage, so a reload in the same tab
+ * gets its leader, party and rotation back. The last expression stamps the page with
+ * `codeVersion`, so the collector can tell a tab that runs other code.
  */
-export async function installExpressions() {
-  const [bridge, bot, opcodes, classSpells] = await Promise.all([
-    readFile(new URL("bridge.js", here), "utf8"),
-    readFile(new URL("bot.js", here), "utf8"),
-    readFile(new URL("../data/opcodes.json", here), "utf8"),
-    readFile(new URL("../data/class-spells.json", here), "utf8"),
-  ]);
+export async function installExpressions(commit = null) {
+  const [bridge, opcodes, classSpells, bot] = await Promise.all(PAGE_FILES.map((f) => fileAt(commit, f)));
   const code = [
     bridge,
     `window.iq.setOpcodeNames(${opcodes})`,
@@ -32,9 +48,9 @@ export async function installExpressions() {
 
 const version = (parts) => Bun.hash(parts.join("\n")).toString(36);
 
-/** The version of the code `installExpressions` installs now, a hash of the expressions. */
-export async function codeVersion() {
-  return (await installExpressions()).at(-1).match(/"(.+)"/)[1];
+/** The version of the code `installExpressions` installs for `commit`, a hash of the expressions. */
+export async function codeVersion(commit = null) {
+  return (await installExpressions(commit)).at(-1).match(/"(.+)"/)[1];
 }
 
 /** The stored login, `~/.config/idlequest/email` and `password`. */
