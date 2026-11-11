@@ -38,9 +38,10 @@ A kill is worth the XP it pays and the items of its loot table at their drop cha
 ### Schedule
 
 - Open-world spawns: a boss whose respawn has passed gets a visit, a group's when a group kills it, else a raid. The spawn list on arrival says whether it is up.
-- Free summons: used every day on the killable bosses of most value whose cooldown has passed, because an unused summon is lost.
+- Free summons: used every day, first on a boss of the raid goal that no raid has killed yet (`data/raid-goal.json`), then on the killable bosses of most value whose cooldown has passed, because an unused summon is lost. Of the goal's nine only Cazic-Thule is on the daily list. The simulator kills him with the raid of all 72 in four of four fights, in 589 s on average with 11.75 deaths a fight and the leader dead in every second one (2026-11-11, groups at 45 to 54).
 - Potions: used in a raid by their holders.
-- Raids run as soon as one is due, the most valuable first: a free summon comes back 24 hours after its use, so waiting for the second shifts the first, and the account's platinum far outruns the raid time it buys.
+- Raids run as soon as one is due, the most valuable first: a free summon comes back 24 hours after its use, so waiting for the second shifts the first, and the account's platinum far outruns the raid time it buys. A raid task runs for three times its simulated fight, a quarter of an hour at least.
+- A raid orders no slow and no debuff: in all four fights that ordered them the page stopped taking the server's messages at that second and the fight was lost (diary/2026-11-11-d.md).
 
 ## Migration
 
