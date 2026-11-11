@@ -9,8 +9,9 @@
 //            `signInWindowSec`, because the server refuses a burst ("Too many login attempts"). A
 //            page that shows that refusal holds every sign-in of the fleet for `refusedHoldSec`,
 //            the minute the server asks for
-//   install  the bridge or the bot is missing, or runs older code outside a raid, at most every
-//            `installEveryMin` per tab, and at once after the tab's sign-in
+//   install  the bridge or the bot is missing, or runs older code outside a raid and outside a task
+//            younger than `taskWaitMin`, which a reinstall stops, at most every `installEveryMin`
+//            per tab, and at once after the tab's sign-in
 //   reload   the heap's floor over `heapWindowMin` stays at `heapShare` of its limit, because the
 //            client keeps memory it no longer needs, the last `lootlessKills` kills brought no
 //            loot line, which a failed zone load can leave behind, or the client refused travel
@@ -26,6 +27,7 @@ export const PAGE = {
   signInWindowSec: 30,
   refusedHoldSec: 70, // "Please wait a minute before trying again."
   installEveryMin: 2,
+  taskWaitMin: 30, // a reinstall stopped a raid's loot step with half the corpse taken, and tasks mostly end within minutes
   heapShare: 0.5,
   heapWindowMin: 10, // longer than V8's collection sawtooth of a few minutes
   lootlessKills: 25, // healthy play reaches about ten
@@ -92,7 +94,8 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
     next.signIns = [...next.signIns, now];
     return result({ kind: "signIn", why: fresh ? "a fresh page" : `the login form for ${Math.round(offlineMs / 1000)} s` });
   }
-  const stale = !fresh && code != null && snap.code !== code && !snap.raid;
+  const tasked = snap.bot?.task?.status === "running" && now - (snap.bot.task.startedAt ?? 0) < cfg.taskWaitMin * 60000;
+  const stale = !fresh && code != null && snap.code !== code && !snap.raid && !tasked;
   if (fresh || stale) {
     if (now - (out.installAt ?? 0) < cfg.installEveryMin * 60000 && !((out.signInAt ?? 0) > (out.installAt ?? 0))) return result();
     out.installAt = now;

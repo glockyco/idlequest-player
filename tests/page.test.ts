@@ -75,12 +75,15 @@ test("a page whose client refused travel for want of its zone's state reloads, w
   expect(step(0, game({ faults: { lootless: 0, desync: T0 } }), T0 + 30 * SEC, { exported: true })).toBe("reload");
 });
 
-test("older code installs outside a raid, at most every two minutes", () => {
+test("older code installs outside a raid and a young task, at most every two minutes", () => {
   const step = fleetOf(1);
   expect(step(0, game({ code: "c0", raid: true }), T0)).toBeNull();
-  expect(step(0, game({ code: "c0" }), T0 + 30 * SEC)).toBe("install");
-  expect(step(0, game({ code: "c0" }), T0 + 60 * SEC)).toBeNull();
-  expect(step(0, game({ code: "c0" }), T0 + 150 * SEC)).toBe("install");
+  // A reinstall stops the task, so it waits for the task, but not for one that hangs.
+  expect(step(0, game({ code: "c0", bot: { task: { status: "running", startedAt: T0 } } }), T0 + 10 * SEC)).toBeNull();
+  expect(step(0, game({ code: "c0", bot: { task: { status: "running", startedAt: T0 - 31 * MIN } } }), T0 + 20 * SEC)).toBe("install");
+  expect(step(0, game({ code: "c0", bot: { task: { status: "done", startedAt: T0 } } }), T0 + 150 * SEC)).toBe("install");
+  expect(step(0, game({ code: "c0" }), T0 + 180 * SEC)).toBeNull();
+  expect(step(0, game({ code: "c0" }), T0 + 270 * SEC)).toBe("install");
 });
 
 test("a character select without a connection for a minute reloads, so the login form shows", () => {
