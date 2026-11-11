@@ -11,8 +11,11 @@ CREATE INDEX IF NOT EXISTS fights_npc ON fights (npc, grp, t);
 
 const KILL = /^You have defeated (.+?) and gained/;
 
-/** An enemy's name as the record keys it: the game writes `Lady_Vox` in some places and `Lady Vox` in others. */
-export const npcKey = (name) => String(name).replace(/[#_]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+/**
+ * An enemy's name as the record keys it: the game writes `Lady_Vox` in some places and `Lady Vox` in
+ * others, and the daily boss list says `Cazic-Thule` for the content's `Cazic_Thule`.
+ */
+export const npcKey = (name) => String(name).replace(/[#_-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 
 /**
  * The kills and escapes among one tab's `events`, whose leader is at `level`: rows

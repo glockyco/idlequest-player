@@ -1,7 +1,7 @@
 // Checks the fight record (tools/lib/fight-record.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { FIGHTS_SCHEMA, fightOutcomes, recordCounts, recordFights } from "../tools/lib/fight-record.mjs";
+import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "../tools/lib/fight-record.mjs";
 
 const T0 = 1_800_000_000_000;
 
@@ -17,6 +17,11 @@ test("a defeat line is a kill, a guard escape naming its enemy is an escape, and
     { t: T0, npc: "lady vox", level: 52, outcome: "kill", rule: null },
     { t: T0 + 1, npc: "tilania shadowwalker", level: 52, outcome: "escape", rule: "level" },
   ]);
+});
+
+test("an enemy has one key however the game spells its name", () => {
+  // The simulator found no "Cazic-Thule" of the daily list among the content's NPCs, so the goal boss had no kill chance.
+  expect(["Cazic-Thule", "#Cazic_Thule", "Cazic Thule"].map(npcKey)).toEqual(["cazic thule", "cazic thule", "cazic thule"]);
 });
 
 test("a group's record counts its recent fights at its current level, and only its own", () => {
