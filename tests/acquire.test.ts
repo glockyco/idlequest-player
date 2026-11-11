@@ -53,17 +53,17 @@ test("drops that roll on their own shorten the hunting for the first copy, and a
   expect(shared.cost).toBeCloseTo(ACQUIRE.sharedCost * shared.hours);
 });
 
-test("outside the rotation a camp costs what the trip zone does not pay, and a visit its whole time", () => {
+test("outside the rotation a camp and a visit each cost their whole time", () => {
   const x = { npc: "Hangman", zone: "trakanon", npcLevel: 30, spawn: 0.02, points: 6, items: [item(1000, 1.39, 1)] };
   const pace = { X1: 1 };
-  const [camp, visit] = ways(tab(30, "paw"), x, { hoursPerLevel: pace, zoneShare: () => 0.25 });
+  const [camp, visit] = ways(tab(30, "paw"), x, { hoursPerLevel: pace });
   expect(camp).toMatchObject({ kind: "camp", hours: 1.39 });
-  expect(camp.cost).toBeCloseTo(0.75 * 1.39);
+  expect(camp.cost).toBeCloseTo(1.39);
   expect(visit.kind).toBe("visit");
   expect(visit.up).toBeCloseTo(1 - 0.98 ** 6);
   expect(visit.value).toBeCloseTo((1 - 0.98 ** 6) * copyValue(item(1000, 1.39, 1), pace));
   expect(visit.cost).toBe(ACQUIRE.visitHours);
-  expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, zoneShare: () => 0.25, killChance: () => sure })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
+  expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, killChance: () => sure })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
 });
 
 const sure = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
@@ -96,24 +96,25 @@ test("a hunt is valued at its kill chance, and every fight pays its deaths", () 
 
 test("a trip pays its zone's cost once and adds each enemy's drops", () => {
   const pace = { X1: 1 };
-  const ctx = { hoursPerLevel: pace, zoneShare: () => 0.5, killChance: () => sure };
+  const ctx = { hoursPerLevel: pace, killChance: () => sure };
   const fiend = { npc: "a fiend", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [item(75, 1)] };
   const ghoul = { npc: "a ghoul", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [{ ...item(60, 1), slot: "neck" }] };
+  const camp = (x: object, kind: string) => kind === "camp";
   // A copy an hour of each, worth 0.75 and 0.6 hours: the half-hour camp fills each slot with the
-  // chance 1 - e^-0.5 that its copy comes, and pays half its hours in XP once.
-  const both = trip(tab(30, "paw"), [fiend, ghoul], ctx)!;
+  // chance 1 - e^-0.5 that its copy comes, and costs its half hour once.
+  const both = trip(tab(30, "paw"), [fiend, ghoul], ctx, camp)!;
   expect(both).toMatchObject({ kind: "camp", zone: "unrest", hours: ACQUIRE.campMin / 60 });
   expect(both.members.map((m) => m.x.npc)).toEqual(["a fiend", "a ghoul"]);
-  expect(netRate(both)).toBeCloseTo(((0.75 + 0.6) * (1 - Math.exp(-0.5)) - 0.25) / 0.5);
+  expect(netRate(both)).toBeCloseTo(((0.75 + 0.6) * (1 - Math.exp(-0.5)) - 0.5) / 0.5);
   // An enemy not due for a camp stays out of it.
-  expect(trip(tab(30, "paw"), [fiend, ghoul], ctx, (x) => x !== ghoul)!.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
+  expect(trip(tab(30, "paw"), [fiend, ghoul], ctx, (x, kind) => camp(x, kind) && x !== ghoul)!.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
 });
 
 test("a trip fills a slot once, however fast its copies come", () => {
   // Ten copies an hour of a 0.75-hour piece: a half-hour camp fills the slot almost surely, and
   // earns the copy once, not five times.
   const fast = { npc: "a fiend", zone: "unrest", npcLevel: 30, spawn: 1, points: 1, items: [item(75, 0.1)] };
-  const camp = trip(tab(30, "paw"), [fast], { hoursPerLevel: { X1: 1 }, zoneShare: () => 1, killChance: () => sure })!;
+  const camp = trip(tab(30, "paw"), [fast], { hoursPerLevel: { X1: 1 }, killChance: () => sure })!;
   expect(camp.value).toBeCloseTo(0.75 * (1 - Math.exp(-5)));
 });
 
@@ -121,9 +122,9 @@ test("enemies that each take all of the group's kills do not add up on one trip"
   const pace = { X1: 1 };
   // Ten points respawning hourly give ten kills an hour, all a group of ten kills an hour takes.
   const busy = (npc: string, gain: number) => ({ npc, zone: "unrest", npcLevel: 30, spawn: 1, points: 10, respawn: 3600, items: [{ ...item(gain, 1), slot: npc }] });
-  const both = trip(tab(30, "paw"), [busy("a fiend", 75), busy("a ghoul", 60)], { hoursPerLevel: pace, zoneShare: () => 0.5, killChance: () => sure, killsPerHour: { G1: 10 } })!;
+  const both = trip(tab(30, "paw"), [busy("a fiend", 75), busy("a ghoul", 60)], { hoursPerLevel: pace, killChance: () => sure, killsPerHour: { G1: 10 } })!;
   expect(both.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
-  expect(netRate(both)).toBeCloseTo((0.75 * (1 - Math.exp(-0.5)) - 0.25) / 0.5);
+  expect(netRate(both)).toBeCloseTo((0.75 * (1 - Math.exp(-0.5)) - 0.5) / 0.5);
 });
 
 test("a hunt for a copy at the end of a chain of deaths takes the whole chain", () => {

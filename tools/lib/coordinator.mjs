@@ -171,14 +171,14 @@ export function worldHold(history, id, code = null) {
  * - `targets`: the gear pass's enemies worth hunting for gear (tools/lib/gear-plan.mjs), best first,
  *   `crowded`, zones other players crowd (`crowdedZones`), `points`, the spawn points of each target
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
- *   `killsPerHour`, `zoneShare` and `killChance(tab, target)`, a group's kill chance against the
- *   enemy (`killChanceOf`), null when unknown.
+ *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
+ *   (`killChanceOf`), null when unknown.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
  * per tab, where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and a trip
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0, killChance = () => null, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
@@ -299,7 +299,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const lastHunts = new Map();
   for (const h of history) for (const id of h.ids ?? (h.id ? [h.id] : [])) lastHunts.set(id, h);
   const lastHunt = (id) => lastHunts.get(id);
-  const ctx = { tabs, hoursPerLevel, killsPerHour, zoneShare, killChance };
+  const ctx = { tabs, hoursPerLevel, killsPerHour, killChance };
   const hunter = (t) => free(t) && t.members.length;
   // An errand changes the AutoLevel limits an experiment's arms compare, so a held group gets none.
   const allowed = (t, kind) => !(kind === "errand" && held.has(t.group));

@@ -670,7 +670,6 @@ class Daemon {
     // The crowd factors follow the zones' measured crowding, which grows every cycle.
     this.crowdCache?.clear();
     const rates = await this.loadRates();
-    const { estimate } = await import("./lib/rates.mjs");
     const { xpStart } = await import("./lib/xp.mjs");
     const hoursPerLevel = {};
     const sinceMinute = Math.floor((now - 2 * 3600000) / 60000);
@@ -696,18 +695,6 @@ class Daemon {
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
     // A camp clears its target's spawn points.
     await loadPoints(this.targetWants.map((x) => ({ key: targetId(x), zone: x.zone, pattern: `^${x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$` })));
-    // The share of a tab's XP per hour a trip zone pays at its leader's level: the measured rates
-    // where both zones have them, else the leveling model's prediction for both (tools/predict.mjs).
-    const predicted = await this.predictedRates(new Set([...tabs.map((t) => t.zone), ...this.targetWants.map((x) => x.zone)].filter(Boolean)));
-    const zoneShare = (t, zone) => {
-      const level = t.members[0]?.level ?? 0;
-      const there = estimate(rates, zone, level, now)?.xph;
-      const here = estimate(rates, t.zone, level, now)?.xph;
-      if (there > 0 && here > 0) return there / here;
-      const a = predicted(zone, level);
-      const b = predicted(t.zone, level);
-      return a > 0 && b > 0 ? a / b : 0;
-    };
     // The account's demand (docs/plans/items.md, "Demand"): total copies for the items the class
     // epics' chosen steps take (the epic model), the items of the runnable chains in
     // data/quests.json, the copies the hunts and errands are for and the casino's boss potions, and
@@ -747,7 +734,7 @@ class Daemon {
     };
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, zoneShare, killChance });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     for (const a of actions) {

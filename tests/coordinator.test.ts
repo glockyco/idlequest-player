@@ -123,15 +123,17 @@ test("a chain whose reward a later chain takes stays done", () => {
 // The kill chance these scenarios assume: a group kills what stands up to three levels above its leader.
 const byLevel = (t: { members: { level: number }[] }, x: { npcLevel: number }) => ({ p: x.npcLevel <= t.members[0].level + 3 ? 1 : 0, fights: 4, deaths: 0, leaderDeaths: 0 });
 const target = (npc: string, zone: string, gain: number, npcLevel = 30, slot = npc) => ({ npc, zone, npcLevel, spawn: 1, points: 1, items: [{ item: `${npc} drop`, to: "X1", slot, level: 30, gain, hours: 1, drop: 0.1 }] });
+// A target that is seldom up, so a visit rarely finds it and a camp is its way outside the rotation.
+const rare = (npc: string, zone: string, gain: number, slot = npc) => ({ ...target(npc, zone, gain, 30, slot), spawn: 0.1 });
 const hoursPerLevel = { X1: 1 };
 const place = (t: object, zone: string) => ({ ...t, zone, rotation: [zone] });
 
 test("gear targets go to the pairs of group and target that earn most first, not tab by tab", () => {
-  // G1 could camp the fiend (0.75 - 0.1 an hour) or hunt the goo in its rotation (0.38). G2 hunts
-  // the fiend in its own rotation for free (0.75), so G2 takes the fiend and G1 the goo.
+  // G1 could camp the fiend at the camp's whole time or hunt the goo in its rotation (0.38). G2
+  // hunts the fiend in its own rotation for free (0.75), so G2 takes the fiend and G1 the goo.
   const tabs = [place(tab("A", "G1", 30), "paw"), place(tab("B", "G2", 30), "unrest")];
   const targets = [target("a fiend", "unrest", 75), target("a goo", "paw", 38)];
-  const { actions } = decide({ killChance: byLevel, now: NOW, tabs, targets, hoursPerLevel, zoneShare: () => 0.9 });
+  const { actions } = decide({ killChance: byLevel, now: NOW, tabs, targets, hoursPerLevel });
   expect(actions.map((a) => [a.label, a.kind, a.id])).toEqual([["B", "errand", "target-unrest-a-fiend"], ["A", "errand", "target-paw-a-goo"]]);
 });
 
@@ -139,28 +141,27 @@ test("a zone's enemies go on one trip, and a second group follows only for what 
   const tabs = [place(tab("A", "G1", 30), "paw"), place(tab("B", "G2", 30), "paw")];
   // Both drops would fill X1's waist, and hunting both makes the first copy come sooner, so one
   // camp hunts both and the other group has nothing left there.
-  const same = decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a fiend", "unrest", 75, 30, "waist"), target("a ghoul", "unrest", 60, 30, "waist")], hoursPerLevel, zoneShare: () => 0.9 });
+  const same = decide({ killChance: byLevel, now: NOW, tabs, targets: [rare("a fiend", "unrest", 300, "waist"), rare("a ghoul", "unrest", 240, "waist")], hoursPerLevel });
   expect(same.actions).toMatchObject([{ label: "A", kind: "hunt", id: "target-unrest-a-fiend", ids: ["target-unrest-a-fiend", "target-unrest-a-ghoul"], spec: { zone: "unrest", keep: "a fiend|a ghoul", minutes: ACQUIRE.campMin } }]);
   expect(same.actions[0].spec).not.toHaveProperty("item");
   expect(same.targets["target-unrest-a-ghoul"]).toMatchObject({ state: "queued", plan: { group: "G1", enemies: 2 } });
-  // Enemies that each take all ten kills an hour of a group fill one camp each. The second camp in
-  // the zone costs 0.1 of its hours and the shared 0.4, which the 39% chance of a copy worth 0.7
-  // hours in its half hour still pays for.
+  // Enemies that each take all ten kills an hour of a group fill one camp each. The second camp
+  // costs its whole half hour, which the 39% chance of a copy worth 2.8 hours in it still pays for.
   const busy = (npc: string, gain: number) => ({ ...target(npc, "unrest", gain, 30, npc), points: 10, respawn: 3600 });
-  const two = decide({ killChance: byLevel, now: NOW, tabs, targets: [busy("a fiend", 75), busy("a ghoul", 70)], hoursPerLevel, zoneShare: () => 0.9, killsPerHour: { G1: 10, G2: 10 } });
+  const two = decide({ killChance: byLevel, now: NOW, tabs, targets: [busy("a fiend", 300), busy("a ghoul", 280)], hoursPerLevel, killsPerHour: { G1: 10, G2: 10 } });
   expect(two.actions.map((a) => [a.label, a.ids])).toEqual([["A", ["target-unrest-a-fiend"]], ["B", ["target-unrest-a-ghoul"]]]);
-  expect(two.targets["target-unrest-a-ghoul"].plan.cost).toBeCloseTo(0.5);
+  expect(two.targets["target-unrest-a-ghoul"].plan.cost).toBeCloseTo(1);
 });
 
 test("the strongest group takes the zone where its targets add most, and the others hunt what they reach", () => {
   const strong = place(tab("A", "G1", 51), "velketor");
   const weak = place(tab("B", "G2", 40), "paw");
-  const hate = (npc: string, level: number) => target(npc, "hateplane", 75, level, npc);
+  const hate = (npc: string, level: number) => target(npc, "hateplane", 300, level, npc);
   const targets = [target("a broodling", "velketor", 125, 48), hate("an elite dragoon", 50), hate("an agent", 52), hate("a rat", 53), target("a goo", "paw", 38)];
   // The day's casino roll is done, which would otherwise take G1's leader of 51 first.
   const rolledToday = [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }];
-  const { actions } = decide({ killChance: byLevel, now: NOW, tabs: [strong, weak], targets, hoursPerLevel, zoneShare: () => 0.9, history: rolledToday });
-  // Three enemies of 0.75 in the Plane of Hate earn G1 more than its errand on the broodling.
+  const { actions } = decide({ killChance: byLevel, now: NOW, tabs: [strong, weak], targets, hoursPerLevel, history: rolledToday });
+  // Three enemies of 3 hours each in the Plane of Hate earn G1 more than its errand on the broodling.
   expect(actions.map((a) => [a.label, a.ids])).toEqual([
     ["A", ["target-hateplane-an-elite-dragoon", "target-hateplane-an-agent", "target-hateplane-a-rat"]],
     ["B", ["target-paw-a-goo"]],
@@ -186,19 +187,19 @@ test("a slot another hunt serves still takes a copy that comes sooner, for the h
 test("a group an experiment holds still camps outside its rotation, but runs no errand", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
   const held = new Set(["G1"]);
-  expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a fiend", "unrest", 75)], hoursPerLevel, zoneShare: () => 0.9, held }).actions).toMatchObject([{ label: "A", kind: "hunt" }]);
+  expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a fiend", "unrest", 300)], hoursPerLevel, held }).actions).toMatchObject([{ label: "A", kind: "hunt" }]);
   expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a goo", "paw", 38)], hoursPerLevel, held }).actions).toEqual([]);
 });
 
 test("a target whose best group is busy goes to a free group that still gains, and otherwise waits", () => {
   const busy = { ...place(tab("B", "G2", 30), "unrest"), task: { kind: "quest", status: "running" } };
   const tabs = [place(tab("A", "G1", 30), "paw"), busy];
-  const targets = [target("a fiend", "unrest", 75)];
-  // A trip zone that pays 90% of G1's XP makes the camp pay.
-  const paid = decide({ killChance: byLevel, now: NOW, tabs, targets, hoursPerLevel, zoneShare: () => 0.9 });
+  // A copy worth 3 hours pays G1's camp of half an hour.
+  const paid = decide({ killChance: byLevel, now: NOW, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel });
   expect(paid.actions).toMatchObject([{ label: "A", kind: "hunt", spec: { zone: "unrest", minutes: 30, waitMin: 0 } }]);
   expect(paid.targets["target-unrest-a-fiend"]).toMatchObject({ state: "queued", plan: { group: "G1", kind: "camp" } });
-  // A trip that earns no XP costs G1 more than the copy adds, so the fiend waits for G2.
+  // A copy worth 0.75 hours costs G1 more than it adds, so the fiend waits for G2.
+  const targets = [target("a fiend", "unrest", 75)];
   const unpaid = decide({ killChance: byLevel, now: NOW, tabs, targets, hoursPerLevel });
   expect(unpaid.actions).toEqual([]);
   expect(unpaid.targets["target-unrest-a-fiend"]).toMatchObject({ state: "busy", group: "G2", only: false, on: { kind: "quest" }, plan: { group: "G2", kind: "errand" } });
@@ -207,7 +208,7 @@ test("a target whose best group is busy goes to a free group that still gains, a
 test("a target only one group reaches waits for that group by its reach, and a weaker free group leaves it", () => {
   const strong = { ...place(tab("A", "G1", 51), "velketor"), task: { kind: "hunt", status: "running" } };
   const weak = place(tab("B", "G2", 36), "paw");
-  const { actions, targets } = decide({ killChance: byLevel, now: NOW, tabs: [strong, weak], targets: [target("a broodling", "velketor", 125, 48)], hoursPerLevel, zoneShare: () => 0.9 });
+  const { actions, targets } = decide({ killChance: byLevel, now: NOW, tabs: [strong, weak], targets: [target("a broodling", "velketor", 125, 48)], hoursPerLevel });
   expect(actions).toEqual([]);
   expect(targets["target-velketor-a-broodling"]).toMatchObject({ state: "busy", group: "G1", only: true, on: { kind: "hunt" } });
 });
@@ -243,9 +244,9 @@ test("a rare spawn gets a short visit, and a camp clears the target's spawn poin
   const tabs = [place(tab("A", "G1", 30), "paw")];
   // 2% on each of 6 points: up on arrival 11% of the time, so a 6-minute visit adds 0.114 x 1.26
   // hours against 0.1, where a camp of 1.39 hours a copy adds 1.26 against 1.39.
-  const rare = { ...target("Hangman", "trakanon", 126), spawn: 0.02, points: 6, items: [{ item: "Noose", to: "X1", level: 30, gain: 126, hours: 1.39, drop: 1 }] };
-  expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [rare], hoursPerLevel }).actions).toEqual([expect.objectContaining({ kind: "hunt", spec: { zone: "trakanon", keep: "Hangman", item: "Noose", waitMin: 0, minutes: 6 } })]);
-  const camp = decide({ killChance: byLevel, now: NOW, tabs, targets: [target("a fiend", "unrest", 75)], hoursPerLevel, zoneShare: () => 0.9, points: { "target-unrest-a-fiend": [11, 12] } });
+  const hangman = { ...target("Hangman", "trakanon", 126), spawn: 0.02, points: 6, items: [{ item: "Noose", to: "X1", level: 30, gain: 126, hours: 1.39, drop: 1 }] };
+  expect(decide({ killChance: byLevel, now: NOW, tabs, targets: [hangman], hoursPerLevel }).actions).toEqual([expect.objectContaining({ kind: "hunt", spec: { zone: "trakanon", keep: "Hangman", item: "Noose", waitMin: 0, minutes: 6 } })]);
+  const camp = decide({ killChance: byLevel, now: NOW, tabs, targets: [rare("a fiend", "unrest", 300)], hoursPerLevel, points: { "target-unrest-a-fiend": [11, 12] } });
   expect(camp.actions[0].spec.points).toEqual([11, 12]);
 });
 

@@ -107,19 +107,19 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  * expected value at the group's kill chance `k` (`killChanceOf`, a sure kill by default):
  * - errand: inside the group's rotation, `hours` the expected hunting until the first wanted copy
  *   (`copyHours` at the group's `killsPerHour`, stretched by the fights it loses), free;
- * - camp: outside it, the same hours, less the share of the group's XP the trip zone pays
- *   (`zoneShare(t, zone)`);
+ * - camp: outside it, the same hours, all of them a cost, since a camp holds the enemy's points with
+ *   the client's Spawn Camp and earns no XP while it waits for their respawns;
  * - visit: outside it, `visitHours`, worth the chance the enemy is up on one of its points on
  *   arrival, 1 - (1 - spawn)^points, times the kill chance and each item's drop chance and value.
  * Every fight, won or lost, pays its expected deaths (`deathHours`): an errand or a camp as many as
- * one copy takes, a visit one, or its chain's (`chainKills`), when the enemy is up. An errand or a camp costs `sharedCost` of its
- * hours more in a zone another tab plays or travels to. The items' drops roll on their own, so a
+ * one copy takes, a visit one, or its chain's (`chainKills`), when the enemy is up. An errand costs `sharedCost` of its
+ * hours in a zone another tab plays or travels to. The items' drops roll on their own, so a
  * copy of any of them comes every `1 / sum(1 / hours)` hours, and its value is the items' value per
  * hour of hunting times that. Each way also names `zoneRate`, the share of each of its hours the
  * zone costs whatever the group hunts there, which a trip for several targets pays once (`trip`),
  * and `copies`, each item's hours of hunting per copy.
  */
-export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, zoneShare = () => 0 } = {}, k = SURE) {
+export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {} } = {}, k = SURE) {
   const perFight = deathHours(t, k, hoursPerLevel);
   const copies = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, killsPerHour[t.group]) / k.p);
   const values = x.items.map((w, j) => copyValue(w, hoursPerLevel, copies[j]));
@@ -128,14 +128,15 @@ export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, z
   // A kill drops a wanted copy with the chance that at least one of the enemy's items rolls.
   const anyDrop = 1 - x.items.reduce((q, w) => q * (1 - (w.drop ?? 1)), 1);
   const deaths = (perFight * chainKills(x)) / (k.p * Math.max(anyDrop, 1e-6));
-  const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost : 0;
   const base = { hours, value: perHour * hours, copies, values, killChance: k.p };
-  if ((t.rotation ?? []).includes(x.zone)) return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths }];
-  const zoneRate = Math.min(1, Math.max(0, 1 - Math.min(1, zoneShare(t, x.zone) ?? 0)) + shared);
+  if ((t.rotation ?? []).includes(x.zone)) {
+    const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost : 0;
+    return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths }];
+  }
   const up = 1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1);
   const visitValue = k.p * up * x.items.reduce((s, w, j) => s + (w.drop ?? 1) * values[j], 0);
   return [
-    { kind: "camp", ...base, zoneRate, cost: zoneRate * hours + deaths },
+    { kind: "camp", ...base, zoneRate: 1, cost: hours + deaths },
     { kind: "visit", hours: ACQUIRE.visitHours, value: visitValue, cost: ACQUIRE.visitHours + up * perFight * chainKills(x), up, copies, values, killChance: k.p, zoneRate: 1 },
   ];
 }

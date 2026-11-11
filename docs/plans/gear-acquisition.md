@@ -53,7 +53,7 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | Move | none | none | the account holds a free copy (the gear plan's moves) |
 | Purchase | none | platinum | a merchant in a city sells it, within the pass's platinum budget |
 | Errand | hours per copy | 0, or `sharedCost` when another group plays the zone | the enemy's zone is in the group's rotation |
-| Camp | hours per copy | 1 less the share of the group's XP the trip zone pays | outside the rotation, when it earns more than a visit |
+| Camp | hours per copy | 1, since the client's Spawn Camp holds the enemy's points and earns no XP while it waits for their respawns | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival, `1 - (1 - spawn)^points`, times the kill chance and each drop chance and copy value |
 
 A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
@@ -131,6 +131,6 @@ for raids. A leader that carries too little for a purchase pulls the largest acc
 | Kill shares | modeled: an enemy's points over their respawn against the group's kills per hour from the gear pass, until trips are measured |
 | Time of day | read from the spawn conditions (`spawnTimes`): an enemy whose points all spawn only by night or by day is hunted only then, by the tab's game hour |
 | Travel | about 2 s a zone change (`travel/zone` time over zone entries), so a trip costs its hunting time and a camp ends at its item |
-| Trip zone's share of XP | measured rates where both zones have them, else the leveling model's prediction for both, which is unchecked for zones no group has played |
+| A camp's XP | measured as none: the leaders earned nothing while their camps waited on the points, so a camp costs its whole time |
 
 Each measurement replaces its assumption here and in the code that uses it.
