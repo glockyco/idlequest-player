@@ -66,7 +66,12 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
   if (snap.heap) out.heap = [...(out.heap ?? []).filter((r) => now - r.t <= 2 * cfg.heapWindowMin * 60000), { t: now, used: snap.heap.used }];
   const fresh = !snap.hasBridge || !snap.hasBot;
   out.offlineSince = snap.screen === "login" || snap.conn?.connected === false ? (out.offlineSince ?? now) : null;
-  if (snap.signInRefused) next.signInHoldUntil = Math.max(next.signInHoldUntil ?? 0, now + cfg.refusedHoldSec * 1000);
+  // The refusal stays on the form until the next attempt, so it holds the fleet once for each
+  // sign-in it answers, not at every look.
+  if (snap.signInRefused && out.refusedFor !== (out.signInAt ?? 0)) {
+    next.signInHoldUntil = Math.max(next.signInHoldUntil ?? 0, now + cfg.refusedHoldSec * 1000);
+    out.refusedFor = out.signInAt ?? 0;
+  }
   // A sign-in or a reload that leads to one waits for the server's minute and the fleet's budget.
   const signInHeld = now < (next.signInHoldUntil ?? 0) || next.signIns.length >= cfg.signInBurst;
   if (snap.screen === "loading") return result();

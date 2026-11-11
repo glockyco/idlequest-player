@@ -96,3 +96,12 @@ test("a page that shows the server's refusal holds every sign-in of the fleet fo
   expect(step(2, login(fresh), T0 + 69 * SEC)).toBeNull();
   expect(step(1, login(fresh), T0 + 71 * SEC)).toBe("signIn");
 });
+
+test("a refusal left on the form holds the fleet once, so the page signs in again after the minute", () => {
+  const step = fleetOf(1);
+  const refused = login({ signInRefused: true });
+  expect(step(0, refused, T0)).toBeNull();
+  // The text still shows at every look, and the page signs in once the hold and its minute pass.
+  expect(step(0, refused, T0 + 60 * SEC)).toBeNull();
+  expect(step(0, refused, T0 + 75 * SEC)).toBe("signIn");
+});
