@@ -7,7 +7,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 ## What to know before you change anything
 
 - The game is live while you work. `bun tools/iqd.mjs status` and <http://127.0.0.1:4790/> show what every group does.
-- The tabs play only while the collector runs, because it keeps them focused, signs them in and gives the groups their tasks. When `status` says the daemon is not running, start `bun tools/iqd.mjs run --interval 30 --coordinate --recover` as the omp service `iqd`, ready at the log line `iqd started`. When it reports the relay down, `browser.targets({ app: { relay: true } })` in an eval cell starts the relay.
+- The tabs play only while the collector and the browser relay run, because the collector keeps the tabs focused, signs them in and gives the groups their tasks. `tools/play.sh` runs both in the foreground of a terminal tab of its own until it is stopped. Do not start play that is stopped, and stop it only to start it again at once after a change to the collector's code, in the tab it runs in (`tern ls`, `tern send` and `tern run` reach that tab).
 - The collector installs `src/bridge.js` and `src/bot.js` from the working tree into every game tab within about two minutes, so a saved edit to either file plays the account.
 - A game tab that is reloaded or navigated is signed out. The page supervisor (`tools/lib/page.mjs`) signs it in again from the stored login, which takes a minute or two.
 - The browser relay reaches every tab of the browser, not only the game. Use the game tabs and tabs you open yourself, and leave the others alone, because they are private.
@@ -33,3 +33,4 @@ Everything else is yours to decide. Often nobody is reading along, so a question
 
 - Setup, the tools and measuring: [README.md](README.md). How the client behaves: [docs/client-internals.md](docs/client-internals.md). Plans and their measurements: `docs/plans/`.
 - Open work and the handoff between sessions: the vault note `Projects/IdleQuest player.md`.
+- The goal this work serves: [docs/goal.md](docs/goal.md). A new session takes it with `omp --goal "$(cat docs/goal.md)"`.

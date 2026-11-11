@@ -35,7 +35,7 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
 
 The collector `tools/iqd.mjs` watches every game tab, so an agent never polls tabs by hand (README, "Monitoring"):
 
-1. `bun tools/iqd.mjs run` is the long-lived collector process, and `bun tools/iqd.mjs status` says whether it runs.
+1. `tools/play.sh` runs the collector, and `bun tools/iqd.mjs status` says whether it runs.
 2. `bun tools/iqd.mjs status` lists sessions, characters, open attention items and open jobs.
 3. Close an attention item you handled with `iqd ack <id> <what was done>`. Conditions (stall, gone, nobridge, heap) close when they clear. An event closes when the tab shows it is over (a later task finished after a failed one, the tab plays again after an idle alert), when a newer one of its kind for the tab replaces it, an info event after ten minutes and an act event after an hour without an open condition on the tab (`EVENT_TTL_MS` in `tools/iqd.mjs`), so read the closed ones in the dashboard's attention list as well. Decisions stay open until answered.
 4. Register background work that a decision waits for with `iqd job add` and close it with `iqd job done`. Results go under `runs/jobs/`, never into a temporary directory.

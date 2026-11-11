@@ -338,8 +338,9 @@ It also asks the browser to treat each game tab as focused, because the browser 
 timers of a hidden tab and its fights stop ending. The tabs therefore need not be in front while
 iqd runs.
 
-Start it once as a long-lived process, for example as an omp service named `iqd` that is ready at the
-log line `iqd started`, or with `nohup`. A second `run` refuses to start while one is active.
+`tools/play.sh` runs the browser relay and the collector with `--coordinate --recover` in the
+foreground until it is stopped, for a terminal tab of its own. A second `run` refuses to start while
+one is active.
 
 ```sh
 bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM, dashboard on http://127.0.0.1:4790/
