@@ -720,11 +720,12 @@ class Daemon {
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
     // prior fitted to every fight on file, the simulator's fights of its six and its own fights at
-    // its current level, once per pair for the pass.
+    // its current level, once per pair for the pass. A chain's enemies share the target's name and
+    // zone but not its level, so the level and hit points are part of the pair.
     const odds = await this.killOdds(now);
     const chances = new Map();
     const killChance = (t, x) => {
-      const key = `${t.group}|${x.zone}|${x.npc}`;
+      const key = `${t.group}|${x.zone}|${x.npc}|${x.npcLevel}|${x.npcHp}`;
       if (chances.has(key)) return chances.get(key);
       const level = t.members[0]?.level ?? 0;
       const prior = odds?.prior && x.npcLevel != null ? priorOf(odds.prior, x.npcLevel - level, x.npcHp) : null;

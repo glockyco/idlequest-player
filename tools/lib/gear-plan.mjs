@@ -270,7 +270,7 @@ export const fits = (item, p, slot) =>
  * (`huntPieces` in tools/lib/epic-model.mjs). Each piece is worth the reward's gain to `to`, shared by
  * the pieces it lacks, and its sources join the targets with `slot` "epic", not the per-slot
  * `drops`. A target keeps its hardest enemy's level and hit points and, in `also`, the enemies a
- * chain of deaths brings, which its hunt kills too. `unworn` lists items no move puts on, the
+ * chain of deaths brings, which its hunt kills too, with each enemy's own fights in `fights`. `unworn` lists items no move puts on, the
  * pieces a quest hands in, since a hand-in takes them from the bags.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
@@ -454,6 +454,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
         t.npcLevel = Math.max(t.npcLevel ?? 0, d.npcLevel ?? 0) || null;
         t.npcHp = Math.max(t.npcHp ?? 0, d.npcHp ?? 0) || null;
         t.also = [...new Set([...(t.also ?? []), ...(d.also ?? [])])];
+        t.fights ??= d.fights;
         t.offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, ...(d.kills != null ? { kills: d.kills } : {}), key: k });
       }
     }
@@ -484,7 +485,7 @@ function rankTargets(byTarget, copyValue) {
         items.push({ ...rest, takers: new Set(t.offers.filter((o) => o.itemId === w.itemId).map((o) => o.to)).size });
       }
       const copies = items.reduce((s, w) => s + 1 / w.hours, 0);
-      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, npcHp: t.npcHp, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, also: t.also ?? [], rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
+      return { zone: t.zone, npc: t.npc, npcLevel: t.npcLevel, npcHp: t.npcHp, spawn: t.spawn, points: t.points, respawn: t.respawn, when: t.when, also: t.also ?? [], ...(t.fights ? { fights: t.fights } : {}), rate: items.reduce((s, w) => s + rate(w), 0), firstHours: Math.round(100 / copies) / 100, items };
     })
     .filter((t) => t.rate > 0)
     .sort((a, b) => b.rate - a.rate);

@@ -179,4 +179,9 @@ test("a piece a chain of deaths brings comes from the static enemy that starts i
   });
   const pieces = huntPieces(model, epicTree(model, "Shaman", 10651));
   expect(pieces).toEqual([{ itemId: 1674, sources: [expect.objectContaining({ zone: "citymist", npc: "a black reaver", npcLevel: 54, npcHp: 11000, drop: 1, kills: 6, hours: 2, also: ["Lord Rak`Ashiir"] })] }]);
+  // Each enemy of the chain is fought at its own level: five reavers and the named once.
+  expect(pieces[0].sources[0].fights).toEqual([
+    { npc: "a black reaver", level: 50, hp: 9980, kills: expect.closeTo(5, 6) },
+    { npc: "Lord Rak`Ashiir", level: 54, hp: 11000, kills: 1 },
+  ]);
 });

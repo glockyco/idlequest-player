@@ -128,7 +128,7 @@ for raids. A leader that carries too little for a purchase pulls the largest acc
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
 | `visitHours` 0.1 | measured at about 1.6 minutes from a visit's start to the group's next fight for a visit that found nothing up, and kept higher, because the visit's deadline comes from the same hours and has to leave the walk to an enemy that is up. Next: a deadline apart from the expected cost, checked against the scenarios where a cheaper visit beats a camp or an errand |
 | Kill chance | the model fitted to every simulated fight, the simulator per pair of group and target, and the group's live fights per enemy at its level |
-| Deaths | their cost measured from the fight logs (`tools/fights.mjs`), their number per fight from the simulator or the model |
+| Deaths | their cost measured from the fight logs (`tools/fights.mjs`), their number per fight from the simulator or the model, for each enemy of a chain of deaths at its own level and hit points |
 | Kill shares | modeled: an enemy's points over their respawn against the group's kills per hour from the gear pass, until trips are measured |
 | Time of day | read from the spawn conditions (`spawnTimes`): an enemy whose points all spawn only by night or by day is hunted only then, by the tab's game hour |
 | Travel | about 2 s a zone change (`travel/zone` time over zone entries), so a trip costs its hunting time and a camp ends at its item |

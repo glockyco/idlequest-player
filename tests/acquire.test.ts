@@ -138,3 +138,24 @@ test("a hunt for a copy at the end of a chain of deaths takes the whole chain", 
   expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + 6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
   expect(camp.cost - camp.zoneRate * camp.hours).toBeCloseTo(6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
 });
+
+test("each fight of a chain pays the deaths of its own enemy", () => {
+  // Five reavers that kill nobody, then the named, whose fight costs a leader's death.
+  const reaver = {
+    npc: "a black reaver",
+    zone: "citymist",
+    npcLevel: 54,
+    npcHp: 11000,
+    spawn: 1,
+    points: 1,
+    also: ["Lord Rak`Ashiir"],
+    fights: [{ npc: "a black reaver", level: 50, hp: 9980, kills: 5 }, { npc: "Lord Rak`Ashiir", level: 54, hp: 11000, kills: 1 }],
+    items: [{ ...item(5000, 2, 1), kills: 6 }],
+  };
+  const dying = { ...sure, deaths: 1, leaderDeaths: 1 };
+  const killChance = (_t: object, x: { npcLevel: number }) => (x.npcLevel >= 54 ? dying : sure);
+  const [camp, visit] = ways(tab(30, "paw"), reaver, { hoursPerLevel: { X1: 1 }, killChance, killsPerHour: { G1: 12 } }, dying);
+  const one = deathHours(tab(30, "paw"), dying, { X1: 1 });
+  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + one);
+  expect(camp.cost - camp.hours).toBeCloseTo(one);
+});
