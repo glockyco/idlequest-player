@@ -54,7 +54,7 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | Purchase | none | platinum | a merchant in a city sells it, within the pass's platinum budget |
 | Errand | hours per copy | 0, or `sharedCost` when another group plays the zone | the enemy's zone is in the group's rotation |
 | Camp | hours per copy | 1 less the share of the group's XP the trip zone pays | outside the rotation, when it earns more than a visit |
-| Visit | `visitHours`, and the group's time per kill for each enemy up | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival, `1 - (1 - spawn)^points`, times the kill chance and each drop chance and copy value |
+| Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival, `1 - (1 - spawn)^points`, times the kill chance and each drop chance and copy value |
 
 A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
 

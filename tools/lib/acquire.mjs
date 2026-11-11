@@ -97,6 +97,10 @@ export const copyValue = (w, hoursPerLevel = {}, hours = 0) => {
  */
 export const copyHours = (w, x, killsPerHour) => Math.max(w.hours, killsPerHour > 0 ? (w.kills ?? 1 / ((x.spawn ?? 1) * (w.drop ?? 1))) / killsPerHour : 0);
 
+// The kills a copy's chain of deaths takes once the enemy is up: one, or the `kills` of an item a
+// chain ends in, as the black reaver's line ends in Lord Rak`Ashiir after five reavers on average.
+export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1));
+
 /**
  * The ways tab `t` can hunt gear target `x` (an enemy of the gear plan's `targets`), each
  * `{ kind, hours, value, cost }` for one copy or one visit, in hours of the group's progress, on
@@ -108,7 +112,7 @@ export const copyHours = (w, x, killsPerHour) => Math.max(w.hours, killsPerHour 
  * - visit: outside it, `visitHours`, worth the chance the enemy is up on one of its points on
  *   arrival, 1 - (1 - spawn)^points, times the kill chance and each item's drop chance and value.
  * Every fight, won or lost, pays its expected deaths (`deathHours`): an errand or a camp as many as
- * one copy takes, a visit one when the enemy is up. An errand or a camp costs `sharedCost` of its
+ * one copy takes, a visit one, or its chain's (`chainKills`), when the enemy is up. An errand or a camp costs `sharedCost` of its
  * hours more in a zone another tab plays or travels to. The items' drops roll on their own, so a
  * copy of any of them comes every `1 / sum(1 / hours)` hours, and its value is the items' value per
  * hour of hunting times that. Each way also names `zoneRate`, the share of each of its hours the
@@ -123,7 +127,7 @@ export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, z
   const hours = 1 / copies.reduce((s, h) => s + 1 / h, 0);
   // A kill drops a wanted copy with the chance that at least one of the enemy's items rolls.
   const anyDrop = 1 - x.items.reduce((q, w) => q * (1 - (w.drop ?? 1)), 1);
-  const deaths = perFight / (k.p * Math.max(anyDrop, 1e-6));
+  const deaths = (perFight * chainKills(x)) / (k.p * Math.max(anyDrop, 1e-6));
   const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost : 0;
   const base = { hours, value: perHour * hours, copies, values, killChance: k.p };
   if ((t.rotation ?? []).includes(x.zone)) return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths }];
@@ -132,7 +136,7 @@ export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, z
   const visitValue = k.p * up * x.items.reduce((s, w, j) => s + (w.drop ?? 1) * values[j], 0);
   return [
     { kind: "camp", ...base, zoneRate, cost: zoneRate * hours + deaths },
-    { kind: "visit", hours: ACQUIRE.visitHours, value: visitValue, cost: ACQUIRE.visitHours + up * perFight, up, copies, values, killChance: k.p, zoneRate: 1 },
+    { kind: "visit", hours: ACQUIRE.visitHours, value: visitValue, cost: ACQUIRE.visitHours + up * perFight * chainKills(x), up, copies, values, killChance: k.p, zoneRate: 1 },
   ];
 }
 
@@ -161,8 +165,8 @@ export function bestWay(t, x, ctx = {}) {
  * theirs. A trip fills each taker slot at most once: with the chance that a copy of one of the
  * slot's items comes within its hours, at the rates its share of kills gives, worth the mean value
  * of those copies, and every fight pays its deaths. A visit of `visitHours` kills whichever of its
- * targets is up, each kill taking the group's time per kill, so a target joins a visit only when it
- * pays more than that time.
+ * targets is up, each kill of its chain (`chainKills`) taking the group's time per kill, so a
+ * target joins a visit only when it pays more than that time.
  */
 export function trip(t, xs, ctx = {}, due = () => true) {
   const fought = xs.map((x) => ({ x, k: ctx.killChance?.(t, x) ?? null })).filter((m) => m.k?.p > 0);
@@ -180,8 +184,8 @@ export function trip(t, xs, ctx = {}, due = () => true) {
     if (kind === "visit") {
       // Each target's pay per visit: its drops less its deaths. Without a kill rate a kill takes no time.
       const perKill = kills > 0 ? 1 / kills : 0;
-      kept = members.filter((m) => m.w.value - (m.w.cost - ACQUIRE.visitHours) > zoneRate * m.w.up * perKill);
-      hours = ACQUIRE.visitHours + kept.reduce((s, m) => s + m.w.up * perKill, 0);
+      kept = members.filter((m) => m.w.value - (m.w.cost - ACQUIRE.visitHours) > zoneRate * m.w.up * chainKills(m.x) * perKill);
+      hours = ACQUIRE.visitHours + kept.reduce((s, m) => s + m.w.up * chainKills(m.x) * perKill, 0);
       value = kept.reduce((s, m) => s + m.w.value - (m.w.cost - ACQUIRE.visitHours), 0);
     } else {
       hours = kind === "errand" ? 1 : ACQUIRE.campMin / 60;

@@ -125,3 +125,15 @@ test("enemies that each take all of the group's kills do not add up on one trip"
   expect(both.members.map((m) => m.x.npc)).toEqual(["a fiend"]);
   expect(netRate(both)).toBeCloseTo((0.75 * (1 - Math.exp(-0.5)) - 0.25) / 0.5);
 });
+
+test("a hunt for a copy at the end of a chain of deaths takes the whole chain", () => {
+  // The black reaver's line: one copy from a chain of six kills on average. At twelve kills an hour
+  // a visit spends half an hour on the chain, and every fight of it pays its deaths.
+  const reaver = { npc: "a black reaver", zone: "citymist", npcLevel: 54, spawn: 1, points: 1, also: ["Lord Rak`Ashiir"], items: [{ ...item(5000, 2, 1), kills: 6 }] };
+  const ctx = { hoursPerLevel: { X1: 1 }, killChance: () => sure, killsPerHour: { G1: 12 } };
+  expect(trip(tab(30, "paw"), [reaver], ctx, (_x, kind) => kind === "visit")!.hours).toBeCloseTo(ACQUIRE.visitHours + 6 / 12);
+  const dying = { ...sure, deaths: 1, leaderDeaths: 1 };
+  const [camp, visit] = ways(tab(30, "paw"), reaver, ctx, dying);
+  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + 6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
+  expect(camp.cost - camp.zoneRate * camp.hours).toBeCloseTo(6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
+});
