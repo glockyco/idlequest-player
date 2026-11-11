@@ -76,6 +76,14 @@ test("live fights count beside the simulator's, and neither means no kill chance
   expect(killChanceOf({ record: { kills: 3, escapes: 1 } })).toEqual({ p: 0.75, fights: 4, deaths: 0, leaderDeaths: 0 });
 });
 
+test("an enemy the guard leaves by its level is never killed, whatever the simulator says", () => {
+  // The Plane of Hate on 2026-11-11: groups of level 44 to 47 were sent 57 times to enemies of
+  // level 55 and 56, and every fight ended as the guard's level escape.
+  const sim = { kills: 4, fights: 4, deathsPerFight: 0, leaderDeathsPerFight: 0 };
+  expect(killChanceOf({ sim, levelsAbove: 7 })!.p).toBe(1);
+  expect(killChanceOf({ sim, levelsAbove: 8 })).toEqual({ p: 0, fights: 0, deaths: 0, leaderDeaths: 0 });
+});
+
 test("a hunt is valued at its kill chance, and every fight pays its deaths", () => {
   const x = { npc: "a broodling", zone: "paw", npcLevel: 34, spawn: 1, points: 1, items: [item(100, 1, 0.5)] };
   // The zone is in the group's rotation, so an errand is the only way.
