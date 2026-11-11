@@ -2018,8 +2018,15 @@
     throw new TaskLater(`no boss potion in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
   };
   const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask };
-  const startQuest = (kind, members, name = kind) => {
+  // A task takes a free tab only: one without a running task and without a pause, which holds the
+  // tab for a script's work by hand or the upkeep. The coordinator decides from a snapshot up to a
+  // cycle old, and a raid it queued over a pause took the tab from a trip for loot.
+  const takeTab = () => {
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+    if (now() < state.pauseUntil) throw new Error(`the tab is paused${state.pauseReason ? ` for ${state.pauseReason}` : ""}`);
+  };
+  const startQuest = (kind, members, name = kind) => {
+    takeTab();
     if (!members.length) throw new Error(`a ${kind} needs members`);
     for (const m of members) accountCharacter(iq(), m.name);
     state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
@@ -2605,7 +2612,7 @@
      * enemies up sets `nextAt` to the first respawn among them. Returns a copy of the task, which `state.task` keeps up to date.
      */
     hunt({ zone, keep, item = null, minutes = 20, waitMin = 0, points = [], watch = [] }) {
-      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      takeTab();
       if (!zone || !keep) throw new Error("a hunt needs zone and keep");
       new RegExp(keep);
       state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, minutes, waitMin, points, watch, startedAt: now() };
@@ -2625,7 +2632,7 @@
      * `state.task` keeps up to date.
      */
     raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = ["slow", "debuff"] }) {
-      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (potion && !target) throw new Error("a potion raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
@@ -2641,7 +2648,7 @@
      * Returns a copy of the task, which `state.task` keeps up to date.
      */
     gear({ moves }) {
-      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      takeTab();
       if (!moves?.length) throw new Error("a gear task needs moves");
       state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
@@ -2652,7 +2659,7 @@
      * `dice` dice on symbol `face` until it wins or has spent `maxPp`.
      */
     casino({ who = null, dice = 9, face = 1, maxPp = 10000 } = {}) {
-      if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
+      takeTab();
       if (who) accountCharacter(iq(), who);
       state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), who, dice, face, maxPp };
       log(`task casino: ${who ?? "the active character"}, ${dice} dice, up to ${maxPp}pp`);

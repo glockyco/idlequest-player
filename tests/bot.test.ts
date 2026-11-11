@@ -863,6 +863,14 @@ test("a dead fight is left through the guard, also under a task's pause", async 
   expect([left.length, f.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)]).toEqual([1, [true]]);
 });
 
+test("a task does not take a tab that a pause holds", async () => {
+  const f = await install();
+  f.bot.pause(5, "loot by hand");
+  expect(() => f.bot.casino()).toThrow("the tab is paused for loot by hand");
+  f.bot.resume();
+  expect(f.bot.casino().status).toBe("running");
+});
+
 test("a root that outlasts a fight is dispelled only when that saves time, and cures go back off", async () => {
   vi.useFakeTimers();
   try {
