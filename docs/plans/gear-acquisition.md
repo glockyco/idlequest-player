@@ -88,7 +88,8 @@ as they come:
   refreshed hourly and kept for a day at the group's level. The simulator fights in the client's
   raid mode, which takes only enemies above level 50;
 - the group's live fights against the enemy at its current level (`tools/lib/fight-record.mjs`):
-  each kill, and each escape of the guard that names the enemy.
+  each kill, and each escape of the guard that names the enemy, apart from an escape by the
+  level rule, which refused a fight and lost none.
 
 A copy then takes `H / p` hours, and every fight, won or lost, pays its expected deaths: a
 companion's death costs 38 s and the leader's 85 s plus level² × 666.67 XP at the group's pace
@@ -98,7 +99,9 @@ so no chance is too low in itself: the dashboard calls a target too strong when 
 chance is below 5% (`tooStrong`). A target is hunted by the way that earns the most: a group's
 errand, camp or visit, else a raid.
 
-The guard's level rule stops a fight against an enemy the plan did not choose. A planned target with a kill chance is exempt from it, and the guard's rules on hit points, a down member, a healer without mana and a fight without headway still end the fight.
+The guard does not judge an enemy by its level above leader level 8, because level says little about a fight: the level 55 and 56 enemies of the Plane of Hate hit for at most 234, the simulator kills them with most groups of 46 to 48 without a death, and group 7 at 45 loses every fight against the level 51 Knight there. The guard's rules that read the fight itself still end it: the leader dying, three hits killing a member, a member down and a healer without mana.
+
+Measured on 2026-11-11, with the level rule at eight levels still on: 23,230 kills, 78 escapes by level, 62 by a dying leader, 52 by a member down, 43 by the healer's mana, and 8 leader deaths. At leader levels of 35 and more, among fights with an enemy of one known level, six levels up gave 32 kills, 11 escapes of a dying leader and 2 leader deaths, seven levels up 10 kills and 6 such escapes, and no fight ever ran eight or more up. Where the simulator won four of four without a death, the group won all 182 live fights of 18 pairs, and where it won with deaths, 9 of 14. Compare a day without the rule against these: leader deaths, escapes by rule, and the kills of groups under 50 in the Plane of Hate.
 
 ## Migration
 
@@ -106,7 +109,7 @@ The guard's level rule stops a fight against an enemy the plan did not choose. A
 | --- | --- | --- |
 | 1 | Every live zone's loot tables as drop sources, for the items the plan values. | The band rotations' zone filter on drops and `data/gear-picks.json` |
 | 2 | Kill chances per group and enemy from a model fitted to all fights, the simulator for the pairs of highest expected value and each live fight's outcome per enemy, on expected value with deaths. Trips that hunt every wanted enemy of a zone, and claims that value a sooner lesser copy. | `killMargin`, one enemy per hunt, a claimed slot that blocks every other hunt |
-| 3 | The guard exempts a planned target from its level rule. | |
+| 3 | The guard no longer leaves a fight for the enemy's level above leader level 8. | The level rule at eight levels, and with it the level range an errand stopped at |
 | 4 | The raid way for targets above level 50 that no group kills, batched with the boss kills. | |
 
 ## Platinum
