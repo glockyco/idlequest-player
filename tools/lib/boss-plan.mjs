@@ -63,3 +63,21 @@ export function nextBossKill({ daily = null, potions = [], odds = {}, value = {}
   const rank = (w) => (w.way === "group" ? 0 : 1);
   return { kill: ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0))[0] ?? null, skipped };
 }
+
+/** The coordinator's history id of a kill's raid task: a potion with its holder, or a summon's boss. */
+export const killId = (k) => (k.source === "potion" ? `boss:potion:${k.itemId}:${k.who}` : `boss:summon:${k.key}`);
+
+// The raid task's steps before it uses its potion (`raidTask` of src/bot.js). A task that ended
+// at one of them left the potion in the bags.
+const BEFORE_POTION = /^(become |stop$|travel to |raid time$|open the raid$|recruit$)/;
+
+/**
+ * Whether a raid task has used potion `p` since the survey that lists it, taken at `surveyAt`: one
+ * queued for it since then, unless it ended at a step before the use. The survey runs hourly, so
+ * until the next one it still lists a potion a raid drank, and its holder's group would travel to
+ * the boss's zone at every pass.
+ */
+export function potionSpent(history, p, surveyAt) {
+  const id = killId({ ...p, source: "potion" });
+  return history.some((h) => h.id === id && h.t >= surveyAt && !(h.status && h.status !== "done" && BEFORE_POTION.test(h.step ?? "")));
+}

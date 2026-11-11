@@ -18,7 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
-import { bossValues, nextBossKill } from "./lib/boss-plan.mjs";
+import { bossValues, killId, nextBossKill, potionSpent } from "./lib/boss-plan.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
@@ -386,6 +386,8 @@ const GEAR_EVERY_MIN = 60;
 const CROWD_PRIOR_H = 2;
 // A pass that failed, such as an Inventory Search the server timed out, comes again this soon.
 const GEAR_RETRY_MIN = 10;
+// A boss kill whose raid task failed is tried again this long after it, or at once under new code.
+const RAID_RETRY_MIN = 30;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
 // (`bossPlan` of the boss pass) and a casino boss potion a day, 3,366 pp at 9 dice by the casino
 // panel's own odds (docs/plans/systems-research.md, "Boss summons and daily allowance").
@@ -761,7 +763,7 @@ class Daemon {
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
     // from any other action of this pass, since summons and potions are time gated and a hunt is not.
-    const bossKill = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel).catch((e) => (this.log(`boss pass: ${e.message}`), null));
+    const bossKill = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel, state.history).catch((e) => (this.log(`boss pass: ${e.message}`), null));
     if (bossKill) actions.splice(0, actions.length, ...actions.filter((a) => a.label !== bossKill.label), bossKill);
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
@@ -987,11 +989,11 @@ class Daemon {
    * raid time read in a tab whose leader is 46 or more, the casino potions of the survey, each
    * boss's worth from the gear pass's targets (`bossValues` at `hoursPerLevel`), and
    * `nextBossKill`. Returns a raid action for the tab of the kill's leader, the potion's holder or
-   * the strongest group's leader, or null while a raid runs anywhere, the leading tab is busy or
-   * nothing is due. The plan and its reasons stay in the db meta key `bossPlan`, and the daily list
-   * in runs/state/daily-bosses.json.
+   * the strongest group's leader, or null while a raid runs anywhere, the leading tab is busy, the
+   * kill's last raid task waits for its retry (`RAID_RETRY_MIN`) or nothing is due. The plan and its
+   * reasons stay in the db meta key `bossPlan`, and the daily list in runs/state/daily-bosses.json.
    */
-  async bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel = {}) {
+  async bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel = {}, history = []) {
     if (!odds) return null;
     const reader = tabs.find((t) => (t.members[0]?.level ?? 0) >= 46);
     if (!reader) return null;
@@ -999,17 +1001,20 @@ class Daemon {
     await writeFile(join(this.runs, "state/daily-bosses.json"), JSON.stringify({ readAt: now, by: reader.members[0].name, ...st.daily }, null, 1)).catch(() => {});
     const raiding = [...this.trackers.values()].some((tr) => tr.snap?.raid || (tr.snap?.bot?.task?.kind === "raid" && tr.snap.bot.task.status === "running"));
     const casino = this.itemModel.bosses;
-    const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName })));
+    // The survey is the last gear pass's, so a potion a raid used since then is left out (`potionSpent`).
+    const surveyAt = metaGet(this.db, "gear")?.t ?? 0;
+    const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName }))).filter((p) => !potionSpent(history, p, surveyAt));
     const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions], targets: this.targetWants, hoursPerLevel });
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, odds: odds.odds, value });
     metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, price: st.time?.pricePp ?? null });
-    if (!kill || raiding) return null;
+    const { retryTime } = await import("./lib/coordinator.mjs");
+    if (!kill || raiding || now < retryTime(history.filter((h) => h.id === killId(kill)).at(-1), RAID_RETRY_MIN, this.code)) return null;
     const leader = kill.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     if (!tab || tab.task?.status === "running" || !kill.zone) return null;
     const members = [...groupOf.keys()].filter((n) => n !== leader);
     const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : { bossKey: kill.key };
-    return { label: tab.label, kind: "raid", spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${kill.source === "potion" ? `${kill.who}'s potion` : "a free summon"}` };
+    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${kill.source === "potion" ? `${kill.who}'s potion` : "a free summon"}` };
   }
 
   /**

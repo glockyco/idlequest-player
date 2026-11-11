@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { bossValues, dailyCandidates, nextBossKill } from "../tools/lib/boss-plan.mjs";
+import { bossValues, dailyCandidates, killId, nextBossKill, potionSpent } from "../tools/lib/boss-plan.mjs";
 
 const boss = (key: string, status = "available") => ({ key, name: key, zone: `${key}zone`, status });
 const daily = (resetsRemaining: number, bosses: object[]) => ({ resetsRemaining, resetLimit: 2, bosses });
@@ -42,4 +42,19 @@ test("a boss is worth its wanted drops at their chances, one copy per taker's sl
   const values = bossValues({ bosses: [{ key: "nagafen", name: "Lord Nagafen" }, { key: "vox", name: "Lady Vox" }], targets, hoursPerLevel: { X1: 2, X2: 2 } });
   expect(values.nagafen).toBeCloseTo(0.25 * 2 + 0.5 * 1);
   expect(values.vox).toBe(0);
+});
+
+test("a potion a raid task used is spent until the next survey, and one a task never reached is not", () => {
+  const p = { key: "lodizal", name: "Lodizal", zone: "iceclad", itemId: 990113, who: "Tagujazolu" };
+  const id = killId({ ...p, source: "potion" });
+  // The raid fought and ended, with or without the kill: the potion is gone.
+  expect(potionSpent([{ t: 200, id, status: "done", step: "fight Lodizal" }], p, 100)).toBe(true);
+  expect(potionSpent([{ t: 200, id, status: "failed", step: "use potion 990113" }], p, 100)).toBe(true);
+  // A task still running has no outcome yet, so it counts until it has one.
+  expect(potionSpent([{ t: 200, id }], p, 100)).toBe(true);
+  // A fight that did not end before the task could start left the potion in the bags.
+  expect(potionSpent([{ t: 200, id, status: "failed", step: "stop" }], p, 100)).toBe(false);
+  // A newer survey lists what the bags hold after that raid, and another holder's potion is its own.
+  expect(potionSpent([{ t: 200, id, status: "done", step: "fight Lodizal" }], p, 300)).toBe(false);
+  expect(potionSpent([{ t: 200, id, status: "done", step: "fight Lodizal" }], { ...p, who: "Thalgrimm" }, 100)).toBe(false);
 });
