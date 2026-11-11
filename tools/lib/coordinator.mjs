@@ -188,12 +188,13 @@ export function worldHold(history, id, code = null) {
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
+ * - `rolled`: when each character last rolled the casino, `{ [name]: ms }`.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
  * per tab, where kind `stopErrand` ends a tab's errand and `stopTask` its running task, and a trip
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, cfg = DEFAULTS }) {
   const out = [];
   const busy = new Set(tabs.filter((t) => t.task?.status === "running" || t.errand).map((t) => t.label));
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
@@ -216,13 +217,14 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   }
 
   // The casino's boss potion comes first: the account wins at most one a day, a day not rolled is a
-  // potion lost, and the rolls take a minute. One leader of `casino.minLevel` rolls for the account,
-  // and the task names when the next potion can be won. A potion stays with its winner and is LORE,
-  // so the leader that rolled longest ago rolls, which spreads a boss's potions over characters.
+  // potion lost, and the rolls take a minute. One character of `casino.minLevel` rolls for the
+  // account, and the task names when the next potion can be won. A potion stays with its winner and
+  // is LORE, so the character that rolled longest ago (`rolled`, by name) rolls, a member as well as
+  // a leader, which spreads a boss's potions over characters.
   const lastRoll = history.filter((h) => h.kind === "casino").at(-1);
-  const rolledAt = (t) => Math.max(-Infinity, ...history.filter((h) => h.kind === "casino" && h.label === t.label).map((h) => h.t));
-  const roller = tabs.filter((t) => free(t) && (t.members[0]?.level ?? 0) >= cfg.casino.minLevel).sort((a, b) => rolledAt(a) - rolledAt(b))[0];
-  if (roller && due(lastRoll, 60) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.label, kind: "casino", id: "casino", spec: { dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.members[0].name}` });
+  const rollers = tabs.filter(free).flatMap((t) => t.members.filter((m) => (m.level ?? 0) >= cfg.casino.minLevel).map((m) => ({ t, name: m.name })));
+  const roller = rollers.sort((a, b) => (rolled[a.name] ?? 0) - (rolled[b.name] ?? 0))[0];
+  if (roller && due(lastRoll, 60) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.t.label, kind: "casino", id: "casino", who: roller.name, spec: { who: roller.name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.name}` });
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks

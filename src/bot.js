@@ -1633,6 +1633,8 @@
   // the bags, when none of those enemies has been up for `waitMin` minutes, or after `minutes`, and
   // the bot then restores the tab as after every task.
   const KILL_LINE = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
+  // "a swirlspine seahorse heals Phinigel Autropos for 10000 points.": healer, healed.
+  const HEAL_LINE = /^(.+?) heals (.+?) for \d+ points?/;
   const killedSince = (i, wanted, t0) => {
     const evs = i.events ?? [];
     for (let k = evs.length - 1; k >= 0 && evs[k].t >= t0; k--) {
@@ -1800,14 +1802,20 @@
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
     const rt = runtime(i);
+    // A potion raid is led by the potion's holder, since a potion never leaves the character that won it.
+    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     await step("stop", () => calm(i), 75000);
     if (task.zone && zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
     await step("raid time", async () => {
-      if ((await raid.time()).active) return;
+      const t = await raid.time();
+      if (t.active) return;
       if (!task.maxPp) throw new Error("no raid time left and maxPp is 0");
+      // The hour is paid from the leader's carried coin, so a short leader pulls a balance first.
+      const coin = i.stores.character.getState().characterProfile?.platinum ?? 0;
+      if (t.pricePp && t.pricePp <= task.maxPp && coin < t.pricePp) log(`task raid: pulled ${(await pullCoin(i, t.pricePp - coin)) ?? "no balance"} for raid time`);
       const b = await raid.buyHour(task.maxPp);
       log(`task raid: bought an hour of raid time for ${b.pricePp}pp`);
-    }, 30000);
+    }, 60000);
     await step("open the raid", () => raid.open(), 30000);
     try {
       const ids = task.members.map((m) => findCharacter(i, m)?.id).filter((id) => id != null).map(Number);
@@ -1817,6 +1825,12 @@
       if (task.bossKey) {
         const r = await step(`summon ${task.bossKey}`, () => raid.bosses(task.bossKey), 30000);
         task.spawnInstanceId = r.spawnInstanceId;
+      }
+      // A casino potion summons its boss at the boss's own spawn point, in the zone the task traveled to.
+      if (task.potion) {
+        await step(`use potion ${task.potion}`, async () => {
+          if (!(await i.useItem(task.potion))) throw new Error(`the server refused potion ${task.potion}`);
+        }, 30000);
       }
       const wanted = task.target ? enemyPattern(task.target) : null;
       const boss = await step("target", async () => {
@@ -1864,6 +1878,9 @@
         let traced = 0;
         let dead = false;
         let reviveAt = 0;
+        let healSeq = 0;
+        const healers = new Set();
+        const bossName = enemyPattern(boss.name);
         while (now() < task.startedAt + task.minutes * 60000) {
           await sleep(2000);
           const s = raid.state();
@@ -1876,6 +1893,22 @@
             const l = s.leader ?? {};
             task.fight.trace.push({ s: Math.round((now() - t0) / 1000), hp: l.hp, order: `${l.order}#${l.revision}`, aa: l.autoAttack, cast: l.casting, nav: l.navigating, pos: l.pos ?? null, d: distance() == null ? null : Math.round(distance()), boss: e?.hp ?? null, up: s.roster.filter((m) => m.alive).length });
             if (task.fight.trace.length > 240) task.fight.trace.shift();
+          }
+          // An engaged enemy that heals the boss undoes the raid's damage: Phinigel's swirlspine
+          // seahorse healed him 10,000 every 30 s, four times from about 6,000 back to 15,000. The
+          // raid kills such a healer first and then turns to the enemies left, the boss among them.
+          for (const e of (i.events ?? []).filter((x) => x.t >= t0 && (x.seq ?? 0) > healSeq)) {
+            healSeq = Math.max(healSeq, e.seq ?? 0);
+            const m = HEAL_LINE.exec(e.text ?? "");
+            if (!m || !bossName.test(m[2]) || bossName.test(m[1]) || healers.has(m[1])) continue;
+            const healer = (rt?.combatScene.getAliveCombatTargetList?.() ?? []).find((x) => enemyPattern(m[1]).test(x.name ?? ""));
+            if (!healer) continue;
+            healers.add(m[1]);
+            rt.selectEnemyTarget([healer.npcId]);
+            await sleep(1000);
+            const r = await raid.attack().then(() => "attacked", (err) => `not attacked: ${err?.message ?? err}`);
+            task.fight.orders.push({ kind: "healer", name: m[1], result: r });
+            log(`task raid: ${m[1]} heals ${boss.name}, so the raid attacks it first (${r})`);
           }
           if (s.leaderDead) {
             if (!dead) task.fight.deaths++;
@@ -1908,13 +1941,51 @@
         await raid.end().catch((e2) => alert("raid", `raid mode is still on: ${e2?.message ?? e2}`, true));
       });
     }
+    // Raid kills leave their corpses to the leader's RAID LOOT tab instead of Auto Loot, and the
+    // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted.
+    if (task.fight?.outcome === "killed") {
+      await keepReserve(i, true);
+      const loot = await step("collect the loot", () => collectRaidLoot(i), 120000);
+      task.fight.loot = loot;
+      task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
+      log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
+    }
+  };
+  /**
+   * Loot a raid kill's corpses from the RAID LOOT tab (`raid.loot` of src/bridge.js), which raid
+   * kills leave for the leader instead of Auto Loot: the coins, then each item onto the cursor and
+   * where `settleHeld` puts it. An item the routine cannot settle goes back to its corpse, because a
+   * held item blocks every click. An item counts as looted once its cell is gone. Resolves with
+   * `{ looted, left }`, item names.
+   */
+  const collectRaidLoot = async (i) => {
+    const loot = i.raid.loot;
+    if (!(await settleHeld(i))) throw new Error(`${i.bagSpace().cursor} is on the cursor`);
+    if (!(await loot.open(true))) throw new Error("the RAID LOOT tab did not open");
+    try {
+      await loot.coin();
+      const looted = [];
+      const left = [];
+      const tried = new Set();
+      for (let k = 0; k < 40; k++) {
+        const cell = loot.cells().find((c) => !tried.has(c.id));
+        if (!cell) break;
+        tried.add(cell.id);
+        if ((await loot.take(cell.id)) && !(await settleHeld(i))) await loot.giveBack();
+        (loot.cells().some((c) => c.id === cell.id) || i.bagSpace().cursor ? left : looted).push(cell.name);
+      }
+      return { looted, left };
+    } finally {
+      await loot.open(false);
+    }
   };
   // The casino's Items prize wins one boss potion per account per 24 hours (`iq.casino` of
   // src/bridge.js). The potion stays with the character that won it: the server refuses every give
-  // of one, also to another character of the account. The task rolls `dice` dice until it wins or
-  // has spent `maxPp`, pulling a balance to the leader when its coin runs short, and ends with the
-  // time of the next potion (`nextAt`).
+  // of one, also to another character of the account. The task plays `who` when named, rolls `dice`
+  // dice until it wins or has spent `maxPp`, pulling a balance to the roller when its coin runs
+  // short, and ends with the time of the next potion (`nextAt`). The bot plays its leader again after.
   const casinoTask = async (i, task, step) => {
+    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     const st = await step("read the casino status", () => i.casino.status(), 30000);
     if (st.disabled) throw new Error(st.disabled);
     if (st.availableAt > now()) throw new TaskLater(`the next boss potion is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
@@ -2539,21 +2610,24 @@
     /**
      * Fight one raid target with the leader and the account characters `members` (names or ids),
      * as a task in the page (`raidTask`): `target`, a regular expression for an enemy of level 51
-     * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. An hour of raid time is
+     * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. With `potion`, the id of
+     * a casino boss potion, the raid uses it after recruiting and fights its boss as `target`, led by
+     * `who`, the potion's holder. An hour of raid time is
      * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
      * `iq.raid.effect`), null or empty for none. The task ends when the boss dies, the raid wipes
      * or `minutes` pass, and `task.fight` records the fight. Returns a copy of the task, which
      * `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = ["slow", "debuff"] }) {
+    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = ["slow", "debuff"] }) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
+      if (potion && !target) throw new Error("a potion raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
-      for (const m of members) accountCharacter(iq(), m);
+      for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, zone, maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
-      log(`task raid: ${target ?? bossKey}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, potion, who, zone, maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
+      log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
     /**
@@ -2572,10 +2646,11 @@
      * Roll the casino's Items prize for the day's boss potion as a task in the page (`casinoTask`):
      * `dice` dice on symbol `face` until it wins or has spent `maxPp`.
      */
-    casino({ dice = 9, face = 1, maxPp = 10000 } = {}) {
+    casino({ who = null, dice = 9, face = 1, maxPp = 10000 } = {}) {
       if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
-      state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), dice, face, maxPp };
-      log(`task casino: ${dice} dice, up to ${maxPp}pp`);
+      if (who) accountCharacter(iq(), who);
+      state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), who, dice, face, maxPp };
+      log(`task casino: ${who ?? "the active character"}, ${dice} dice, up to ${maxPp}pp`);
       return { ...runTask(state.task) };
     },
     /**

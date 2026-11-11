@@ -77,6 +77,7 @@
       autoPlace: ["Auto-placing"], // puts the cursor item into the bags
       zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
       raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
+      consume: ["The item could not be consumed"], // an item's use from the bags, ({ bag, slot }), which also uses a casino boss potion
       // What a click on an NPC sends, (npcId, name), a function that passes its three parameters on.
       // Releases rename the parameters, and Bun reformats the sources it loads, so the pattern allows both.
       hail: /^function [\w$]+\(\s*([\w$]+),\s*([\w$]+),\s*([\w$]+)\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*\1,\s*\2,\s*\3\s*\);?\s*\}$/,
@@ -1269,6 +1270,16 @@
     return held ? ((await clientFn("sell")(0, 30))?.message ?? "sold") : null;
   };
   /**
+   * Use the carried item with id `itemId` as a click on it in the bags does, with the client's own
+   * consume function, which also uses a casino boss potion: the server summons the potion's boss at
+   * its spawn point in its own zone. Resolves with whether the server accepted the use.
+   */
+  const useItem = async (itemId) => {
+    const row = (stores.character.getState().characterProfile?.inventory ?? []).find((x) => inBags(x) && x.itemid === itemId);
+    if (!row) throw new Error(`no item ${itemId} in the bags`);
+    return Boolean(await clientFn("consume")({ bag: row.bag, slot: row.slot }));
+  };
+  /**
    * Clear the cursor before or after an action with the caller's `settle` (the bot's `settleHeld`),
    * which decides where a held item goes: a trade's reward, an item of the trade that came back, a
    * withdrawn craft or a give cut short. The bridge holds no such policy, so without `settle` a
@@ -1672,6 +1683,7 @@
     craftItem,
     sellCursor,
     placeCursor,
+    useItem,
     giveCursor,
     closeWindows,
     job,
@@ -1984,7 +1996,7 @@
         const payload = { characterId: p.id, zoneId: stores.combat.getState().currentZone, ...(bossKey ? { bossKey } : {}) };
         const r = bossKey ? await socket.sendCorrelatedJsonRequest(1222, 1223, payload, 10000) : await query(1222, payload);
         if (!r?.success) throw new Error(r?.error || "the daily boss list did not load");
-        return { resetsRemaining: r.resetsRemaining, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
+        return { resetsRemaining: r.resetsRemaining, resetLimit: r.resetLimit, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zone, zoneName: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
       },
       /**
        * End Raid. Out of a fight the raid store ends raid mode in the page, which needs no server
@@ -2001,6 +2013,43 @@
         stores.raid.getState().closeRaid();
         if (stores.raid.getState().raidModeActive) throw new Error("raid mode is still on");
         return this.state();
+      },
+      /**
+       * The party panel's RAID LOOT tab, which raid kills leave for the leader instead of Auto
+       * Loot: `open(true)` shows it and resolves with whether its window appeared, `open(false)`
+       * hides the panel. A held item blocks every click in it, and the window returns one only to
+       * a corpse of its own zone.
+       */
+      loot: {
+        window: () => document.querySelector('[data-testid="raid-loot-window"]'),
+        async open(show = true) {
+          stores.combat.setState(show ? { isPartyOpen: true, partyPanelTab: "raidLoot" } : { isPartyOpen: false });
+          for (let k = 0; k < 10 && show && !this.window(); k++) await pause(300);
+          return show ? Boolean(this.window()) : true;
+        },
+        /** Click the coin button. Resolves with whether there was one. */
+        async coin() {
+          const button = [...(this.window()?.querySelectorAll("button") ?? [])].find((b) => /\d+(p|g|s|c)\b/.test(b.textContent ?? ""));
+          button?.click();
+          if (button) await pause(1500);
+          return Boolean(button);
+        },
+        /** The item cells: `[{ id, name }]`, `id` the cell's test id (`loot-item-<corpse>-<i>`). */
+        cells() {
+          return [...(this.window()?.querySelectorAll('[data-testid^="loot-item-"]') ?? [])].map((c) => ({ id: c.dataset.testid, name: (c.getAttribute("title") ?? "").replace(/ \([^)]*\)$/, "") }));
+        },
+        /** Take cell `id` onto the cursor. Resolves with the cursor's item, or null. */
+        async take(id) {
+          this.window()?.querySelector(`[data-testid="${id}"]`)?.click();
+          await pause(1200);
+          return cursorItem();
+        },
+        /** Hand the cursor item back to its corpse through an empty cell, as the window's hint says. Resolves with whether the cursor is empty. */
+        async giveBack() {
+          this.window()?.querySelector('[data-testid^="loot-empty-"]')?.parentElement?.click();
+          await pause(1200);
+          return !cursorItem();
+        },
       },
     },
     /** Tag every following sample, so configurations can be compared with `analyze.mjs --label`. */

@@ -39,20 +39,20 @@ A kill is worth the XP it pays and the items of its loot table at their drop cha
 
 - Open-world spawns: a boss whose respawn has passed gets a visit, a group's when a group kills it, else a raid. The spawn list on arrival says whether it is up.
 - Free summons: used every day on the killable bosses of most value whose cooldown has passed, because an unused summon is lost.
-- Potions: used in a raid hour by their holders.
-- Raid kills are batched: one hour of raid time runs every raid kill due, led by one tab, so its party disbands once.
+- Potions: used in a raid by their holders.
+- Raids run as soon as one is due, the most valuable first: a free summon comes back 24 hours after its use, so waiting for the second shifts the first, and the account's platinum far outruns the raid time it buys.
 
 ## Migration
 
-| Step | Change |
-| --- | --- |
-| 1 | Kill chances from the simulator in the background (`tools/kill-odds.mjs`, `runs/state/kill-odds.json`), for the raid and every group, shared with gear acquisition. |
-| 2 | Potion use in the bridge (the client's consume function) and potion raids in the bot's raid task. |
-| 3 | Boss candidates in `decide`: free summons, potions and open-world spawns, each by its cheapest killing way, raids batched into one hour. |
-| 4 | Loot and XP values rank the candidates. |
-| 5 | Named enemies above a group's reach as gear targets with a raid way in `tools/lib/acquire.mjs`. |
+| Step | Change | Status |
+| --- | --- | --- |
+| 1 | Kill chances from the simulator in the background (`tools/kill-odds.mjs`, `runs/state/kill-odds.json`), for the raid and every group, shared with gear acquisition. | Built, hourly refresh live at the next iqd restart |
+| 2 | Potion use in the bridge (the client's consume function) and potion raids in the bot's raid task. | Built, live at the first potion raid |
+| 3 | Boss candidates in the coordinator's boss pass (`tools/lib/boss-plan.mjs`): free summons and potions by raid, each as soon as it is due. Open-world spawns follow with their live spawn lists. | Built for summons and potions, live at the next reset |
+| 4 | Loot values rank the candidates (`bossValues`: each wanted drop of the gear pass's target for the boss at its chance, the best copy per taker's slot). A kill's XP stays out, since summons and potions are time gated and their drops come from nowhere else. | Built |
+| 5 | Named enemies above a group's reach as gear targets with a raid way in `tools/lib/acquire.mjs`. | Open |
 
 ## Checks
 
-- Tests: the planner's boundaries (free summons left, a boss's cooldown, unkillable odds, group before raid, the batch, the potion holder leading).
+- Tests: the planner's boundaries (free summons left, a boss's cooldown, unkillable odds, group before raid, the order by value, the potion holder leading).
 - Live: at the next reset of the free summons the coordinator kills the best daily bosses and the held potion's boss without a hand, and the loot reaches the bags.

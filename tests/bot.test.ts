@@ -1440,9 +1440,10 @@ test("a summoned enemy that is up already sends the member to the fight", async 
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
 // and ends in a kill or a wipe. `leaderFalls` kills the leader once, mid-fight, and `endFails`
 // makes that many calls of `end` throw.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0 } = {}) {
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false } = {}) {
   const calls: string[] = [];
   const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
+  let drops = [{ id: "loot-item-7-0", name: "Red Dragon Scales" }];
   (f.iq as unknown as { raid: object }).raid = {
     time: async () => (calls.push("time"), { active: timeLeft, pricePp }),
     buyHour: async (maxPp: number) => {
@@ -1461,8 +1462,16 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
     position: () => calls.push(`position ${f.combat.targetNPC?.name}`),
     attack: async () => {
       calls.push(`attack ${f.combat.targetNPC?.name}`);
+      if (r.combat) return;
       r.combat = true;
       if (leaderFalls) setTimeout(() => (r.leaderDead = true), fightMs / 2);
+      // An add joins the fight and heals the boss, as Phinigel's seahorse did.
+      if (healer)
+        setTimeout(() => {
+          f.targets.push({ spawnInstanceId: 8, npcId: 1099, name: "a_swirlspine_seahorse", level: 49, distance: 20 } as { spawnInstanceId: number; name: string });
+          const page = f.iq as unknown as { events: { t: number; seq: number; text: string }[] };
+          page.events = [...(page.events ?? []), { t: Date.now(), seq: 9001, text: "a swirlspine seahorse heals Lord Nagafen for 10000 points." }];
+        }, fightMs / 4);
       setTimeout(() => {
         r.combat = false;
         r.roster = r.roster.map((m) => ({ ...m, damage: 500, alive: outcome === "killed" }));
@@ -1486,9 +1495,21 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       if (endFails-- > 0) throw new Error("the raid was not abandoned: Request timeout for opcode 1026");
       r.active = false;
     },
+    // One drop on one corpse, which a take moves straight into the bags.
+    loot: {
+      cells: () => drops,
+      open: async () => true,
+      coin: async () => false,
+      take: async (id: string) => {
+        calls.push("loot");
+        drops = drops.filter((c) => c.id !== id);
+        return null;
+      },
+      giveBack: async () => true,
+    },
   };
   f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55, distance: 12 } as { spawnInstanceId: number; name: string });
-  Object.assign(f.runtime, { selectEnemyTarget: () => (f.combat.targetNPC = { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
+  Object.assign(f.runtime, { selectEnemyTarget: (ids: number[]) => (f.combat.targetNPC = ids[0] === 1099 ? { spawnInstanceId: 8, name: "a_swirlspine_seahorse" } : { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
   return calls;
 }
 
@@ -1497,14 +1518,41 @@ test("a raid task buys time when none is left, recruits, sets its orders, kills 
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f);
+    // The leader carries the hour's price, so no balance is pulled.
+    (f.me as unknown as { platinum: number }).platinum = 2000;
     f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500 });
     await runToEnd(f);
     // The heal mode stands before the fight, the raid walks to the boss first, and the nuke and
     // effect orders need the running fight. A debuff nobody can cast does not hold the fight.
-    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "effect slow", "effect debuff", "end"]);
+    expect(calls).toEqual(["time", "buy 2500", "open", "recruit 10,20", "heal all-balanced", "position Lord_Nagafen", "attack Lord_Nagafen", "nuke dps-balanced", "effect slow", "effect debuff", "end", "loot"]);
+    expect(f.bot.state.task.result).toContain("looted 1 items");
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", alive: 2, deaths: 0, orders: [{ kind: "slow", spell: "Drowsy", kept: true }, { kind: "debuff", error: "no raid member has resistance debuffs" }] } });
     expect(f.bot.state.task.fight.trace.length).toBeGreaterThan(0);
     expect(f.bot.state.alerts.filter((a) => a.kind === "raid" && a.wake)).toMatchObject([{ killed: expect.stringContaining("Nagafen") }]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a potion raid uses the potion after recruiting and fights its boss, and a refused potion ends the raid", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true });
+    let accept = true;
+    (f.iq as unknown as { useItem: (id: number) => Promise<boolean> }).useItem = async (id) => (calls.push(`potion ${id}`), accept);
+    f.bot.raid({ members: ["Edroun"], target: "Nagafen", potion: 990100, maxPp: 0 });
+    await runToEnd(f);
+    expect(calls.slice(0, 5)).toEqual(["time", "open", "recruit 20", "potion 990100", "heal all-balanced"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+    // Without the potion's boss there is nothing to fight, and the raid ends.
+    calls.splice(0);
+    accept = false;
+    f.bot.raid({ members: ["Edroun"], target: "Nagafen", potion: 990100, maxPp: 0 });
+    await runToEnd(f);
+    expect(f.bot.state.task.status).toBe("failed");
+    expect(calls).toContain("end");
+    expect(calls).not.toContain("attack Lord_Nagafen");
   } finally {
     vi.useRealTimers();
   }
@@ -1540,6 +1588,21 @@ test("a raid task has a living member revive the fallen leader and fights on", a
     await runToEnd(f);
     expect(calls.filter((c) => c === "revive")).toHaveLength(1);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", deaths: 1, revives: 1 } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid task attacks an enemy that heals its boss, once, and collects the loot after the kill", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, healer: true, fightMs: 20000 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(calls.filter((c) => c.startsWith("attack"))).toEqual(["attack Lord_Nagafen", "attack a_swirlspine_seahorse"]);
+    expect(f.bot.state.task.fight.orders).toMatchObject([{ kind: "healer", name: "a swirlspine seahorse", result: "attacked" }]);
+    expect(calls.at(-1)).toBe("loot");
   } finally {
     vi.useRealTimers();
   }

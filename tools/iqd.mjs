@@ -18,6 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
+import { bossValues, nextBossKill } from "./lib/boss-plan.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
@@ -80,8 +81,8 @@ export function openDb(path) {
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
   db.run(WEAR_SCHEMA);
-  db.run(FIGHTS_SCHEMA);
   db.run(PROGRESS_SCHEMA);
+  db.run(FIGHTS_SCHEMA);
   db.run(CARDS_SCHEMA);
   return db;
 }
@@ -385,9 +386,10 @@ const GEAR_EVERY_MIN = 60;
 const CROWD_PRIOR_H = 2;
 // A pass that failed, such as an Inventory Search the server timed out, comes again this soon.
 const GEAR_RETRY_MIN = 10;
-// The raid budget a gear pass leaves untouched: an hour of raid time and a casino boss potion a day
-// (docs/plans/leveling-plan.md, lever 9).
-const RAID_PP_PER_DAY = 5300;
+// The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
+// (`bossPlan` of the boss pass) and a casino boss potion a day, 3,366 pp at 9 dice by the casino
+// panel's own odds (docs/plans/systems-research.md, "Boss summons and daily allowance").
+const CASINO_PP_PER_DAY = 3366;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
 /** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only, through the bridge's `query`. */
@@ -401,6 +403,12 @@ export async function searchInPage(a) {
 export async function queueInPage(a) {
   const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : a.kind === "stopTask" ? window.iqBot.stopTask() : window.iqBot[a.kind](a.spec));
   return { id: t?.id ?? null, status: t?.status ?? String(t) };
+}
+
+/** The daily boss list and the raid time quote of the tab's leader, both read-only requests. */
+export async function bossStateInPage() {
+  const [daily, time] = await Promise.all([window.iq.raid.bosses(), window.iq.raid.time()]);
+  return { daily, time };
 }
 
 /** Give a bot without a leader its group's leader and members by name, from the account's character list. */
@@ -744,11 +752,17 @@ class Daemon {
       chances.set(key, k);
       return k;
     };
+    // When each character last rolled the casino, kept past the two days of history (`rolled` of decide).
+    const rolled = metaGet(this.db, "casinoRolls") ?? {};
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
+    // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
+    // from any other action of this pass, since summons and potions are time gated and a hunt is not.
+    const bossKill = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel).catch((e) => (this.log(`boss pass: ${e.message}`), null));
+    if (bossKill) actions.splice(0, actions.length, ...actions.filter((a) => a.label !== bossKill.label), bossKill);
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -758,6 +772,7 @@ class Daemon {
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
         state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: this.code });
         if (a.kind === "gear") this.pendingGear = null;
+        if (a.kind === "casino") metaSet(this.db, "casinoRolls", { ...rolled, [a.who]: now });
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
@@ -968,6 +983,36 @@ class Daemon {
   }
 
   /**
+   * The boss-kill pass (docs/plans/raids.md): the kill chances (`killOdds`), the daily list and
+   * raid time read in a tab whose leader is 46 or more, the casino potions of the survey, each
+   * boss's worth from the gear pass's targets (`bossValues` at `hoursPerLevel`), and
+   * `nextBossKill`. Returns a raid action for the tab of the kill's leader, the potion's holder or
+   * the strongest group's leader, or null while a raid runs anywhere, the leading tab is busy or
+   * nothing is due. The plan and its reasons stay in the db meta key `bossPlan`, and the daily list
+   * in runs/state/daily-bosses.json.
+   */
+  async bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel = {}) {
+    if (!odds) return null;
+    const reader = tabs.find((t) => (t.members[0]?.level ?? 0) >= 46);
+    if (!reader) return null;
+    const st = await this.relay.evaluate(reader.targetId, call(bossStateInPage, {}), { timeout: 30000 });
+    await writeFile(join(this.runs, "state/daily-bosses.json"), JSON.stringify({ readAt: now, by: reader.members[0].name, ...st.daily }, null, 1)).catch(() => {});
+    const raiding = [...this.trackers.values()].some((tr) => tr.snap?.raid || (tr.snap?.bot?.task?.kind === "raid" && tr.snap.bot.task.status === "running"));
+    const casino = this.itemModel.bosses;
+    const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName })));
+    const value = bossValues({ bosses: [...(st.daily?.bosses ?? []), ...potions], targets: this.targetWants, hoursPerLevel });
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, odds: odds.odds, value });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, raiding, price: st.time?.pricePp ?? null });
+    if (!kill || raiding) return null;
+    const leader = kill.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
+    const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
+    if (!tab || tab.task?.status === "running" || !kill.zone) return null;
+    const members = [...groupOf.keys()].filter((n) => n !== leader);
+    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : { bossKey: kill.key };
+    return { label: tab.label, kind: "raid", spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, ...what }, why: `${kill.name} by ${kill.way} from ${kill.source === "potion" ? `${kill.who}'s potion` : "a free summon"}` };
+  }
+
+  /**
    * The roster gear pass, every `GEAR_EVERY_MIN`: worn items and the leaders' bags from every
    * party's own inventories, the companions' carried items from Inventory Search (`searchItems` in
    * the bridge), then the plan of tools/lib/gear-plan.mjs. A roster character whose party the pass
@@ -1053,6 +1098,7 @@ class Daemon {
     // Goods a merchant refused lately stay out of the plan for a day (`refusedGoods`).
     const refused = refusedGoods(metaGet(this.db, "coordinator")?.history ?? [], now);
     const shop = this.shop.filter((s) => !refused.has(`${s.merchant}|${this.items.get(s.itemId)?.Name}`));
+    const raidPpPerDay = (metaGet(this.db, "bossPlan")?.price ?? 8000) + CASINO_PP_PER_DAY;
     // Each character's class epic it does not hold, with the pieces a hunt gets that the account
     // holds none of (docs/plans/epic-model.md, step 3).
     const carried = new Set(survey.map((r) => r.itemId));
@@ -1064,7 +1110,7 @@ class Daemon {
     });
     // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
     const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, RAID_PP_PER_DAY), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;
