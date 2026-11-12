@@ -853,6 +853,26 @@ test("in raid mode the bot leaves AutoLevel off, and starts it at once after the
   }
 });
 
+test("raid mode that no raid task owns is ended a minute after the task's end", async () => {
+  vi.useFakeTimers();
+  try {
+    // The stopped Cazic-Thule raid of 2026-11-12 left raid mode on, which kept the group out of play.
+    const f = await install();
+    const ends: number[] = [];
+    (f.iq as unknown as { raid: object }).raid = { end: async () => (ends.push(Date.now()), (f.raid.raidModeActive = false)) };
+    f.raid.raidModeActive = true;
+    f.bot.state.task = { kind: "raid", status: "stopped", endedAt: Date.now() };
+    await f.bot.tick();
+    expect(ends).toEqual([]);
+    vi.advanceTimersByTime(61000);
+    await f.bot.tick();
+    expect(ends).toHaveLength(1);
+    expect(f.raid.raidModeActive).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("AutoLevel starts at once after a hold or a contested target, 5 s after the client's pause, and a minute after a stop nothing explains", async () => {
   vi.useFakeTimers();
   try {

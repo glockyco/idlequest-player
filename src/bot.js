@@ -2904,7 +2904,17 @@
     await watchCursor(i);
     watchLoot(i);
     watchDeaths(i);
-    if (inRaid(i)) return void watchMemory();
+    if (inRaid(i)) {
+      // Raid mode that no running raid task owns holds the group out of play, as after the stopped
+      // Cazic-Thule raid of 2026-11-12, whose own two tries to end it came while the fight was
+      // closing. A minute after the task's end the tick ends it, every 30 s until it is off.
+      const owned = state.task?.kind === "raid" && state.task.status === "running";
+      if (!owned && typeof i.raid?.end === "function" && now() - (state.task?.endedAt ?? 0) > 60000 && now() - (state.raidEndTry ?? 0) > 30000) {
+        state.raidEndTry = now();
+        await i.raid.end().then(() => log("raid mode no task owned is ended"), (e) => log(`raid mode no task owns: end failed: ${e?.message ?? e}`));
+      }
+      return void watchMemory();
+    }
     if (config.respawnAfterSec > 0) await watchDeath(i);
     watchMemory();
     // A pause holds the tab for a script or a task: until it ends, the bot changes neither the
