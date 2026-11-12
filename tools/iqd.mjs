@@ -944,7 +944,7 @@ class Daemon {
     const chains = chainSummary({ quests, holders, started, members });
     this.recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore: state.last?.chains, chains, aaBefore, aa });
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, missing, chains, actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, chains, epicHolders: [...epicHolders].sort(), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
     metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
   }
