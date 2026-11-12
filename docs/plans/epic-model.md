@@ -56,13 +56,18 @@ first takes the smallest balance of the account that covers the trade, with Mana
 transfer, which keeps each kind of coin (`coinFor` in `src/bot.js`, `giveToNpc` and `takeCoin` in
 `src/bridge.js`). A piece a merchant sells is bought at its hand-in when a merchant of that zone
 sells it, and else in a step of its own before it, in a city where any party can shop
-(`data/shop-zones.json`) when one sells it. A pickup of a ground spawn, the cast of a summoning
-spell and a forage are new kinds, added when an epic in the plan needs them. A timer or a signal
-branch runs by itself once its starter has, so the step after it waits as a kill step waits for a
-summoned enemy. A hand-in is made by the active character, so the task plays the character whose
-epic it is, as quest tasks do now. A step at an NPC names the NPC's type ids, because two NPCs of
-a zone can share a name and answer to different items, as the two Spirit Sentinels of the Emerald
-Jungle do.
+(`data/shop-zones.json`) when one sells it. A quest item that lies in a zone is picked up with the
+client's own requests (`pickupGround`: the zone's ground items, then the pickup within 20 units),
+and one another player took ends the task until its respawn. A part whose craft trivials above 50
+waits until a character trains that tradeskill, because a failed attempt uses its components up.
+The cast of a summoning spell and a forage are new kinds, added when an epic in the plan needs
+them. A timer or a signal branch runs by itself once its starter has, so the step after it waits
+as a kill step waits for a summoned enemy. A hand-in is made by the active character, so the task
+plays the character whose epic it is, as quest tasks do now. A step at an NPC names the NPC's type
+ids, because two NPCs of a zone can share a name and answer to different items, as the two Spirit
+Sentinels of the Emerald Jungle do. A model part that yields a hand-kept chain's reward of its
+class stays out (`uncovered`), because the hand-kept chains carry keywords the model does not
+read, and the parts beyond it start from what the hand-kept chain hands on.
 
 A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
 its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
@@ -91,7 +96,7 @@ before a gear trip, because each step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in and the purchase in a step of its own, which opened the Necromancer's and the Paladin's chains beside the Ranger's Earthcaller and the Shaman's, and with hard kills held by the kill chance the Cleric's, Monk's, Bard's and Wizard's. To build: ground pickup (Warrior, Enchanter, Rogue), summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own and the ground pickup, which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Warrior and Enchanter beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill (the Warrior's Rebreathers). To build: summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage, tradeskill training. | |
 | 5 | Kills and raid pieces a group cannot win, such as the Wizard's enraged golem at 65 with 175,000 HP, with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 
