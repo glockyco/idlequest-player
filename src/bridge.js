@@ -329,7 +329,9 @@
   // this install's, so an exporter whose file holds rows from an earlier page still collects them.
   for (const r of samples) r.ses ??= session - 1;
   for (const r of events) r.ses ??= session - 1;
-  const SAMPLE_MAX = 90000; // 25 h at 1 Hz
+  // The collector takes the rows every cycle, and the page's own readers look back half an hour, so
+  // four hours cover a collector that was away. A day of samples held some 57 MB as JSON a page.
+  const SAMPLE_MAX = 14400; // 4 h at 1 Hz
   const EVENT_MAX = 60000;
   // An older install's jobs read positions and chat from its own sampler, which stops here, so they
   // are told to stop too: their next pause throws, and a bot task that ran them resumes on this one.
@@ -564,7 +566,7 @@
       const s = sample();
       if (!s) return;
       samples.push(s);
-      if (samples.length > SAMPLE_MAX) samples.splice(0, SAMPLE_MAX / 5);
+      if (samples.length > SAMPLE_MAX) samples.splice(0, samples.length - (SAMPLE_MAX * 4) / 5);
     } catch {
       /* store not ready */
     }
