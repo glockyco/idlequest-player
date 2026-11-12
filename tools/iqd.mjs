@@ -870,7 +870,9 @@ class Daemon {
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded. A boss of
     // the daily list or the raid goal is the boss plan's kill, by raid, so no group hunts it: group 1
     // set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
-    const huntable = this.targetWants.filter((x) => !this.bossNames?.has(npcKey(x.npc)));
+    // After a start the boss plan has not run yet, so its last watch list names the bosses.
+    this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
+    const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
     const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
