@@ -2166,7 +2166,14 @@ async function cmdRun({ values, runs }) {
       if (e.code !== "ESRCH") throw e;
     }
   }
-  const log = (m) => console.log(`${stamp()} ${m}`);
+  // The terminal keeps only its last screens, so each line also goes to runs/log/iqd-<day>.log,
+  // which a later session reads for the cycles that took long and the threads that were held.
+  await mkdir(join(runs, "log"), { recursive: true });
+  const log = (m) => {
+    const line = `${stamp()} ${m}`;
+    console.log(line);
+    appendFile(join(runs, "log", `iqd-${line.slice(0, 10)}.log`), `${line}\n`).catch(() => {});
+  };
   const relay = new Relay();
   const logAttach = db.query("INSERT INTO attach_log (t, target_id, url, event) VALUES (?, ?, ?, ?)");
   relay.on("attached", (a) => {
