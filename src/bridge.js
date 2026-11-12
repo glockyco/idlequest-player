@@ -288,6 +288,9 @@
   const faults = window.iq?.faults ?? { lootless: 0 };
   const KILL_RE = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
   const lootIds = new Map();
+  // The last loot packets, `{ t, items }` with the items' names, so a task that expects an item
+  // from a kill can say what the corpse gave when the item did not come.
+  const lootLog = window.iq?.lootLog ?? [];
   const origObserve = socket.observeIncomingOpcode.bind(socket);
   socket.observeIncomingOpcode = (op, payload) => {
     try {
@@ -298,7 +301,11 @@
         kills.push({ t: Date.now(), enemy: m[1], xp: Number(m[2]) });
         faults.lootless++;
       }
-      if (opName[op] === "LootGenerated") for (const it of data.items ?? []) lootIds.set(it.name, it.itemId);
+      if (opName[op] === "LootGenerated") {
+        for (const it of data.items ?? []) lootIds.set(it.name, it.itemId);
+        lootLog.push({ t: Date.now(), items: (data.items ?? []).map((it) => it.name) });
+        if (lootLog.length > 40) lootLog.shift();
+      }
     } catch {
       /* not JSON */
     }
@@ -1686,6 +1693,7 @@
     surface: CLIENT_SURFACE,
     log,
     kills,
+    lootLog,
     faults,
     shimCounts,
     samples,

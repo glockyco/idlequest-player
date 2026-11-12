@@ -1689,6 +1689,7 @@
           if (r) await sleep(2000);
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
+        m.foughtAt = since;
       }
       // An NPC that shares its spawn point with others (`points`, which tools/iqd.mjs adds from the
       // content snapshot) is up only when its point rolled it, and a point rolls again only after its
@@ -1760,11 +1761,16 @@
       }
       if (s.expect) {
         // An NPC's SummonItem lands on the cursor, which the bags count leaves out. A container fits
-        // only an empty general slot, so it may stay there, and it counts as received.
+        // only an empty general slot, so it may stay there, and it counts as received. A corpse's
+        // loot comes within a second mostly and took 18 s at its longest.
         const held = () => i.carried(s.expect) > 0 || i.bagSpace().cursor === s.expect;
-        for (let w = 0; w < 10 && !held(); w++) await sleep(500);
+        for (let w = 0; w < (s.kill ? 40 : 10) && !held(); w++) await sleep(500);
         if (i.bagSpace().cursor === s.expect) await settleHeld(i);
-        if (!held()) throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}`);
+        if (!held()) {
+          // What the corpse gave instead, which tells a lost loot from a drop that is not there.
+          const loot = s.kill ? (i.lootLog ?? []).filter((l) => l.t >= m.foughtAt).map((l) => l.items.join(", ") || "coin only") : null;
+          throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}`);
+        }
       }
       m.at = k + 1;
     }
