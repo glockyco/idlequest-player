@@ -86,7 +86,7 @@ before a gear trip, because each step is certain progress.
 - Tests: the analyzer on script fixtures for each idiom (a keyword before a trade, a class check, a
   flag that orders two steps, a scene with a timer, a scripted NPC's loot), and the plan's choice of
   source and its shared kills.
-- The check tool (`bun tools/epic-model.mjs`, README) lists, per class, the steps, the sources, the
+- The check tool (`bun tools/epic-model.mjs`, docs/collector.md, Gear) lists, per class, the steps, the sources, the
   gaps and the unread idioms, and runs after every content update.
 - Live: the first step of each new kind runs once for one character before the coordinator runs it
   for all, and each epic's first completion is recorded in the diary with its time and kills.

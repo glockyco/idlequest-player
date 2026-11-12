@@ -1,6 +1,6 @@
 # Operating a game tab by hand
 
-The bot, the page supervisor and the coordinator operate the tabs. This page describes how to do their work by hand, for finding a fault and for getting a group playing again while its mechanism is repaired. [../README.md](../README.md) covers setup, the SDK and the tools.
+The bot, the page supervisor and the coordinator operate the tabs. This page describes how to do their work by hand, for finding a fault and for getting a group playing again while its mechanism is repaired. [../README.md](../README.md) covers setup and running, [collector.md](collector.md) the collector, and [sdk.md](sdk.md) the calls a script makes in a tab.
 
 ## The bot keeps the tab
 
@@ -14,7 +14,7 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
 
    ```js
    const tab = await browser.open({ name: "iq", app: { relay: true, target: "idlequest.net/play" } }); // never pass a url to an adopted tab
-   const { attach } = await import("/Users/glockyco/src/github.com/glockyco/idlequest-player/src/client.mjs");
+   const { attach } = await import("/path/to/idlequest-player/src/client.mjs"); // the path of your clone
    const iq = await attach(tab);
    await iq.botReport();
    ```
@@ -29,12 +29,12 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
    Record a step taken any other way with `bun tools/iqd.mjs note`, also an edit of the database, so that a day's count of steps by hand is true.
 
 2. Recover on your own. Never wait for a person while the game can be played:
-   - A tab at the login form is signed in again by `iqd run --recover` after a minute (README, "Monitoring"). Do not sign it in by hand meanwhile, because the server refuses a burst of sign-ins ("Too many login attempts").
-   - A group's tab is gone, cannot be reached, answers "Selected tab is not ready" for a minute or still shows the login form after five minutes: run `restoreGroup({ browser, attach, id })` from `src/group.mjs` with the group's id from `data/roster.json`. It opens a tab of its own, signs in, enters the world as the group's leader with the other members, restores the bot's rotation and starts AutoLevel, in about half a minute. Then close the old tab with `tab.close()`. A new tab opens visible, so the engine loads. A hidden tab never finishes "Preparing game engine…" and keeps CONNECT disabled. Chrome detaches the relay from a tab when a password manager's autofill menu opens in it, and then hides the tab until its URL changes.
+   - A tab at the login form is signed in again by `iqd run --recover` after a minute ([collector.md](collector.md#page-supervisor)). Do not sign it in by hand meanwhile, because the server refuses a burst of sign-ins ("Too many login attempts").
+   - A group's tab is gone, cannot be reached, answers "Selected tab is not ready" for a minute or still shows the login form after five minutes: run `restoreGroup({ browser, attach, id })` from `src/group.mjs` with the group's id from `data/roster.json`. It opens a tab of its own, signs in, enters the world as the group's leader with the other members, restores the bot's rotation and starts AutoLevel, in about half a minute. Then close the old tab, if it still exists, in the browser: it is the game tab that shows the login form or a game that stands still. When `iqd status` still lists the old session as `GONE` after that, `ack` its item, which ends the session. A new tab opens visible, so the engine loads. A hidden tab never finishes "Preparing game engine…" and keeps CONNECT disabled. Chrome detaches the relay from a tab when a password manager's autofill menu opens in it, and then hides the tab until its URL changes.
    - `signIn` in `src/group.mjs` signs in from `~/.config/idlequest/email` and `~/.config/idlequest/password` (mode 600, outside the repository) without printing the values. By hand, never focus or click the inputs and never use `tab.fill`, because focusing opens the autofill menu, which detaches the tab. Set each value with the native `HTMLInputElement` value setter and dispatch an `input` event inside `tab.evaluate`, then `tab.click('role/button[name="CONNECT"]')` and wait for "SELECT A CHARACTER".
    - A tab left at character select needs nothing: the bot enters the world as its `leaderId` by itself.
-   - Never reload a game tab by hand. A reload turns a broken session into a login page. iqd reloads a tab whose page heap stays high or whose loot lines stopped and signs it in again (README, "Monitoring"). If fights stop being confirmed ("The combat request could not be confirmed") while the socket is connected, restore the group in a new tab with `restoreGroup`.
-   - Never delete or create characters while a group plays: the world session stopped confirming fights right after deletions. Do it at character select.
+   - Never reload a game tab by hand. A reload turns a broken session into a login page. iqd reloads a tab whose page heap stays high or whose loot lines stopped and signs it in again ([collector.md](collector.md#page-supervisor)). If fights stop being confirmed ("The combat request could not be confirmed") while the socket is connected, restore the group in a new tab with `restoreGroup`.
+   - Never delete or create characters in the tab of a group that plays: the world session stopped confirming fights right after deletions. Do it at the character select, as `createGroup` does in a tab of its own while the other groups play.
    - "LOADING FAILED: IdleQuest could not finish loading the zone" has a TRY AGAIN button, which loads the zone without a reload. The bot presses it once for every failure (`loadFailed` in the remedy table), so a window that stays open needs a fresh page.
    - Disable the bot (`iq.setBot({ enabled: false })`) for a trip outside the rotation, such as shopping, or it moves the party back into a rotation zone. Play another character only under a pause (`iq.switchCharacter` takes one), because without one the bot switches back to its leader.
    - Ask for help only if the login files are missing or the server rejects the login.
@@ -42,7 +42,7 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
 
 ## Supervising by hand
 
-The collector `tools/iqd.mjs` watches every game tab, so an agent never polls tabs by hand (README, "Monitoring"):
+The collector `tools/iqd.mjs` watches every game tab, so an agent never polls tabs by hand ([collector.md](collector.md)):
 
 1. `tools/play.sh` runs the collector, and `bun tools/iqd.mjs status` says whether it runs.
 2. `bun tools/iqd.mjs status` lists sessions, characters, open attention items and open jobs.
@@ -65,7 +65,7 @@ Attention items mirror the bot's wake alerts. The responses per bot alert:
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel for no reason the page states. Find it in the event log. The client's own stops and the bot's holds are not behind it: the activity label names those (`clientPause`, `clientRejoin`, `contested`, `noEnemies`, `held`), and the remedy table answers each with only a log line: a start, or for `clientRejoin`, whose line asks for a camp and a new entry, a rejoin. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client tries to resume the session by itself, and `iqd run --recover` signs it in after a minute at the login form. The alert closes once the page is back in the world. If it still shows the login form after five minutes, restore the group as "Recover on your own" describes. |
 | `guard` | Notes only: a lowered cap after repeated escapes and an escape whose zone change failed. The escape is one of the bot's holds, so the bot starts AutoLevel again after it. Escapes from wanderers alone never alert: judge the zone by its measured XP per hour, which `analyze.mjs` reports with the escapes and their cost. An escape re-enters the zone at its safe spot, and a second escape within the guard's `loopSec` leaves for another zone of the rotation, because a mob camping the safe spot would start the same fight again. |
-| `rotate` | The bot moved to the next zone in `rotation`, because the current one ran out of reachable enemies, its XP per hour of play over the last 10 minutes fell under 60% of the visit's best, or `rotateEscapes` guard escapes happened there in 10 minutes. Minutes signed out, held, travelling or on a task are not play, so a party that just came back keeps its zone. A party that spends `outsideRotationSec` in a zone outside `rotation`, such as a home city, the bind point after a respawn or a zone the coordinator took out of the rotation, moves to its first zone. A failed move backs off from 30 s, doubling, and only the third failure in a row wakes a script, because a slow server times moves out and a later try goes through. The coordinator sets `rotation` from the band rows and the measured rates (README, "Monitoring"), so a zone that falls short leaves the rotation by itself, and a row needs a change only to add a zone. |
+| `rotate` | The bot moved to the next zone in `rotation`, because the current one ran out of reachable enemies, its XP per hour of play over the last 10 minutes fell under 60% of the visit's best, or `rotateEscapes` guard escapes happened there in 10 minutes. Minutes signed out, held, travelling or on a task are not play, so a party that just came back keeps its zone. A party that spends `outsideRotationSec` in a zone outside `rotation`, such as a home city, the bind point after a respawn or a zone the coordinator took out of the rotation, moves to its first zone. A failed move backs off from 30 s, doubling, and only the third failure in a row wakes a script, because a slow server times moves out and a later try goes through. The coordinator sets `rotation` from the band rows and the measured rates ([collector.md](collector.md#coordinator)), so a zone that falls short leaves the rotation by itself, and a row needs a change only to add a zone. |
 | `errand` | An errand ended without its item: the party left the zone, the guard escaped repeatedly or the zone stayed crowded. AutoLevel's limits come back and the rotation rules take over by themselves, and the coordinator decides at its next pass whether to send the group again, so the item only informs. |
 | `memory` | The page's JS heap passed 80% of its limit (`memoryAlertShare`). The page supervisor reloads a page whose heap stays over half its limit for ten minutes, at a moment without a task or a fight, one page at a time, and signs it in again (`tools/lib/page.mjs`). The item asks for a person when it is still open after the time that takes (`RELOAD_MS` in `tools/lib/attention.mjs`), and closes once the heap is under half its limit. A collector that is restarted more often than every ten minutes never gathers the readings for a reload. |
 
@@ -78,4 +78,27 @@ Attention items mirror the bot's wake alerts. The responses per bot alert:
 
 ## Experiments
 
-- Tag every configuration change with `setLabel` and compare labels with `tools/analyze.mjs` as the README describes. Record the label, window, result and decision in the diary.
+- Tag every configuration change with `setLabel` and compare labels with `tools/analyze.mjs` ([tools.md](tools.md#measuring-play)). Record the label, window, result and decision in the diary.
+
+## Screenshots
+
+Game tabs run with rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps running, and the bot keeps that setting as one of its client options. For a screenshot of the world, such as a raid kill, call `iqBot.render(seconds)` in that tab, which draws the world for that long.
+
+## After a client update
+
+The bot raises a wake alert `clientUpdate` when the page runs a different client release than the one this tab or browser saw last, when the client lacks something the SDK uses, and when the site serves a release newer than the page runs (checked every `releaseProbeMin` minutes). `iq.release` names the running client and `iq.missingApi` lists the missing parts. The collector saves and checks each new release by itself (`checkRelease` in `tools/iqd.mjs`) and raises an item only for what the release lacks. By hand:
+
+1. `bun tools/client-snapshot.mjs` saves the live client to `.re/releases/<release>/` and prints
+   the release id. A release that is saved already is skipped.
+2. `bun tools/check-client.mjs [release dir]` runs the bridge's discovery on the saved bundles
+   and prints PASS or FAIL for every store, action, state key, dispatcher and client function the
+   SDK and the bot use, and for the anchor of every shim (`SHIMS` in `src/bridge.js`). It exits
+   with 1 on a FAIL. Fix each FAIL in `CLIENT_SURFACE` or `SHIMS` before attaching. A NOTE says
+   that a shim's defect is no longer in the release: delete the shim once its count in
+   `iq.shimCounts` stays at zero on that release.
+3. `bun tools/client-snapshot.mjs --diff <old> <new>` lists what changed by names that survive
+   minification: text and message templates, enum members such as option ids, action names, zone
+   names and renamed bundles. Arguments are release ids or directories.
+4. After `git pull` in the content repository, `bun tools/content-diff.mjs` lists the zones, NPC
+   types and spawns that changed and flags zones that enter the top 3 of a level band.
+5. `.re/` holds the saved releases and is not committed. Regenerate the opcode table with `bun tools/extract-opcodes.ts <release dir>/pretty/<entry>.js data/opcodes.json` and the leaders' spell table with `bun tools/class-spells.mjs`, which loads the client's bundles under a DOM shim.

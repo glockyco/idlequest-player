@@ -31,6 +31,6 @@ Everything else is yours to decide. Often nobody is reading along, so a question
 
 ## Where things are
 
-- Setup, the tools and measuring: [README.md](README.md). How the client behaves: [docs/client-internals.md](docs/client-internals.md). Plans and their measurements: `docs/plans/`.
+- Setup and running: [README.md](README.md). The collector, its commands and the dashboard: [docs/collector.md](docs/collector.md). The tools and measuring: [docs/tools.md](docs/tools.md). Calls a script makes in a tab: [docs/sdk.md](docs/sdk.md). How the client behaves: [docs/client-internals.md](docs/client-internals.md). Plans and their measurements: `docs/plans/`.
 - Open work and the handoff between sessions: the vault note `Projects/IdleQuest player.md`.
 - The goal this work serves: [docs/goal.md](docs/goal.md). A new session takes it with `omp --goal "$(cat docs/goal.md)"`.

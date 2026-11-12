@@ -42,7 +42,8 @@
 // timing (counted as a fixed extra damage), crowd control, pets as separate damage dealers, loot and
 // platinum, other players than the account's own groups taking spawns, escapes and deaths (1 to 4% of the
 // time in stretches of 20 minutes or more, 13% at levels 1 to 4 in tools/fights.mjs), spawn conditions and
-// content flags, zone line travel and the time to reach the zone. The calibration runs are in the README and
+// content flags, zone line travel and the time to reach the zone. The calibration runs are in
+// docs/plans/leveling-plan.md (Measuring) and
 // tools/calibrate.mjs measures the model against every live run, per level band and zone.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -54,7 +55,7 @@ const raw = (n) => (has(n) ? args[args.indexOf(`--${n}`) + 1] : undefined);
 const num = (n, d) => (raw(n) === undefined ? d : Number(raw(n)));
 const list = (n, d) => (raw(n) === undefined ? d : raw(n).split(",").map(Number));
 
-// Fitted in two steps. Level 21 to 29: the three measured runs (README, "Predicting XP per hour"), which
+// Fitted in two steps. Level 21 to 29: the three measured runs (docs/plans/leveling-plan.md, "The XP model's calibration cases"), which
 // `bun tools/predict.mjs --check` prints (XP/h within 7%). Levels 1 to 20: the live stretches of
 // `bun tools/calibrate.mjs --fit`, which also refits the walk and the mana spend below. dps and overhead sit between
 // the three runs (best blocks) and group 1's 20-minute stretches at 15 to 34 (measured about 10% under the model).
@@ -662,7 +663,7 @@ function printZone(r, c) {
 if (import.meta.main) await main();
 async function main() {
   if (!has("check") && !has("fit") && raw("level") === undefined) {
-    console.error("usage: bun tools/predict.mjs --level N [--top 15] [--zone regex] [--min-diff -3] [--max-diff 5] [--dps ..] [--overhead ..] [--check]\nflags are documented in the README and at the top of tools/predict.mjs");
+    console.error("usage: bun tools/predict.mjs --level N [--top 15] [--zone regex] [--min-diff -3] [--max-diff 5] [--dps ..] [--overhead ..] [--check]\nflags are documented in docs/tools.md and at the top of tools/predict.mjs");
     process.exit(2);
   }
   const zones = await loadZones(has("check") || has("fit") ? "^(permafrost|guktop|unrest)$" : raw("zone"));

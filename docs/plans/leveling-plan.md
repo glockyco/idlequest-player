@@ -98,6 +98,18 @@ Each Magician summon uses one Malachite. Keep a stack, and buy more from Hanlore
 
 Measure during normal play: label the blocks and compare them with `analyze.mjs`. Ten-minute blocks in one zone with unchanged settings ranged from 15% below to 15% above their median (2.1M to 2.7M XP/h in Permafrost at 24-27), so two blocks can differ by 30% and a dedicated A/B test is worth its time only when the expected effect is larger than that and a decision depends on it. Prefer reading the cause from the analyzer (between-pull waits, recovery limiter, damage by source, escapes) over comparing XP per hour.
 
+### The XP model's calibration cases
+
+`tools/predict.mjs --check` prints the model against three measured runs. Permafrost at leader level 24 to 25 measured 2.91 kills per minute, 2.30M XP/h, 13,217 XP per kill, a 13 s mean kill and 64.6% of the time in combat. The City of Guk at level 21 measured 3.19 kills per minute, 1.64M XP/h and a 10.3 s median kill. The Estate of Unrest at level 29 measured 1.92 kills per minute, 2.75M XP/h, 15,051 XP per kill and a 13.0 s median kill. The defaults (`DEFAULTS` in the tool, with their fit in the comments) keep these three cases within 7% for XP per hour after the refit on the live runs that `tools/calibrate.mjs` reads. Residuals, model against measured:
+
+| Quantity | Permafrost | City of Guk | Estate of Unrest |
+| --- | ---: | ---: | ---: |
+| XP/h per leader | +3% | -1% | -7% |
+| Kills per minute | +8% | -12% | +42% |
+| XP per kill | -5% | | +4% |
+| Mean kill seconds | -12% | | -4% |
+| Median kill seconds | -12% | +3% | -3% |
+
 ## Bot roadmap
 
 1. Done: AutoLevel keeper with pause deadlines, restarts after hung route recoveries and readiness waits, bag cleanup with Auto Bank, cursor watch, party rejoin, spells and pets after level-ups, zone rotation, target skipping, alerts and `watch`.

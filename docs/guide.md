@@ -140,4 +140,4 @@ Whatever the choice, label the block, compare it with the one before, and record
 | `crowded` alert or falling kills per minute | Whether the drop is real and worth a move within the level band. |
 | Level 46 | AA allocation, raid unlock and the raid time price, epic steps. |
 | New login message or wiki article | Events, new mechanics and prizes. |
-| New game client release | The client refresh steps in the README, under "Rules for contributors". |
+| New game client release | The steps in [runbook.md](runbook.md#after-a-client-update). |
