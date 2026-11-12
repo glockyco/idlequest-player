@@ -6,11 +6,11 @@
 // can sleep in `iqd wait` instead of polling the tabs. It never clicks, types or injects anything.
 // With `--coordinate` it also queues tasks in the bots (tools/lib/coordinator.mjs) through their
 // own task API, which plays the steps.
-// Usage: see `iqd help` and the "Monitoring" section of the README.
+// Usage: see `iqd help` and docs/collector.md.
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { statSync, openSync, readSync, closeSync, readFileSync, existsSync } from "node:fs";
-import { join, isAbsolute } from "node:path";
+import { statSync, openSync, readSync, closeSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Relay } from "../src/cdp.mjs";
@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS minutes (
 `;
 
 export function openDb(path) {
+  // A command before the collector's first run finds no data directory yet.
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true });
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
