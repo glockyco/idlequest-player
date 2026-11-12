@@ -1092,6 +1092,7 @@
     1237: { reply: 1238, ms: 10000, reads: (p) => p.action === "get" }, // the Alternate Advancement state
     1127: { reply: 1128, ms: 10000, reads: (p) => p.statusOnly === true }, // the casino's boss potion cooldown: without statusOnly it rolls
     1241: { reply: 1241, ms: 8000, reads: (p) => p.action === "search" }, // Inventory Search over the account
+    1240: { reply: 1240, ms: 10000, reads: (p) => p.action === "read" }, // the account's coin, as the Manage Money panel reads it: with "transfer" it moves a balance
   };
   const query = async (op, payload) => {
     const read = READS[op];
