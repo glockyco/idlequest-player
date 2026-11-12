@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { bossValues, dailyCandidates, killId, nextBossKill, potionSpent, standingBosses } from "../tools/lib/boss-plan.mjs";
+import { bossValues, dailyCandidates, killId, nextBossKill, openBosses, potionSpent, standingBosses } from "../tools/lib/boss-plan.mjs";
 
 const boss = (key: string, status = "available") => ({ key, name: key, zone: `${key}zone`, status });
 const daily = (resetsRemaining: number, bosses: object[]) => ({ resetsRemaining, resetLimit: 2, bosses });
@@ -40,6 +40,33 @@ test("a boss of the raid goal that no raid has killed goes before the more valua
   expect(nextBossKill({ daily: d, odds, value, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
   // A goal boss the simulator does not kill in every fight still waits.
   expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose } }, value, first: ["cazic"] }).kill).toMatchObject({ key: "nagafen" });
+});
+
+test("a raid boss that stands in the open world is killed there, without a summon", () => {
+  const NOW = 1_800_000_000_000;
+  // Phinigel Autropos in Kedge Keep on 2026-11-12: on the daily list with both summons spent, and
+  // alive at his spawn point in a group's zone. A named enemy on neither list is no boss kill.
+  const seen = {
+    "phinigel autropos": { name: "Phinigel_Autropos", zone: "kedge", level: 53, state: "alive", seenAt: NOW - 5 * 60000 },
+    "lord yelinak": { name: "Lord_Yelinak", zone: "skyshrine", level: 70, state: "alive", seenAt: NOW - 10 * 60000 },
+    innoruuk: { name: "Innoruuk", zone: "hateplane", level: 70, state: "respawning", seenAt: NOW - 60000 },
+    "lady vox": { name: "Lady_Vox", zone: "permafrost", level: 55, state: "alive", seenAt: NOW - 3 * 3600000 },
+    "master yael": { name: "Master_Yael", zone: "hole", level: 56, state: "alive", seenAt: NOW - 60000 },
+  };
+  const d = daily(0, [{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge", status: "limit" }, { key: "innoruuk", name: "Innoruuk", zone: "hateplane", status: "limit" }, { key: "vox", name: "Lady Vox", zone: "permafrost", status: "limit" }]);
+  const open = openBosses({ seen, daily: d, goal: ["Lord Yelinak"], now: NOW });
+  // The dead one, the one last seen three hours ago and the one on no list are left out.
+  expect(open).toEqual([{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge" }, { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine" }]);
+  const odds = { phinigel: { raid: win, groups: { G1: win } }, "lord yelinak": { raid: lose } };
+  const r = nextBossKill({ daily: d, open, odds, value: { phinigel: 0.17 } });
+  expect(r.kill).toMatchObject({ key: "phinigel", zone: "kedge", way: "raid", source: "open" });
+  expect(killId(r.kill)).toBe("boss:open:phinigel");
+  expect(r.skipped).toEqual([{ key: "lord yelinak", why: "the simulator kills it in 5 of 6 fights" }]);
+  // A goal boss that stands and that the raid kills goes first, and a boss that stands is not summoned.
+  const goal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2 }, first: ["lord yelinak"] });
+  expect(goal.kill).toMatchObject({ key: "lord yelinak", source: "open" });
+  const noGoal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open: [open[0]], odds: { ...odds, innoruuk: { raid: win } }, value: { phinigel: 5, innoruuk: 1.2 } });
+  expect(noGoal.kill).toMatchObject({ key: "phinigel", source: "open" });
 });
 
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {

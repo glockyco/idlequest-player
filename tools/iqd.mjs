@@ -18,7 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
-import { bossValues, killId, nextBossKill, potionSpent, standingBosses } from "./lib/boss-plan.mjs";
+import { bossValues, killId, nextBossKill, openBosses, potionSpent, standingBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -350,6 +350,11 @@ export function snapshotInPage(a) {
     out.autoLevel = { running: Boolean(cb.isRunning), mode: cb.automatedCombatMode, minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff };
     out.activity = iq.activity?.() ?? null;
     out.gameHour = iq.gameHour?.() ?? null;
+    // The enemies of the zone's spawn list that the client keeps out of AutoLevel and that a raid
+    // can target (above level 50), with the time of the list: the boss plan reads from them which
+    // raid bosses stand in the open world (`openBosses` in tools/lib/boss-plan.mjs). A list read
+    // before the zone finished loading belongs to the zone before, so it is left out.
+    if (iq.zoneSpawns?.t && !cb.isZoneLoading) out.wardens = { t: iq.zoneSpawns.t, list: iq.zoneSpawns.spawns.filter((s) => s.autoLevelExcluded && s.level > 50).map((s) => ({ npcId: s.npcId, name: s.name, level: s.level, state: s.state, hp: s.currentHp ?? null, maxHp: s.maxHp ?? null, respawnAt: s.nextRespawnAtMs ?? null })) };
     out.activitySec = iq.activitySeconds?.(600000) ?? null;
     out.raid = Boolean(S.raid?.getState?.().raidModeActive);
     out.conn = { screen: S.screen?.getState?.().currentScreen ?? null, connected: iq.socket?.isConnected ?? null, worldReady: iq.socket?.worldReady ?? null, inCombat: Boolean(S.skills?.getState?.().inCombat), zoneLoading: Boolean(cb.isZoneLoading) };
@@ -1077,16 +1082,28 @@ class Daemon {
     const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName }))).filter((p) => !potionSpent(history, p, surveyAt));
     // A casino boss a raid summoned and did not kill, which blocks every other potion until it is dead.
     const standing = standingBosses(history, casino, now);
-    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing];
+    // The raid bosses the tabs see in their zones' spawn lists, by name with the time of the look
+    // (db meta key `bossesSeen`). One that stands alive in the open world needs no summon. After a
+    // raid on it, it counts again only from a look later than that raid's end.
+    const seen = metaGet(this.db, "bossesSeen") ?? {};
+    for (const tr of this.trackers.values()) {
+      const w = tr.snap?.wardens;
+      if (!w || !tr.snap.zoneShort) continue;
+      for (const s of w.list) if (!(seen[npcKey(s.name)]?.seenAt >= w.t)) seen[npcKey(s.name)] = { ...s, zone: tr.snap.zoneShort, seenAt: w.t };
+    }
+    metaSet(this.db, "bossesSeen", seen);
+    const goal = this.raidGoal();
+    const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;
+    const open = openBosses({ seen, daily: st.daily, goal, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
+    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing, ...open.filter((o) => !(st.daily?.bosses ?? []).some((b) => b.key === o.key))];
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
     // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
-    const goal = this.raidGoal();
     const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
     const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, odds: odds.odds, value, first });
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, odds: odds.odds, value, first });
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1101,8 +1118,8 @@ class Daemon {
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     if (!tab || tab.stale || tab.task?.status === "running" || !kill.zone) return null;
     const members = [...groupOf.keys()].filter((n) => n !== leader);
-    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : { bossKey: kill.key };
-    const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : "a free summon";
+    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name } : { bossKey: kill.key };
+    const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
     // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
     // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
     const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));

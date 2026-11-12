@@ -57,10 +57,17 @@ const db = new Database("runs/iq.db", { readonly: true });
 const targets = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'gear'").get()?.v ?? "{}").targets ?? [];
 const held = new Set(survey.map((r) => r.itemId));
 
+// Raid bosses of the goal that a tab saw at their open-world spawn point (the db meta key
+// `bossesSeen`, by name key) and that the daily list does not name: the raid fights them too, by
+// their name key, so the boss plan knows whether a raid there is worth its travel.
+const seen = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'bossesSeen'").get()?.v ?? "{}");
+const goal = (await read("data/raid-goal.json", { bosses: [] })).bosses.map(npcKey);
+const openGoal = Object.entries(seen).filter(([key]) => goal.includes(key) && !(daily.bosses ?? []).some((b) => npcKey(b.name) === key)).map(([key, s]) => ({ key, name: String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone, npcId: s.npcId }));
+
 // An enemy is the NPC of its name that spawns in its zone, since a name alone is ambiguous in the
 // content (Talendor has a level-90 `#Talendor` beside the level-60 boss). Read once for every
 // enemy this run may fight and every one on file.
-const wanted = new Set([...(daily.bosses ?? []).map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
+const wanted = new Set([...(daily.bosses ?? []).map((b) => b.name), ...openGoal.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
 const named = new Map();
 for await (const n of rows("npc_types")) if (wanted.has(npcKey(n.name))) named.set(n.id, n);
 const groupsOf = new Map();
@@ -88,6 +95,7 @@ const add = (e, group) => {
 };
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
 for (const c of casino) if (held.has(c.itemId)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
+for (const b of openGoal) add({ ...b, raid: true }, strongest);
 const pairs = [];
 for (const x of targets.filter((t) => t.npcLevel > 50)) {
   const key = `${x.zone}|${npcKey(x.npc)}`;

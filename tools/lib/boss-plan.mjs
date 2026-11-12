@@ -44,6 +44,8 @@ export function dailyCandidates(daily) {
  * - `daily`: `iq.raid.bosses()` of a leader at 46 or more: `{ resetsRemaining, resetLimit, bosses: [{ key, name, zone, status }] }`.
  * - `potions`: casino potions the survey finds, `[{ key, name, zone, itemId, who }]`, `who` the holder.
  * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
+ * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
+ *   (`openBosses`). They need no summon and no potion.
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
  * - `first`: the keys of the bosses to kill before any other, the raid goal's bosses that no raid
@@ -51,33 +53,58 @@ export function dailyCandidates(daily) {
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
  * already has a summoned casino boss"), so the other potions wait for it. A boss of `first` comes
- * next, then a group kill, since it needs no raid time, for an open-world spawn only: a summon or a
- * potion has been used inside raid mode only. A raid runs as soon as one is due, the most valuable
- * first, because a free summon comes back 24 hours after its use and the account's platinum far
- * outruns the raid time it buys. A potion's raid is led by its holder.
+ * next, then the others by their worth. Every kill is a raid's: no task carries out a group's
+ * visit to a boss, and the simulator, which fights a boss alone, gave group 1 four kills of four
+ * against Phinigel Autropos, who won all 52 fights with the groups beside his seahorses. A raid
+ * runs as soon as one is due, because a free summon comes back 24 hours after its use, an
+ * open-world boss is anyone's to kill, and the account's platinum far outruns the raid time it
+ * buys. A boss that stands in the open world is killed there, which leaves its summon for
+ * another boss. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], odds = {}, value = {}, first = [] }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], open = [], odds = {}, value = {}, first = [] }) {
   const skipped = [];
   const ways = [];
   const add = (c, source) => {
     const o = odds[c.key] ?? {};
-    const group = Object.entries(o.groups ?? {}).find(([, g]) => killable(g))?.[0];
-    if (source === "open" && group) ways.push({ ...c, source, way: "group", group });
-    else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
+    if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
-  for (const b of dailyCandidates(daily)) add(b, "summon");
+  for (const o of open) add(o, "open");
+  for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
   for (const p of potions) {
     if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
     else add(p, "potion");
   }
-  const rank = (w) => (w.source === "standing" ? 0 : first.includes(w.key) ? 1 : w.way === "group" ? 2 : 3);
+  const rank = (w) => (w.source === "standing" ? 0 : first.includes(w.key) ? 1 : 2);
   return { kill: ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0))[0] ?? null, skipped };
 }
 
-/** The coordinator's history id of a kill's raid task: a potion's boss with its holder, or a summon's boss. */
-export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : `boss:summon:${k.key}`);
+/** The coordinator's history id of a kill's raid task: a potion's boss with its holder, an open-world boss, or a summon's boss. */
+export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`);
+
+// A boss a tab saw alive counts as standing this long after the look, the time between two reads
+// of a zone's spawn list by a group that hunts there.
+const OPEN_SEEN_MS = 30 * 60000;
+
+/**
+ * The raid bosses that stand in the open world, from what the tabs see in their zones' spawn lists
+ * (`seen`, by name key: `{ name, zone, level, state, seenAt }`, the enemies the client keeps out of
+ * AutoLevel): those alive at a look within `OPEN_SEEN_MS` whose name is on the daily list
+ * (`daily.bosses`, which gives the key and the zone the look has to be from) or among the raid
+ * goal's bosses (`goal`, names), as `[{ key, name, zone }]`. A boss off the daily list goes by its
+ * name key.
+ */
+export function openBosses({ seen = {}, daily = null, goal = [], now }) {
+  const out = [];
+  for (const [key, s] of Object.entries(seen)) {
+    if (s.state !== "alive" || now - s.seenAt > OPEN_SEEN_MS) continue;
+    const listed = (daily?.bosses ?? []).find((b) => npcKey(b.name) === key);
+    if (listed ? listed.zone !== s.zone : !goal.some((g) => npcKey(g) === key)) continue;
+    out.push({ key: listed?.key ?? key, name: listed?.name ?? String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone });
+  }
+  return out;
+}
 
 // The raid task's steps before it uses its potion (`raidTask` of src/bot.js). A task that ended
 // at one of them left the potion in the bags.

@@ -19,7 +19,9 @@ Verified in the game or in the client's code:
 - Raid time is bought by the hour, quoted at 8,000 pp with the highest character at 52 (`iq.raid.time()`).
 - A casino potion is used with the client's consume function (`ds` in `Bip1bGL8.js`), which sends `casinoPotion: true`. The client's casino table names each boss's zone and spawn point.
 
-From the server's content tables, not yet checked live: open-world respawn times of about 12 h for Phinigel Autropos and Lodizal, 72 h for Lady Vox, Lord Nagafen, Venril Sathir, Trakanon and Lord Yelinak, 168 h for Vulak`Aerr, spawn chance 0 for the four Warders, and no open-world spawn for Tunare and the Avatar of War. The first visit to each zone reads its live spawn list and replaces these.
+Open-world spawns, from the server's content tables: respawn times of about 12 h for Phinigel Autropos and Lodizal, 72 h for Lady Vox, Lord Nagafen, Venril Sathir, Trakanon, Innoruuk, Cazic-Thule and Lord Yelinak, 168 h for Vulak`Aerr, spawn chance 0 for the four Warders, and no open-world spawn for Tunare and the Avatar of War. Seen live in the tabs' spawn lists on 2026-11-12: Phinigel Autropos alive at his point in Kedge Keep, Innoruuk respawning in the Plane of Hate. The server gives a zone's spawn list only to a character in that zone (a request for another zone answers "Your zone is out of sync. Resynchronize before loading enemies."), so a boss's state is known from the tabs that are in its zone.
+
+A raid target stands apart from AutoLevel: the client marks it `autoLevelExcluded` in the spawn list, and it still attacks a party that fights inside its aggro radius. Phinigel Autropos joined 51 fights of the groups in Kedge Keep in a day, all of them pulls of the four swirlspine seahorses that spawn 111 to 163 units from him (aggro radius 200), and won all 52 fights with him since midnight of 2026-11-12. The bot keeps AutoLevel off the spawn points inside such an enemy's aggro radius (`guardedSpawns` in `src/bot.js`).
 
 ## Design
 
@@ -37,7 +39,7 @@ A kill is worth the XP it pays and the items of its loot table at their drop cha
 
 ### Schedule
 
-- Open-world spawns: a boss whose respawn has passed gets a visit, a group's when a group kills it, else a raid. The spawn list on arrival says whether it is up.
+- Open-world spawns: a boss of the daily list or of the raid goal that a tab sees alive at its spawn point is killed there by a raid, without a summon, so its summon stays for another boss (`openBosses` in `tools/lib/boss-plan.mjs`, the db meta key `bossesSeen`). Each snapshot of a tab carries the raid targets of its zone's spawn list. No group visit is planned: the simulator fights a boss alone and gave group 1 four kills of four against Phinigel Autropos, who beat every group beside his seahorses. A raid costs the fleet little: the groups' XP per minute fell by 0.4 and 0.6 group-hours over the 25 minutes around the raids of 2026-11-11, inside its usual swing. Open: a look into the zones no group hunts in, the Plane of Fear for Cazic-Thule and the Temple of Veeshan for Vulak`Aerr.
 - Free summons: used every day, first on a boss of the raid goal that no raid has killed yet (`data/raid-goal.json`), then on the killable bosses of most value whose cooldown has passed, because an unused summon is lost. Of the goal's nine only Cazic-Thule is on the daily list. The simulator kills him with the raid of all 72 in four of four fights, in 589 s on average with 11.75 deaths a fight and the leader dead in every second one (2026-11-11, groups at 45 to 54).
 - Potions: used in a raid by their holders.
 - Raids run as soon as one is due, the most valuable first: a free summon comes back 24 hours after its use, so waiting for the second shifts the first, and the account's platinum far outruns the raid time it buys. A raid task runs for three times its simulated fight, a quarter of an hour at least.
@@ -49,7 +51,7 @@ A kill is worth the XP it pays and the items of its loot table at their drop cha
 | --- | --- | --- |
 | 1 | Kill chances from the simulator in the background (`tools/kill-odds.mjs`, `runs/state/kill-odds.json`), for the raid and every group, shared with gear acquisition. | Built, hourly refresh live at the next iqd restart |
 | 2 | Potion use in the bridge (the client's consume function) and potion raids in the bot's raid task. | Built, live at the first potion raid |
-| 3 | Boss candidates in the coordinator's boss pass (`tools/lib/boss-plan.mjs`): free summons and potions by raid, each as soon as it is due. Open-world spawns follow with their live spawn lists. | Built for summons and potions, live at the next reset |
+| 3 | Boss candidates in the coordinator's boss pass (`tools/lib/boss-plan.mjs`): free summons, potions and bosses seen standing in the open world, by raid, each as soon as it is due. | Built for summons and potions and run live. Open-world bosses built on 2026-11-12, live at the first raid on Phinigel Autropos |
 | 4 | Loot values rank the candidates (`bossValues`: each wanted drop of the gear pass's target for the boss at its chance, the best copy per taker's slot). A kill's XP stays out, since summons and potions are time gated and their drops come from nowhere else. | Built |
 | 5 | Named enemies above a group's reach as gear targets with a raid way in `tools/lib/acquire.mjs`. | Open |
 
