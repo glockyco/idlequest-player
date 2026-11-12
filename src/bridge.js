@@ -1382,15 +1382,19 @@
         await pause(800);
       }
       // Coin goes from the purse to the cursor, as the inventory's coin prompt puts it there, and
-      // from the cursor into the offer with the window's button of its kind.
+      // from the cursor into the offer with the window's button of its kind. The window reads the
+      // cursor from its last render, so a click right after the split found no coin and did nothing
+      // (group 6's Paladin, 2026-11-12): the click comes after a render and is repeated.
       for (const [type, n] of coins) {
         const have = ch().characterProfile?.[type] ?? 0;
         if (have < n) throw new Error(`the purse holds ${have} ${type} of the ${n} the trade takes`);
         ch().splitCurrencyToCursor(type, n);
-        const offer = win.querySelector(`[data-testid="quest-give-currency-${type}"]`);
-        if (!offer || ch().cursorCurrency?.type !== type) throw new Error(`could not offer ${n} ${type}`);
-        offer.click();
-        for (let j = 0; j < 20 && ch().cursorCurrency; j++) await pause(200);
+        if (ch().cursorCurrency?.type !== type) throw new Error(`could not take ${n} ${type} from the purse`);
+        for (let j = 0; j < 10 && ch().cursorCurrency; j++) {
+          await pause(400);
+          win.querySelector(`[data-testid="quest-give-currency-${type}"]`)?.click();
+        }
+        for (let j = 0; j < 10 && ch().cursorCurrency; j++) await pause(200);
         if (ch().cursorCurrency) throw new Error(`the Give Items window did not take ${n} ${type}`);
       }
       give = buttonByText(/^Give$/i, win);
@@ -1400,6 +1404,9 @@
       if (ch().cursorCurrency) ch().dropCurrencyFromCursor();
       buttonByText(/^Cancel$/i, win)?.click();
       for (let k = 0; k < 20 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(200);
+      // The offered items go back to the bags after the window closes, and a retry needs them there.
+      const offered = () => (ch().characterProfile?.inventory ?? []).some((x) => x.bag === 0 && slots.includes(x.slot));
+      for (let k = 0; k < 25 && offered(); k++) await pause(200);
       throw e;
     }
     give.click();
