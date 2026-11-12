@@ -1374,6 +1374,7 @@
     // A trade cut short before Give takes back what it placed with the window's Cancel, which
     // returns the offered items to the bags, so a retry finds them there again.
     let give = null;
+    let offer = items.join(", ");
     try {
       for (let k = 0; k < items.length; k++) {
         const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
@@ -1405,6 +1406,10 @@
         for (let j = 0; j < 10 && ch().cursorCurrency; j++) await pause(200);
         if (ch().cursorCurrency) throw new Error(`the Give Items window did not take ${n} ${type}`);
       }
+      // What the window offers, by its coin buttons' labels ("Offer platinum: 1000"), which a
+      // refusal names, since a coin hand-in was refused twice with the coin taken off the cursor.
+      offer = [...items, ...["platinum", "gold", "silver", "copper"].map((type) => [type, Number(/:\s*(\d+)/.exec(win.querySelector(`[data-testid="quest-give-currency-${type}"]`)?.getAttribute("aria-label") ?? "")?.[1] ?? 0)]).filter(([, n]) => n > 0).map(([type, n]) => `${n} ${type}`)].join(", ");
+      for (const [type, n] of coins) if (!offer.includes(`${n} ${type}`)) throw new Error(`the Give Items window offers ${offer || "nothing"}, not ${n} ${type}`);
       give = buttonByText(/^Give$/i, win);
       if (!give || give.disabled) throw new Error("the Give button is disabled");
     } catch (e) {
@@ -1427,7 +1432,7 @@
     // The server refuses a trade whose items do not match its view of the bags, as after a pull or
     // a reward a moment before, and refreshes the inventory, so the caller can trade again.
     const refused = events.find((e) => e.seq > since && /^(The NPC does not want these items|Those items changed)/.test(e.text));
-    if (refused) throw new Error(`the trade was refused: ${refused.text}`);
+    if (refused) throw new Error(`the trade was refused: ${refused.text} (offered ${offer})`);
     return { dialogues: dialogues.slice(-2), lines: events.filter((e) => e.seq > since && /experience|loot|receive|faction|quest|level/i.test(e.text)).map((e) => e.text) };
   };
   /** Sell what the cursor holds with the client's own sale. Resolves with its reply, or null for an empty cursor. */
