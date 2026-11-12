@@ -849,6 +849,12 @@ run once.
   and then `raid-member-player`, the steps a person takes in the window. `iq.raid.state().leader`
   holds the leader's order, auto attack, casting and navigation, which decide whether his frame
   loop moves him.
+- The leader himself follows the raid's orders through the raid player controller (`YEi`,
+  `BHfVSHXB.js:438746-438880` in the release of 2026-11-10): on a new order it turns his auto attack
+  on for "attacking" and walks him for Run To Target. It runs from the scene's
+  `onBeforeCameraRenderObservable`, so only on rendered frames: with Disable 3D on, which skips the
+  draw (`renderScene`, `476926-476936`), the leader stands still with auto attack off while the
+  members fight. The bot draws the world while raid mode is on.
 - Effect orders: the Slow, Mez and Debuff panels group their spells by kind ("Single-Target
   Slows", "Single-Target Mez", "Resistance Debuffs", "Snares", `CVE` 10185-10197). A slow or mez
   spell has CAST ONCE and KEEP SLOWED or KEEP MEZZED buttons, and KEEP starts a maintained effect

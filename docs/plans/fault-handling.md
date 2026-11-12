@@ -80,7 +80,9 @@ the end of a cause's delay wake the tick, so the delays hold to the second.
 
 Rendering off becomes a client option the bot keeps (`clientOptions.disable3D`, whose toggle is
 `toggleDisable3D`), like Auto-Sell, so no sign-in or reload needs its own step. A screenshot of the
-world lifts it for its moment (`iqBot.render(seconds)`).
+world lifts it for its moment (`iqBot.render(seconds)`), and raid mode for its duration, because
+the client moves the raid leader and starts his attacks only on rendered frames
+(docs/client-internals.md, "Running a raid from a script").
 
 ### The page supervisor
 
