@@ -441,7 +441,7 @@ function renderBosses(s) {
   $("bosses").innerHTML =
     `<p class="muted small">${note.join(" ")}</p>` +
     table(
-      ["Boss", "Zone", "Now", "Killed", "Last look", "A kill is worth", "Raid simulator"],
+      ["Boss", "Zone", "Now", "Killed", "Last seen", "A kill is worth", "Raid simulator"],
       sorted.map((w) => [
         `${esc(w.name)}${w.goal ? ` <span class="pill task" title="One of the goal's nine bosses">goal</span>` : ""}`,
         esc(w.zone),

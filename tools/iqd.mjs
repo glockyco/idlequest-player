@@ -1170,10 +1170,13 @@ class Daemon {
       const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
       return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
     }
-    // A look takes a free tab that leads no raid: one in the boss's zone already, else the one
-    // with the highest leader, which has the best chance in a zone a boss lives in.
+    // A look takes a free tab that leads no raid: one in the boss's zone already, else one without
+    // an errand, which a task ends (the first look, of 39 s, ended group 4's), else the one with
+    // the highest leader, which has the best chance in a zone a boss lives in.
     if (!look) return null;
-    const lookers = tabs.filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46).sort((a, b) => Number(b.zone === look.zone) - Number(a.zone === look.zone) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0));
+    const lookers = tabs
+      .filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46)
+      .sort((a, b) => Number(b.zone === look.zone) - Number(a.zone === look.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0));
     if (!lookers.length) return null;
     return { label: lookers[0].label, kind: "look", id: `look:${look.key}`, spec: { zone: look.zone, name: look.name, until: look.until }, why: `${look.name} in ${look.zone}: ${look.why}` };
   }
