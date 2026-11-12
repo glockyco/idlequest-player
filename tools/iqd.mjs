@@ -25,7 +25,7 @@ import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
-import { pageStep } from "./lib/page.mjs";
+import { PAGE, pageStep } from "./lib/page.mjs";
 import { commitFor, deployed, readDeploy, reverted, writeDeploy } from "../src/deploy.mjs";
 import { KINDS, needsPerson } from "./lib/attention.mjs";
 import { screenInPage } from "../src/install.mjs";
@@ -226,6 +226,8 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   if (snap.conn?.screen === "game" && snap.conn.connected) settled["alert-offline"] = now;
   if (snap.leader?.id != null && snap.leader.id === snap.bot?.leaderId) settled["alert-switch"] = now;
   if (snap.release && !snap.missingApi?.length) settled["alert-clientUpdate"] = now;
+  // A heap under the share the page supervisor reloads at ends the bot's memory alert.
+  if (snap.heap?.limit && snap.heap.used < PAGE.heapShare * snap.heap.limit) settled["alert-memory"] = now;
   return { state: st, items, evaluated, settled };
 }
 
@@ -259,7 +261,7 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
   const newest = new Map(events.filter((e) => e.severity === "act").map((e) => [e.kind, e.id]));
   for (const e of events) {
     if (CONDITION_KINDS.includes(e.kind) || !(e.severity in EVENT_TTL_MS)) continue;
-    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room", "alert-switch": "the leader plays again", "alert-clientUpdate": "the client lacks nothing" }[e.kind] ?? "the tab plays again", now);
+    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room", "alert-switch": "the leader plays again", "alert-clientUpdate": "the client lacks nothing", "alert-memory": "the page's memory is under half its limit" }[e.kind] ?? "the tab plays again", now);
     else if (e.severity === "act" && newest.get(e.kind) !== e.id) resolveItem(db, e.id, `replaced by #${newest.get(e.kind)}`, now);
     else if (now - e.t >= EVENT_TTL_MS[e.severity] && (e.severity === "info" || !conditionOpen)) resolveItem(db, e.id, "expired", now);
   }
