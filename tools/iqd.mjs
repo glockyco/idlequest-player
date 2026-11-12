@@ -1100,7 +1100,9 @@ class Daemon {
     // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
     const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
     const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, odds: odds.odds, value, first });
+    // Raid time that still runs for five minutes carries one more raid without a new hour.
+    const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, odds: odds.odds, value, first });
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });

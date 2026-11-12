@@ -1996,6 +1996,8 @@
   // fight is read from: duration, the orders given, each member's damage, HP and mana, the leader's
   // deaths and revives, the raid log's last lines and a trace every 5 s of the leader's order, auto
   // attack, casting and navigation, his distance to the boss and the boss's HP.
+  // Balances a raid's leader pulls at most for an hour of raid time.
+  const RAID_COIN_PULLS = 8;
   const raidTask = async (i, task, step) => {
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
@@ -2008,12 +2010,24 @@
       const t = await raid.time();
       if (t.active) return;
       if (!task.maxPp) throw new Error("no raid time left and maxPp is 0");
-      // The hour is paid from the leader's carried coin, so a short leader pulls a balance first.
-      const coin = i.stores.character.getState().characterProfile?.platinum ?? 0;
-      if (t.pricePp && t.pricePp <= task.maxPp && coin < t.pricePp) log(`task raid: pulled ${(await pullCoin(i, t.pricePp - coin)) ?? "no balance"} for raid time`);
+      // The hour is paid from the leader's carried coin. No single character may hold the price:
+      // on 2026-11-12 the account had 49,000 platinum and no character over 9,300, and a raid
+      // failed here. So a short leader pulls the largest balances one after another.
+      const carried = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
+      if (t.pricePp && t.pricePp <= task.maxPp) {
+        const pulled = [];
+        for (let k = 0; k < RAID_COIN_PULLS && carried() < t.pricePp; k++) {
+          const from = await pullCoin(i, 1);
+          if (!from) break;
+          pulled.push(from);
+        }
+        if (pulled.length) log(`task raid: pulled ${pulled.join(", ")} for raid time`);
+        // The step is tried twice, so the message names what is carried, which holds for both tries.
+        if (carried() < t.pricePp) throw new Error(`${activeName(i)} carries ${carried()} of the ${t.pricePp} platinum an hour of raid time costs, with every balance it could pull`);
+      }
       const b = await raid.buyHour(task.maxPp);
       log(`task raid: bought an hour of raid time for ${b.pricePp}pp`);
-    }, 60000);
+    }, 150000);
     await step("open the raid", () => raid.open(), 30000);
     try {
       const ids = task.members.map((m) => findCharacter(i, m)?.id).filter((id) => id != null).map(Number);

@@ -1763,6 +1763,49 @@ test("a raid task records a wipe, and without raid time it stops before releasin
   }
 });
 
+test("a raid's leader pulls balances one after another until it carries the hour's price", async () => {
+  vi.useFakeTimers();
+  const g = globalThis as unknown as { document?: unknown };
+  try {
+    // 2026-11-12: the account held 49,000 platinum, no character over 9,300 and the leader 618,
+    // and the raid on Phinigel Autropos failed at its raid time.
+    const run = async (held: [string, number][]) => {
+      const f = await install([10, 20]);
+      Object.assign(f.sheet.characterProfile, { platinum: 618 });
+      const pulls: string[] = [];
+      const row = ([name, pp]: [string, number]) => ({
+        querySelectorAll: () => [name, "", "", `${pp.toLocaleString("en")} pp`].map((textContent) => ({ textContent })),
+        querySelector: () => ({
+          disabled: false,
+          click: () => {
+            Object.assign(f.sheet.characterProfile, { platinum: (f.sheet.characterProfile as { platinum?: number }).platinum! + pp });
+            held.splice(held.findIndex((b) => b[0] === name), 1);
+            pulls.push(name);
+          },
+        }),
+      });
+      const panel = { textContent: "", querySelector: () => null, querySelectorAll: () => held.map(row) };
+      g.document = { querySelector: (sel: string) => (sel.includes("manage-money-panel") ? panel : null), querySelectorAll: () => [] };
+      Object.assign(f.combat, { openManageMoney: () => {}, closeManageMoney: () => {} });
+      const calls = fakeRaid(f, { pricePp: 10000 });
+      f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", maxPp: 10000, heal: null, nuke: null, effects: [] });
+      await runToEnd(f);
+      return { pulls, calls, task: f.bot.state.task };
+    };
+    const rich = await run([["Figrothe", 6627], ["Gygekrian", 9286], ["Tovrenalis", 7968]]);
+    expect(rich.pulls).toEqual(["Gygekrian", "Tovrenalis"]);
+    expect(rich.calls).toContain("buy 10000");
+    // An account that cannot raise the price buys no hour and opens no raid.
+    const poor = await run([["Loshotin", 50], ["Kimorili", 270]]);
+    expect(poor.pulls).toEqual(["Kimorili", "Loshotin"]);
+    expect(poor.task).toMatchObject({ status: "failed", step: "raid time", error: "Me carries 938 of the 10000 platinum an hour of raid time costs, with every balance it could pull" });
+    expect(poor.calls).not.toContain("open");
+  } finally {
+    delete g.document;
+    vi.useRealTimers();
+  }
+});
+
 test("a raid task has a living member revive the fallen leader and fights on", async () => {
   vi.useFakeTimers();
   try {

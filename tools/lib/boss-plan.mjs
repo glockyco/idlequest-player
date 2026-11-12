@@ -46,6 +46,10 @@ export function dailyCandidates(daily) {
  * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
  * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
  *   (`openBosses`). They need no summon and no potion.
+ * - `paid`: whether raid time is running that a raid can use. An open-world boss outside `first`
+ *   waits for it: an hour costs 10,000 platinum, a third of what the account's sales bring in a
+ *   day (30,241 platinum on 2026-11-11), and the coin budget counts one hour a day, the one the
+ *   summons' raids buy.
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
  * - `first`: the keys of the bosses to kill before any other, the raid goal's bosses that no raid
@@ -56,12 +60,12 @@ export function dailyCandidates(daily) {
  * next, then the others by their worth. Every kill is a raid's: no task carries out a group's
  * visit to a boss, and the simulator, which fights a boss alone, gave group 1 four kills of four
  * against Phinigel Autropos, who won all 52 fights with the groups beside his seahorses. A raid
- * runs as soon as one is due, because a free summon comes back 24 hours after its use, an
- * open-world boss is anyone's to kill, and the account's platinum far outruns the raid time it
- * buys. A boss that stands in the open world is killed there, which leaves its summon for
- * another boss. A potion's raid is led by its holder.
+ * on a summon or a potion runs as soon as one is due, because a free summon comes back 24 hours
+ * after its use. A boss that stands in the open world is killed there, which leaves its summon
+ * for another boss, and outside `first` only in raid time that is paid. A potion's raid is led
+ * by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], open = [], odds = {}, value = {}, first = [] }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, odds = {}, value = {}, first = [] }) {
   const skipped = [];
   const ways = [];
   const add = (c, source) => {
@@ -70,7 +74,10 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
     else skipped.push({ key: c.key, why: o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
-  for (const o of open) add(o, "open");
+  for (const o of open) {
+    if (!paid && !first.includes(o.key)) skipped.push({ key: o.key, why: "it stands in the open world, and its raid waits for raid time that is paid" });
+    else add(o, "open");
+  }
   for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
   for (const p of potions) {
     if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });

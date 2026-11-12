@@ -67,6 +67,10 @@ test("a raid boss that stands in the open world is killed there, without a summo
   expect(goal.kill).toMatchObject({ key: "lord yelinak", source: "open" });
   const noGoal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open: [open[0]], odds: { ...odds, innoruuk: { raid: win } }, value: { phinigel: 5, innoruuk: 1.2 } });
   expect(noGoal.kill).toMatchObject({ key: "phinigel", source: "open" });
+  // Without raid time that is paid, an open-world boss buys no hour, unless the goal needs it.
+  const unpaid = nextBossKill({ daily: d, open, paid: false, odds: { ...odds, "lord yelinak": { raid: win } }, value: { phinigel: 0.17 }, first: ["lord yelinak"] });
+  expect(unpaid.kill).toMatchObject({ key: "lord yelinak", source: "open" });
+  expect(unpaid.skipped).toEqual([{ key: "phinigel", why: "it stands in the open world, and its raid waits for raid time that is paid" }]);
 });
 
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {
