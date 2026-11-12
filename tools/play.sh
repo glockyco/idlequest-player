@@ -7,7 +7,18 @@ cd "$(dirname "$0")/.." || exit 1
 omp browser-relay &
 relay=$!
 collector=
-trap 'kill "$relay" $collector 2>/dev/null; wait $collector 2>/dev/null; trap - EXIT; exit 130' INT TERM HUP
+# A stop gives the collector 20 s to end its cycle, then ends it. On 2026-11-12 one went on for
+# 105 s after Ctrl-C, with the relay already gone, and the account stood meanwhile.
+stop() {
+  kill "$relay" $collector 2>/dev/null
+  n=0
+  while [ -n "$collector" ] && kill -0 "$collector" 2>/dev/null && [ "$n" -lt 20 ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+  kill -9 $collector 2>/dev/null
+}
+trap 'stop; trap - EXIT; exit 130' INT TERM HUP
 trap 'kill "$relay" $collector 2>/dev/null' EXIT
 
 # The collector writes runs/status.md at the end of every cycle. One that finishes no cycle for

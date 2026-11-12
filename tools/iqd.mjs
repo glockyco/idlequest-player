@@ -753,7 +753,7 @@ class Daemon {
     settleErrands(state.history, tabs, now);
     this.doing = "experiments";
     const held = await this.experimentPass(now, tabs, state);
-    this.doing = "rates and paces";
+    this.doing = "zone rates";
     // Hours a level takes each character at its group's own XP per hour over the last two hours of
     // minute totals, minutes with a task left out (another member is active then, and a trip zone
     // pays its own rate): the pace at which gear pays (`copyValue` in tools/lib/acquire.mjs). A
@@ -761,6 +761,7 @@ class Daemon {
     // The crowd factors follow the zones' measured crowding, which grows every cycle.
     this.crowdCache?.clear();
     const rates = await this.loadRates();
+    this.doing = "paces";
     const { xpStart } = await import("./lib/xp.mjs");
     const hoursPerLevel = {};
     const sinceMinute = Math.floor((now - 2 * 3600000) / 60000);
@@ -781,7 +782,9 @@ class Daemon {
     this.killsPerHour ??= metaGet(this.db, "gear")?.killsPerHour ?? {};
     // The last gear pass's moves wait for a free tab until a gear task takes them or a newer pass
     // replaces them, because the pass runs hourly and a busy hour would otherwise lose them.
+    this.doing = "gear pass";
     this.pendingGear = (await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null))) ?? this.pendingGear ?? null;
+    this.doing = "item demand";
     const gear = this.pendingGear;
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
@@ -811,9 +814,9 @@ class Daemon {
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
     for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
-    // prior fitted to every fight on file, the simulator's fights of its six and its own fights at
-    // its current level, once per pair for the pass. A chain's enemies share the target's name and
-    // zone but not its level, so the level and hit points are part of the pair.
+    // prior fitted to every fight on file, the simulator's fights of its six and the live fights
+    // that count at its level, once per pair for the pass. A chain's enemies share the target's name
+    // and zone but not its level, so the level and hit points are part of the pair.
     this.doing = "kill odds and the groups' actions";
     const odds = await this.killOdds(now);
     const chances = new Map();
