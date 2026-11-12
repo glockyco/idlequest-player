@@ -1423,11 +1423,22 @@
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
   // too, or buys it from the merchant its `buy` names after travelling to that zone, and gives it
-  // to the character it suits best, in the party or not, so the tab never switches characters:
-  // equipped, or into the bags for a move to slot "bags" (a Bard's instrument for the party supply).
+  // to the character it suits best, in the party or not: equipped, or into the bags for a move to
+  // slot "bags" (a Bard's instrument for the party supply). A give that equips carries no slot: the
+  // server puts the item into an empty slot it fits, else over the item it ranks lower. So a move
+  // the plan marks `exact`, a weapon for either hand, goes into its receiver's bags, and once the
+  // other moves are done each such receiver of this tab's party becomes the active character and
+  // wears its items in the planned slots. The bot brings the leader back as after every task.
   // A move that fails is recorded and the next one runs.
   const gearTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
+    const inParty = (id) => (i.stores.companions.getState().companions ?? []).some((c) => Number(c.characterId) === Number(id));
+    const failed = (mv, e) => {
+      if (e instanceof TaskStopped) throw e;
+      mv.error = String(e?.message ?? e);
+      log(`gear: ${mv.item} to ${mv.to} failed: ${mv.error}`);
+    };
+    const toPlace = [];
     for (const mv of task.moves) {
       if (mv.done || mv.error) continue;
       try {
@@ -1454,16 +1465,35 @@
           Object.assign(mv, { done: true, lines: [] });
           continue;
         }
-        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags", settle: () => settleHeld(i) }), 30000);
+        const place = Boolean(mv.exact) && !self && inParty(to.id);
+        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" && !place, settle: () => settleHeld(i) }), 30000);
         // A move retried after a reinstall may find the item already given, which the server
         // reports as a lore conflict, so that refusal means the receiver has it.
         const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));
         if (!given) throw new Error(`the ${self ? "slot move" : "transfer"} was refused${r.lines.length ? `: ${r.lines.at(-1)}` : ""}`);
-        Object.assign(mv, { done: true, lines: r.lines });
+        if (place) toPlace.push(mv);
+        else Object.assign(mv, { done: true, lines: r.lines });
       } catch (e) {
-        if (e instanceof TaskStopped) throw e;
-        mv.error = String(e?.message ?? e);
-        log(`gear: ${mv.item} to ${mv.to} failed: ${mv.error}`);
+        failed(mv, e);
+      }
+    }
+    for (const name of new Set(toPlace.map((mv) => mv.to))) {
+      const mine = toPlace.filter((mv) => mv.to === name);
+      try {
+        await step(`switch to ${name}`, () => becomeActive(i, name), 200000);
+      } catch (e) {
+        for (const mv of mine) failed(mv, e);
+        continue;
+      }
+      for (const mv of mine) {
+        try {
+          const r = await step(`equip ${mv.item} on ${name}`, () => i.equipOwn(mv.item, mv.slotNum), 30000);
+          if (!r.ok) throw new Error(`${name}'s ${mv.slot} slot does not hold it`);
+          Object.assign(mv, { done: true, placed: true, lines: [] });
+          log(`gear: ${name} wears ${mv.item} in the ${mv.slot} slot, placed with ${name} active`);
+        } catch (e) {
+          failed(mv, e);
+        }
       }
     }
     task.result = `${task.moves.filter((m) => m.done).length} of ${task.moves.length} moves`;
@@ -2780,7 +2810,7 @@
     gear({ moves }) {
       takeTab();
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },

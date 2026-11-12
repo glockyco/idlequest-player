@@ -600,12 +600,20 @@ AutoLevel until the destroy goes through.
 
 ### Account-wide sharing rules
 
-- Held-item transfer: `transferHeldItem(characterId, equip)` (`main.pretty.js:53376-53420`) needs the
+- Held-item transfer: `transferHeldItem(characterId, equip)` (`BpHyB6iC.js:53464-53516`) needs the
   item on the cursor, a target that differs from the active character and is in
   `stores.roster.getState().characters`, and no transfer in flight. It then sends the item to the
-  server with `equip`. The recipient does not have to be in the party, so offline characters and
-  characters of a second party qualify, and the bot's `giveItem` relies on that. Server: which slot
-  an equip replaces, and what happens to the replaced item. Unverified for this call: the
+  server with `equip` and no slot (`{ characterId, itemInstanceId, quantity, equip }`). The
+  recipient does not have to be in the party, so offline characters and characters of a second
+  party qualify, and the bot's `giveItem` relies on that. The server chooses the slot. Measured
+  from the gear tasks of 2026-11-11 and 12 against the worn items of the next gear pass: an item
+  goes into an empty slot it fits (7 of 7 weapons with one hand empty, 3 of 3 wrists and ears).
+  With both slots of a pair worn, a weapon for either hand went to the main hand 14 times and to
+  the off hand 11 times, and a wrist item to the first wrist 3 times and the second once: every
+  off-hand landing replaced an off-hand weapon of lower damage over delay beside a main-hand-only
+  weapon, so the server seems to replace the weaker of the slots the new item may take. A gear
+  move whose hand matters therefore goes into the receiver's bags (`equip` false) and is worn with
+  the receiver active (`exact` moves in `gearTask`, `src/bot.js`). Unverified for this call: the
   message "That character has no inventory space for the replaced item" was seen only with
   Auto-Upgrade Companions (`diary/2026-11-07-f.md`, section "Companion bags").
 - Manage Money (`engine.pretty.js:419664-419899`): sends `{ action: "read" }` and gets one row per

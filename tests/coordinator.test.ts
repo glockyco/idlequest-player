@@ -424,6 +424,21 @@ test("a gear task goes to a leader that can take every lore item it moves, and a
   expect(decide({ now: NOW, tabs, gear: { moves: [cloak, both] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
 });
 
+test("a move that has to be placed runs in its receiver's own tab, with the receiver's other moves", () => {
+  const tabs = [tab("A", "G1", 41), tab("C", "G9", 13)];
+  const whip = { item: "Whip", from: "X", to: "A3", slot: "primary", exact: true };
+  const knife = { item: "Knife", from: "X", to: "A3", slot: "secondary" };
+  const cloak = { item: "Cloak", from: "X", to: "A4", slot: "back" };
+  // The Whip needs A3's hand, so A3's moves go to A3's tab and the cloak to the lowest tab.
+  expect(decide({ now: NOW, tabs, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([
+    { label: "A", kind: "gear", spec: { moves: [whip, knife] } },
+    { label: "C", kind: "gear", spec: { moves: [cloak] } },
+  ]);
+  // With A3's tab busy its moves wait, and the cloak still goes.
+  const busy = [tab("A", "G1", 41, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
+  expect(decide({ now: NOW, tabs: busy, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
+});
+
 test("a quest chain takes a tab before a camp would", () => {
   const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];

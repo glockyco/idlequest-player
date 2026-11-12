@@ -64,6 +64,23 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
 });
 
+test("a weapon for either hand that replaces a worn one is marked to be placed, and no other move is", () => {
+  // The server puts a given weapon for either hand into the empty hand, else over the weapon it
+  // ranks lower, so only these moves depend on a slot the give cannot name.
+  const both = new Map([...items, item(9, "Fast Whip", { slots: (1 << 13) | (1 << 14), damage: 9, delay: 14, itemtype: 0 })]);
+  const people = [{ name: "War", cls: "warrior", level: 30, race: "" }];
+  const whip = { ...row("Holder", 3, "Carried", 25, 3), itemId: 9, itemName: "Fast Whip" };
+  // Over the Rusty Sword in the main hand, beside a dagger: the give could land in either hand.
+  const full = planGear({ survey: [row("War", 4, "Equipped", 13, 1), row("War", 7, "Equipped", 14, 2), whip], items: both, people }).moves;
+  expect(full).toMatchObject([{ item: "Fast Whip", to: "War", slot: "primary", exact: true }]);
+  // Into an empty main hand the server puts it by itself, and a main-hand-only sword has one slot.
+  const empty = planGear({ survey: [row("War", 7, "Equipped", 14, 2), whip], items: both, people }).moves;
+  expect(empty.find((m) => m.item === "Fast Whip")).not.toHaveProperty("exact");
+  const sword = planGear({ survey: [row("War", 4, "Equipped", 13, 1), row("Holder", 3, "Carried", 25, 3)], items: both, people }).moves;
+  expect(sword).toMatchObject([{ item: "Long Sword", slot: "primary" }]);
+  expect(sword[0]).not.toHaveProperty("exact");
+});
+
 test("a weapon goes to the member whose melee is the larger share of the party's damage", () => {
   const people = [
     { name: "War", cls: "warrior", level: 30, race: "", shares: { melee: 0.05, spell: 0 } },

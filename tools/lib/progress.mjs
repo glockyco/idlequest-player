@@ -150,12 +150,17 @@ export function chainChanges(before, after, t) {
   return out;
 }
 
+// The two hands are a pair of slots with different names.
+const HANDS = ["primary", "secondary"];
+
 /**
  * The upgrades a character wears since the gear pass before: `before` and `after` are
  * `{ sheets, scores }`, the slots of `gearSheets` (worn item, queued move and wanted drop per slot)
- * and the set scores of `gearPlan` (`{ now, target }`) by name. A slot counts when it holds a new
- * item that the earlier pass queued for it (its move or wanted drop, whose `gain` it then carries)
- * or when the character's set score rose, so an item that only left for someone else is not progress.
+ * and the set scores of `gearPlan` (`{ now, target }`) by name. A slot counts when it holds an item
+ * the character wore in no slot before and that the earlier pass queued for it (its move or wanted
+ * drop, whose `gain` it then carries) or when the character's set score rose, so an item that only
+ * left for someone else is not progress. An item that changed its slot is none either: a give
+ * that equips lands where the server puts it, in the other of two wrists as well as the planned one.
  */
 export function gearChanges({ before, after, t }) {
   if (!before?.sheets) return [];
@@ -164,11 +169,17 @@ export function gearChanges({ before, after, t }) {
     const old = before.sheets[name];
     if (!old) continue;
     const changed = [];
+    const had = new Set(old.map((x) => x.worn?.itemId).filter((id) => id != null));
+    const has = new Set(slots.map((x) => x.worn?.itemId).filter((id) => id != null));
     for (const s of slots) {
       const o = old.find((x) => x.slotNum === s.slotNum);
-      if (!s.worn || o?.worn?.itemId === s.worn.itemId) continue;
-      const planned = [o?.move, o?.drop].find((p) => p?.itemId === s.worn.itemId);
-      changed.push({ slot: s.slot, item: s.worn.name, itemId: s.worn.itemId, was: o?.worn?.name ?? null, wasId: o?.worn?.itemId ?? null, gain: planned?.gain ?? null });
+      if (!s.worn || o?.worn?.itemId === s.worn.itemId || had.has(s.worn.itemId)) continue;
+      // The plan may have queued the item for the other slot of a pair, and what it replaced is
+      // the item of that pair the character no longer wears.
+      const pair = old.filter((x) => x.slot === s.slot || [x.slot, s.slot].every((n) => HANDS.includes(n)));
+      const planned = [o?.move, o?.drop, ...pair.flatMap((x) => [x.move, x.drop])].find((p) => p?.itemId === s.worn.itemId);
+      const was = [o, ...pair].map((x) => x?.worn).find((w) => w && !has.has(w.itemId)) ?? null;
+      changed.push({ slot: s.slot, item: s.worn.name, itemId: s.worn.itemId, was: was?.name ?? null, wasId: was?.itemId ?? null, gain: planned?.gain ?? null });
     }
     if (!changed.length) continue;
     const sb = before.scores?.[name];
@@ -190,7 +201,9 @@ const EQUIP_LINE = /^(\S+) equips (.+)\.$/;
  * the item as the queued move of a slot in `sheets` (the slots of `gearSheets`). The event carries
  * the time of the line, the move's `gain` and `task`, the start of the gear task that ran it, by
  * which the feed puts one task's upgrades into one row. An equip the plan did not queue is left to
- * `gearChanges`, which knows whether it raised the set score.
+ * `gearChanges`, which knows whether it raised the set score. So is a move into a slot that has a
+ * twin, both worn (two wrists, ears, fingers or hands): the line names no slot, the server chooses
+ * which of the two the item replaces, and only the next pass sees it.
  */
 export function equipProgress({ events, sheets, task = null }) {
   const out = [];
@@ -198,6 +211,8 @@ export function equipProgress({ events, sheets, task = null }) {
     const [, name, item] = (e.type === "SYSTEM" ? EQUIP_LINE.exec(e.text ?? "") : null) ?? [];
     const s = sheets?.[name]?.find((x) => x.move?.item === item);
     if (!s) continue;
+    const twins = sheets[name].filter((x) => x.slot === s.slot || [x.slot, s.slot].every((n) => HANDS.includes(n)));
+    if (twins.length > 1 && twins.every((x) => x.worn)) continue;
     out.push({ t: e.t, kind: "gear", sig: 1, name, text: `${name} wears ${item} (${s.slot})`, data: { slots: [{ slot: s.slot, item, itemId: s.move.itemId, was: s.worn?.name ?? null, wasId: s.worn?.itemId ?? null, gain: s.move.gain ?? null }], score: null, task }, key: `equip:${e.ses}:${e.seq}` });
   }
   return out;

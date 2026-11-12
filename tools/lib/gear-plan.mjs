@@ -400,7 +400,12 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     // A gear task pulls the item to its tab's leader first, which a leader carrying a lore copy
     // already refuses, so the move names the characters that carry one.
     const loreHolders = isLore(items.get(r.itemId)) ? [...owned].filter(([n, ids]) => n !== r.characterName && ids.has(r.itemId)).map(([n]) => n) : [];
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    // A weapon for either hand that replaces a worn one has to be placed (`exact`): a give that
+    // equips carries no slot, and the server puts such a weapon into the empty hand, else over the
+    // weapon it ranks lower, whatever the plan meant (docs/client-internals.md, "Account-wide sharing
+    // rules"). The receiver wears it in the planned hand while it is the active character.
+    const exact = !toBags && Boolean(replaced) && [PRIMARY, SECONDARY].includes(slot) && Boolean(fits(items.get(r.itemId), p, PRIMARY) && fits(items.get(r.itemId), p, SECONDARY));
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;

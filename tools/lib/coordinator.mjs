@@ -318,16 +318,25 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   }
 
   // Gear moves come before gear hunts: one gear task carries out every move of the plan, its
-  // largest gains, in minutes, with no character switch and at most one trip to a merchant's city.
+  // largest gains, in minutes, and at most one trip to a merchant's city.
   // The task pulls each item to its tab's leader, which refuses a lore item it carries already
   // (`loreHolders` of a move), so such moves wait for a later task on another tab. It goes to the
   // free tab whose leader blocks the fewest moves, then to the one with the lowest levels, whose
-  // hunting the minutes cost least.
+  // hunting the minutes cost least. A move that has to be placed (`exact`) runs in the tab of the
+  // receiver's own group, where the receiver can become the active character, together with the
+  // receiver's other moves, so no other tab changes what it wears meanwhile. Such moves wait for
+  // the next plan while that tab is busy.
   if (gear?.moves?.length) {
     const blocks = (t, m) => (m.loreHolders ?? []).includes(t.members[0]?.name);
-    const blocked = (t) => gear.moves.filter((m) => blocks(t, m)).length;
+    const placed = new Set(gear.moves.filter((m) => m.exact).map((m) => m.to));
+    const anywhere = gear.moves.filter((m) => !placed.has(m.to));
+    for (const x of tabs.filter((x) => free(x) && x.members.some((m) => placed.has(m.name)))) {
+      const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && !blocks(x, m));
+      if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, placed in their hands` });
+    }
+    const blocked = (t) => anywhere.filter((m) => blocks(t, m)).length;
     const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => blocked(a) - blocked(b) || mean(a) - mean(b))[0];
-    const moves = t ? gear.moves.filter((m) => !blocks(t, m)) : [];
+    const moves = t ? anywhere.filter((m) => !blocks(t, m)) : [];
     if (moves.length) out.push({ label: t.label, kind: "gear", spec: { moves }, why: `${moves.length} gear moves for ${new Set(moves.map((m) => m.to)).size} characters` });
   }
 

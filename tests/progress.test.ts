@@ -83,6 +83,22 @@ test("gear counts an upgrade the earlier pass planned or one that raised the set
   expect(gearChanges({ before, after: rose, t: 9 }).map((e) => e.name)).toEqual(["Tank", "Mage"]);
 });
 
+test("an item that only changed its slot is no upgrade, and a planned item counts in the other slot of its pair", () => {
+  // The plan queued the Armband for the first wrist, and the give that equips put it into the
+  // second, as the server chose. The Bracer moved from the second wrist to the first.
+  const wrists = (a: [string, number], b: [string, number], plan: Record<string, unknown> = {}) => [
+    { slotNum: 9, slot: "wrist", worn: { itemId: a[1], name: a[0] }, move: null, drop: null, ...plan },
+    { slotNum: 10, slot: "wrist", worn: { itemId: b[1], name: b[0] }, move: null, drop: null },
+  ];
+  const scores = { Tank: { now: 10, target: 40 } };
+  const before = { sheets: { Tank: wrists(["Cloth Band", 1], ["Bracer", 2], { move: { itemId: 3, item: "Armband", gain: 1.2 } }) }, scores };
+  const landed = { sheets: { Tank: wrists(["Bracer", 2], ["Armband", 3]) }, scores: { Tank: { now: 12, target: 40 } } };
+  expect(gearChanges({ before, after: landed, t: 9 }).map((e) => [e.text, e.data.slots.map((s: { gain: number; was: string }) => [s.gain, s.was])])).toEqual([["Tank wears Armband (wrist)", [[1.2, "Cloth Band"]]]]);
+  // Two items that swapped their slots are nothing new, whatever the score did.
+  const swapped = { sheets: { Tank: wrists(["Bracer", 2], ["Cloth Band", 1]) }, scores: { Tank: { now: 12, target: 40 } } };
+  expect(gearChanges({ before, after: swapped, t: 9 })).toEqual([]);
+});
+
 test("an equip line of a planned move is a gear row at its own time, and the gear pass does not report it again", () => {
   const db = openDb(":memory:");
   const move = (itemId: number, item: string) => ({ move: { itemId, item, from: "Bank", gain: 3.5 } });
@@ -102,6 +118,12 @@ test("an equip line of a planned move is a gear row at its own time, and the gea
   const scores = { Tank: { now: 10, target: 40 }, Mage: { now: 8, target: 40 } };
   const after = { sheets: { Tank: sheet("Helm", 2), Mage: sheet("Circlet of Mist", 6) }, scores: { Tank: { now: 12, target: 40 }, Mage: { now: 9, target: 40 } } };
   expect(gearChanges({ before: { sheets: worn, scores }, after, t: 200 })).toEqual([]);
+  // A move into one of two worn wrists is left to the gear pass, which sees which wrist it took.
+  const wrists = { Tank: [{ slotNum: 9, slot: "wrist", worn: { itemId: 1, name: "Cloth Band" }, move: { itemId: 3, item: "Armband", gain: 1.2 }, drop: null }, { slotNum: 10, slot: "wrist", worn: { itemId: 2, name: "Bracer" }, move: null, drop: null }] };
+  expect(equipProgress({ events: [line(4, "Tank equips Armband.")], sheets: wrists })).toEqual([]);
+  // Into an empty second wrist it has one place to go.
+  const oneWorn = { Tank: [wrists.Tank[0], { ...wrists.Tank[1], worn: null }] };
+  expect(equipProgress({ events: [line(4, "Tank equips Armband.")], sheets: oneWorn })).toHaveLength(1);
 });
 
 test("the feed names a looted item and an upgrade's new and replaced items by id, and an empty slot replaced nothing", () => {

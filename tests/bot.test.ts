@@ -2368,6 +2368,49 @@ test("a gear move with a merchant travels there, buys the item and gives it, a h
   }
 });
 
+test("a move that has to be placed goes into the member's bags and into its slot with the member active", async () => {
+  vi.useFakeTimers();
+  try {
+    // Imorymu on 2026-11-12: a give that equips lets the server choose the hand, and her whip went
+    // to the off hand three times where the plan wanted the main hand.
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const log: string[] = [];
+    Object.assign(f.iq, {
+      carried: () => 0,
+      pullItem: async (item: string, { from }: { from: string }) => (log.push(`pull ${item} from ${from}`), { got: true, from, reply: "Transferred." }),
+      giveItem: async (item: string, id: number, { equip }: { equip: boolean }) => (log.push(`give ${item} to ${id}${equip ? " equipped" : " into the bags"}`), { ok: true, lines: [] }),
+      equipOwn: async (item: string, slot: number) => (log.push(`${f.sheet.characterProfile.name} wears ${item} in ${slot}`), { ok: true }),
+    });
+    f.bot.gear({ moves: [
+      { item: "Revultant Whip", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true },
+      { item: "Fine Cloak", from: "Ugfeu", to: "Edroun", slot: "back", slotNum: 8 },
+      { item: "Kylong Hunting Knife", from: "Ugfeu", to: "Tagujazolu", slot: "secondary", slotNum: 14, exact: true },
+    ] });
+    await runToEnd(f);
+    expect(log).toEqual([
+      "pull Revultant Whip from Ugfeu",
+      "give Revultant Whip to 10 into the bags",
+      "pull Fine Cloak from Ugfeu",
+      "give Fine Cloak to 20 equipped",
+      "pull Kylong Hunting Knife from Ugfeu",
+      "give Kylong Hunting Knife to 10 into the bags",
+      "Tagujazolu wears Revultant Whip in 13",
+      "Tagujazolu wears Kylong Hunting Knife in 14",
+    ]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", result: "3 of 3 moves", moves: [{ placed: true }, { done: true }, { placed: true }] });
+    // A receiver outside this tab's party cannot become active here, so the server places the item.
+    f.party.companions = [];
+    log.length = 0;
+    f.sheet.characterProfile = { ...f.me };
+    f.bot.gear({ moves: [{ item: "Revultant Whip", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true }] });
+    await runToEnd(f);
+    expect(log).toEqual(["pull Revultant Whip from Ugfeu", "give Revultant Whip to 10 equipped"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a craft step rolls until its first success, pulling one input per attempt, and reports running out", async () => {
   vi.useFakeTimers();
   try {
