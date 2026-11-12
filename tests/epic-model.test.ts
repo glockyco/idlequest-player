@@ -118,6 +118,20 @@ test("a copy of a script under a zone where its NPC does not appear belongs to n
   expect(epicTree(both, "Cleric", 60).steps.map((s: any) => s.branch.file)).toEqual(["z/Giver.lua"]);
 });
 
+test("two NPCs of a zone whose names differ by an underscore each own the script of their raw name", () => {
+  // The Emerald Jungle has Spirit_Sentinel and Spirit_Sentinel_, and only the second takes the scale.
+  const takes = (item: number, gives: number) => `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = ${item}}) then\n    e.other:SummonItem(${gives})\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Spirit_Sentinel.lua", takes(40, 41)), script("z/Spirit_Sentinel_.lua", takes(50, 51))],
+    npcs: [{ id: 3, name: "Spirit_Sentinel", level: 50, loottable: 0 }, { id: 4, name: "Spirit_Sentinel_", level: 50, loottable: 0 }],
+    spawns: [{ npcId: 3, zone: "z" }, { npcId: 4, zone: "z" }],
+    sources: [{ item: 50, way: { kind: "ground", zone: "z", respawn: 60 } }],
+  });
+  const steps: { branch?: { file: string; npcIds: number[] } }[] = epicTree(model, "Cleric", 51).steps;
+  const trade = steps.find((s) => s.branch)?.branch;
+  expect([trade?.file, trade?.npcIds]).toEqual(["z/Spirit_Sentinel_.lua", [4]]);
+});
+
 test("an epic's needs count each hand-in's inputs and held items, and leave out a piece its step buys", () => {
   const lua = `function event_trade(e)
   local item_lib = require("items")

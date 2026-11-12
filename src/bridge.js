@@ -1116,9 +1116,11 @@
   const dialogueLoading = () => [...document.querySelectorAll(".dialogue-entry")].some((el) => /^Loading$/i.test(el.textContent.trim()));
   const dialogueOpen = () => !dialogueLoading() && (document.querySelectorAll('[data-testid="quest-npc-dialogue"], [data-testid="quest-dialogue-option"]').length > 0 || Boolean(giveItemsReady()));
   // Several NPCs can share a name and a spawn point (West Freeport's two prisoners), and only the
-  // one standing there can talk, so the spawned one comes first.
-  const spawnOf = (name) => {
-    const all = (zoneSpawns?.spawns ?? []).filter((x) => looseName(x.name).includes(looseName(name)));
+  // one standing there can talk, so the spawned one comes first. Two NPCs of one name can also
+  // stand apart and answer to different items, as the two Spirit Sentinels of the Emerald Jungle
+  // do: `ids`, the NPC's type ids, then choose among the spawns in place of the name.
+  const spawnOf = (name, ids = null) => {
+    const all = (zoneSpawns?.spawns ?? []).filter((x) => (ids?.length ? ids.includes(x.npcId) : looseName(x.name).includes(looseName(name))));
     return all.find((x) => x.state === "alive") ?? all[0] ?? null;
   };
   // The scene's world-interaction port, which the client hands to its UI through a React context,
@@ -1187,8 +1189,8 @@
    * mark findable (a ghoul scribe in Lower Guk, Baenar Swiftsong). Without a spawn record the Path
    * To row walks there.
    */
-  const walkTowards = async (name) => {
-    const spawn = spawnOf(name);
+  const walkTowards = async (name, ids = null) => {
+    const spawn = spawnOf(name, ids);
     if (spawn?.state === "alive" && Number.isFinite(spawn.x)) {
       worldPort().navigateToGroundPositionEQ({ x: spawn.x, y: spawn.y, z: spawn.z ?? 0 }, () => {}, () => {});
       return;
@@ -1220,13 +1222,13 @@
    * quest NPCs. A walk cut short by a fight or a blocked path is repeated, and when the party
    * stands near the NPC without a dialogue (Smith Tv`ysa in South Ro) the client's hail opens it.
    * `timeoutMs` counts only the time the party does not move, because a walk across a large zone
-   * (Tenal Redblade lies 7,000 units from the East Karana entry) takes minutes. Then each of
-   * `keywords` is clicked in turn. Resolves with the NPC's lines, its options and whether Give
-   * Items is available.
+   * (Tenal Redblade lies 7,000 units from the East Karana entry) takes minutes. `ids` names the
+   * NPC's type ids where another NPC of the zone has its name. Then each of `keywords` is clicked
+   * in turn. Resolves with the NPC's lines, its options and whether Give Items is available.
    */
-  const talkToNpc = async (name, keywords = [], { timeoutMs = 120000 } = {}) => {
+  const talkToNpc = async (name, keywords = [], { timeoutMs = 120000, ids = null } = {}) => {
     await refreshSpawns().catch(() => {});
-    await walkTowards(name);
+    await walkTowards(name, ids);
     let still = 0;
     let walks = 1;
     let nearest = Infinity;
@@ -1234,7 +1236,7 @@
     let was = null;
     for (let end = Date.now() + timeoutMs; !dialogueOpen(); ) {
       if (Date.now() > end) {
-        const spawn = spawnOf(name);
+        const spawn = spawnOf(name, ids);
         const distance = spawn && lastPos ? Math.round(Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y)) : null;
         const at = lastPos ? `${Math.round(lastPos.x)}, ${Math.round(lastPos.y)}, ${Math.round(lastPos.z ?? 0)}` : "unknown";
         throw new Error(`the dialogue of ${name} did not open: ${spawn ? `${distance ?? "?"} units from its spawn at ${Math.round(spawn.x)}, ${Math.round(spawn.y)}, ${Math.round(spawn.z ?? 0)}` : "not in the spawn list"}, party at ${at} after ${walks} walk(s)${hailedAt ? ", hailed" : ", never hailed"}`);
@@ -1247,7 +1249,7 @@
       if (!still) end = Date.now() + timeoutMs;
       // A hail that opened nothing is repeated after 15 seconds.
       if (still < 6 || Date.now() - hailedAt < 15000 || dialogueLoading()) continue;
-      const spawn = spawnOf(name);
+      const spawn = spawnOf(name, ids);
       const distance = spawn && lastPos ? Math.hypot(lastPos.x - spawn.x, lastPos.y - spawn.y) : null;
       // A trade from afar is refused, so a stop short of the NPC walks again before hailing. A long
       // walk across a large zone stops several times (Maligar lies 7,000 units into West Karana), so
@@ -1257,13 +1259,13 @@
       if (distance != null && distance > 40 && (walks < 4 || closer)) {
         walks++;
         still = 0;
-        await walkTowards(name);
+        await walkTowards(name, ids);
         continue;
       }
       hailedAt = Date.now();
       // The spawned NPC is the one that answers. The zone's NPC list can lag a zone change and
       // lists every NPC of the name, also those not standing in the zone.
-      const listed = (stores.combat.getState().currentZoneNPCs ?? []).find((n) => looseName(n.name).includes(looseName(name)));
+      const listed = (stores.combat.getState().currentZoneNPCs ?? []).find((n) => (ids?.length ? ids.includes(n.id) : looseName(n.name).includes(looseName(name))));
       const npc = spawn ? { id: spawn.npcId ?? spawn.id, name: spawn.name } : listed && { id: listed.id, name: listed.name };
       if (!npc) throw new Error(`${name} is not in this zone`);
       await clientFn("hail")(npc.id, String(npc.name).replace(/_/g, " "));

@@ -76,9 +76,11 @@ const addWay = (ways, id, way) => id > 0 && (ways.get(id) ?? ways.set(id, []).ge
 export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new Map(), edges = [], catalog = new Map(), sources = [] }) {
   const npcs = new Map();
   const idsOfName = new Map();
+  const rawName = new Map();
   for (const n of npcRows) {
     const name = n.name.replace(/^#/, "").replace(/_/g, " ").trim();
     npcs.set(n.id, { id: n.id, name, level: n.level, hp: Number(n.hp) || null, loottable: n.loottable });
+    rawName.set(n.id, n.name);
     (idsOfName.get(nameKey(name)) ?? idsOfName.set(nameKey(name), []).get(nameKey(name))).push(n.id);
   }
   const staticIds = new Set();
@@ -114,10 +116,15 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   // spawn there or a script there that spawns them. The snapshot keeps copies of many scripts under
   // a zone's other names, such as freeportwest beside freportn, and a copy whose zone has no such
   // NPC belongs to none.
+  // Two NPCs of a zone can differ only in what a name's plain form drops, as Spirit_Sentinel and
+  // Spirit_Sentinel_ of the Emerald Jungle do, each with a script of its own. A script then
+  // belongs to the NPC whose raw name is its file's.
   for (const s of scripts) {
     const npc = s.npc ?? npcs.get(s.npcId)?.name ?? `#${s.npcId}`;
     const here = (idsOfName.get(nameKey(npc)) ?? []).filter((id) => zonesOf.get(id)?.has(s.zone));
-    Object.assign(s, { npcName: npc, npcIds: s.npcId ? [s.npcId] : here });
+    const base = decodeURIComponent(String(s.file ?? "").split("/").pop().replace(/\.\w+$/, ""));
+    const exact = here.filter((id) => rawName.get(id) === base);
+    Object.assign(s, { npcName: npc, npcIds: s.npcId ? [s.npcId] : exact.length ? exact : here });
   }
   // A branch that checks the NPC's type runs only for that NPC of its script.
   for (const b of branches) {

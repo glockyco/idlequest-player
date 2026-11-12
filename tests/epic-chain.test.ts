@@ -33,16 +33,17 @@ end`;
   expect(chains).toEqual([
     {
       id: "epic-cleric-30-1",
-      // The guardian's level less three, above the zone's median level less three.
+      // The guardian's level less three, above the zone's median level less three. A step at an NPC
+      // names its type ids, which tell it from another NPC of its name.
       chain: { class: "Cleric", minLevel: 37, reward: "Fang", steps: [
-        { zone: "z", npc: "Giver", say: ["task"], expect: "Note" },
-        { zone: "z", npc: "Giver", give: ["Note"] },
+        { zone: "z", npc: "Giver", npcIds: [1], say: ["task"], expect: "Note" },
+        { zone: "z", npc: "Giver", npcIds: [1], give: ["Note"] },
         { zone: "z", kill: "a guardian", expect: "Fang", waitSec: 60 },
       ] },
     },
     {
       id: "epic-cleric-30-2",
-      chain: { class: "Cleric", minLevel: 27, reward: "Prize", needs: ["Fang", "Hide"], steps: [{ zone: "z", npc: "Taker", give: ["Fang", "Hide"], expect: "Prize" }] },
+      chain: { class: "Cleric", minLevel: 27, reward: "Prize", needs: ["Fang", "Hide"], steps: [{ zone: "z", npc: "Taker", npcIds: [2], give: ["Fang", "Hide"], expect: "Prize" }] },
     },
   ]);
 });

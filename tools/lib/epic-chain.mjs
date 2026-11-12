@@ -64,6 +64,8 @@ export function epicChains(model, tree, { cls, reward, names }) {
     part.steps.push({
       zone: b.zone,
       npc: b.npc,
+      // Another NPC of the zone can have this one's name, so the step names its type ids too.
+      ...(b.npcIds?.length ? { npcIds: b.npcIds } : {}),
       ...(say ? { say: [say[0]] } : {}),
       ...(takes.length ? { give: takes.map(name) } : {}),
       ...(buys.length ? { buy: { merchant: bought.get(buys[0]).npc, items: buys.map(name) } } : {}),

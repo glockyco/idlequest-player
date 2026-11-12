@@ -1746,13 +1746,15 @@
         }, 1200000);
       }
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
-      if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => i.talkToNpc(s.npc, s.say ?? []), 900000);
+      // `npcIds` tells the step's NPC from another of its name in the zone.
+      const talk = (say) => i.talkToNpc(s.npc, say, s.npcIds?.length ? { ids: s.npcIds } : undefined);
+      if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
       if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give).catch(async (e) => {
         if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
         log(`quest: ${s.npc} refused the trade, so ${m.name} trades again after the bags refresh`);
         await sleep(2000);
-        await i.talkToNpc(s.npc, []);
+        await talk([]);
         return i.giveToNpc(s.give);
       }), 120000);
       if (s.each) {
