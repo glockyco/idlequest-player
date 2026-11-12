@@ -19,7 +19,7 @@ const COUNTED = client.counted;
 const COUNTED_L2 = ["tick", "createPrimaryEncounter", "applyRaidMeleeToNpc", "applyRaidDamageToNpc", "applyRaidSpellToNpc", "applyRaidHeal", "upsertRaidMemberActor", "getNpcMeleeTargetStats"];
 
 // The CombatInit the server sends for a boss: the npc_types row in the client's field names.
-function bossInit({ row, spells }) {
+function bossInit({ row, spells, meleeProc = null }) {
   const c1 = inMain(N.main.spellStore);
   const buildNpcSpell = inMain(N.main.npcSpellBuilder);
   const hp = Number(row.hp);
@@ -62,6 +62,9 @@ function bossInit({ row, spells }) {
     npcCanDoubleAttack: true,
     npcCanTripleAttack: false,
     npcSpells: npcSpells.length ? { spells: npcSpells } : null,
+    // The weapon proc of the boss's spell list, which the client rolls on each melee hit
+    // (`permanentMeleeProc`): Cazic-Thule's Panic procced 194 times in one live fight.
+    ...(meleeProc ? { npcMeleeProc: meleeProc } : {}),
     conColor: 0,
     conMessage: "",
     factionMessage: "",

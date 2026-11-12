@@ -62,6 +62,19 @@ async function spellEntries(listId, level) {
   return out;
 }
 
+// The weapon proc of a spell list, or of the first parent list that names one, as
+// `{ spellId, chancePercent }` for the CombatInit's `npcMeleeProc`.
+async function meleeProcOf(listId) {
+  const lists = await byId("npc_spells");
+  let list = lists.get(listId);
+  for (let depth = 0; list && depth < 4; depth++) {
+    if (list.attack_proc > 0 && list.proc_chance > 0) return { spellId: list.attack_proc, chancePercent: list.proc_chance };
+    list = list.parent_list ? lists.get(list.parent_list) : null;
+  }
+  return null;
+}
+
 export async function bossSpec(row) {
-  return { row, spells: row.npc_spells_id > 0 ? await spellEntries(row.npc_spells_id, row.level) : [] };
+  if (!(row.npc_spells_id > 0)) return { row, spells: [], meleeProc: null };
+  return { row, spells: await spellEntries(row.npc_spells_id, row.level), meleeProc: await meleeProcOf(row.npc_spells_id) };
 }

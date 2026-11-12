@@ -9,8 +9,9 @@ import { summarize } from "./report.mjs";
 export const DPS_MODES = ["dps-balanced", "dps-all-out", "all-all-out"];
 export const HEAL_MODES = ["clr-balanced", "all-balanced", "clr-all-out", "all-all-out", "off"];
 // The fight model's version. Kill odds of another version are stale (tools/kill-odds.mjs), so a
-// change to what a fight models raises it: 2 lets the boss's area spells reach the raid.
-export const SIM_VERSION = 2;
+// change to what a fight models raises it: 2 lets the boss's area spells reach the raid, 3 gives
+// the boss the weapon proc of his spell list.
+export const SIM_VERSION = 3;
 
 let compact;
 
