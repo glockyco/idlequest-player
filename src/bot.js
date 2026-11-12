@@ -2253,9 +2253,26 @@
         const bossName = enemyPattern(boss.name);
         const roster = (s) => s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
         task.fight.roster = roster(raid.state());
-        while (!killed() && now() < task.startedAt + task.minutes * 60000) {
+        // Past the task's minutes the fight goes on while the boss lost health in the last minute,
+        // a member stands and paid raid time is left: Cazic-Thule's fight of 2026-11-12 ended at
+        // its 30 minutes with the boss at 3,689 of 410,000 and about 75 s from death.
+        let raidEnds = 0;
+        let bossHp = null;
+        let bossHpAt = now();
+        const winning = () => now() - bossHpAt < 60000 && now() < raidEnds - 30000;
+        while (!killed() && (now() < task.startedAt + task.minutes * 60000 || winning())) {
           await sleep(2000);
           const s = raid.state();
+          const hpNow = s.enemies.find((x) => x.id === boss.spawnInstanceId)?.hp ?? null;
+          if (hpNow != null && (bossHp == null || hpNow < bossHp)) {
+            bossHp = hpNow;
+            bossHpAt = now();
+          }
+          if (now() >= task.startedAt + task.minutes * 60000 && !task.fight.overtime) {
+            task.fight.overtime = true;
+            raidEnds = (await raid.time().catch(() => null))?.expiresAt ?? raidEnds;
+            if (winning()) log(`task raid: ${task.minutes} min are up with ${boss.name} at ${hpNow} HP and still losing, so the fight goes on while raid time lasts`);
+          }
           task.fight.roster = roster(s);
           task.fight.leaderDamage = s.leaderDamage;
           task.fight.log = s.log.slice(-15);
@@ -2316,7 +2333,7 @@
           return s.leaderDead || !s.roster.some((m) => m.alive) ? "wiped" : "ended";
         }
         return killed() ? "killed" : "time is up";
-      }, task.minutes * 60000 + 60000);
+      }, task.minutes * 60000 + 3600000);
       Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
       task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
       if (outcome === "killed") alert("raid", `killed ${boss.name}`, true, { killed: boss.name });

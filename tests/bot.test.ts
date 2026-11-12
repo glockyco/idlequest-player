@@ -1887,6 +1887,25 @@ test("a raid that deals no damage gets its attack order again", async () => {
   }
 });
 
+test("a raid fight past its minutes goes on while the boss still loses health and raid time is left", async () => {
+  vi.useFakeTimers();
+  try {
+    // Cazic-Thule on 2026-11-12: 30 minutes ended the fight 75 s before the kill.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 150000 });
+    const raid = (f.iq as unknown as { raid: { time: () => Promise<object>; state: () => { enemies: object[] } } }).raid;
+    const state = raid.state;
+    const t0 = Date.now();
+    raid.state = () => ({ ...state(), enemies: [{ id: 7, hp: Math.max(1, 400000 - (Date.now() - t0)) }] });
+    raid.time = async () => (calls.push("time"), { active: true, pricePp: 2000, expiresAt: Date.now() + 3600000 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [], minutes: 1 });
+    for (let k = 0; k < 4 && f.bot.state.task?.status === "running"; k++) await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", overtime: true } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a leader that Run To Target leaves far from the boss walks there before the attack", async () => {
   vi.useFakeTimers();
   try {
