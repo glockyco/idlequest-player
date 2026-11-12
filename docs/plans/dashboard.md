@@ -43,7 +43,7 @@ From top to bottom:
 4. Progress: what moved the goal bars in the last two days, newest first under day headings, with a filter per kind and one for milestones ("Progress" below).
 5. Gear, current against target: one row per group with a bar per character, the share of its slot score it wears against what the account's items and the wanted drops would give it. A click opens the character's slots: what it wears, the next move the gear plan queued for that slot (from whom, or bought where), and the best wanted drop for it (zone, enemy, expected hours). This answers how far each character is from the best gear the account can give it, and what moves it there.
 6. Side by side, "Coordinator" (running tasks, next retries, the running experiment, recent outcomes with their reason) and "Where time goes" (24 hourly bars of all groups' time by activity and idle cause, the view for criterion 5).
-7. Folded away until opened: engineering health, the roster grid, the level trend chart, experiments and jobs, and the alert history.
+7. Folded away until opened: the bosses in the open world (each with whether it is up, when it comes back, how long it stood before someone killed it, what a kill is worth and what the raid simulator says, with the look the plan sends next), the epic chains, engineering health, the roster grid, the level trend chart, experiments and jobs, and the alert history.
 
 The page uses the full width of the window, keeps the activity colours of today's page for the same meaning everywhere, shows item and quest names instead of ids, and gives times as "3m ago" with the clock time on hover.
 
