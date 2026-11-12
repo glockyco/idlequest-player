@@ -24,10 +24,12 @@ trap 'kill "$relay" $collector 2>/dev/null' EXIT
 # The collector writes runs/status.md at the end of every cycle. One that finishes no cycle for
 # STALL seconds plays nobody: the tabs lose their focus and sign-in keeper and the groups get no
 # tasks. On 2026-11-12 it stood for eleven minutes until it was restarted by hand. It is ended
-# here and started again, and so is one that exits by itself. The loop is this script's last
-# command, so the shell that runs it has read all of it and a later edit of the file does not
-# reach it.
-STALL=300
+# here and started again, and so is one that exits by itself. A start is the collector's heaviest
+# work, and on a machine short of memory one took over five minutes to its second cycle, so the
+# time is a quarter of an hour: a shorter one ended that start and began the next. The loop is
+# this script's last command, so the shell that runs it has read all of it and a later edit of
+# the file does not reach it.
+STALL=900
 while :; do
   bun tools/iqd.mjs run --interval 30 --coordinate --recover &
   collector=$!
@@ -42,6 +44,7 @@ while :; do
       kill "$collector" 2>/dev/null
       sleep 3
       kill -9 "$collector" 2>/dev/null
+      break
     fi
   done
   wait "$collector" 2>/dev/null
