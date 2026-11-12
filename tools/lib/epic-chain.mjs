@@ -14,6 +14,8 @@ const KILL_MARGIN = 3;
 const LEVEL_CAP = 60;
 // The attempts a craft step may take on a recipe that can fail, each pulling one set of inputs.
 const CRAFT_TRIES = 10;
+// The highest trivial of a craft a chain runs while no character has trained a tradeskill.
+const CRAFT_TRIVIAL_MAX = 50;
 
 /**
  * The chains of epic reward `reward` for class `cls` from its tree (`epicTree`), each `{ id, chain }`
@@ -52,6 +54,10 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       } else if (s.way.kind === "combine") {
         const inputs = Object.keys(s.way.inputs).map(Number).filter((id) => !model.catalog.has(id)).map(name);
         part.steps.push({ zone: part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone, craft: { recipeId: s.way.recipe, skillId: s.way.skill, quantity: s.way.nofail ? 1 : CRAFT_TRIES, inputs, output: { item: name(s.item), id: s.item } }, expect: name(s.item) });
+        if (!s.way.nofail) part.trivial = Math.max(part.trivial ?? 0, s.way.trivial ?? 0);
+      } else if (s.way.kind === "ground") {
+        // A quest item that lies in its zone, picked up as a click on it does, and back after its respawn.
+        part.steps.push({ zone: s.way.zone, pick: name(s.item), expect: name(s.item), respawnSec: s.way.respawn ?? null });
       }
       continue;
     }
@@ -101,14 +107,21 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     return l.length ? l[Math.floor(l.length / 2)] : 0;
   };
   const key = cls.toLowerCase().replace(/ /g, "-");
-  return parts.map((p, k) => {
-    const prev = k > 0 ? parts[k - 1].steps.findLast((x) => x.expect)?.expect : null;
-    const last = p.steps.findLast((x) => x.expect)?.expect ?? name(reward);
-    return {
-      id: `epic-${key}-${reward}-${k + 1}`,
-      chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
-    };
-  });
+  return parts
+    .map((p, k) => {
+      const prev = k > 0 ? parts[k - 1].steps.findLast((x) => x.expect)?.expect : null;
+      const last = p.steps.findLast((x) => x.expect)?.expect ?? name(reward);
+      return {
+        id: `epic-${key}-${reward}-${k + 1}`,
+        trivial: p.trivial ?? 0,
+        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
+      };
+    })
+    // A part with a craft that trivials above `CRAFT_TRIVIAL_MAX` waits until the account trains
+    // its skill, because each failed attempt uses its components up: the Warrior's Rebreather
+    // trivials at 175 and costs 383 pp an attempt.
+    .filter((c) => c.trivial <= CRAFT_TRIVIAL_MAX)
+    .map(({ id, chain }) => ({ id, chain }));
 }
 
 /**

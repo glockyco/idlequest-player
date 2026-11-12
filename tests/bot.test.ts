@@ -1747,6 +1747,38 @@ test("a quest's fight that outlasts the step's wait and the client's target goes
   }
 });
 
+test("a quest item that lies in the zone is picked up, and one another player took ends the task as waiting until its respawn", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    let hilt = 0;
+    let lying = true;
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Unjeweled Dragon Head Hilt" ? hilt : 0),
+      pickupGround: async (name: string) => {
+        if (!lying) throw new Error(`no ${name} lies in lakerathe now`);
+        hilt = 1;
+        return "You picked it up.";
+      },
+    });
+    const steps = [{ zone: "lakerathe", pick: "Unjeweled Dragon Head Hilt", expect: "Unjeweled Dragon Head Hilt", respawnSec: 600 }];
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+
+    hilt = 0;
+    lying = false;
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "waiting" });
+    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(9 * 60000);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
 // and ends in a kill, a wipe or, with outcome "fled", a boss that leaves the fight alive. A kill
 // shows as the server's kill line and leaves one drop on the corpse. `leaderFalls` kills the

@@ -134,7 +134,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   // The loot of the NPCs scripts spawn.
   for (const npcId of spawners.keys()) for (const { item, p } of loot.get(npcs.get(npcId)?.loottable) ?? []) addWay(ways, item, { kind: "scene", npcId, drop: p });
   for (const e of edges) {
-    if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, inputs: e.inputs });
+    if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, skill: e.skill, trivial: e.trivial, nofail: e.nofail, inputs: e.inputs });
     if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, inputs: e.inputs });
   }
   for (const { item, way } of sources) addWay(ways, item, way);
@@ -523,16 +523,15 @@ export function epicTree(model, cls, reward) {
 
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
- * steps"): a ground pickup, a summoning cast, a hand-in of more than four items, or an item a
- * branch wants held. A timer or a signal branch runs by itself, and dropped pieces come from
- * hunts. A kill above level 60 is no missing kind: a chain's fight waits for the group's kill
- * chance, and so does a trip for a piece that drops, so the steps before it run meanwhile.
+ * steps"): a summoning cast, a hand-in of more than four items, or an item a branch wants held.
+ * A timer or a signal branch runs by itself, and dropped pieces come from hunts. A kill above
+ * level 60 is no missing kind: a chain's fight waits for the group's kill chance, and so does a
+ * trip for a piece that drops, so the steps before it run meanwhile.
  */
 export function missingKinds(model, tree) {
   const out = new Set();
   for (const s of tree.steps) {
     if (s.item) {
-      if (s.way.kind === "ground") out.add("ground pickup");
       if (s.way.kind === "cast") out.add("summoning cast");
       continue;
     }

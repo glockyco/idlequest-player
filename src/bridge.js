@@ -1093,6 +1093,7 @@
     1127: { reply: 1128, ms: 10000, reads: (p) => p.statusOnly === true }, // the casino's boss potion cooldown: without statusOnly it rolls
     1241: { reply: 1241, ms: 8000, reads: (p) => p.action === "search" }, // Inventory Search over the account
     1240: { reply: 1240, ms: 10000, reads: (p) => p.action === "read" }, // the account's coin, as the Manage Money panel reads it: with "transfer" it moves a balance
+    1124: { reply: 1125, ms: 8000 }, // a zone's objects and quest ground items, as the client asks on entry
   };
   const query = async (op, payload) => {
     const read = READS[op];
@@ -1216,6 +1217,23 @@
       was = lastPos;
       if (Date.now() - stillSince > stillMs) throw new Error(`the party stopped ${lastPos ? Math.round(Math.hypot(lastPos.x - pos.x, lastPos.y - pos.y)) : "?"} units short of ${Math.round(pos.x)}, ${Math.round(pos.y)}`);
     }
+  };
+  /**
+   * Pick up quest ground item `name` in this zone, as a click on it does: walk within the client's
+   * interaction range (20 units, `PLAYER_INTERACTION_RANGE`) with its ground navigation, then send
+   * its pickup request. Throws "no ... lies in" when the zone holds no such item now, as after
+   * another player took it. Resolves with the server's message.
+   */
+  const pickupGround = async (name) => {
+    const cs = stores.combat.getState();
+    const zone = cs.getZoneNameById?.(cs.currentZone);
+    if (!zone) throw new Error("the zone's name is not known");
+    const it = ((await query(1124, { zoneName: zone }))?.groundItems ?? []).find((g) => g.itemName === name);
+    if (!it) throw new Error(`no ${name} lies in ${zone} now`);
+    await walkTo({ x: it.x, y: it.y, z: it.z }, { radius: 12 });
+    const r = await socket.sendJsonRequest(1167, 1168, { id: it.id, zoneName: zone });
+    if (!r?.success) throw new Error(r?.message ?? `the pickup of ${name} was refused`);
+    return r.message ?? `picked up ${name}`;
   };
   // The zone and NPC whose dialogue the last talk opened (`talkToNpc`).
   let talking = null;
@@ -1808,6 +1826,7 @@
     giveToNpc,
     balances,
     takeCoin,
+    pickupGround,
     handInEach,
     pullItem,
     giveItem,

@@ -89,3 +89,35 @@ test("a model chain part that yields a hand-kept chain's reward of its class is 
   const hand = { h: { class: "Cleric", reward: "Statue", steps: [] } };
   expect(Object.keys(uncovered(chains, hand))).toEqual(["b", "c"]);
 });
+
+test("a quest item that lies in its zone is a pickup step with its respawn", () => {
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Taker.lua", taker)],
+    npcs: [{ id: 2, name: "Taker", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 2, zone: "z" }],
+    sources: [{ item: 70, way: { kind: "ground", zone: "lake", respawn: 600 } }],
+  });
+  const [chain] = epicChains(model, epicTree(model, "Warrior", 30), { cls: "Warrior", reward: 30, names: new Map([[30, "Blade"], [70, "Hilt"]]) });
+  expect(chain.chain.steps).toEqual([
+    { zone: "lake", pick: "Hilt", expect: "Hilt", respawnSec: 600 },
+    { zone: "z", npc: "Taker", npcIds: [2], give: ["Hilt"], expect: "Blade" },
+  ]);
+});
+
+test("a part with a craft that trivials above 50 is left out, and a no-fail craft stays", () => {
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const build = (trivial: number, nofail: boolean) => {
+    const model = buildEpicModel({
+      scripts: [script("z/Taker.lua", taker)],
+      npcs: [{ id: 2, name: "Taker", level: 30, loottable: 0 }],
+      spawns: [{ npcId: 2, zone: "z" }],
+      edges: [{ kind: "combine", recipe: 492, skill: 57, trivial, nofail, inputs: { 80: 1 }, outputs: [70] }],
+      sources: [{ item: 80, way: { kind: "buy", npc: "Vintner", zone: "z" } }],
+    });
+    return epicChains(model, epicTree(model, "Warrior", 30), { cls: "Warrior", reward: 30, names: new Map([[30, "Blade"], [70, "Rebreather"], [80, "Part"]]) });
+  };
+  expect(build(175, false)).toEqual([]);
+  expect(build(175, true)).toHaveLength(1);
+  expect(build(40, false)[0].chain.steps.find((s: { craft?: unknown }) => s.craft)).toMatchObject({ craft: { recipeId: 492, skillId: 57, quantity: 10 } });
+});

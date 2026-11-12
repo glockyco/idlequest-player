@@ -1777,6 +1777,14 @@
           throw new TaskLater(`${s.npc}'s spawn point: ${r.result}`, r.nextAt ? r.nextAt + 30000 : now() + 1800000);
         }, 1200000);
       }
+      // A quest item that lies in the zone is picked up where it lies. One that another player
+      // took is back after its respawn, when the task comes back.
+      if (s.pick) {
+        await step(`pick up ${s.pick}`, () => i.pickupGround(s.pick).catch((e) => {
+          if (/^no .+ lies in/.test(e?.message ?? "")) throw new TaskLater(e.message, now() + (s.respawnSec ?? 1800) * 1000);
+          throw e;
+        }), 300000);
+      }
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
       // `npcIds` tells the step's NPC from another of its name in the zone.
       const talk = (say) => i.talkToNpc(s.npc, say, s.npcIds?.length ? { ids: s.npcIds } : undefined);
