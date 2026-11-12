@@ -1391,7 +1391,9 @@ class Daemon {
     if (this.recover) await part("deployed code", () => this.readDeployed().catch((e) => this.log(`deployed code: ${e.message}`)));
     await part("tabs", () => Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`)))));
     sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
-    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null });
+    // The leaders whose pages run other code than their group should, for `status`.
+    const behind = this.recover && this.code ? [...this.trackers.values()].filter((tr) => tr.snap?.leader && tr.snap.code !== this.codeOf(tr)).map((tr) => tr.snap.leader.name) : null;
+    metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null, behind });
     await part("outcomes", () => this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`)));
     // A minute or so of downloads and checks, so it runs beside the cycles.
     void this.checkRelease(Date.now()).catch((e) => this.log(`client check: ${e.message}`));
@@ -1998,7 +2000,11 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
   const alive = d && age < (d.intervalSec * 3 + 10) * 1000;
   const state = !d ? "NOT STARTED" : !d.last ? "STOPPED" : alive ? `running (pid ${d.pid}, every ${d.intervalSec}s, last cycle ${dur(age)} ago, relay ${d.relay ? "up" : "DOWN"})` : `NOT RUNNING (last cycle ${dur(age)} ago)`;
   out.push(`iqd ${clock(now)}  daemon ${state}`);
-  if (d?.deploy) out.push(`Page code: commit ${d.deploy.commit.slice(0, 7)} since ${clock(d.deploy.at)}${d.deploy.canary?.length ? ` in ${d.deploy.canary.join(", ")}, the other groups on ${d.deploy.previous.slice(0, 7)}` : ""}`);
+  if (d?.deploy) {
+    const where = d.deploy.canary?.length ? ` in ${d.deploy.canary.join(", ")}, the other groups on ${d.deploy.previous.slice(0, 7)}` : "";
+    const installed = !d.behind ? "" : d.behind.length ? `, not yet installed in ${d.behind.map((n) => groupOf.get(n) ?? n).join(", ")}` : ", installed in every tab";
+    out.push(`Page code: commit ${d.deploy.commit.slice(0, 7)} since ${clock(d.deploy.at)}${where}${installed}`);
+  }
 
   out.push("Sessions");
   const sessions = db.query("SELECT * FROM sessions WHERE ended IS NULL ORDER BY first_seen, id").all();
