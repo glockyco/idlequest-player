@@ -711,12 +711,13 @@ test("settleHistory writes an ended task's outcome into its entry once, and leav
   ];
   const tasks = [
     { id: "hunt-1", status: "failed", step: "make room", error: "no free bag slot", startedAt: 1100, endedAt: 4100, nextAt: 9000 },
-    { id: "quest-1", status: "done", result: "got Sealed Note", startedAt: 2100, endedAt: 2600 },
+    { id: "quest-1", status: "done", result: "got Sealed Note", startedAt: 2100, endedAt: 2600, kills: 3 },
     { id: "hunt-2", status: "running", startedAt: 3100 },
   ];
   expect(settleHistory(history, tasks)).toBe(true);
   expect(history[0]).toMatchObject({ status: "failed", step: "make room", error: "no free bag slot", result: null, ms: 3000, endedAt: 4100, nextAt: 9000, repeat: false });
-  expect(history[1]).toMatchObject({ status: "done", result: "got Sealed Note", ms: 500 });
+  expect(history[1]).toMatchObject({ status: "done", result: "got Sealed Note", ms: 500, kills: 3 });
+  expect(history[0]).not.toHaveProperty("kills");
   expect(history[2].status).toBeUndefined();
   // Settled again with the same tasks, nothing changes.
   expect(settleHistory(history, tasks)).toBe(false);

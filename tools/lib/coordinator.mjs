@@ -103,7 +103,7 @@ export function settleHistory(history, tasks) {
   for (const [k, h] of history.entries()) {
     const task = byId.get(h.task);
     if (!task || task.status === "running") continue;
-    const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null };
+    const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null, kills: task.kills };
     if (task.status === "failed") {
       const before = history.slice(0, k).filter((x) => x.id === h.id && x.label === h.label).at(-1);
       next.repeat = before?.status === "failed" && before.step === next.step;
