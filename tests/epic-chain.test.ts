@@ -1,7 +1,7 @@
 // Checks the quest chains generated from the epic model (tools/lib/epic-chain.mjs). Run with
 // `bun test`.
 import { expect, test } from "bun:test";
-import { epicChains } from "../tools/lib/epic-chain.mjs";
+import { epicChains, uncovered } from "../tools/lib/epic-chain.mjs";
 import { buildEpicModel, epicTree } from "../tools/lib/epic-model.mjs";
 import { parseScript, scriptOwner } from "../tools/lib/quest-script.mjs";
 
@@ -81,4 +81,11 @@ test("a chain with a kill above level 60 exists, asks for the level cap and name
   const [chain] = epicChains(model, epicTree(model, "Monk", 30), { cls: "Monk", reward: 30, names: new Map([[10, "Wine"], [30, "Fangs"]]) });
   expect(chain.chain.minLevel).toBe(60);
   expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", level: 65, hp: 32500, expect: "Fangs", waitSec: 60 });
+});
+
+test("a model chain part that yields a hand-kept chain's reward of its class is left out, and the parts beyond it stay", () => {
+  const part = (cls: string, expects: string[]) => ({ class: cls, steps: expects.map((expect) => ({ zone: "z", npc: "N", expect })) });
+  const chains = { a: part("Cleric", ["Crown", "Statue", "Orb"]), b: part("Cleric", ["Sceptre"]), c: part("Monk", ["Statue"]) };
+  const hand = { h: { class: "Cleric", reward: "Statue", steps: [] } };
+  expect(Object.keys(uncovered(chains, hand))).toEqual(["b", "c"]);
 });

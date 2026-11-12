@@ -18,6 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
+import { uncovered } from "./lib/epic-chain.mjs";
 import { OPEN_BUY, bossValues, hoursLastDay, killId, killable, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
@@ -701,9 +702,9 @@ class Daemon {
       /* no quests file */
     }
     // The chains the epic model generates run beside the hand-kept ones (docs/plans/epic-model.md,
-    // step 2).
+    // step 2), apart from the parts a hand-kept chain covers (`uncovered`).
     this.itemModel ??= await loadItemModel();
-    const quests = { ...handQuests, ...this.itemModel.chains };
+    const quests = { ...handQuests, ...uncovered(this.itemModel.chains, handQuests) };
     // One search per item and pass, since chains share items. The page's `query` asks a slow
     // server up to three times, in at most 30 s.
     const searched = new Map();

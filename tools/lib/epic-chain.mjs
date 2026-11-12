@@ -110,3 +110,16 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     };
   });
 }
+
+/**
+ * The model's chains (`{ [id]: chain }`) without each part a hand-kept chain of its class covers:
+ * a part that yields a hand-kept chain's reward on the way. The hand-kept chains carry what the
+ * model does not read, such as the keywords Baenar Swiftsong needs one after another, and two
+ * chains for one stretch would send two members after one crown. The parts beyond a hand-kept
+ * chain stay, and start from the items it hands on.
+ */
+export function uncovered(chains, hand) {
+  const covered = new Map();
+  for (const q of Object.values(hand)) (covered.get(q.class) ?? covered.set(q.class, new Set()).get(q.class)).add(q.reward);
+  return Object.fromEntries(Object.entries(chains).filter(([, c]) => !c.steps.some((s) => s.expect && covered.get(c.class)?.has(s.expect))));
+}
