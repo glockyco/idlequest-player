@@ -40,8 +40,12 @@ export const PAGE = {
   reloadGapMin: 10, // so one group at a time is down
 };
 
-/** A moment a reload loses little at: no running task, raid, fight or zone load, and the page in the world. */
-const quiet = (snap) => snap.bot?.task?.status !== "running" && !snap.raid && !snap.conn?.inCombat && !snap.conn?.zoneLoading && Boolean(snap.conn?.worldReady);
+/**
+ * A moment a reload loses little at: no running task, raid, fight or zone load, the page in the
+ * world, and no raid ended in the last quarter hour, since the next raid of a paid hour may follow:
+ * group 1's tab got a new process a minute after a raid on 2026-11-12 and lost the next raid's order.
+ */
+const quiet = (snap) => snap.bot?.task?.status !== "running" && !(snap.bot?.task?.kind === "raid" && (snap.t ?? Date.now()) - (snap.bot.task.endedAt ?? 0) < 15 * 60000) && !snap.raid && !snap.conn?.inCombat && !snap.conn?.zoneLoading && Boolean(snap.conn?.worldReady);
 
 /**
  * Why the page should start again, or null, as `{ kind, why }`: a reload for the bridge's count of

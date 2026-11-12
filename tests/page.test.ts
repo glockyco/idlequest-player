@@ -54,6 +54,9 @@ test("a full page gets a new process at a quiet moment with its rows on disk, on
   const now = T0 + 12 * MIN + 30 * SEC;
   expect(step(0, game({ ...full, conn: { connected: true, worldReady: true, inCombat: true, zoneLoading: false } }), now, { exported: true })).toBeNull();
   expect(step(0, full, now, { exported: false })).toBeNull();
+  // A raid that ended four minutes ago may have a next one in its paid hour.
+  const raided = { ...full, t: now, bot: { ...full.bot, task: { kind: "raid", status: "done", endedAt: now - 4 * MIN } } };
+  expect(step(0, game(raided), now, { exported: true })).toBeNull();
   expect(step(0, full, now, { exported: true })).toBe("renew");
   expect(step(1, full, now + 30 * SEC, { exported: true })).toBeNull();
   expect(step(2, login({ hasBridge: false }), now + 30 * SEC)).toBe("signIn");
