@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, walkValue } from "../tools/lib/gear-plan.mjs";
+import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -183,6 +183,28 @@ test("a leader's carried item that Inventory Search does not list stays out of t
   const reached = mergeSurvey([loose, worn], [{ ...loose }]);
   expect(reached.find((r) => r.itemInstanceId === 9)?.blockReason).toBe("");
   expect(planGear({ survey: reached, items: bardItems, people }).moves).toMatchObject([{ item: "Buckler", to: "War" }]);
+});
+
+test("a character whose party the pass could not read gets no move and keeps its last sheet", () => {
+  // Embrogg on 2026-11-12: his worn rows were an hour old, so his chest read as empty and the
+  // breastplate he had taken off an hour before as the best he could wear.
+  const moves = [
+    { item: "Charred Guardian Breastplate", from: "Embrogg", to: "Embrogg", slot: "chest" },
+    { item: "Spider Fur Collar", from: "Embrogg", to: "Eskarn", slot: "neck" },
+    { item: "Hierophant's Cloak", from: "Kimorili", to: "Ivelugias", slot: "back" },
+  ];
+  const characters = [
+    { name: "Embrogg", score: { now: 127.7, target: 265.6 }, slots: [{ slot: "wrist", slotNum: 10, worn: { itemId: 3133, name: "Large Ringmail Bracelet" } }] },
+    { name: "Ivelugias", score: { now: 90, target: 200 }, slots: [] },
+  ];
+  const last = { sheets: { Embrogg: [{ slot: "wrist", slotNum: 10, worn: { itemId: 4780, name: "Golden Bracer" } }] }, characters: [{ name: "Embrogg", score: { now: 119.1, target: 262 } }] };
+  const r = withoutUnread({ moves, characters }, new Set(["Embrogg"]), last);
+  expect(r.moves.map((m) => m.item)).toEqual(["Hierophant's Cloak"]);
+  expect(r.characters[0]).toEqual({ name: "Embrogg", score: { now: 119.1, target: 262 }, slots: last.sheets.Embrogg });
+  expect(r.characters[1]).toBe(characters[1]);
+  // A character the stored plan does not know yet keeps what the pass made of it.
+  expect(withoutUnread({ moves: [], characters }, new Set(["Embrogg"]), {}).characters[0]).toBe(characters[0]);
+  expect(withoutUnread({ moves, characters }, new Set(), last)).toEqual({ moves, characters });
 });
 
 test("drops become wants for every character that gains enough after the moves, and are kept once looted", () => {

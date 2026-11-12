@@ -95,6 +95,23 @@ export function mergeSurvey(party, searched) {
   return [...seen.values()];
 }
 
+/**
+ * A plan (`{ moves, characters }` of `planGear`) without what it decided blind: `unread` names the
+ * characters whose party the pass could not read, whose worn rows are those of the pass before and
+ * miss what its gear task equipped since. No move goes to or from them, and their sheet and score
+ * stay as last known (`last`, `{ sheets, characters }` of the stored plan), so no slot of theirs
+ * reads as a change. On 2026-11-12 a pass ran while two groups' bots were paused for their upkeep:
+ * it put Embrogg's Charred Guardian Breastplate back over the Bear Skins of Rage of the hour before
+ * and reported the Large Ringmail Bracelet he had sold as worn over his Golden Bracer.
+ */
+export function withoutUnread({ moves, characters }, unread, last = {}) {
+  const known = (c) => (unread.has(c.name) ? last.sheets?.[c.name] : null);
+  return {
+    moves: moves.filter((m) => !unread.has(m.to) && !unread.has(m.from)),
+    characters: characters.map((c) => (known(c) ? { ...c, ...(last.characters?.find((p) => p.name === c.name) ?? {}), slots: known(c) } : c)),
+  };
+}
+
 /** The roster characters of a survey, with class and level from its rows and race from `raceOf` (name to race name). */
 export function rosterPeople(survey, groupOf, raceOf) {
   const people = new Map();

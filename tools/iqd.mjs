@@ -1120,14 +1120,28 @@ class Daemon {
     const prev = metaGet(this.db, "gear") ?? {};
     if (now < (prev.next ?? (prev.t ?? 0) + GEAR_EVERY_MIN * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
-    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares } = await import("./lib/gear-plan.mjs");
+    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
+    // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
+    // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
+    // the middle of a character switch, is tried once more.
     const party = [];
-    for (const t of tabs) party.push(...((await this.relay.evaluate(t.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch(() => [])) ?? []));
+    for (const tr of [...this.trackers.values()].filter((x) => x.snap?.leader && !x.state.unreachableSince && !x.snap.raid)) {
+      let rows = null;
+      for (let k = 0; k < 2 && !rows?.length; k++) {
+        if (k) await Bun.sleep(3000);
+        rows = await this.relay.evaluate(tr.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch((e) => (this.log(`gear pass: ${tr.label}'s party not read: ${e.message}`), null));
+      }
+      party.push(...(rows ?? []));
+    }
     const read = new Set(party.map((r) => r.characterName));
     const groups = this.groups();
     const last = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
+    // A character no tab showed keeps the worn rows of the last pass, so its gear still counts in
+    // the plan's scores and wants. Those rows miss what a gear task equipped since, so the pass
+    // moves nothing to or from it and reports no change of its slots (`withoutUnread`).
     const kept = last.filter((r) => r.location === "Equipped" && groups.has(r.characterName) && !read.has(r.characterName));
-    if (kept.length) this.log(`gear pass: kept the last worn items of ${new Set(kept.map((r) => r.characterName)).size} characters whose party was not readable`);
+    const unseen = new Set(kept.map((r) => r.characterName));
+    if (kept.length) this.log(`gear pass: no tab showed ${[...unseen].join(", ")}, so they keep their last worn items and get no moves`);
     const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...party, ...kept].map((r) => r.itemName))] }), { timeout: 10000 });
     let job = null;
     for (let k = 0; k < 90 && !job?.done; k++) {
@@ -1138,7 +1152,7 @@ class Daemon {
     const survey = mergeSurvey([...party, ...kept], job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
-    recordWear(this.db, survey, now);
+    recordWear(this.db, survey.filter((r) => !unseen.has(r.characterName)), now);
     const { attachEffects, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
     const { refusedGoods } = await import("./lib/coordinator.mjs");
     const { contentRoot, rows } = await import("./lib/content.mjs");
@@ -1200,7 +1214,9 @@ class Daemon {
     });
     // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
     const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
-    const { moves, keep, drops, targets, characters } = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const { keep, drops, targets } = plan;
+    const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
     this.targetWants = targets;
