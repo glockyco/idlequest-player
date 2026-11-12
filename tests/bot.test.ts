@@ -1267,6 +1267,34 @@ test("failed switches back off and the third in a row wakes a script", async () 
   }
 });
 
+test("a page that comes to the character select anew, as after a sign-in, enters the world without the back-off of earlier switches", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.config.leaderId = 10;
+    f.screen.currentScreen = "characterSelect";
+    f.commandReply.enterWorld = { ok: false, message: "Could not confirm camping. Please sign in again." };
+    const attempt = async (waitMs: number) => {
+      vi.advanceTimersByTime(waitMs);
+      await f.bot.tick();
+      await flush();
+    };
+    await attempt(0);
+    await attempt(30000);
+    await attempt(60000);
+    expect(f.commands.length).toBe(3);
+    // The next try would wait two minutes. The page is signed in again within one.
+    f.screen.currentScreen = "login";
+    await attempt(20000);
+    f.screen.currentScreen = "characterSelect";
+    f.commandReply.enterWorld = { ok: true };
+    await attempt(20000);
+    expect(f.commands.length).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("failed zone moves back off, and only the third in a row wakes a script", async () => {
   vi.useFakeTimers();
   try {

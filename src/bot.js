@@ -1286,7 +1286,12 @@
   const TASK_AGAIN_MS = 120000;
   const watchConnection = (i) => {
     const screen = i.stores.screen.getState().currentScreen;
-    state.selectSince = screen === "characterSelect" ? (state.selectSince ?? now()) : null;
+    const atSelect = screen === "characterSelect";
+    // A page that comes to the character select outside a switch has a new session, as after a
+    // sign-in, so the wait that earlier failed switches set no longer holds. Group 5 stood there
+    // ten minutes for a retry time set while the server was quiet (2026-11-12).
+    if (atSelect && !state.selectSince && !(state.switching && !state.switching.done)) Object.assign(state, { switchRetryAt: 0, switchFails: 0 });
+    state.selectSince = atSelect ? (state.selectSince ?? now()) : null;
     const ok = i.socket.isConnected && screen === "game";
     if (ok) {
       state.offlineSince = null;
