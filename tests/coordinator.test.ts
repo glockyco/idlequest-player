@@ -570,6 +570,14 @@ test("an unmeasured zone ranks where the model puts it against the measured zone
   expect(rotation((z) => ({ kurn: 800000, runnyeye: 600000, guktop: 300000 })[z]!)).toEqual(["kurn", "runnyeye", "guktop"]);
   // The measured zones pay twice the model, so its 350k for Upper Guk counts as 700k.
   expect(rotation((z) => ({ kurn: 400000, runnyeye: 300000, guktop: 350000 })[z]!)).toEqual(["kurn", "guktop", "runnyeye"]);
+  // A zone with little time of its own is tried by one group at a time: the second group, which
+  // would rank it first too, takes the best measured zone and leaves the guess out of its rotation.
+  const two = [tab("A", "G3", 15, { zone: "warrens" }), tab("B", "G4", 15, { zone: "warrens" })];
+  const best = (z: string) => ({ kurn: 400000, runnyeye: 300000, guktop: 900000 })[z]!;
+  expect(assignZones({ now: NOW, tabs: two, rows, rates, model: best }).map((z) => z.rotation)).toEqual([["guktop", "kurn", "runnyeye"], ["kurn", "runnyeye"]]);
+  // Half an hour of its own time makes it a measured zone, which more groups share.
+  const proven = { ...rates, guktop: { 15: { s: 1800, xp: 900000, t: NOW } } };
+  expect(assignZones({ now: NOW, tabs: two, rows, rates: proven, model: best }).map((z) => z.rotation[0])).toEqual(["guktop", "guktop"]);
 });
 
 test("a zone that paid nothing in its trial ranks at what it paid, not at the model's rate", () => {

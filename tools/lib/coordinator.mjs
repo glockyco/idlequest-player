@@ -679,12 +679,19 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
       const f = (k) => (k > 0 ? crowdFactor(z, level, k) : 1);
       return (n + 1) * f(n) - n * f(n - 1);
     };
-    const ranked = zones.map((m) => ({ ...m, xph: xph(m), value: (xph(m) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    // A zone with less than `priorHours` of its own time is the model's guess, so one group tries
+    // it at a time: on 0.3 hours in The Hole a replay sent four groups there in one pass. A group
+    // already in it stays in the count, and where every zone of a row is such a guess, as at a
+    // new band, the rule would leave a group without a zone and does not apply.
+    const guess = (m) => !(m.e?.hours >= cfg.priorHours) && m.z !== t.zone && (crowd.get(m.z) ?? 0) > 0;
+    const rank = (held) => zones.map((m) => ({ ...m, xph: xph(m), value: held(m) ? 0 : (xph(m) * gain(m.z)) / (busyZones.has(m.z) ? 4 : 1) })).sort((a, b) => b.value - a.value || a.k - b.k);
+    const ranked = rank(guess).some((m) => m.value > 0) ? rank(guess) : rank(() => false);
     const own = ranked.find((m) => m.z === t.zone);
     const stay = own && own.value * (1 + cfg.margin) >= ranked[0].value;
-    // A zone worth under `deadShare` of the row's best fills no place: a rotation's later zones are
-    // where the bot goes when the first runs dry, and it would idle there.
-    const worth = ranked.filter((m) => m.xph >= cfg.deadShare * Math.max(...ranked.map((x) => x.xph)));
+    // A zone worth under `deadShare` of the row's best fills no place, nor one held for another
+    // group's trial: a rotation's later zones are where the bot goes when the first runs dry, and
+    // it would idle there.
+    const worth = ranked.filter((m) => !guess(m) && m.xph >= cfg.deadShare * Math.max(...ranked.map((x) => x.xph)));
     const top = worth.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
     occupy(stay ? t.zone : rotation[0]);
