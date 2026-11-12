@@ -625,7 +625,7 @@ class Daemon {
     // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleHistory, AA_POLICY, aaOrder } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleErrands, settleHistory, AA_POLICY, aaOrder } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -743,6 +743,7 @@ class Daemon {
     // A finished hunt reports when its points respawn, which is when to come back. Every cycle
     // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
     settleHistory(state.history, tabs.map((t) => t.task));
+    settleErrands(state.history, tabs, now);
     const held = await this.experimentPass(now, tabs, state);
     // Hours a level takes each character at its group's own XP per hour over the last two hours of
     // minute totals, minutes with a task left out (another member is active then, and a trip zone
@@ -1260,8 +1261,11 @@ class Daemon {
   async recordOutcomes() {
     const state = metaGet(this.db, "coordinator");
     if (!state?.history?.length) return;
-    const { settleHistory } = await import("./lib/coordinator.mjs");
-    if (settleHistory(state.history, [...this.trackers.values()].map((t) => t.snap?.bot?.task))) metaSet(this.db, "coordinator", state);
+    const { settleErrands, settleHistory } = await import("./lib/coordinator.mjs");
+    const seen = [...this.trackers.values()].filter((t) => t.snap?.bot);
+    const tasks = settleHistory(state.history, seen.map((t) => t.snap.bot.task));
+    const errands = settleErrands(state.history, seen.map((t) => ({ label: t.label, errand: t.snap.bot.errand ?? null })), Date.now());
+    if (tasks || errands) metaSet(this.db, "coordinator", state);
   }
 
   async triggers() {

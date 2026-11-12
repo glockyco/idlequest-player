@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, settleHistory } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, settleErrands, settleHistory } from "../tools/lib/coordinator.mjs";
 import { ACQUIRE } from "../tools/lib/acquire.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -724,6 +724,29 @@ test("settleHistory writes an ended task's outcome into its entry once, and leav
   history.push({ t: 5000, label: "A", kind: "hunt", id: "o1", task: "hunt-3" }, { t: 6000, label: "A", kind: "hunt", id: "o1", task: "hunt-4" });
   settleHistory(history, [{ id: "hunt-3", status: "failed", step: "make room", startedAt: 5100, endedAt: 5200 }, { id: "hunt-4", status: "failed", step: "travel", startedAt: 6100, endedAt: 6200 }]);
   expect(history.slice(3).map((h) => h.repeat)).toEqual([true, false]);
+});
+
+test("an errand's history entry gets its length once its tab shows no errand, or a later one", () => {
+  const MIN = 60000;
+  const entry = (label: string, ago: number) => ({ t: NOW - ago * MIN, label, kind: "errand", id: "e1" });
+  const history = [entry("A", 40), entry("B", 40), entry("C", 40), entry("D", 1), entry("E", 40), { t: NOW - 40 * MIN, label: "A", kind: "hunt", id: "h1" }];
+  const tabs = [
+    { label: "A", errand: null }, // over
+    { label: "B", errand: { since: NOW - 40 * MIN + 20000 } }, // still the same errand
+    { label: "C", errand: { since: NOW - 5 * MIN } }, // a later errand runs
+    { label: "D", errand: null }, // queued a minute ago, not yet shown
+  ];
+  expect(settleErrands(history, tabs, NOW)).toBe(true);
+  expect(history.map((h) => h.ms ?? null)).toEqual([40 * MIN, null, 40 * MIN, null, null, null]);
+  expect(history[0]).toMatchObject({ status: "done", endedAt: NOW });
+  // Settled once: a second look changes nothing, until the errand of a minute ago is two old.
+  expect(settleErrands(history, tabs, NOW)).toBe(false);
+  expect(settleErrands(history, tabs, NOW + MIN)).toBe(true);
+  expect(history[3].ms).toBe(2 * MIN);
+  // An errand of five hours ago ended at a time nobody saw.
+  const old = [entry("A", 300)];
+  expect(settleErrands(old, tabs, NOW)).toBe(true);
+  expect(old[0]).toEqual({ ...entry("A", 300), status: "done" });
 });
 
 test("a gear task's refused purchase keeps those goods out of the plan for a day", () => {
