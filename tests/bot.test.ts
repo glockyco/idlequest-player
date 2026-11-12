@@ -709,6 +709,50 @@ test("a fight that makes no headway is left after slowFightSec and its enemy is 
   }
 });
 
+test("an enemy that joins fights the guard has to leave is skipped with the camp it joins, and a common one is not", async () => {
+  // Phinigel Autropos in Kedge Keep, 2026-11-12: he joined the fights with the seahorses around
+  // him, 40 escapes in eight hours and no kill.
+  const f = await install();
+  const mob = (id: number, name: string) => ({ id, name });
+  const escape = async (engaged: string, rule: string, mobs: { id: number; name: string }[]) => {
+    f.say(`You engage ${engaged} in combat!`);
+    f.say(`[guard] leaving: ${rule}: the fight is lost`, "guard");
+    Object.assign(f.events.at(-1)!, { escape: rule, mobs });
+    await f.bot.tick();
+  };
+  const kill = async (name: string) => {
+    f.say(`You engage ${name} in combat!`);
+    f.say(`You have defeated ${name} and gained 1000 experience!`);
+    await f.bot.tick();
+  };
+  const target = (spawnInstanceId: number, name: string, level = 50) => ({ spawnInstanceId, name, level }) as never;
+  f.targets.push(target(5, "Phinigel_Autropos", 53), target(6, "a_seahorse"), target(7, "a_seahorse"), target(8, "a_seahorse"), target(9, "a_piranha"));
+  // The tick and the fast tick both renew the skip list, so the list is read as a set.
+  const skipped = () => [...new Set(f.runtime.deferred)].sort();
+  for (let k = 0; k < 30; k++) await kill("a seahorse");
+  await escape("a seahorse", "healer", [mob(6, "a_seahorse"), mob(5, "Phinigel_Autropos")]);
+  f.bot.fastTick();
+  expect(skipped()).toEqual([]);
+  // The second fight he joins: he is skipped, and so are the spawn points of that fight.
+  await escape("a seahorse", "down", [mob(7, "a_seahorse"), mob(5, "Phinigel_Autropos")]);
+  f.bot.fastTick();
+  expect(skipped()).toEqual([5, 7]);
+  expect(f.bot.state.alerts.at(-1)).toMatchObject({ kind: "lostFight" });
+  // A fight without him that had to be left costs the seahorses nothing: 30 kills, three escapes.
+  // A refused fight is no lost one.
+  f.runtime.deferred.length = 0;
+  await escape("a seahorse", "dying", [mob(8, "a_seahorse")]);
+  await escape("a piranha", "level", [mob(9, "a_piranha")]);
+  await escape("a piranha", "level", [mob(9, "a_piranha")]);
+  f.bot.fastTick();
+  expect(skipped()).toEqual([5, 7]);
+  // Two levels later the party tries him and his camp again.
+  f.runtime.deferred.length = 0;
+  Object.assign(f.me, { level: f.me.level + 2 });
+  f.bot.fastTick();
+  expect(skipped()).toEqual([]);
+});
+
 test("an enemy that pays far less XP per fight second than the party's usual is skipped", async () => {
   vi.useFakeTimers();
   try {

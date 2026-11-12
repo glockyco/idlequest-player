@@ -87,6 +87,12 @@
     // without magic damage for minutes. 0 turns both off.
     slowFightSec: 180,
     slowFoeShare: 0.25, // an enemy that pays less than this share of the party's usual XP per fight second is skipped
+    // An enemy that was in this many fights the guard had to leave, and in more than a tenth as
+    // many as the party killed it, is skipped too, and so are the spawn points of the fights it
+    // was in. Phinigel Autropos joined the seahorse fights around him in Kedge Keep: 40 escapes in
+    // eight hours without a kill, up to 16 an hour for one group, each with a death or a healer
+    // out of mana and ten minutes of skipped enemies, after which the same pull brought him again.
+    foeEscapes: 2,
     rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
     rotateBelowShare: 0.6, // move on when the XP per hour of play over the last 10 minutes falls below this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
@@ -147,7 +153,8 @@
     moveRetryAt: 0, // no zone move starts before this time
     task: null, // the last task: { id, kind, status, step, startedAt, endedAt, error, ... }
     fight: null, // { name, t } of the enemy the party engaged last, until its kill line
-    foes: {}, // per enemy name: { fights, secs, xp, slow, level }, the party's fight times and XP with it
+    foes: {}, // per enemy name: { fights, secs, xp, slow, left, lost, level }, the party's fight times and XP with it, and the fights it had to leave
+    lostCamps: {}, // "zone:spawn point" -> leader level, the spawn points of fights with an enemy the party keeps losing to
     releaseChecked: null, // client release the page was last compared with the stored one
     releaseProbeAt: 0, // when the site was last asked which client release it serves
     remoteRelease: null, // the newer release already alerted about
@@ -574,6 +581,35 @@
     i.leaveFight(`${f.name} kept ${Math.round((100 * mob.hp) / mob.maxHp)}% of its HP for ${secs} s`);
     alert("slowFight", `left a fight with ${f.name} after ${secs} s at ${Math.round((100 * mob.hp) / mob.maxHp)}% of its HP; the party skips it until level ${r.level + 2}`);
   };
+  // The guard's rules that leave a fight for what the enemies do to the party, as their notes name them.
+  const DANGER_RULES = new Set(["dying", "down", "healer", "hit"]);
+  // A fight the guard left counts against every enemy that was in it: the one the party engaged
+  // and those that joined. After `foeEscapes` of them, and while they are more than a tenth of its
+  // kills, an enemy is lost to the party until the leader is two levels higher: AutoLevel skips
+  // it like a slow one, and skips the spawn points of every fight it is in (`state.lostCamps`),
+  // since it joins the pulls around it. A common enemy with hundreds of kills and a few escapes
+  // stays.
+  const noteEscape = (i, e) => {
+    if (!DANGER_RULES.has(e.escape) || !config.foeEscapes) return;
+    const mobs = e.mobs ?? [];
+    const names = new Set([state.fight?.name, e.npc ? foeKey(e.npc) : null, ...mobs.map((m) => foeKey(m.name))].filter(Boolean));
+    state.fight = null;
+    const lost = [];
+    for (const name of names) {
+      const r = foeRecord(i, name);
+      r.left = (r.left ?? 0) + 1;
+      if (r.left < config.foeEscapes || r.left * 10 <= r.fights) continue;
+      if (!r.lost) alert("lostFight", `left ${r.left} fights with ${name} against ${r.fights} kills; the party skips it and the camps it joins until level ${r.level + 2}`);
+      r.lost = true;
+      r.slow = Math.max(1, r.slow);
+      lost.push(name);
+    }
+    if (!lost.length || !mobs.length) return;
+    const zone = zoneShort(i);
+    const camps = (state.lostCamps ??= {});
+    for (const m of mobs) camps[`${zone}:${m.id}`] = myLevel(i);
+    log(`guard: ${mobs.length} spawn points of a fight with ${lost.join(", ")} stay skipped until level ${myLevel(i) + 2}`);
+  };
 
   const scanEvents = (i) => {
     const evs = i.events ?? [];
@@ -617,6 +653,7 @@
       // A lowered cap and an escape's failed zone change are notes, because the guard and the remedy
       // table handle both.
       else if (e.type === "guard" && /lowering the AutoLevel cap|failed/.test(text)) alert("guard", text);
+      else if (e.type === "guard" && e.escape) noteEscape(i, e);
     }
   };
 
@@ -1018,11 +1055,17 @@
   // for a few seconds, so AutoLevel pulls the wanted one. With none such it hunts as usual, so an
   // errand never leaves the party idle. When the errand widened AutoLevel's range, the other
   // enemies outside the normal range stay on the list. The fast tick renews the entries.
+  // So do the spawn points of fights with an enemy the party keeps losing to (`state.lostCamps`).
   const avoidTargets = (i) => {
     const e = state.errand;
     const keep = e?.arrived && zoneShort(i) === e.zone ? e.keep : null;
     const slow = slowFoes(i);
-    if (!config.avoidNames && !keep && !slow.size) return;
+    // Camps the party has outgrown by two levels are tried again, like the enemies.
+    const camps = state.lostCamps ?? {};
+    for (const [k, level] of Object.entries(camps)) if (myLevel(i) >= level + 2) delete camps[k];
+    const here = `${zoneShort(i)}:`;
+    const lostHere = new Set(Object.keys(camps).filter((k) => k.startsWith(here)).map((k) => Number(k.slice(here.length))));
+    if (!config.avoidNames && !keep && !slow.size && !lostHere.size) return;
     const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
     const avoid = config.avoidNames ? enemyPattern(config.avoidNames) : null;
@@ -1041,7 +1084,7 @@
       const name = t.name ?? "";
       const other = !wanted?.test(name);
       const outside = normal && (t.level < normal.minLevel || t.level > normal.maxLevel);
-      if (avoid?.test(name) || (other && (first || outside || slow.has(foeKey(name))))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
+      if (avoid?.test(name) || (other && (first || outside || slow.has(foeKey(name)) || lostHere.has(t.spawnInstanceId)))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
     }
   };
 

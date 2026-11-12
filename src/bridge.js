@@ -955,8 +955,10 @@
     guard.phase = "leaving";
     guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
     // The rule and the enemy go along as fields, which the collector's fight record counts per
-    // enemy (tools/lib/fight-record.mjs).
-    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`, { escape: reason.split(":")[0], npc: mob?.name ?? null, npcLevel: mob?.level ?? null, leaderLevel: leader });
+    // enemy (tools/lib/fight-record.mjs), and the fight's living enemies with their spawn points
+    // (`mobs`), by which the bot learns which enemies and camps it keeps losing to.
+    const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state !== "dead" && Number.isInteger(m.spawnInstanceId)).map((m) => ({ id: m.spawnInstanceId, name: m.name }));
+    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`, { escape: reason.split(":")[0], npc: mob?.name ?? null, npcLevel: mob?.level ?? null, leaderLevel: leader, mobs });
     // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
     // the same dangerous mob would join again, every few seconds. The client skips spawns it has
     // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
