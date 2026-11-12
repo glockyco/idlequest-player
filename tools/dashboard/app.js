@@ -138,7 +138,7 @@ function stateCell(g) {
   return `<span class="dot" style="background:${actColor(st.act)}"></span>${esc(st.act)}${st.why && st.act !== "task" ? ` <span class="muted">${esc(idleWord(st.why))}</span>` : ""} <span class="muted">${dur(st.forMs)}</span>`;
 }
 
-const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid", farm: "farm" };
+const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid", farm: "farm", look: "look" };
 /** What the group's task is now: a running task with its time, or a failure. A finished task leaves the cell to the group's activity. */
 function taskCell(now, t) {
   if (!t) return "";
@@ -410,6 +410,50 @@ function renderRoster(s) {
   $("roster").innerHTML = `<div class="roster">${cells}</div>`;
 }
 
+/**
+ * The raid bosses that stand in the open world: whether each is up, when it comes back, how long
+ * it stood before someone killed it, what a kill is worth and what the raid simulator says.
+ */
+function renderBosses(s) {
+  const R = s.goal.raids;
+  const rows = R.watch ?? [];
+  const up = rows.filter((w) => w.state === "alive").length;
+  const due = rows.filter((w) => w.respawnAt > s.now).sort((a, b) => a.respawnAt - b.respawnAt)[0];
+  $("d-bosses").querySelector("summary").textContent = rows.length ? `Bosses in the open world (${up} up${due ? `, ${due.name} back ${inMs(due.respawnAt - s.now)}` : ""})` : "Bosses in the open world";
+  if (!rows.length) return void ($("bosses").innerHTML = `<p class="muted">The boss pass has not listed them yet.</p>`);
+  const when = (t) => `${dayName(t)} ${hhmm(t)}`;
+  const state = (w) =>
+    w.state === "alive"
+      ? `<span class="pill accent">up</span>`
+      : w.state === "unknown"
+        ? `<span class="muted">no tab has looked yet</span>`
+        : w.respawnAt
+          ? `down, back ${when(w.respawnAt)} <span class="muted">${inMs(w.respawnAt - s.now)}</span>`
+          : "down";
+  const killed = (w) => (w.killedAt ? `${when(w.killedAt)}${w.livedMs != null ? ` <span class="muted">${dur(w.livedMs)} after it came back</span>` : ""}` : "");
+  const order = { alive: 0, down: 1, unknown: 2 };
+  const sorted = rows.slice().sort((a, b) => order[a.state] - order[b.state] || (a.respawnAt ?? Infinity) - (b.respawnAt ?? Infinity));
+  const note = [
+    "These raid bosses also stand in the world, where other players kill them too. A group looks into a boss's zone when nobody has seen it and again when its respawn is due, and the raid goes there once it stands. They come on top of the two free summons a day.",
+    R.look ? `Next look: ${esc(R.look.name)} in ${esc(R.look.zone)}, because ${esc(R.look.why)}.` : "No look is due.",
+    R.hours != null ? `Raid time ran for ${R.hours} hour${R.hours === 1 ? "" : "s"} in the last day. A boss outside the goal buys an hour only while that is under two.` : "",
+  ].filter(Boolean);
+  $("bosses").innerHTML =
+    `<p class="muted small">${note.join(" ")}</p>` +
+    table(
+      ["Boss", "Zone", "Now", "Killed", "Last look", "A kill is worth", "Raid simulator"],
+      sorted.map((w) => [
+        `${esc(w.name)}${w.goal ? ` <span class="pill task" title="One of the goal's nine bosses">goal</span>` : ""}`,
+        esc(w.zone),
+        state(w),
+        killed(w),
+        w.seenAt ? ago(s.now, w.seenAt) : "",
+        w.value ? `<span title="Hours of a group's progress from the gear its drops give the account's characters">${w.value.toFixed(1)} h</span>` : `<span class="muted">${w.goal ? "the goal" : "nothing wanted"}</span>`,
+        w.raid ? `${w.raid.kills} of ${w.raid.fights} fights` : `<span class="muted">not run</span>`,
+      ]),
+    );
+}
+
 /** The epic chains someone still needs, and how many every eligible character has finished. */
 function renderEpics(s) {
   const e = s.epics;
@@ -494,6 +538,7 @@ async function refresh() {
     renderProgress(s);
     renderGear(s);
     renderCoordinator(s);
+    renderBosses(s);
     renderEpics(s);
     renderTime(s);
     renderEngineering(s);

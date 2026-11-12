@@ -119,3 +119,24 @@ export async function spawnPoints(queries, root) {
     return (points.get(q.zone) ?? []).filter((p) => wanted.has(p.spawngroupID)).map((p) => p.id);
   });
 }
+
+/**
+ * Where each of `names` spawns in the live world: a Map from the name to its spawn points,
+ * `[{ zone, point, respawnMs }]`, empty for an NPC no live spawn group puts up, such as a boss a
+ * script summons. `key` makes a content name and a wanted name comparable, since a list can say
+ * "Cazic-Thule" for the content's "#Cazic_Thule".
+ */
+export async function namedSpawns(names, key, root) {
+  const { ids, groups, points } = await spawnLookups(root);
+  const wanted = new Map(names.map((n) => [key(n), n]));
+  const nameOf = new Map();
+  for (const [name, list] of ids) {
+    const n = wanted.get(key(name));
+    if (n != null) for (const id of list) for (const g of groups.get(id) ?? []) nameOf.set(g, n);
+  }
+  const out = new Map(names.map((n) => [n, []]));
+  for (const [zone, list] of points) {
+    for (const p of list) if (nameOf.has(p.spawngroupID)) out.get(nameOf.get(p.spawngroupID)).push({ zone, point: p.id, respawnMs: p.respawntime * 1000 });
+  }
+  return out;
+}

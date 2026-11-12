@@ -18,7 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
-import { bossValues, killId, nextBossKill, openBosses, potionSpent, standingBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, bossValues, hoursLastDay, killId, killable, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -311,7 +311,7 @@ export function snapshotInPage(a) {
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, since: st.errand.since, until: st.errand.until } : null,
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
@@ -628,7 +628,10 @@ class Daemon {
    * intervention by `coordinator`, which the dashboard keeps apart from manual ones.
    */
   async coordinatePass(now) {
-    if (!this.coordinate || now - this.coordinatedAt < 300000) return;
+    // A look that found its boss standing brings the next pass at once: other players kill the
+    // open world's bosses too, and the raid has to get there.
+    const stands = [...this.trackers.values()].some((tr) => tr.snap?.bot?.task?.kind === "look" && /stands$/.test(tr.snap.bot.task.result ?? "") && tr.snap.bot.task.endedAt > this.coordinatedAt);
+    if (!this.coordinate || (now - this.coordinatedAt < 300000 && !stands)) return;
     // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
@@ -1084,9 +1087,10 @@ class Daemon {
    * raid time read in a tab whose leader is 46 or more, the casino potions of the survey, each
    * boss's worth from the gear pass's targets (`bossValues` at `hoursPerLevel`), and
    * `nextBossKill`. Returns a raid action for the tab of the kill's leader, the potion's holder or
-   * the strongest group's leader, or null while a raid runs anywhere, the leading tab is busy, the
-   * kill's last raid task waits for its retry (`RAID_RETRY_MIN`) or nothing is due. The plan and its
-   * reasons stay in the db meta key `bossPlan`, and the daily list in runs/state/daily-bosses.json.
+   * the strongest group's leader, or, while no raid is due or its tab is busy, a look into the zone
+   * of a boss of the open world for a free tab (`nextLook`). The plan, its reasons and the watched
+   * bosses stay in the db meta key `bossPlan`, the sightings in `bossesSeen` and `bossLog`, the
+   * raid hours in `raidHours`, and the daily list in runs/state/daily-bosses.json.
    */
   async bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel = {}, history = []) {
     if (!odds) return null;
@@ -1107,24 +1111,44 @@ class Daemon {
     const seen = metaGet(this.db, "bossesSeen") ?? {};
     for (const tr of this.trackers.values()) {
       const w = tr.snap?.wardens;
-      if (!w || !tr.snap.zoneShort) continue;
-      for (const s of w.list) if (!(seen[npcKey(s.name)]?.seenAt >= w.t)) seen[npcKey(s.name)] = { ...s, zone: tr.snap.zoneShort, seenAt: w.t };
+      if (w && tr.snap.zoneShort) for (const s of w.list) if (!(seen[npcKey(s.name)]?.seenAt >= w.t)) seen[npcKey(s.name)] = { ...s, zone: tr.snap.zoneShort, seenAt: w.t };
+      // A look or a raid kept what its zone's list showed, which holds after the party has left.
+      const k = tr.snap?.bot?.task;
+      if (k?.seenAt && k.zone) for (const s of k.seen ?? []) if (!(seen[npcKey(s.name)]?.seenAt >= k.seenAt)) seen[npcKey(s.name)] = { ...s, zone: k.zone, seenAt: k.seenAt };
     }
     metaSet(this.db, "bossesSeen", seen);
     const goal = this.raidGoal();
+    // The bosses of the daily list and the goal that the open world puts up, from the content
+    // snapshot, read once for their names.
+    const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal])];
+    if (this.bossSpawns?.key !== names.join("|")) {
+      const { namedSpawns } = await import("./lib/content.mjs");
+      this.bossSpawns = { key: names.join("|"), spawns: await namedSpawns(names, npcKey).catch((e) => (this.log(`boss spawns: ${e.message}`), new Map())) };
+    }
+    const watch = watchedBosses({ daily: st.daily, goal, spawns: this.bossSpawns.spawns });
+    const log = noteSightings(metaGet(this.db, "bossLog") ?? [], watch, seen);
+    metaSet(this.db, "bossLog", log);
     const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;
     const open = openBosses({ seen, daily: st.daily, goal, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
-    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing, ...open.filter((o) => !(st.daily?.bosses ?? []).some((b) => b.key === o.key))];
+    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing, ...watch.filter((w) => !(st.daily?.bosses ?? []).some((b) => b.key === w.key))];
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
     // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
     const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
     const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
     // Raid time that still runs for five minutes carries one more raid without a new hour.
     const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, odds: odds.odds, value, first });
+    const hours = raidHours(metaGet(this.db, "raidHours") ?? [], st.time, now);
+    metaSet(this.db, "raidHours", hours);
+    const canBuy = hoursLastDay(hours, now) < OPEN_BUY.hoursADay;
+    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first });
+    // A look goes only to a boss the plan would kill if it stood: a goal boss the raid kills in
+    // the simulator, and another one inside paid raid time or the day's hours, for a kill worth an hour.
+    const raidOdds = (w) => odds.odds[w.key]?.raid;
+    const wanted = (w) => killable(raidOdds(w)) && ((w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth));
+    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, wanted });
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
+    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, look, watch: watchRows({ watch, seen, log, value, odds: odds.odds }), hours: hoursLastDay(hours, now), resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
     const { retryTime } = await import("./lib/coordinator.mjs");
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1134,17 +1158,24 @@ class Daemon {
     const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
     const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
     const retryMin = kill?.source === "standing" && kill.fights < 3 ? 0 : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
-    if (!kill || raiding || now < retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code)) return null;
-    const leader = kill.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
+    const leader = kill?.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
-    if (!tab || tab.stale || tab.task?.status === "running" || !kill.zone) return null;
-    const members = [...groupOf.keys()].filter((n) => n !== leader);
-    const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name } : { bossKey: kill.key };
-    const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
-    // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
-    // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
-    const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
-    return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
+    const free = (t) => t && !t.stale && t.task?.status !== "running";
+    if (kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code) && free(tab) && kill.zone) {
+      const members = [...groupOf.keys()].filter((n) => n !== leader);
+      const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name, open: true } : { bossKey: kill.key };
+      const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
+      // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
+      // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
+      const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
+      return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
+    }
+    // A look takes a free tab that leads no raid: one in the boss's zone already, else the one
+    // with the highest leader, which has the best chance in a zone a boss lives in.
+    if (!look) return null;
+    const lookers = tabs.filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46).sort((a, b) => Number(b.zone === look.zone) - Number(a.zone === look.zone) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0));
+    if (!lookers.length) return null;
+    return { label: lookers[0].label, kind: "look", id: `look:${look.key}`, spec: { zone: look.zone, name: look.name, until: look.until }, why: `${look.name} in ${look.zone}: ${look.why}` };
   }
 
   /**

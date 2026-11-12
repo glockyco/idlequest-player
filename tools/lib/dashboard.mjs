@@ -183,11 +183,14 @@ export const AA_LEVEL = 46;
 
 /**
  * A coordinator task's slug id as words, a last resort: the item's name loses punctuation in the
- * slug, and a gear target's id (`target-<zone>-<npc>`) reads as the enemy in its zone.
+ * slug, a gear target's id (`target-<zone>-<npc>`) reads as the enemy in its zone, and a look or a
+ * raid for a boss by the boss's key (`look:<key>`, `boss:summon:<key>`, `boss:open:<key>`).
  */
 const unslug = (id, catalog) => {
   const target = /^target-([a-z0-9]+)-(.+)$/.exec(String(id));
   if (target) return `${target[2].replace(/-/g, " ")} in ${zoneName(catalog, target[1])}`;
+  const boss = /^(look|boss:summon|boss:open):(.+)$/.exec(String(id));
+  if (boss) return `${boss[1] === "look" ? "a look for" : "a raid on"} ${boss[2]}`;
   return String(id).replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
 
@@ -275,7 +278,7 @@ export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluati
   });
 }
 
-const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped" };
+const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped", look: "look", raid: "raid" };
 // A trip's task names all its enemies (`ids`), and reads as its first one and how many more.
 const taskLabel = (catalog, h) => (h.id ? `${taskName(catalog, h.id)}${h.ids?.length > 1 ? ` and ${h.ids.length - 1} more` : ""}` : (TASK_KIND[h.kind] ?? h.kind));
 
@@ -633,7 +636,14 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
-    raids: { share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: lately.filter((k) => k.goal).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters },
+    raids: {
+      share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: lately.filter((k) => k.goal).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
+      // The bosses the open world puts up (`watchRows` of tools/lib/boss-plan.mjs), the look the
+      // plan sends next and the raid hours of the last day.
+      watch: (bosses?.watch ?? []).map((w) => ({ ...w, zone: zoneName(catalog, w.zone) })),
+      look: bosses?.look ? { ...bosses.look, zone: zoneName(catalog, bosses.look.zone) } : null,
+      hours: bosses?.hours ?? null,
+    },
   };
 }
 

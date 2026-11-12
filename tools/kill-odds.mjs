@@ -57,12 +57,12 @@ const db = new Database("runs/iq.db", { readonly: true });
 const targets = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'gear'").get()?.v ?? "{}").targets ?? [];
 const held = new Set(survey.map((r) => r.itemId));
 
-// Raid bosses of the goal that a tab saw at their open-world spawn point (the db meta key
-// `bossesSeen`, by name key) and that the daily list does not name: the raid fights them too, by
-// their name key, so the boss plan knows whether a raid there is worth its travel.
-const seen = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'bossesSeen'").get()?.v ?? "{}");
-const goal = (await read("data/raid-goal.json", { bosses: [] })).bosses.map(npcKey);
-const openGoal = Object.entries(seen).filter(([key]) => goal.includes(key) && !(daily.bosses ?? []).some((b) => npcKey(b.name) === key)).map(([key, s]) => ({ key, name: String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone, npcId: s.npcId }));
+// Raid bosses of the goal that stand in the open world and that the daily list does not name,
+// from the boss plan's watch (the db meta key `bossPlan`, `watchedBosses` of
+// tools/lib/boss-plan.mjs): the raid fights them too, by their name key, so the boss plan knows
+// before a group looks for one whether a raid there is worth its travel.
+const watch = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'bossPlan'").get()?.v ?? "{}").watch ?? [];
+const openGoal = watch.filter((w) => w.goal && !(daily.bosses ?? []).some((b) => b.key === w.key)).map((w) => ({ key: w.key, name: w.name, zone: w.zone }));
 
 // An enemy is the NPC of its name that spawns in its zone, since a name alone is ambiguous in the
 // content (Talendor has a level-90 `#Talendor` beside the level-60 boss). Read once for every
