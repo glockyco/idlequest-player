@@ -1385,9 +1385,14 @@ class Daemon {
     // A pass takes minutes when it surveys the items or is the first of a run, and the cycles
     // waited for it: for three minutes after the start of 2026-11-12 00:03 no tab was looked at,
     // so a tab the server signed out then would have waited as long for its sign-in. The pass runs
-    // beside the cycles, one at a time.
+    // beside the cycles, one at a time. A pass the relay's connection ended comes again with the
+    // next cycle and not five minutes on, because a look for a due respawn leaves six minutes
+    // ahead: the relay closed the connection at 12:56:54 and was back a second later.
     this.pass ??= this.coordinatePass(Date.now())
-      .catch((e) => this.log(`coordinator: ${e.message}`))
+      .catch((e) => {
+        this.log(`coordinator: ${e.message}`);
+        if (/relay (connection closed|not connected)/.test(e.message)) this.coordinatedAt = 0;
+      })
       .finally(() => (this.pass = this.doing = null));
     await part("status", () => writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n"));
     const total = Date.now() - now;
@@ -2107,7 +2112,7 @@ async function cmdRun({ values, runs }) {
     log(`relay attached a non-game page, detached it: ${a.targetId}`);
   });
   relay.on("connected", () => log("relay connected"));
-  relay.on("disconnected", () => log("relay disconnected"));
+  relay.on("disconnected", (why) => log(`relay disconnected: ${why}`));
   relay.on("tab-added", (i) => log(`tab appeared ${i.targetId.slice(-4)}`));
   relay.on("tab-removed", (i) => log(`tab gone ${i.targetId.slice(-4)}`));
   const daemon = new Daemon({ db, relay, runs, intervalSec, log, coordinate: Boolean(values.coordinate), recover: Boolean(values.recover) });

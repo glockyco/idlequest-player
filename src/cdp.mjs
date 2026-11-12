@@ -93,6 +93,8 @@ export class Relay extends EventEmitter {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.url);
       let opened = false;
+      // Why this client closed the socket itself, for the "disconnected" event.
+      let why = null;
       ws.onopen = async () => {
         opened = true;
         this.#ws = ws;
@@ -102,9 +104,21 @@ export class Relay extends EventEmitter {
           this.#listed = true;
           this.emit("connected");
           clearInterval(this.#pollTimer);
+          // A relay that stopped answering without closing the socket looks like a dead tab list,
+          // so the socket is closed and opened again, after two lists in a row that did not come:
+          // one late answer on a loaded machine is no dead relay, and a close ends every request
+          // that is open. On 2026-11-12 the connection closed and was back a second later three
+          // times in five minutes, each ending the coordinator's pass, with the cause not logged.
+          let missed = 0;
           this.#pollTimer = setInterval(() => {
-            // A relay that stopped answering without closing the socket looks like a dead tab list.
-            this.#refreshTabs().catch(() => ws.close());
+            this.#refreshTabs().then(
+              () => (missed = 0),
+              (e) => {
+                if (++missed < 2) return;
+                why = `the relay gave no tab list twice in a row (${e.message})`;
+                ws.close();
+              },
+            );
           }, this.pollMs);
         } catch {
           ws.close();
@@ -124,7 +138,7 @@ export class Relay extends EventEmitter {
         const wasUp = opened;
         this.#sessions.clear();
         this.#attaching.clear();
-        if (wasUp) this.emit("disconnected");
+        if (wasUp) this.emit("disconnected", why ?? "the relay closed the connection");
         if (opened) resolve();
         else reject(new Error("relay unreachable"));
       };
