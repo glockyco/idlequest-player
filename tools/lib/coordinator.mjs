@@ -33,9 +33,11 @@ export const DEFAULTS = {
 /**
  * Every character's AA settings: all XP to AA, paused below level 60, because a rank gives 2 stat
  * points for 75M XP while a level below 60 gives far more for less (docs/plans/systems-research.md,
- * section 1).
+ * section 1). A rank costs `rankPp` of the tab's active character's carried coin, and coin, not
+ * points, limits the ranks. So ranks take what the account holds above `reservePp`, which stays
+ * for two hours of raid time, and a leader keeps `keepPp` for its spells and recoveries.
  */
-export const AA_POLICY = { allocation: 100, level: 60, rankPp: 2000 };
+export const AA_POLICY = { allocation: 100, level: 60, rankPp: 2000, reservePp: 20000, keepPp: 2000 };
 
 const AA = { str: 50001, sta: 50002, agi: 50003, dex: 50004, int: 50005, wis: 50006, cha: 50007, magic: 50008, cold: 50009, fire: 50010, poison: 50011, disease: 50012, run: 50013, regen: 50014, metabolism: 50015, lungs: 50016 };
 const CASTING = { magician: AA.int, wizard: AA.int, necromancer: AA.int, enchanter: AA.int, cleric: AA.wis, druid: AA.wis, shaman: AA.wis };
@@ -51,6 +53,37 @@ export function aaOrder(cls) {
   const melee = [AA.str, AA.dex, AA.agi];
   const first = casting ? [casting, AA.sta] : [AA.sta, ...melee];
   return [...new Set([...first, AA.magic, AA.fire, AA.cold, AA.poison, AA.disease, AA.regen, ...melee, AA.int, AA.wis, AA.cha, AA.run, AA.metabolism, AA.lungs])];
+}
+
+/** The ranks an ability has: five of a stat or a resist, three of the others. */
+const aaRanks = (id) => (id >= AA.run ? 3 : 5);
+
+/**
+ * The ranks the account trains in a pass: `{ orders, wanted, budget }`, where `orders` gives each
+ * character the abilities to train, in order, `wanted` counts the ranks its points could buy and
+ * `budget` the ranks the coin allows, `totalPp` above the reserve. `characters` are
+ * `{ name, class, points, spent, ranks }`, at most a level's worth of points each a pass. A rank
+ * goes before another by its place in its class's order, so every character's first stat comes
+ * before anyone's second, and among equals to the character with fewer ranks.
+ */
+export function aaPlan({ characters, totalPp, policy = AA_POLICY }) {
+  const budget = Math.max(0, Math.floor((totalPp - policy.reservePp) / policy.rankPp));
+  const wanted = [];
+  for (const c of characters) {
+    const order = aaOrder(c.class);
+    const ranks = { ...(c.ranks ?? {}) };
+    let spent = c.spent ?? 0;
+    for (let k = 0; k < Math.min(c.points ?? 0, 12); k++) {
+      const place = order.findIndex((id) => (ranks[id] ?? 0) < aaRanks(id));
+      if (place < 0) break;
+      wanted.push({ name: c.name, id: order[place], place, spent: spent++ });
+      ranks[order[place]] = (ranks[order[place]] ?? 0) + 1;
+    }
+  }
+  wanted.sort((a, b) => a.place - b.place || a.spent - b.spent);
+  const orders = {};
+  for (const w of wanted.slice(0, budget)) (orders[w.name] ??= []).push(w.id);
+  return { orders, wanted: wanted.length, budget };
 }
 
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */

@@ -634,7 +634,7 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
     recent: progressCounts(db, now - DAY),
     levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from } : null },
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
-    aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters }),
+    aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters, plan: metaRow(db, "aaPlan") }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
     raids: {
       share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: lately.filter((k) => k.goal).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
@@ -651,12 +651,14 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
  * The AA bar from the meta key `aa` (iqd's coordinator pass, the AA window's state of each tab's
  * active character): ranks trained against the catalog's ranks for the characters recorded past
  * the unlock level, with their unspent points. `share` is null until one such character is recorded.
+ * `coin` is the pass's plan (meta key `aaPlan`): the ranks the points could buy, the ranks the
+ * account's coin above its reserve pays for, and those numbers.
  */
-export function aaView(aa, { reached, characters }) {
+export function aaView(aa, { reached, characters, plan = null }) {
   const past = Object.values(aa).filter((s) => (s.level ?? 0) >= AA_LEVEL && s.maxRanks > 0);
   const trained = past.reduce((n, s) => n + Object.values(s.ranks ?? {}).reduce((a, b) => a + (Number(b) || 0), 0), 0);
   const possible = past.reduce((n, s) => n + s.maxRanks, 0);
-  return { share: possible ? trained / possible : null, level: AA_LEVEL, reached, characters, recorded: past.length, trained, possible, points: past.reduce((n, s) => n + (s.points ?? 0), 0), passT: Math.max(0, ...past.map((s) => s.t ?? 0)) || null };
+  return { share: possible ? trained / possible : null, level: AA_LEVEL, reached, characters, recorded: past.length, trained, possible, points: past.reduce((n, s) => n + (s.points ?? 0), 0), coin: plan?.wanted ? plan : null, passT: Math.max(0, ...past.map((s) => s.t ?? 0)) || null };
 }
 
 /**

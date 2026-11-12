@@ -496,18 +496,20 @@ export function applySettingsInPage(a) {
 }
 
 /**
- * Make the tab's AA settings match `a` and train the points its characters hold: `allocation`
- * percent for the active character and its account companions, and the level rule that pauses it
- * below `a.level` for both (docs/plans/systems-research.md, section 1). Uses the Alternate
- * Advancement window's own request. The server refuses both below the unlock level (46), so the
- * allocation covers the characters past it and the rule waits for the host to reach it. The
- * allocation goes first, because the window does not allocate while the rule pauses a character.
- * A character with a point and an order in `a.orders` (`{ name: [ability ids] }`) then trains the
- * first ability of its order below its maximum, a rank a request as the window's Train button
- * does, with the rank it holds and the price `a.rankPp`, so the server refuses on any other state.
- * Returns what it changed, the names whose training the server refused (`refused`), and the AA
- * state of the active character (`state`) and of each party member past the unlock level
- * (`members`), which the window reads with the member as `target`:
+ * Make the tab's AA settings match `a` and train the ranks planned for its characters:
+ * `allocation` percent for the active character and its account companions, and the level rule
+ * that pauses it below `a.level` for both (docs/plans/systems-research.md, section 1). Uses the
+ * Alternate Advancement window's own request. The server refuses both below the unlock level
+ * (46), so the allocation covers the characters past it and the rule waits for the host to reach
+ * it. The allocation goes first, because the window does not allocate while the rule pauses a
+ * character. A character with a point then trains the abilities `a.orders` names for it
+ * (`{ name: [ability ids] }`, `aaPlan`), a rank a request as the window's Train button does, with
+ * the rank it holds and the price `a.rankPp`, so the server refuses on any other state. The
+ * price comes from the active character's carried coin, also for a member's rank, so training
+ * stops while that would fall under `a.keepPp` (`short`). Returns what it changed, the names whose
+ * training the server refused (`refused`) or the coin held back (`short`), and the AA state of
+ * the active character (`state`) and of each party member past the unlock level (`members`),
+ * which the window reads with the member as `target`:
  * `{ name, level, points, spent, ranks, names, maxRanks, allocation }`, where `names` maps ability
  * ids to names and `maxRanks` sums the catalog's maximum ranks. Returns null on a page without the
  * bridge, as one the supervisor reloaded during the pass, which has nothing to set yet.
@@ -534,13 +536,18 @@ export async function aaInPage(a) {
     done.push(`${scope} paused below ${a.level}`);
   }
   const refused = [];
+  const short = [];
+  const carried = () => window.iq.stores.character.getState().characterProfile?.platinum ?? 0;
   const train = async (s, target) => {
-    const order = a.orders?.[s.characterName];
-    // At most a level's worth of points a pass, so a pass stays short.
-    for (let n = 0; order && n < 12 && (s.points ?? 0) >= 1; n++) {
-      const next = order.map((id) => (s.abilities ?? []).find((x) => x.id === id)).find((x) => x && (s.ranks?.[x.id] ?? 0) < x.maxRank);
-      if (!next) break;
-      const have = s.ranks?.[next.id] ?? 0;
+    for (const id of a.orders?.[s.characterName] ?? []) {
+      if ((s.points ?? 0) < 1) break;
+      const next = (s.abilities ?? []).find((x) => x.id === id);
+      const have = s.ranks?.[id] ?? 0;
+      if (!next || have >= next.maxRank) continue;
+      if (carried() < a.rankPp + (a.keepPp ?? 0)) {
+        short.push(s.characterName);
+        break;
+      }
       const res = await send("purchase", { abilityId: next.id, expectedRank: have, expectedCostPlatinum: a.rankPp, ...(target ? { target } : {}) }).catch((e) => ({ error: e.message }));
       if (!res?.success || !res.state) {
         refused.push(s.characterName);
@@ -561,7 +568,20 @@ export async function aaInPage(a) {
     const rm = await window.iq.query(1237, { action: "get", hostCharacterId: host, target }).catch(() => null);
     if (rm?.success) members.push(view(await train(rm.state, target)));
   }
-  return { done, refused, state, members };
+  return { done, refused, short, state, members };
+}
+
+/**
+ * The account's coin in platinum, `{ totalPp }`: every other character's carried and banked coin,
+ * as the Manage Money panel reads it, and the active character's carried coin. Null on a page
+ * without the bridge.
+ */
+export async function moneyInPage() {
+  if (!window.iq?.stores) return null;
+  const p = window.iq.stores.character.getState().characterProfile;
+  const r = await window.iq.query(1240, { characterId: p.id, stateSessionId: p.stateSessionId, action: "read" });
+  if (!r?.success) throw new Error(r?.error ?? "no balances");
+  return { totalPp: Math.floor((r.balances ?? []).reduce((n, b) => n + (b.totalCopper ?? 0), 0) / 1000) + (p.platinum ?? 0) };
 }
 
 // ---- Recorder files -----------------------------------------------------------------------------
@@ -638,7 +658,7 @@ class Daemon {
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
     this.doing = "item searches";
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleErrands, settleHistory, AA_POLICY, aaOrder } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -892,12 +912,21 @@ class Daemon {
     // each party member past 46, kept per character in the meta key `aa` for the dashboard.
     const aa = metaGet(this.db, "aa") ?? {};
     const aaBefore = structuredClone(aa);
-    // A character whose training the server refused, as for want of the rank's platinum, is asked
-    // again an hour later.
+    // A character whose training the server refused is asked again an hour later. The ranks to
+    // train come from the account's coin above its reserve (`aaPlan`), read once a pass in which a
+    // character holds a point.
     this.aaRefused ??= new Map();
-    for (const t of tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label))) {
-      const orders = Object.fromEntries(t.members.filter((m) => !(now - this.aaRefused.get(m.name) < 3600000)).map((m) => [m.name, aaOrder(m.class)]));
-      const r = await this.relay.evaluate(t.targetId, call(aaInPage, { ...AA_POLICY, orders }), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
+    const idle = tabs.filter((x) => x.task?.status !== "running" && !tasked.has(x.label));
+    const classOf = new Map(tabs.flatMap((t) => t.members.map((m) => [m.name, m.class])));
+    const pointed = Object.values(aa).filter((s) => (s.points ?? 0) >= 1 && classOf.has(s.name) && !(now - this.aaRefused.get(s.name) < 3600000));
+    let plan = { orders: {}, wanted: 0, budget: 0, totalPp: null };
+    if (pointed.length && idle.length) {
+      const money = await this.relay.evaluate(idle[0].targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`coordinator: the account's coin: ${e.message}`), null));
+      if (money) plan = { ...aaPlan({ characters: pointed.map((s) => ({ ...s, class: classOf.get(s.name) })), totalPp: money.totalPp }), totalPp: money.totalPp };
+    }
+    metaSet(this.db, "aaPlan", { t: now, wanted: plan.wanted, budget: plan.budget, totalPp: plan.totalPp, reservePp: AA_POLICY.reservePp, rankPp: AA_POLICY.rankPp });
+    for (const t of idle) {
+      const r = await this.relay.evaluate(t.targetId, call(aaInPage, { ...AA_POLICY, orders: plan.orders }), { timeout: 60000 }).catch((e) => (this.log(`coordinator: ${t.label} AA settings: ${e.message}`), null));
       for (const s of [r?.state, ...(r?.members ?? [])].filter(Boolean)) aa[s.name] = { ...s, t: now };
       for (const name of r?.refused ?? []) this.aaRefused.set(name, now);
       if (!r?.done?.length) continue;
