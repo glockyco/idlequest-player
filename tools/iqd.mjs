@@ -13,7 +13,7 @@ import { statSync, openSync, readSync, closeSync, readFileSync, existsSync, mkdi
 import { dirname, join, isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { Relay } from "../src/cdp.mjs";
+import { Relay, renewPage } from "../src/cdp.mjs";
 import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
@@ -1595,10 +1595,11 @@ class Daemon {
 
   /**
    * Carry out the page supervisor's `action` in the tab (`pageStep` in tools/lib/page.mjs): sign in
-   * with the stored login, install the bridge and bot as the SDK does (src/install.mjs), or reload
-   * the page. The bot keeps its settings in the tab's sessionStorage, so a reloaded tab knows its
-   * leader, and a tab that lost them gets its group's leader and members from data/roster.json, by
-   * the leader it showed before. The bot then enters the world as the leader and regroups by itself.
+   * with the stored login, install the bridge and bot as the SDK does (src/install.mjs), reload
+   * the page, or give the tab a new process. The bot keeps its settings in the tab's
+   * sessionStorage, so a reloaded or renewed tab knows its leader, and a tab that lost them gets
+   * its group's leader and members from data/roster.json, by the leader it showed before. The bot
+   * then enters the world as the leader and regroups by itself.
    */
   async pageAction(tr, action, now) {
     const { installExpressions, signInInPage, storedLogin } = await import("../src/install.mjs");
@@ -1614,6 +1615,12 @@ class Daemon {
     if (action.kind === "reload") {
       note(`reloaded the page: ${action.why}`);
       return evaluate("setTimeout(() => location.reload(), 200), true", 5000);
+    }
+    if (action.kind === "renew") {
+      // The page the tab leaves for is served here, apart from the dashboard, which may be off.
+      this.renewServer ??= Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(renewPage(), { headers: { "content-type": "text/html" } }) });
+      await this.relay.renew(tr.targetId, `http://127.0.0.1:${this.renewServer.port}/renew`);
+      return note(`gave the tab a new process: ${action.why}`);
     }
     const commit = this.commitOf(tr);
     for (const e of await installExpressions(commit)) await evaluate(e, 30000);
@@ -2095,6 +2102,9 @@ const HELP = `iqd <command>
   load <group or leader>.. [--seconds 8] [--stacks 100]
                                  how busy each named group's page is: the seconds its main thread spent in
                                  tasks and in script, and with --stacks what it was doing in that many samples
+  renew <group or leader>.. --why <reason>
+                                 give each named group's tab a new browser process, one after another, which
+                                 frees the memory an old process keeps. The collector signs the tab in again
   job add --purpose .. --cmd .. --out ..
   job done <id> [result]
 Global option: --runs <dir> (default runs/ of this repository, or $IQD_RUNS)`;
@@ -2316,6 +2326,35 @@ function tabOf(db, who) {
 }
 
 /**
+ * Give the tabs of the named groups a new browser process each, a minute apart, so the sign-ins
+ * that follow stay under the server's limit. The collector does the same by itself for a page
+ * whose heap stays high (tools/lib/page.mjs), so this is for a process that is old with a small heap.
+ */
+async function cmdRenew({ values, positionals, runs }) {
+  const who = positionals.slice(1);
+  if (!who.length || !values.why) throw new Error("usage: iqd renew <group or leader>.. --why <reason>");
+  const db = openDb(join(runs, "iq.db"));
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(renewPage(), { headers: { "content-type": "text/html" } }) });
+  const relay = new Relay();
+  await relay.start();
+  try {
+    for (const [k, w] of who.entries()) {
+      if (k) await Bun.sleep(60000);
+      const { leader, target } = tabOf(db, w);
+      for (let n = 0; n < 50 && !relay.tabs().has(target); n++) await Bun.sleep(100);
+      await relay.renew(target, `http://127.0.0.1:${server.port}/renew`);
+      db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'agent', ?)").run(Date.now(), leader, `${values.why}: gave the tab a new process`.slice(0, 400));
+      // The page returns to the game by itself after a few seconds, which needs this server.
+      await Bun.sleep(8000);
+      console.log(`${w} ${leader}: ${relay.tabs().has(target) ? "back at the game" : "not back at the game yet"}`);
+    }
+  } finally {
+    await relay.stop();
+    server.stop();
+  }
+}
+
+/**
  * Measure how busy the pages of the named groups are while they play, one after another, and
  * with `--stacks` print what one page's JavaScript was doing. Both read only. Sampling stacks
  * pauses the page a few milliseconds a sample.
@@ -2362,7 +2401,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, renew: cmdRenew, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

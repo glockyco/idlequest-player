@@ -46,26 +46,26 @@ test("a reloaded page signs in at once and installs as soon as its sign-in left 
   expect(step(0, game({ pageSession: 2 }), T0 + 220 * SEC)).toBeNull();
 });
 
-test("a reload waits for a quiet moment and the rows on disk, one page of the fleet per ten minutes, and a sign-in elsewhere goes on", () => {
+test("a full page gets a new process at a quiet moment with its rows on disk, one page of the fleet per ten minutes, and a sign-in elsewhere goes on", () => {
   const step = fleetOf(3);
-  // Readings every 30 s for 12 minutes that never fell below half the heap limit.
-  const full = game({ heap: { used: 2300, limit: 4000 } });
+  // Readings every 30 s for 12 minutes that never fell below three tenths of the heap limit.
+  const full = game({ heap: { used: 1500, limit: 4000 } });
   for (let k = 0; k <= 24; k++) for (const tab of [0, 1]) step(tab, full, T0 + k * 30 * SEC);
   const now = T0 + 12 * MIN + 30 * SEC;
   expect(step(0, game({ ...full, conn: { connected: true, worldReady: true, inCombat: true, zoneLoading: false } }), now, { exported: true })).toBeNull();
   expect(step(0, full, now, { exported: false })).toBeNull();
-  expect(step(0, full, now, { exported: true })).toBe("reload");
+  expect(step(0, full, now, { exported: true })).toBe("renew");
   expect(step(1, full, now + 30 * SEC, { exported: true })).toBeNull();
   expect(step(2, login({ hasBridge: false }), now + 30 * SEC)).toBe("signIn");
-  expect(step(1, full, now + 10 * MIN, { exported: true })).toBe("reload");
+  expect(step(1, full, now + 10 * MIN, { exported: true })).toBe("renew");
 });
 
-test("a page reloads once 25 kills in a row brought no loot line, and one dip of the heap keeps it", () => {
+test("a page reloads once 25 kills in a row brought no loot line, and one dip of the heap keeps its process", () => {
   const step = fleetOf(2);
   expect(step(0, game({ faults: { lootless: 24 } }), T0, { exported: true })).toBeNull();
   expect(step(0, game({ faults: { lootless: 25 } }), T0 + 30 * SEC, { exported: true })).toBe("reload");
-  // One collection down to 1900 MB within the window: the floor is below half the limit.
-  for (let k = 0; k <= 24; k++) step(1, game({ heap: { used: k === 8 ? 1900 : 2600, limit: 4000 } }), T0 + k * 30 * SEC, { exported: true });
+  // One collection down to 1100 MB within the window: the floor is below three tenths of the limit.
+  for (let k = 0; k <= 24; k++) step(1, game({ heap: { used: k === 8 ? 1100 : 2600, limit: 4000 } }), T0 + k * 30 * SEC, { exported: true });
   expect(step(1, game({ heap: { used: 2600, limit: 4000 } }), T0 + 12 * MIN + 30 * SEC, { exported: true })).toBeNull();
 });
 

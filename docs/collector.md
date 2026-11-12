@@ -20,6 +20,7 @@ bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
 bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention by hand
 bun tools/iqd.mjs page G10 'window.iqBot.stopTask()' --why "stands without a route"   # act in a group's tab by hand, recorded
 bun tools/iqd.mjs load G7 G11 --seconds 8    # how busy each group's page is, and with --stacks 100 what one page was doing
+bun tools/iqd.mjs renew G4 G6 --why "three days old"   # give each group's tab a new browser process, a minute apart
 bun tools/iqd.mjs job add --purpose "predict level 36" --cmd "bun tools/predict.mjs --level 36" --out runs/p36.txt
 bun tools/iqd.mjs job done 3 "Permafrost first"
 ```
@@ -187,15 +188,20 @@ otherwise at most every two minutes, and installs the deployed code in a tab tha
 so a change to that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
 world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
 enters the world as its leader and regroups by itself, and a tab without them gets its group from
-`data/roster.json`. The supervisor reloads a page for three faults of the client: a JS heap whose
-floor, the lowest reading over 10 minutes, stays at half its limit, because the client keeps memory
-it no longer needs, 25 kills in a row without a "You loot" line, which a failed zone load can
-leave behind although the bridge repairs that in the page (docs/client-internals.md, Loot
-messages), and a travel the client refused for want of its zone's state, which a page that entered
-the world through a server restart can lack until it reconnects (docs/client-internals.md, Zone
-change). A reload waits for a moment without a task, fight, raid or zone load, with every
-recorded row on disk, one tab of the fleet per 10 minutes. A crashed tab needs a new tab, which iqd
-cannot open, so `restoreGroup` in `src/group.mjs` stays the way back from a crash.
+`data/roster.json`. The supervisor gives a tab a new browser process when the floor of its page's
+JS heap, the lowest reading over 10 minutes, stays at `heapShare` of its limit (`PAGE` in
+`tools/lib/page.mjs`). The client keeps memory it no longer needs, and a tab's process keeps what
+a reload frees, so a reload is not enough: the tab goes to a page the collector serves, which ends
+its process, and that page returns to the game by itself in a new one (`Relay.renew` in
+`src/cdp.mjs`). The supervisor reloads a page for two faults of the client: 25 kills in a row
+without a "You loot" line, which a failed zone load can leave behind although the bridge repairs
+that in the page (docs/client-internals.md, Loot messages), and a travel the client refused for
+want of its zone's state, which a page that entered the world through a server restart can lack
+until it reconnects (docs/client-internals.md, Zone change). A new process and a reload wait for
+a moment without a task, fight, raid or zone load, with every recorded row on disk, one tab of the
+fleet per 10 minutes. `iqd renew` does the same by hand, for a process that is old with a small
+heap. A crashed tab needs a new tab, which iqd cannot open, so `restoreGroup` in `src/group.mjs`
+stays the way back from a crash.
 
 Which commit's page code the tabs run is set with `iqd deploy` ([README](../README.md#deploying-page-code)).
 

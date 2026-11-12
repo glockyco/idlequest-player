@@ -14,6 +14,9 @@ export const GAME_URL_PREFIX = "https://idlequest.net/play";
 
 export const isGameTarget = (info) => info?.type === "page" && typeof info.url === "string" && info.url.startsWith(GAME_URL_PREFIX);
 
+/** The page a tab is sent to for a new process (`Relay.renew`): it returns to the game after `backSec`. */
+export const renewPage = (backSec = 3) => `<!doctype html><meta http-equiv="refresh" content="${backSec};url=${GAME_URL_PREFIX}"><title>IdleQuest</title>Back to the game in a moment.`;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** How long a tab's focus emulation counts as set before it is asked for again. */
@@ -297,6 +300,26 @@ export class Relay extends EventEmitter {
     const sessionId = await this.#sessionFor(targetId);
     const res = await this.#send("Page.captureScreenshot", { format: "jpeg", quality }, sessionId, timeout);
     return Buffer.from(res.data, "base64");
+  }
+
+  /**
+   * Give a game tab a new renderer process. A reload keeps the process, and one that has played
+   * for hours holds 2 to 4.5 GB that no reload gives back, while a new one starts under 1 GB. The
+   * browser ends a tab's process when the tab goes to another site and starts one when it comes
+   * back, so the tab is sent to `via`, a page that returns to the game by itself (`renewPage`),
+   * with no second command that could fail and leave it there. A `data:` page is refused, and
+   * `about:blank` cannot return on its own. The page comes back at the login form with the
+   * tab's session storage, as after a reload.
+   */
+  async renew(targetId, via) {
+    const info = this.#tabs.get(targetId);
+    if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
+    const sessionId = await this.#sessionFor(targetId);
+    const r = await this.#send("Page.navigate", { url: via }, sessionId);
+    if (r?.errorText) throw new Error(`the tab did not leave for ${via}: ${r.errorText}`);
+    // The tab leaves the game for a moment, so this session ends here and the next call attaches anew.
+    this.#sessions.delete(targetId);
+    await this.#send("Target.detachFromTarget", { sessionId }, undefined, 3000).catch(() => {});
   }
 
   /**

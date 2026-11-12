@@ -12,11 +12,14 @@
 //   install  the bridge or the bot is missing, or runs older code outside a raid and outside a task
 //            younger than `taskWaitMin` that plays in the world, which a reinstall stops, at most
 //            every `installEveryMin` per tab, and at once after the tab's sign-in
-//   reload   the heap's floor over `heapWindowMin` stays at `heapShare` of its limit, because the
-//            client keeps memory it no longer needs, the last `lootlessKills` kills brought no
-//            loot line, which a failed zone load can leave behind, or the client refused travel
-//            for want of its zone's state, which only a reconnect restores, once every row is on disk, at a
-//            quiet moment, and one page of the fleet per `reloadGapMin`. A character select whose
+//   renew    the heap's floor over `heapWindowMin` stays at `heapShare` of its limit. The client
+//            keeps memory it no longer needs, and the tab's process keeps what a reload frees, so
+//            the tab gets a new process (`Relay.renew` in src/cdp.mjs), which comes back at the
+//            login form like a reload
+//   reload   the last `lootlessKills` kills brought no loot line, which a failed zone load can
+//            leave behind, or the client refused travel for want of its zone's state, which only
+//            a reconnect restores. Both, like a renewal, wait until every row is on disk, for a
+//            quiet moment, and for one page of the fleet per `reloadGapMin`. A character select whose
 //            connection stayed down for `offlineSec` is a session the server ended without the login
 //            form ("Log in before entering the world."), so its reload counts as a sign-in
 
@@ -28,7 +31,10 @@ export const PAGE = {
   refusedHoldSec: 70, // "Please wait a minute before trying again."
   installEveryMin: 2,
   taskWaitMin: 30, // a reinstall stopped a raid's loot step with half the corpse taken, and tasks mostly end within minutes
-  heapShare: 0.5,
+  // A process that played for hours held 2.2 to 4.5 GB with a heap of 0.6 to 2.1 GB, and twelve of
+  // them took the machine into swap, while a new one held 0.8 GB at a heap of 0.4 GB. A page's
+  // heap passes this share of its 4 GB limit after some four to eight hours.
+  heapShare: 0.3,
   heapWindowMin: 10, // longer than V8's collection sawtooth of a few minutes
   lootlessKills: 25, // healthy play reaches about ten
   reloadGapMin: 10, // so one group at a time is down
@@ -38,20 +44,21 @@ export const PAGE = {
 const quiet = (snap) => snap.bot?.task?.status !== "running" && !snap.raid && !snap.conn?.inCombat && !snap.conn?.zoneLoading && Boolean(snap.conn?.worldReady);
 
 /**
- * Why the page should reload, or null: the floor of its heap readings (`heap`, `{ t, used }` since it
- * loaded) over the last `heapWindowMin`, which counts because the heap saws up and down by hundreds
- * of MB between collections, the bridge's count of kills in a row without a loot line, or a travel
- * the client refused for want of its zone's state.
+ * Why the page should start again, or null, as `{ kind, why }`: a reload for the bridge's count of
+ * kills in a row without a loot line or a travel the client refused for want of its zone's state,
+ * and a new process for the floor of its heap readings (`heap`, `{ t, used }` since it loaded)
+ * over the last `heapWindowMin`, which counts because the heap saws up and down by hundreds of MB
+ * between collections.
  */
-function reloadReason(heap, snap, now, cfg) {
-  if (snap.faults?.desync) return "the client refused travel for want of its zone's state (\"Your zone is not synchronized. Reconnect before travelling.\")";
+function restartReason(heap, snap, now, cfg) {
+  if (snap.faults?.desync) return { kind: "reload", why: "the client refused travel for want of its zone's state (\"Your zone is not synchronized. Reconnect before travelling.\")" };
   const lootless = snap.faults?.lootless ?? 0;
-  if (lootless >= cfg.lootlessKills) return `the last ${lootless} kills brought no loot line, which the client loses in a failed zone load`;
+  if (lootless >= cfg.lootlessKills) return { kind: "reload", why: `the last ${lootless} kills brought no loot line, which the client loses in a failed zone load` };
   const limit = snap.heap?.limit;
   const since = now - cfg.heapWindowMin * 60000;
   if (!limit || !heap.length || heap[0].t > since) return null;
   const floor = Math.min(...heap.filter((r) => r.t >= since).map((r) => r.used));
-  return floor >= cfg.heapShare * limit ? `the page heap stayed above ${floor} of ${limit} MB for ${cfg.heapWindowMin} min` : null;
+  return floor >= cfg.heapShare * limit ? { kind: "renew", why: `the page heap stayed above ${floor} of ${limit} MB for ${cfg.heapWindowMin} min` } : null;
 }
 
 /**
@@ -102,8 +109,8 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
     out.installAt = now;
     return result({ kind: "install", update: stale, why: stale ? `the page runs code ${snap.code}` : `${snap.hasBridge ? "the bot" : "the bridge"} is missing at ${snap.screen}` });
   }
-  const why = reloadReason(out.heap ?? [], snap, now, cfg);
-  if (!why || !exported || !quiet(snap) || now - (next.reloadAt ?? 0) < cfg.reloadGapMin * 60000) return result();
+  const restart = restartReason(out.heap ?? [], snap, now, cfg);
+  if (!restart || !exported || !quiet(snap) || now - (next.reloadAt ?? 0) < cfg.reloadGapMin * 60000) return result();
   next.reloadAt = now;
-  return result({ kind: "reload", why });
+  return result(restart);
 }

@@ -10,8 +10,8 @@ import { PAGE } from "./page.mjs";
 /** A trouble still open after this needs a person: the mechanisms run in its first minutes. */
 export const HANDLED_MS = 10 * 60000;
 /**
- * What the page supervisor's reload of a full page can take: the ten minutes of heap readings it
- * judges by, a running task it waits for and its turn among the pages.
+ * What the page supervisor's new process for a full page can take: the ten minutes of heap readings
+ * it judges by, a running task it waits for and its turn among the pages.
  */
 export const RELOAD_MS = (PAGE.heapWindowMin + PAGE.taskWaitMin + PAGE.reloadGapMin) * 60000;
 
@@ -41,8 +41,8 @@ export const KINDS = {
   "alert-switch": { label: "failed switches", how: "the bot tries again", needsAfterMs: HANDLED_MS },
   "alert-offline": { label: "signed-out tabs", how: "the collector signs them in", needsAfterMs: HANDLED_MS },
   "alert-idle": { label: "idle groups", how: "the rotation moves on", needsAfterMs: HANDLED_MS },
-  "alert-memory": { label: "full page memory", how: "the collector reloads the page", needsAfterMs: RELOAD_MS },
-  heap: { label: "full page memory", how: "the collector reloads the page", needsAfterMs: RELOAD_MS },
+  "alert-memory": { label: "full page memory", how: "the collector gives the tab a new process", needsAfterMs: RELOAD_MS },
+  heap: { label: "full page memory", how: "the collector gives the tab a new process", needsAfterMs: RELOAD_MS },
 };
 
 /** Whether the open item `a` (`{ severity, kind, t }`) needs a person at `now`. Information never does. */
