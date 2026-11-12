@@ -341,8 +341,8 @@ timers of a hidden tab and its fights stop ending. The tabs therefore need not b
 iqd runs.
 
 `tools/play.sh` runs the browser relay and the collector with `--coordinate --recover` in the
-foreground until it is stopped, for a terminal tab of its own. A second `run` refuses to start while
-one is active.
+foreground until it is stopped, for a terminal tab of its own. It starts the collector again when it
+exits or finishes no cycle for five minutes. A second `run` refuses to start while one is active.
 
 ```sh
 bun tools/iqd.mjs run --interval 30          # collect until SIGINT or SIGTERM, dashboard on http://127.0.0.1:4790/
