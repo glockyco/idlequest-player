@@ -38,7 +38,7 @@ end`;
       chain: { class: "Cleric", minLevel: 37, reward: "Fang", steps: [
         { zone: "z", npc: "Giver", npcIds: [1], say: ["task"], expect: "Note" },
         { zone: "z", npc: "Giver", npcIds: [1], give: ["Note"] },
-        { zone: "z", kill: "a guardian", expect: "Fang", waitSec: 60 },
+        { zone: "z", kill: "a guardian", level: 40, hp: null, expect: "Fang", waitSec: 60 },
       ] },
     },
     {

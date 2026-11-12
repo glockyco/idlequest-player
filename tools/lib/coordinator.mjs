@@ -28,6 +28,9 @@ export const DEFAULTS = {
   // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
   casino: { minLevel: 46, dice: 9, maxPp: 10000 },
+  // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
+  // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
+  questKillChance: 0.5,
 };
 
 /**
@@ -343,6 +346,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       if (!due(last, q.retryMin ?? 120)) continue;
       if (now < worldHold(history, id, code)) continue;
       if ((pointBound || fights) && runs()) continue;
+      // An unknown chance does not hold the quest, as for an enemy no fight on file resembles.
+      if (q.steps.some((s) => s.kill && s.level != null && (killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1) < cfg.questKillChance)) continue;
       copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }

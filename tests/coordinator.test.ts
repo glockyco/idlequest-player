@@ -124,6 +124,18 @@ test("a quest with a fight runs in one tab at a time, because a hand-in calls on
   expect(decide({ now: NOW + 600000, tabs, quests: { hammer: quests.hammer }, history: [{ ...history[0], status: "failed" }] }).actions.filter((a) => a.kind === "quest")).toMatchObject([{ id: "hammer", label: "B" }]);
 });
 
+test("a quest's fight waits for a group that would probably lose it, and an unknown chance holds nobody", () => {
+  const steps = [{ zone: "hole", npc: "Jaeil the Wretched", give: ["Shiny Tin Bowl"] }, { zone: "hole", kill: "Jaeil the Insane", level: 55, hp: 20000, expect: "Soulbound Hammer" }];
+  const quests = { hammer: { class: "Ranger", minLevel: 1, reward: "Soulbound Hammer", steps } };
+  const ranger = (label: string, group: string) => ({ ...tab(label, group, 40), members: [{ name: `${label}0`, level: 40, class: "Ranger" }] });
+  const tabs = [ranger("A", "G1"), ranger("B", "G2")];
+  const asked: unknown[] = [];
+  const killChance = (t: { label: string }, x: unknown) => (asked.push(x), { p: t.label === "A" ? 0.3 : 0.8 });
+  expect(decide({ now: NOW, tabs, quests, history: [], killChance }).actions.filter((a) => a.kind === "quest")).toMatchObject([{ id: "hammer", label: "B" }]);
+  expect(asked[0]).toEqual({ zone: "hole", npc: "Jaeil the Insane", npcLevel: 55, npcHp: 20000 });
+  expect(decide({ now: NOW, tabs, quests, history: [], killChance: () => null }).actions.filter((a) => a.kind === "quest")).toMatchObject([{ id: "hammer", label: "A" }]);
+});
+
 test("a chain whose reward a later chain takes stays done", () => {
   const quests = {
     note: { class: "Paladin", reward: "Sealed Note", doneIf: ["SoulFire"], needs: ["Fire Beetle Eye"], steps: [{ zone: "freportw", craft: { inputs: ["Fire Beetle Eye"] }, expect: "Edible Goo" }] },

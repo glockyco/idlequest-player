@@ -44,7 +44,8 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
   for (const s of tree.steps) {
     if (s.item) {
       if (s.way.kind === "scene" && !hunted.has(s.item)) {
-        part.steps.push({ zone: s.way.by?.zone ?? [...(model.sites.get(s.way.npcId)?.keys() ?? [])][0], kill: s.way.npc, expect: name(s.item), waitSec: SPAWN_WAIT_SEC });
+        // A kill names its enemy's level and hit points, for the group's chance against it.
+        part.steps.push({ zone: s.way.by?.zone ?? [...(model.sites.get(s.way.npcId)?.keys() ?? [])][0], kill: s.way.npc, level: s.way.level ?? model.npcs.get(s.way.npcId)?.level ?? null, hp: model.npcs.get(s.way.npcId)?.hp ?? null, expect: name(s.item), waitSec: SPAWN_WAIT_SEC });
         part.level = Math.max(part.level, s.way.level ?? 0);
       } else if (s.way.kind === "combine") {
         const inputs = Object.keys(s.way.inputs).map(Number).filter((id) => !model.catalog.has(id)).map(name);
@@ -55,7 +56,8 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     const b = s.branch;
     if (b.event === "timer" || b.event === "signal" || (b.event === "death" && huntNpcs.has(b.npc))) continue;
     if (b.event === "death") {
-      part.steps.push({ zone: b.zone, kill: b.npc, waitSec: SPAWN_WAIT_SEC });
+      const hardest = b.npcIds.map((id) => model.npcs.get(id)).filter(Boolean).sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
+      part.steps.push({ zone: b.zone, kill: b.npc, level: hardest?.level ?? null, hp: hardest?.hp ?? null, waitSec: SPAWN_WAIT_SEC });
       part.level = Math.max(part.level, ...b.npcIds.map((id) => model.npcs.get(id)?.level ?? 0));
       continue;
     }
@@ -70,14 +72,14 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     const coin = b.when.find((c) => c.trade?.coin)?.trade.coin;
     const gives = b.actions.flatMap((a) => a.give ?? []).filter((id) => !(String(id) in b.inputs));
     const buys = [...new Set(takes.filter((id) => bought.has(id)))];
-    part.steps.push({
-      zone: b.zone,
     const near = buys.filter((id) => sellerOf(id, b.zone).zone === b.zone);
     // A merchant of another zone sells in a step of its own, before the hand-in.
     for (const id of buys.filter((x) => !near.includes(x))) {
       const w = sellerOf(id, b.zone);
       part.steps.push({ zone: w.zone, buy: { merchant: w.npc, items: [name(id)], counts: { [name(id)]: b.inputs[id] } } });
     }
+    part.steps.push({
+      zone: b.zone,
       npc: b.npc,
       // Another NPC of the zone can have this one's name, so the step names its type ids too.
       ...(b.npcIds?.length ? { npcIds: b.npcIds } : {}),
