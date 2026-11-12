@@ -292,8 +292,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const needers = chainNeeders(id, { quests, holders, members: tabs.flatMap((t) => t.members) });
     // A quest whose NPC was not up lately waits on a spawn point, which every needer's group would
     // reach at once when its hold ends, and all but the first would find the point held. So one
-    // group runs it at a time, and the others come once that run has looked.
+    // group runs it at a time, and the others come once that run has looked. So does a quest
+    // with a fight: its enemy is one NPC that a hand-in calls, and the giver is gone until its
+    // respawn. Four groups sent to Jaeil the Wretched at once (2026-11-12) fought one another's
+    // enemy, and no ranger got its hammer.
     const pointBound = history.some((h) => h.id === id && h.status === "waiting" && now - h.t < 2 * 3600000);
+    const fights = q.steps.some((s) => s.kill);
     const runs = () => out.some((o) => o.kind === "quest" && o.id === id) || tabs.some((t) => t.task?.status === "running" && history.some((h) => h.id === id && h.label === t.label && h.task === t.task.id));
     for (const t of tabs) {
       if (!free(t)) continue;
@@ -305,7 +309,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       if (!due(last, q.retryMin ?? 120)) continue;
       if (now < worldHold(history, id, code)) continue;
-      if (pointBound && runs()) continue;
+      if ((pointBound || fights) && runs()) continue;
       copies -= fresh.length;
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }

@@ -109,6 +109,21 @@ test("a run waiting for the world holds every group until its time, also after a
   expect(decide({ now: NOW, tabs, quests, history: run("failed", "old"), code: "new" }).actions).toHaveLength(2);
 });
 
+test("a quest with a fight runs in one tab at a time, because a hand-in calls one enemy", () => {
+  const steps = [{ zone: "hole", npc: "Jaeil the Wretched", give: ["Shiny Tin Bowl"] }, { zone: "hole", kill: "Jaeil the Insane", expect: "Soulbound Hammer" }];
+  const quests = { hammer: { class: "Ranger", minLevel: 1, reward: "Soulbound Hammer", steps }, talk: { class: "Ranger", minLevel: 1, reward: "Note", steps: [{ zone: "hole", npc: "a guide", expect: "Note" }] } };
+  const ranger = (label: string, group: string) => ({ ...tab(label, group, 40), members: [{ name: `${label}0`, level: 40, class: "Ranger" }] });
+  const tabs = [ranger("A", "G1"), ranger("B", "G2")];
+  const first = decide({ now: NOW, tabs, quests, history: [] }).actions.filter((a) => a.kind === "quest");
+  // Both tabs take the quest that only talks, and one takes the fight.
+  expect(first.map((a) => [a.id, a.label])).toEqual([["hammer", "A"], ["talk", "B"]]);
+  // While the first group's fight runs, the other waits, and goes once it has ended.
+  const history = [{ t: NOW, label: "A", kind: "quest", id: "hammer", task: "q1" }];
+  const running = [{ ...ranger("A", "G1"), task: { id: "q1", kind: "quest", status: "running" } }, ranger("B", "G2")];
+  expect(decide({ now: NOW + 60000, tabs: running, quests: { hammer: quests.hammer }, history }).actions.filter((a) => a.kind === "quest")).toEqual([]);
+  expect(decide({ now: NOW + 600000, tabs, quests: { hammer: quests.hammer }, history: [{ ...history[0], status: "failed" }] }).actions.filter((a) => a.kind === "quest")).toMatchObject([{ id: "hammer", label: "B" }]);
+});
+
 test("a chain whose reward a later chain takes stays done", () => {
   const quests = {
     note: { class: "Paladin", reward: "Sealed Note", doneIf: ["SoulFire"], needs: ["Fire Beetle Eye"], steps: [{ zone: "freportw", craft: { inputs: ["Fire Beetle Eye"] }, expect: "Edible Goo" }] },
