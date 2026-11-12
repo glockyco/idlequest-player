@@ -111,8 +111,11 @@ evidence, and a count of how often it stood in for the client, which the snapsho
 leaves the client's healthy path alone. `tools/check-client.mjs` checks for every shim that its
 anchor, the client code it relies on, still exists in a new client release, and notes when its
 defect is gone, so a shim whose count stays at zero on that release is deleted. The first is the
-loot preview, which calls back when a disposed scene cannot. Principle 8 becomes: the adapter has
-no policy, it retries idempotent reads, and it compensates documented client defects in shims.
+loot preview, which calls back when a disposed scene cannot. The second freezes the world matrix
+of the scene's root nodes, because the client's ray casts recompute every collision mesh on each
+cast while a root is free (docs/client-internals.md, "What a page spends its time on"). Principle
+8 becomes: the adapter has no policy, it retries idempotent reads, and it compensates documented
+client defects in shims.
 
 ### One query for read-only requests
 

@@ -789,6 +789,21 @@
       anchor: /\.combatScene\.previewAutoLootNearCorpse\(\w+,\(\)=>\{this\.collectAutoLoot\(/,
       defect: /previewAutoLootNearCorpse\(\w+,\w+\)\{if\(!this\.disposed\)\{/,
     },
+    // Every ray cast of the client's movement step (ground height, line of sight, the camera) walks
+    // the scene's collision meshes and recomputes the world matrix of each one that is out of step
+    // with its parent, with `force`, which recomputes the parent too and so puts every other child
+    // out of step. A zone's root node was recomputed 15,000 to 22,000 times a second, and each mesh
+    // of thin instances refreshed its bounds every time (docs/client-internals.md, "What a page
+    // spends its time on"). The shim freezes the world matrix of a root node in `roots`, which the
+    // client creates at the origin and never moves, once it sees the node recomputed more than
+    // `churn` times in a second. A frozen node answers a forced recompute at once, so its children
+    // stay in step. A root whose place the client did change is frozen again where it is.
+    sceneRoots: {
+      roots: ["ZoneContainer", "idlequest:zone-object-root", "idlequest:entity-cache-root", "itemNodeContainer"],
+      churn: 200,
+      anchor: /new \w+\.TransformNode\("ZoneContainer",/,
+      defect: /\.computeWorldMatrix\(!\w+\.isSynchronized\(\)\)/,
+    },
   };
   // END SHIMS
   const shimCounts = window.iq?.shimCounts ?? {};
@@ -825,7 +840,33 @@
     };
     inner.__iqShim = INSTALL;
   };
-  const applyShims = () => shimLootPreview();
+  // Each root's recompute count at the last look, a second ago. A zone change makes new nodes.
+  const rootSeen = new WeakMap();
+  const shimSceneRoots = () => {
+    const scene = runtime()?.combatScene?.dependencies?.getScene?.();
+    const { roots, churn } = SHIMS.sceneRoots;
+    for (const n of scene?.transformNodes ?? []) {
+      if (n.parent || !roots.includes(n.name) || typeof n.freezeWorldMatrix !== "function") continue;
+      if (n.isWorldMatrixFrozen) {
+        // `freezeWorldMatrix` computes the matrix once more before it freezes it.
+        if (n._position?._isDirty || n._scaling?._isDirty || n._rotation?._isDirty || n._rotationQuaternion?._isDirty) n.freezeWorldMatrix();
+        continue;
+      }
+      const before = rootSeen.get(n);
+      rootSeen.set(n, n._childUpdateId);
+      if (before == null || n._childUpdateId - before <= churn) continue;
+      n.freezeWorldMatrix();
+      shimCounts.sceneRoots++;
+    }
+  };
+  const applyShims = () => {
+    shimLootPreview();
+    try {
+      shimSceneRoots();
+    } catch {
+      /* no scene yet */
+    }
+  };
 
   // The raid window's command panel `id` ("heal", "debuff", "slow", "mez", ...), opened as a click
   // on its tile opens it. The window can close during a fight while the fight goes on, so its combat
