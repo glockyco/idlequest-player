@@ -1180,17 +1180,20 @@ class Daemon {
     metaSet(this.db, "raidHours", hours);
     const canBuy = hoursLastDay(hours, now) < OPEN_BUY.hoursADay;
     const { retryTime } = await import("./lib/coordinator.mjs");
-    // A boss whose last raid is not due again stands aside for the next one, and a killed boss for
+    // A boss whose last raid is not due again stands aside for the next one. A killed boss waits
     // six hours, since the daily list can still offer its summon ("Resume with Tagujazolu" after
-    // Lord Nagafen's kill on 2026-11-12). A standing potion boss is fought again at once, which the
-    // check of the chosen kill below keeps.
+    // Lord Nagafen's kill on 2026-11-12). A boss the raid fought and lost to waits twelve hours,
+    // for the groups' levels and gear, whatever the simulator says: Cazic-Thule beat three raids
+    // that evening that the simulator kills in four fights of four. A standing potion boss is
+    // fought again at once, which the check of the chosen kill below keeps.
     const waiting = (c, source) => {
       if (source === "standing") return null;
       const l = history.filter((h) => h.id === killId({ ...c, source })).at(-1);
       if (!l) return null;
       const killed = /^killed /.test(l.result ?? "");
-      const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : retryTime(l, RAID_RETRY_MIN, this.code);
-      return now < at ? `its last raid ended ${killed ? "with" : "without"} a kill at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
+      const lost = /^(time is up|wiped|ended) /.test(l.result ?? "");
+      const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, this.code);
+      return now < at ? `its last raid ${killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
     };
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
     // A look goes only to a boss the plan would kill if it stood: a goal boss the raid kills in
