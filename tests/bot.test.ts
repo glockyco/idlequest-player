@@ -1479,6 +1479,45 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
   }
 });
 
+test("a look waits in a boss's zone for its respawn, keeps what the zone's list shows and goes home", async () => {
+  // Lord Yelinak in Skyshrine, 2026-11-12: a gear visit saw him waiting for his respawn, and
+  // nothing was there when he came back.
+  vi.useFakeTimers();
+  try {
+    const look = async (respawnsInMs: number, until: number) => {
+      const f = await install([10, 20]);
+      f.bot.config.rotation = ["hole"];
+      const t0 = Date.now();
+      const dragon = { npcId: 114106, name: "Lord_Yelinak", level: 70, autoLevelExcluded: true, state: "respawning", currentHp: 0, maxHp: 500000, nextRespawnAtMs: t0 + respawnsInMs };
+      const zone = { t: 0, spawns: [dragon, { npcId: 2, name: "a_wyvern", level: 55, state: "alive" }] };
+      let reads = 0;
+      Object.assign(f.iq, {
+        zoneSpawns: zone,
+        refreshSpawns: async () => {
+          reads++;
+          if (Date.now() >= dragon.nextRespawnAtMs) Object.assign(dragon, { state: "alive", currentHp: 500000 });
+          return zone.spawns.length;
+        },
+      });
+      f.bot.look({ zone: "skyshrine", name: "Lord Yelinak", until: until ? t0 + until : 0 });
+      await runToEnd(f);
+      return { task: f.bot.state.task, moves: f.moves, reads, t0 };
+    };
+    const came = await look(40000, 5 * 60000);
+    expect(came.task).toMatchObject({ status: "done", result: "Lord Yelinak stands", seen: [{ name: "Lord_Yelinak", state: "alive", level: 70 }] });
+    expect(came.task.seenAt).toBeGreaterThanOrEqual(came.t0 + 40000);
+    expect(came.moves).toEqual(["skyshrine", "hole"]);
+    // A look without a wait reads once and reports when the boss is due.
+    const down = await look(3 * 3600000, 0);
+    expect(down.task).toMatchObject({ status: "done", seen: [{ name: "Lord_Yelinak", state: "respawning" }] });
+    expect(down.task.result).toMatch(/^Lord Yelinak is not up, next spawn at \d\d:\d\d$/);
+    expect(down.reads).toBe(1);
+    expect(down.moves).toEqual(["skyshrine", "hole"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a camp the client stops is started once more and then goes on as a hunt for what is up", async () => {
   vi.useFakeTimers();
   try {
@@ -1815,6 +1854,22 @@ test("a raid task records a wipe, and without raid time it stops before releasin
     await runToEnd(g);
     expect(g.bot.state.task.status).toBe("failed");
     expect(none).not.toContain("open");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid on a boss of the open world that no longer stands ends before it buys raid time", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { pricePp: 10000 });
+    const boss = { npcId: 64001, name: "Phinigel_Autropos", level: 53, autoLevelExcluded: true, state: "respawning", nextRespawnAtMs: Date.now() + 3600000 };
+    Object.assign(f.iq, { zoneSpawns: { t: 0, spawns: [boss] }, refreshSpawns: async () => 1 });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Phinigel Autropos", zone: "kedge", open: true, maxPp: 10000 });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", result: "Phinigel Autropos is not up", seen: [{ name: "Phinigel_Autropos", state: "respawning" }] });
+    expect(calls).toEqual([]);
   } finally {
     vi.useRealTimers();
   }

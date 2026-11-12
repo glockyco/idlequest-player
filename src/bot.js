@@ -1995,6 +1995,42 @@
       i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
   };
+  // The enemies of the zone's spawn list that a raid can target and the client keeps out of
+  // AutoLevel, as the collector's snapshot lists them (`wardens` in tools/iqd.mjs): a task that read
+  // the list keeps them (`task.seen`, `task.seenAt`), so the collector learns what stood in a zone
+  // the party has left again by its next look at the tab.
+  const bossKey = (name) => String(name ?? "").replace(/[#_-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const readBosses = async (i, task) => {
+    await i.refreshSpawns();
+    const list = i.zoneSpawns?.spawns ?? [];
+    Object.assign(task, { seenAt: now(), seen: list.filter((s) => s.autoLevelExcluded && s.level > 50).map((s) => ({ npcId: s.npcId, name: s.name, level: s.level, state: s.state, hp: s.currentHp ?? null, maxHp: s.maxHp ?? null, respawnAt: s.nextRespawnAtMs ?? null })) });
+    return list;
+  };
+  // A look: the party travels to `zone`, reads its spawn list and leaves again, without a fight.
+  // With `until` it stays and reads every 15 s until `name` stands there or that time has passed,
+  // for a boss whose respawn is due. Other players kill the open world's bosses too, so the look
+  // is there when one comes back, and the collector sends the raid once it stands.
+  const LOOK_EVERY_MS = 15000;
+  const lookTask = async (i, task, step) => {
+    await step("stop", () => calm(i), 75000);
+    if (zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+    const wait = Math.max(0, (task.until ?? 0) - now());
+    await step(`look for ${task.name}`, async () => {
+      for (;;) {
+        const at = (await readBosses(i, task)).filter((s) => bossKey(s.name) === bossKey(task.name));
+        if (at.some((s) => s.state === "alive")) return void (task.result = `${task.name} stands`);
+        if (now() >= (task.until ?? 0)) {
+          const next = Math.min(...at.map((s) => s.nextRespawnAtMs).filter((t) => t > now()));
+          return void (task.result = at.length ? `${task.name} is not up${Number.isFinite(next) ? `, next spawn at ${new Date(next).toTimeString().slice(0, 5)}` : ""}` : `${task.name} has no spawn point in ${task.zone}`);
+        }
+        await sleep(LOOK_EVERY_MS);
+      }
+    }, wait + 60000);
+    // The party goes home at once, because the rotation's own move waits a minute, in which
+    // AutoLevel pulls where the boss lives.
+    const home = (config.rotation ?? [])[0];
+    if (home && home !== task.zone) await step(`travel to ${home}`, () => i.changeZone(home), 90000).catch((e) => log(`task look: the way home failed (${e?.message ?? e}), the rotation moves the party`));
+  };
   // How close Run To Target brings the leader before the attack, in the scene's distance units.
   const RAID_REACH = 30;
   // A raid in combat that deals no damage this long stands under an order it does not follow.
@@ -2022,6 +2058,12 @@
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     await step("stop", () => calm(i), 75000);
     if (task.zone && zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+    // A boss of the open world can be dead by the time the raid arrives, killed by other players,
+    // so the raid looks before it buys an hour.
+    if (task.open) {
+      const up = await step(`find ${task.target}`, async () => (await readBosses(i, task)).some((s) => s.state === "alive" && bossKey(s.name) === bossKey(task.target)), 30000);
+      if (!up) return void (task.result = `${task.target} is not up`);
+    }
     await step("raid time", async () => {
       const t = await raid.time();
       if (t.active) return;
@@ -2268,7 +2310,7 @@
     }
     throw new TaskLater(`no boss potion in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
   };
-  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask };
   // A task takes a free tab only: one without a running task and without a pause, which holds the
   // tab for a script's work by hand or the upkeep. The coordinator decides from a snapshot up to a
   // cycle old, and a raid it queued over a pause took the tab from a trip for loot.
@@ -2286,7 +2328,7 @@
   const taskSummary = (task) =>
     task.kind === "hunt"
       ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
-      : task.kind === "raid" || task.kind === "gear" || task.kind === "casino"
+      : task.kind === "raid" || task.kind === "gear" || task.kind === "casino" || task.kind === "look"
         ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   /**
@@ -2881,8 +2923,9 @@
      * as a task in the page (`raidTask`): `target`, a regular expression for an enemy of level 51
      * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. With `potion`, the id of
      * a casino boss potion, the raid uses it after recruiting and fights its boss as `target`, led by
-     * `who`, the potion's holder. An hour of raid time is
-     * bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
+     * `who`, the potion's holder. With `open`, `target` is a boss of the open world, and the raid
+     * ends before it buys anything when the zone's spawn list does not show it alive. An hour of
+     * raid time is bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
      * `iq.raid.effect`), null or empty for none. No effect is ordered unless a caller names one:
      * in all four fights of 2026-11-11 that ordered a slow and a debuff, the page stopped taking
@@ -2892,15 +2935,28 @@
      * or `minutes` pass, and `task.fight` records the fight. Returns a copy of the task, which
      * `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
+    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (potion && !target) throw new Error("a potion raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, potion, who, zone, maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, potion, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
       log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
+      return { ...runTask(state.task) };
+    },
+    /**
+     * Look whether the enemy `name` stands in `zone`, as a task in the page (`lookTask`): the party
+     * travels there, reads the zone's spawn list and goes home, without a fight. With `until` (ms)
+     * it stays and reads again until the enemy stands or that time has passed. The task keeps the
+     * zone's raid targets as read (`seen`, `seenAt`). Returns a copy of the task.
+     */
+    look({ zone, name, until = 0 }) {
+      takeTab();
+      if (!zone || !name) throw new Error("a look needs zone and name");
+      state.task = { id: `look-${now().toString(36)}`, kind: "look", zone, name, until, startedAt: now() };
+      log(`task look: ${name} in ${zone}${until > now() ? `, until ${new Date(until).toTimeString().slice(0, 5)}` : ""}`);
       return { ...runTask(state.task) };
     },
     /**
