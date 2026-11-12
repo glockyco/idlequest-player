@@ -1206,6 +1206,9 @@ class Daemon {
     // that fails comes again after GEAR_RETRY_MIN.
     const prev = metaGet(this.db, "gear") ?? {};
     if (now < (prev.next ?? (prev.t ?? 0) + GEAR_EVERY_MIN * 60000)) return null;
+    // A survey holds the pass for minutes, and the boss pass comes after it. So the survey waits
+    // while a watched boss's respawn is near, which a look has to meet (`nextLook`).
+    if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
     const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
     // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
@@ -1394,8 +1397,8 @@ class Daemon {
     // waited for it: for three minutes after the start of 2026-11-12 00:03 no tab was looked at,
     // so a tab the server signed out then would have waited as long for its sign-in. The pass runs
     // beside the cycles, one at a time. A pass the relay's connection ended comes again with the
-    // next cycle and not five minutes on, because a look for a due respawn leaves six minutes
-    // ahead: the relay closed the connection at 12:56:54 and was back a second later.
+    // next cycle and not five minutes on, because a look for a due respawn has minutes to get
+    // there: the relay closed the connection at 12:56:54 and was back a second later.
     this.pass ??= this.coordinatePass(Date.now())
       .catch((e) => {
         this.log(`coordinator: ${e.message}`);

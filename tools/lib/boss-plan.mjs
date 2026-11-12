@@ -161,12 +161,14 @@ export function watchedBosses({ daily = null, goal = [], spawns = new Map() }) {
 }
 
 /**
- * When a look is sent and how long it stays. A pass comes every five minutes and the trip takes a
- * minute or two, so a look for a due respawn leaves `leadMs` before it and waits `waitMs` past it.
- * One boss is looked for again after `retryMs` at the earliest, and a sighting that gave no
- * respawn time is asked again after `staleMs`.
+ * When a look is sent and how long it stays. A pass starts every five minutes and gives its tasks
+ * one to three minutes later (13:15:34 and 13:18:44 for the passes begun at 13:12 and 13:17 on
+ * 2026-11-12), and the trip takes under a minute. So a look for a due respawn is sent by the
+ * first pass inside `leadMs` before it, which puts the group there two minutes ahead at the
+ * latest, and it waits `waitMs` past the respawn. One boss is looked for again after `retryMs` at
+ * the earliest, and a sighting that gave no respawn time is asked again after `staleMs`.
  */
-export const LOOK = { leadMs: 6 * 60000, waitMs: 5 * 60000, retryMs: 30 * 60000, staleMs: 6 * 3600000 };
+export const LOOK = { leadMs: 10 * 60000, waitMs: 5 * 60000, retryMs: 30 * 60000, staleMs: 6 * 3600000 };
 
 const clock = (t) => new Date(t).toTimeString().slice(0, 5);
 
