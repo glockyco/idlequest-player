@@ -200,6 +200,9 @@ export class Relay extends EventEmitter {
           }
         }
         break;
+      default:
+        // A session's own events, for a caller that turned their domain on (`stacks`).
+        if (msg.sessionId && msg.method) this.emit("session-event", { sessionId: msg.sessionId, method: msg.method, params });
     }
   }
 
@@ -294,5 +297,60 @@ export class Relay extends EventEmitter {
     const sessionId = await this.#sessionFor(targetId);
     const res = await this.#send("Page.captureScreenshot", { format: "jpeg", quality }, sessionId, timeout);
     return Buffer.from(res.data, "base64");
+  }
+
+  /**
+   * How busy a game tab's main thread is over `ms`: the seconds it spent in tasks and in script,
+   * from the Performance domain's counters, with its JavaScript heap. The relay passes no Profiler
+   * domain, so this and `stacks` are what shows a page's processor time.
+   */
+  async load(targetId, ms) {
+    const info = this.#tabs.get(targetId);
+    if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
+    const sessionId = await this.#sessionFor(targetId);
+    const read = async () => Object.fromEntries((await this.#send("Performance.getMetrics", {}, sessionId)).metrics.map((m) => [m.name, m.value]));
+    await this.#send("Performance.enable", {}, sessionId);
+    try {
+      const a = await read();
+      await sleep(ms);
+      const b = await read();
+      return { sec: b.Timestamp - a.Timestamp, taskSec: b.TaskDuration - a.TaskDuration, scriptSec: b.ScriptDuration - a.ScriptDuration, layoutSec: b.LayoutDuration - a.LayoutDuration + b.RecalcStyleDuration - a.RecalcStyleDuration, heapMB: Math.round(b.JSHeapUsedSize / 1048576) };
+    } finally {
+      await this.#send("Performance.disable", {}, sessionId, 5000).catch(() => {});
+    }
+  }
+
+  /**
+   * `count` call stacks of a game tab's JavaScript, innermost frame first, each
+   * `[{ fn, url, line, col }]` with the place the function starts. The page is paused through
+   * the Debugger domain at a random moment, its stack is read and it runs on, which holds it a
+   * few milliseconds a sample. A pause lands in the next statement that runs, so an idle page
+   * shows the start of its next task.
+   */
+  async stacks(targetId, count, { everyMs = 100 } = {}) {
+    const info = this.#tabs.get(targetId);
+    if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
+    const sessionId = await this.#sessionFor(targetId);
+    let paused = null;
+    const onEvent = (e) => e.sessionId === sessionId && e.method === "Debugger.paused" && paused?.(e.params);
+    this.on("session-event", onEvent);
+    const out = [];
+    await this.#send("Debugger.enable", {}, sessionId);
+    try {
+      for (let k = 0; k < count; k++) {
+        await sleep(everyMs * (0.4 + 1.2 * Math.random()));
+        const stop = new Promise((resolve) => (paused = resolve));
+        await this.#send("Debugger.pause", {}, sessionId);
+        const p = await Promise.race([stop, sleep(3000).then(() => null)]);
+        if (!p) continue;
+        out.push(p.callFrames.map((f) => ({ fn: f.functionName || "(anonymous)", url: f.url, line: (f.functionLocation ?? f.location).lineNumber, col: (f.functionLocation ?? f.location).columnNumber })));
+        await this.#send("Debugger.resume", {}, sessionId);
+      }
+    } finally {
+      this.off("session-event", onEvent);
+      await this.#send("Debugger.resume", {}, sessionId, 3000).catch(() => {});
+      await this.#send("Debugger.disable", {}, sessionId, 5000).catch(() => {});
+    }
+    return out;
   }
 }

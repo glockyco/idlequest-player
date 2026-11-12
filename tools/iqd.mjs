@@ -2092,6 +2092,9 @@ const HELP = `iqd <command>
   page <group or leader> <expression> --why <reason> [--read]
                                  evaluate the expression in the group's game tab and record it as a step by
                                  hand with its reason; --read for an expression that changes nothing, unrecorded
+  load <group or leader>.. [--seconds 8] [--stacks 100]
+                                 how busy each named group's page is: the seconds its main thread spent in
+                                 tasks and in script, and with --stacks what it was doing in that many samples
   job add --purpose .. --cmd .. --out ..
   job done <id> [result]
 Global option: --runs <dir> (default runs/ of this repository, or $IQD_RUNS)`;
@@ -2101,7 +2104,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" }, why: { type: "string" }, read: { type: "boolean" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" }, why: { type: "string" }, read: { type: "boolean" }, seconds: { type: "string" }, stacks: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -2304,6 +2307,43 @@ async function cmdPage({ values, positionals, runs }) {
   }
 }
 
+/** The open tab of group or leader `who`, as the collector's sessions name it. */
+function tabOf(db, who) {
+  const leader = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((g) => g.id === who)?.members[0] ?? who;
+  const target = db.query("SELECT target_id FROM sessions WHERE ended IS NULL AND leader = ? ORDER BY id DESC LIMIT 1").get(leader)?.target_id;
+  if (!target) throw new Error(`no open tab plays ${who}`);
+  return { leader, target };
+}
+
+/**
+ * Measure how busy the pages of the named groups are while they play, one after another, and
+ * with `--stacks` print what one page's JavaScript was doing. Both read only. Sampling stacks
+ * pauses the page a few milliseconds a sample.
+ */
+async function cmdLoad({ values, positionals, runs }) {
+  const who = positionals.slice(1);
+  if (!who.length) throw new Error("usage: iqd load <group or leader>.. [--seconds 8] [--stacks 100]");
+  const seconds = Number(values.seconds ?? 8);
+  const db = openDb(join(runs, "iq.db"));
+  const relay = new Relay();
+  await relay.start();
+  try {
+    for (const w of who) {
+      const { leader, target } = tabOf(db, w);
+      for (let k = 0; k < 50 && !relay.tabs().has(target); k++) await Bun.sleep(100);
+      const l = await relay.load(target, seconds * 1000);
+      console.log(`${w} ${leader}: ${((100 * l.taskSec) / l.sec).toFixed(0)}% of a core in tasks, ${((100 * l.scriptSec) / l.sec).toFixed(0)}% in script, ${((100 * l.layoutSec) / l.sec).toFixed(0)}% in layout and style, over ${l.sec.toFixed(1)} s, heap ${l.heapMB} MB`);
+      if (!values.stacks) continue;
+      const { summarize } = await import("./lib/profile.mjs");
+      const s = summarize(await relay.stacks(target, Number(values.stacks)));
+      const rows = (list) => list.map((r) => `  ${String(r.samples).padStart(5)} ${(100 * r.share).toFixed(0).padStart(3)}%  ${r.name}`).join("\n");
+      console.log(`${s.samples} samples. The function a sample was in\n${rows(s.self)}\nEvery function on the stack\n${rows(s.inclusive)}`);
+    }
+  } finally {
+    await relay.stop();
+  }
+}
+
 async function cmdJob({ values, positionals, runs }) {
   const db = openDb(join(runs, "iq.db"));
   const sub = positionals[1];
@@ -2322,7 +2362,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

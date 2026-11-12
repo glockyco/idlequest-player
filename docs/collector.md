@@ -19,6 +19,7 @@ bun tools/iqd.mjs status                     # under 40 lines, also written to r
 bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
 bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention by hand
 bun tools/iqd.mjs page G10 'window.iqBot.stopTask()' --why "stands without a route"   # act in a group's tab by hand, recorded
+bun tools/iqd.mjs load G7 G11 --seconds 8    # how busy each group's page is, and with --stacks 100 what one page was doing
 bun tools/iqd.mjs job add --purpose "predict level 36" --cmd "bun tools/predict.mjs --level 36" --out runs/p36.txt
 bun tools/iqd.mjs job done 3 "Permafrost first"
 ```
