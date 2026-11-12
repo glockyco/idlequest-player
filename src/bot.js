@@ -1782,13 +1782,17 @@
       if (s.say?.length || trades) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
       const give = () => i.giveToNpc(s.give ?? [], s.coin ? { coin: s.coin } : undefined);
-      if (trades) await step(`give to ${s.npc}`, () => give().catch(async (e) => {
-        if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
-        log(`quest: ${s.npc} refused the trade, so ${m.name} trades again after the bags refresh`);
-        await sleep(2000);
-        await talk([]);
-        return give();
-      }), 120000);
+      if (trades) {
+        const r = await step(`give to ${s.npc}`, () => give().catch(async (e) => {
+          if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
+          log(`quest: ${s.npc} refused the trade, so ${m.name} trades again after the bags refresh`);
+          await sleep(2000);
+          await talk([]);
+          return give();
+        }), 120000);
+        // What the NPC said, which tells a hand-in it took from one it only watched.
+        log(`quest: ${m.name} gave ${[...(s.give ?? []), ...Object.entries(s.coin ?? {}).map(([t, n]) => `${n} ${t}`)].join(", ")} to ${s.npc}, which answered: ${String(r?.dialogues?.at(-1) ?? "nothing").slice(0, 140)}`);
+      }
       if (s.each) {
         const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each, { settle: () => settleHeld(i) }), 300000);
         Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });

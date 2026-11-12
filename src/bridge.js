@@ -1217,6 +1217,8 @@
       if (Date.now() - stillSince > stillMs) throw new Error(`the party stopped ${lastPos ? Math.round(Math.hypot(lastPos.x - pos.x, lastPos.y - pos.y)) : "?"} units short of ${Math.round(pos.x)}, ${Math.round(pos.y)}`);
     }
   };
+  // The zone and NPC whose dialogue the last talk opened (`talkToNpc`).
+  let talking = null;
   /**
    * Walk to quest NPC `name` in this zone and open its dialogue, which arriving does for most
    * quest NPCs. A walk cut short by a fight or a blocked path is repeated, and when the party
@@ -1227,6 +1229,15 @@
    * in turn. Resolves with the NPC's lines, its options and whether Give Items is available.
    */
   const talkToNpc = async (name, keywords = [], { timeoutMs = 120000, ids = null } = {}) => {
+    // A dialogue left open by the talk before, as after a keyword that gave an item, is another
+    // NPC's: group 9's ranger got its bowl in Misty Thicket and then offered it, in The Hole, to the
+    // dialogue still open from there. So an open dialogue counts only for the NPC and zone this
+    // talk opened it in, and any other is closed first.
+    const key = `${stores.combat.getState().currentZone}|${ids?.length ? ids.join(",") : looseName(name)}`;
+    if (dialogueOpen() && talking !== key) {
+      if (stores.combat.getState().isNoteOpen) stores.combat.getState().toggleNote();
+      for (let k = 0; k < 20 && dialogueOpen(); k++) await pause(200);
+    }
     await refreshSpawns().catch(() => {});
     await walkTowards(name, ids);
     let still = 0;
@@ -1270,6 +1281,7 @@
       if (!npc) throw new Error(`${name} is not in this zone`);
       await clientFn("hail")(npc.id, String(npc.name).replace(/_/g, " "));
     }
+    talking = key;
     const options = () => [...document.querySelectorAll('[data-testid="quest-dialogue-option"]')];
     for (const kw of keywords) {
       // An option arrives with the server's reply to the click before it, which a slow server
@@ -1374,6 +1386,8 @@
     }
     give.click();
     for (let k = 0; k < 30 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(300);
+    // A window still open has a hand-in the server did not confirm, whose items it holds.
+    if (document.querySelector('[data-testid="quest-give-window"]')) throw new Error("the Give Items window stayed open, so the server has not confirmed the hand-in");
     await pause(600);
     const dialogues = [...document.querySelectorAll('[data-testid="quest-npc-dialogue"]')].map((el) => el.textContent.trim());
     if (closeNote && stores.combat.getState().isNoteOpen) stores.combat.getState().toggleNote();
