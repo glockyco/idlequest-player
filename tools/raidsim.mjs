@@ -65,8 +65,10 @@
 //                              from npc_types, 100 ms later.
 //   3D scene       fight.mjs   bindScenePorts gets a scene where every member is in melee range
 //                              of the boss and in spell range and line of sight of everyone, nobody
-//                              stands behind the boss, no area holds targets and nothing blocks a
-//                              cast. Any other scene method answers false (`sceneCalls` in --calls
+//                              stands behind the boss and nothing blocks a cast. Every actor stands
+//                              at the boss, so the boss's area spells reach the whole raid up to their
+//                              target count, more members than live, where casters stand at range.
+//                              Any other scene method answers false (`sceneCalls` in --calls
 //                              lists them). The client's own "scene not ready" stand-in has none
 //                              of these.
 //   raid time      fight.mjs   the raid time store says the account holds raid time, and the

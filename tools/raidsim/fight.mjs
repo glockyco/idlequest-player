@@ -118,6 +118,11 @@ function installStubs({ items, init }) {
     getAliveCombatEntities: () => [],
     getAliveCombatTargetList: () => [],
     getCombatEntityDistanceSquared: () => 100,
+    // A boss's area spells take the actors whose place is inside their radius and in sight
+    // (`getNpcSpellAreaTargetIds`), so the sight is clear and every actor stands at the boss
+    // (`placeActors` in `runJob`). Without either, Cazic-Thule's Boil Blood and Bane of Thule hit
+    // nobody in the simulator, while they took about 450 HP a second from the live raid.
+    hasDirectZoneLine: () => true,
     getNpcAttackDenialReason: () => null,
     withSpatialQueryCache: (fn) => fn(),
     getCombatStartRange: () => 20,
@@ -307,7 +312,12 @@ export async function runJob(job) {
     if (b) bossSeen = true;
     return (bossSeen && (!b || !b.alive || b.hp <= 0)) || (bossSeen && !anyAlive());
   };
+  // Every actor without a place stands at the boss, which the scene's ranges already assume.
+  const placeActors = () => {
+    for (const a of pi.encounter?.actorRuntime?.combatState?.actors?.values?.() ?? []) a.position ??= { x: 0, y: 0, z: 0 };
+  };
   while (clock.now - startedAt < maxSec * 1000 && !over()) {
+    placeActors();
     await advance(1000, over);
     if (!bossSeen && clock.now - startedAt > 10_000) throw new Error("the boss never entered the combat engine");
   }

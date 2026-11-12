@@ -27,7 +27,7 @@ import { accountRoster } from "./raidsim/account.mjs";
 import { bossSpec, findBoss } from "./raidsim/boss.mjs";
 import { resolveClient } from "./raidsim/clients.mjs";
 import { rosterEntries } from "./raidsim/roster.mjs";
-import { simulate } from "./raidsim/run.mjs";
+import { SIM_VERSION, simulate } from "./raidsim/run.mjs";
 
 const { values: opt } = parseArgs({ options: { seeds: { type: "string", default: "4" }, pairs: { type: "string", default: "150" }, refit: { type: "boolean" } } });
 const read = async (path, fallback) => JSON.parse(await readFile(path, "utf8").catch(() => JSON.stringify(fallback)));
@@ -49,7 +49,7 @@ const strongest = [...roster].sort((a, b) => mean(b) - mean(a))[0];
 const leaderLevel = (g) => level.get(g.members[0]) ?? 0;
 const entriesOf = (leader, names) => rosterEntries(accountRoster(survey, { leader, names })).entries;
 
-const fresh = (o, lvl) => o && !o.error && Date.now() - o.t < FRESH_MS && (lvl == null || o.level === lvl);
+const fresh = (o, lvl) => o && !o.error && o.sim === SIM_VERSION && Date.now() - o.t < FRESH_MS && (lvl == null || o.level === lvl);
 // Every group result on file as an observation for the prior: the enemy's level above the leader's and its hit points.
 const observations = (odds) => Object.values(odds).flatMap((e) => Object.values(e.groups ?? {}).filter((g) => !g.error && e.level != null && e.hp != null && g.level != null).map((g) => ({ gap: e.level - g.level, hp: e.hp, kills: g.kills, fights: g.fights, deaths: g.deathsPerFight, leaderDeaths: g.leaderDeathsPerFight ?? 0 })));
 const odds = { ...before.odds };
@@ -109,7 +109,7 @@ for (const x of targets.filter((t) => t.npcLevel > 50)) {
 for (const { key, x, g } of pairs.sort((a, b) => b.priority - a.priority).slice(0, Number(opt.pairs))) add({ key, name: x.npc, zone: x.zone, raid: false }, g);
 
 // Leader deaths count apart from companions', because only the leader's death costs XP (`deathHours` in tools/lib/acquire.mjs).
-const result = (s) => ({ t: Date.now(), kills: s.kills, fights: s.fights, meanSec: s.killSec.mean, deathsPerFight: s.deathsPerFight, leaderDeathsPerFight: (s.members.find((m) => m.leader)?.deaths ?? 0) / s.fights, hpLeft: s.bossHpLeftMean });
+const result = (s) => ({ t: Date.now(), sim: SIM_VERSION, kills: s.kills, fights: s.fights, meanSec: s.killSec.mean, deathsPerFight: s.deathsPerFight, leaderDeathsPerFight: (s.members.find((m) => m.leader)?.deaths ?? 0) / s.fights, hpLeft: s.bossHpLeftMean });
 const save = () => writeFile(OUT, JSON.stringify({ t: Date.now(), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
 
 console.log(`${enemies.size} enemies, ${pairs.length} open pairs of group and target, prior ${prior ? `fitted to ${prior.fights} fights` : "not fitted yet"}`);
