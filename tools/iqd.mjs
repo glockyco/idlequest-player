@@ -1301,20 +1301,31 @@ class Daemon {
 
   async cycle() {
     const now = Date.now();
+    // What a slow cycle spent its time on, for the log: on 2026-11-12 none finished for eleven
+    // minutes and nothing said where the time went.
+    const spent = [];
+    const part = async (name, f) => {
+      const t = Date.now();
+      try {
+        return await f();
+      } finally {
+        spent.push([name, Date.now() - t]);
+      }
+    };
     // An acknowledged vanished tab ends its session. Stop tracking it until it comes back.
     const ended = new Set(this.db.query("SELECT id FROM sessions WHERE ended IS NOT NULL").all().map((r) => r.id));
     for (const [id, tr] of this.trackers) if (tr.rowId && ended.has(tr.rowId)) this.trackers.delete(id);
     for (const id of this.relay.tabs().keys()) {
       if (!this.trackers.has(id)) this.trackers.set(id, { targetId: id, rowId: null, label: `tab:${id.slice(-4)}`, leader: null, state: {} });
     }
-    const triggers = await this.triggers();
+    const triggers = await part("triggers", () => this.triggers());
     // The page code the tabs should run (src/deploy.mjs). A failed read keeps the last
     // versions, so tabs stop updating: the log names why.
-    if (this.recover) await this.readDeployed().catch((e) => this.log(`deployed code: ${e.message}`));
-    await Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`))));
+    if (this.recover) await part("deployed code", () => this.readDeployed().catch((e) => this.log(`deployed code: ${e.message}`)));
+    await part("tabs", () => Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`)))));
     sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null });
-    await this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`));
+    await part("outcomes", () => this.recordOutcomes().catch((e) => this.log(`outcomes: ${e.message}`)));
     // A minute or so of downloads and checks, so it runs beside the cycles.
     void this.checkRelease(Date.now()).catch((e) => this.log(`client check: ${e.message}`));
     // A pass takes minutes when it surveys the items or is the first of a run, and the cycles
@@ -1324,7 +1335,9 @@ class Daemon {
     this.pass ??= this.coordinatePass(Date.now())
       .catch((e) => this.log(`coordinator: ${e.message}`))
       .finally(() => (this.pass = null));
-    await writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n");
+    await part("status", () => writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n"));
+    const total = Date.now() - now;
+    if (total > 60000) this.log(`cycle took ${Math.round(total / 1000)} s: ${spent.filter(([, ms]) => ms >= 1000).map(([name, ms]) => `${name} ${Math.round(ms / 1000)} s`).join(", ") || "no part over a second"}`);
   }
 
   /**
@@ -1810,6 +1823,15 @@ class Daemon {
   }
 
   async loop() {
+    // The cycles, the coordinator's pass and the dashboard share one thread, and work that does
+    // not yield holds all three. This names each such span in the log.
+    let beat = Date.now();
+    const watch = setInterval(() => {
+      const t = Date.now();
+      if (t - beat > 20000) this.log(`the collector's thread was held for ${Math.round((t - beat) / 1000)} s`);
+      beat = t;
+    }, 1000);
+    watch.unref?.();
     while (!this.stopped) {
       const started = Date.now();
       try {
