@@ -2291,6 +2291,46 @@ test("a trade the NPC refuses is tried again after talking to the NPC", async ()
   }
 });
 
+test("a hand-in with coin takes the smallest balance that covers it when the member's purse is short", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    // A switch gives the member a profile of its own, copied from this one.
+    const purse = () => f.sheet.characterProfile as { gold?: number };
+    (f.me as { gold?: number }).gold = 3;
+    const took: string[] = [];
+    const gave: unknown[] = [];
+    let box = 0;
+    Object.assign(f.iq, {
+      carried: (item: string) => (item === "Gkzzallk in a Box" ? box : 1),
+      talkToNpc: async () => {},
+      // A rich leader, a member whose gold does not cover the trade with the purse's three, and one whose does.
+      balances: async () => [
+        { name: "Rich", carried: { gold: 400 }, totalCopper: 9000000 },
+        { name: "Poor", carried: { gold: 6 }, totalCopper: 700 },
+        { name: "Enough", carried: { gold: 8 }, totalCopper: 900 },
+      ],
+      takeCoin: async (name: string) => {
+        took.push(name);
+        purse().gold = (purse().gold ?? 0) + 8;
+      },
+      giveToNpc: async (items: string[], opts?: { coin?: Record<string, number> }) => {
+        gave.push([items, opts?.coin]);
+        box = 1;
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "airplane", npc: "a thunder spirit princess", coin: { gold: 10 }, expect: "Gkzzallk in a Box" }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(took).toEqual(["Enough"]);
+    expect(gave).toEqual([[[], { gold: 10 }]]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a container on the cursor with every general slot taken sends the emptiest bag to the bank, and the bag comes back once a slot is free", async () => {
   vi.useFakeTimers();
   try {

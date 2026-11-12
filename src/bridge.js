@@ -1289,12 +1289,38 @@
     };
   };
   /**
-   * Trade up to four carried items (`items`, one slot each) to the NPC whose dialogue is open,
-   * with its Give Items window. Resolves with the NPC's last lines and the chat lines the trade
-   * brought. `closeNote: false` leaves the dialogue open for the next trade.
+   * The account's coin as the Manage Money panel reads it: every other character's
+   * `{ characterId, name, carried, bank, totalCopper, revision }`, with `carried` and `bank` as
+   * `{ platinum, gold, silver, copper }`.
    */
-  const giveToNpc = async (items, { closeNote = true } = {}) => {
-    if (!items.length || items.length > 4) throw new Error("a trade takes 1 to 4 items");
+  const balances = async () => {
+    const p = stores.character.getState().characterProfile;
+    const r = await query(1240, { characterId: p.id, stateSessionId: p.stateSessionId, action: "read" });
+    if (!r?.success) throw new Error(r?.error ?? "the account's balances did not load");
+    return r.balances ?? [];
+  };
+  /**
+   * Move account character `name`'s whole balance to the active character, with the Manage Money
+   * panel's own transfer request, which keeps each kind of coin. Resolves with the coins moved,
+   * `{ platinum, gold, silver, copper }`.
+   */
+  const takeCoin = async (name) => {
+    const src = (await balances()).find((b) => b.name === name);
+    if (!src) throw new Error(`${name} is not among the account's balances`);
+    const p = stores.character.getState().characterProfile;
+    const r = await socket.sendCorrelatedJsonRequest(1240, 1240, { characterId: p.id, stateSessionId: p.stateSessionId, action: "transfer", sourceCharacterId: src.characterId, revision: src.revision, operationId: crypto.randomUUID() }, 10000);
+    if (!r?.success) throw new Error(r?.error ?? `the transfer from ${name} was not confirmed`);
+    return r.transferred ?? {};
+  };
+  /**
+   * Trade up to four carried items (`items`, one slot each) and `coin` (`{ gold: 10 }`, from the
+   * purse) to the NPC whose dialogue is open, with its Give Items window. Resolves with the NPC's
+   * last lines and the chat lines the trade brought. `closeNote: false` leaves the dialogue open
+   * for the next trade.
+   */
+  const giveToNpc = async (items, { closeNote = true, coin = null } = {}) => {
+    const coins = Object.entries(coin ?? {}).filter(([, n]) => n > 0);
+    if ((!items.length && !coins.length) || items.length > 4) throw new Error("a trade takes 1 to 4 items, or coin");
     const since = seqs.event;
     const open = giveItemsReady();
     if (!open) throw new Error("Give Items is not available");
@@ -1325,9 +1351,23 @@
         ch().moveItemToSlot(from, { bag: 0, slot: slots[k] });
         await pause(800);
       }
+      // Coin goes from the purse to the cursor, as the inventory's coin prompt puts it there, and
+      // from the cursor into the offer with the window's button of its kind.
+      for (const [type, n] of coins) {
+        const have = ch().characterProfile?.[type] ?? 0;
+        if (have < n) throw new Error(`the purse holds ${have} ${type} of the ${n} the trade takes`);
+        ch().splitCurrencyToCursor(type, n);
+        const offer = win.querySelector(`[data-testid="quest-give-currency-${type}"]`);
+        if (!offer || ch().cursorCurrency?.type !== type) throw new Error(`could not offer ${n} ${type}`);
+        offer.click();
+        for (let j = 0; j < 20 && ch().cursorCurrency; j++) await pause(200);
+        if (ch().cursorCurrency) throw new Error(`the Give Items window did not take ${n} ${type}`);
+      }
       give = buttonByText(/^Give$/i, win);
       if (!give || give.disabled) throw new Error("the Give button is disabled");
     } catch (e) {
+      // Coin still on the cursor goes back to the purse, and Cancel returns what the offer holds.
+      if (ch().cursorCurrency) ch().dropCurrencyFromCursor();
       buttonByText(/^Cancel$/i, win)?.click();
       for (let k = 0; k < 20 && document.querySelector('[data-testid="quest-give-window"]'); k++) await pause(200);
       throw e;
@@ -1752,6 +1792,8 @@
       disposed = true;
     },
     giveToNpc,
+    balances,
+    takeCoin,
     handInEach,
     pullItem,
     giveItem,

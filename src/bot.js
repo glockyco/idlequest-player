@@ -1606,6 +1606,21 @@
       i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
   };
+  // A hand-in with coin takes it from the member's purse, which is empty for most members, since
+  // the leader loots and sells. Manage Money moves a character's whole balance to the active one
+  // and keeps each kind of coin, so a short member takes the smallest balance of the account that
+  // covers the trade, which then stays with it.
+  const coinFor = async (i, m, coin) => {
+    const purse = () => i.stores.character.getState().characterProfile ?? {};
+    const lacks = (extra = {}) => Object.entries(coin).some(([type, n]) => (purse()[type] ?? 0) + (extra[type] ?? 0) < n);
+    if (!lacks()) return;
+    const from = (await i.balances()).filter((b) => !lacks(b.carried)).sort((a, b) => a.totalCopper - b.totalCopper)[0];
+    const text = Object.entries(coin).map(([type, n]) => `${n} ${type}`).join(" and ");
+    if (!from) throw new Error(`no character of the account carries ${text} for ${m.name}'s hand-in`);
+    await i.takeCoin(from.name);
+    log(`quest: ${m.name} took ${from.name}'s coin for a hand-in of ${text}`);
+    if (lacks()) throw new Error(`${m.name} still lacks ${text} after taking ${from.name}'s coin`);
+  };
   const questMember = async (i, m, step) => {
     if (m.done) return;
     const t0 = now();
@@ -1748,14 +1763,17 @@
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
       // `npcIds` tells the step's NPC from another of its name in the zone.
       const talk = (say) => i.talkToNpc(s.npc, say, s.npcIds?.length ? { ids: s.npcIds } : undefined);
-      if (s.say?.length || s.give?.length) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
+      const trades = Boolean(s.give?.length || s.coin);
+      if (s.coin) await step(`coin for ${m.name}`, () => coinFor(i, m, s.coin), 60000);
+      if (s.say?.length || trades) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
-      if (s.give?.length) await step(`give to ${s.npc}`, () => i.giveToNpc(s.give).catch(async (e) => {
+      const give = () => i.giveToNpc(s.give ?? [], s.coin ? { coin: s.coin } : undefined);
+      if (trades) await step(`give to ${s.npc}`, () => give().catch(async (e) => {
         if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
         log(`quest: ${s.npc} refused the trade, so ${m.name} trades again after the bags refresh`);
         await sleep(2000);
         await talk([]);
-        return i.giveToNpc(s.give);
+        return give();
       }), 120000);
       if (s.each) {
         const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each, { settle: () => settleHeld(i) }), 300000);

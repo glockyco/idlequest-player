@@ -59,6 +59,7 @@ export function epicChains(model, tree, { cls, reward, names }) {
     }
     part.needs.push(...fresh);
     const say = b.when.find((c) => c.say)?.say;
+    const coin = b.when.find((c) => c.trade?.coin)?.trade.coin;
     const gives = b.actions.flatMap((a) => a.give ?? []).filter((id) => !(String(id) in b.inputs));
     const buys = [...new Set(takes.filter((id) => bought.has(id)))];
     part.steps.push({
@@ -68,6 +69,7 @@ export function epicChains(model, tree, { cls, reward, names }) {
       ...(b.npcIds?.length ? { npcIds: b.npcIds } : {}),
       ...(say ? { say: [say[0]] } : {}),
       ...(takes.length ? { give: takes.map(name) } : {}),
+      ...(coin ? { coin } : {}),
       ...(buys.length ? { buy: { merchant: bought.get(buys[0]).npc, items: buys.map(name) } } : {}),
       ...(gives.length ? { expect: name(gives[0]) } : {}),
     });
