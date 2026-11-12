@@ -35,6 +35,7 @@ export class Relay extends EventEmitter {
   #stopped = false;
   #loop = null;
   #pollTimer = null;
+  #listed = false; // whether this connection has read the relay's tabs once
 
   constructor({ url = RELAY_URL, pollMs = 10000 } = {}) {
     super();
@@ -56,7 +57,7 @@ export class Relay extends EventEmitter {
     this.#stopped = false;
     this.#loop = this.#run();
     // Give the first connection a moment so the caller's first cycle sees the tabs.
-    for (let i = 0; i < 50 && !this.connected; i++) await sleep(100);
+    for (let i = 0; i < 50 && !(this.connected && this.#listed); i++) await sleep(100);
   }
 
   async stop() {
@@ -98,6 +99,7 @@ export class Relay extends EventEmitter {
         try {
           await this.#send("Target.setDiscoverTargets", { discover: true });
           await this.#refreshTabs();
+          this.#listed = true;
           this.emit("connected");
           clearInterval(this.#pollTimer);
           this.#pollTimer = setInterval(() => {
@@ -112,6 +114,7 @@ export class Relay extends EventEmitter {
       ws.onerror = () => {};
       ws.onclose = () => {
         clearInterval(this.#pollTimer);
+        this.#listed = false;
         if (this.#ws === ws) this.#ws = null;
         for (const [id, p] of this.#pending) {
           clearTimeout(p.timer);
