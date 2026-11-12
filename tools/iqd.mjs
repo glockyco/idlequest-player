@@ -1161,7 +1161,15 @@ class Daemon {
     const leader = kill?.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     const free = (t) => t && !t.stale && t.task?.status !== "running";
-    if (kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code) && free(tab) && kill.zone) {
+    const due = kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code) && kill.zone;
+    // A boss of the open world stands until another player kills it, so the raid's leader does
+    // not finish a hunt first, which can run for half an hour: the hunt is stopped, and the pass
+    // comes again with the next cycle to send the raid.
+    if (due && kill.source === "open" && tab && !tab.stale && tab.task?.status === "running" && tab.task.kind === "hunt") {
+      this.passAgain = true;
+      return { label: tab.label, kind: "stopTask", id: null, spec: null, why: `${kill.name} stands in ${kill.zone}, and the raid's leader is on a hunt` };
+    }
+    if (due && free(tab)) {
       const members = [...groupOf.keys()].filter((n) => n !== leader);
       const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name, open: true } : { bossKey: kill.key };
       const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
@@ -1393,7 +1401,11 @@ class Daemon {
         this.log(`coordinator: ${e.message}`);
         if (/relay (connection closed|not connected)/.test(e.message)) this.coordinatedAt = 0;
       })
-      .finally(() => (this.pass = this.doing = null));
+      .finally(() => {
+        this.pass = this.doing = null;
+        // The boss pass asked for the next pass at once, after it stopped a hunt for a raid.
+        if (this.passAgain) Object.assign(this, { passAgain: false, coordinatedAt: 0 });
+      });
     await part("status", () => writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n"));
     const total = Date.now() - now;
     if (total > 60000) this.log(`cycle took ${Math.round(total / 1000)} s: ${spent.filter(([, ms]) => ms >= 1000).map(([name, ms]) => `${name} ${Math.round(ms / 1000)} s`).join(", ") || "no part over a second"}`);
