@@ -165,7 +165,8 @@ normal hunting when the zone is in the group's rotation, and as a camp or a shor
 not. A group's chance against an enemy comes from a model fitted to every simulated fight, the
 simulator's fights of its six and its own live fights (`runs/state/kill-odds.json`, which
 `bun tools/kill-odds.mjs` refreshes in the background hourly). Any group may hunt for any
-character, because a gear task moves the copy. `docs/plans/gear-acquisition.md` describes the
+character, because a gear task moves the copy. A boss of the daily list or the raid goal is left
+to the boss plan's raids, and Most wanted shows it as "by raid". `docs/plans/gear-acquisition.md` describes the
 model and its assumptions. The dashboard lists every enemy a group hunts or has queued and the top
 other targets as Most wanted, each with which group would hunt it for whom, what a copy takes, adds
 and costs, and why it is or is not hunted. The wants stay in the db meta key `gear`, so a restart

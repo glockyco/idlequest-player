@@ -228,6 +228,7 @@ function reasonOf(t, now) {
     case "noRoute": return { kind: "out", text: "no way to it", tip: "The game found no place for the group to stand and fight it on the last trip. The next try is a day after that trip." };
     case "noPace": return { kind: "out", text: `no XP rate for ${w.taker}'s group yet` };
     case "covered": return { kind: "covered", text: `covered by ${w.by.join(", ")}` };
+    case "raid": return { kind: "wait", text: "by raid", tip: "A raid boss: the boss plan raids it, and no group hunts it alone." };
     default: return { kind: "out", text: "not planned yet" };
   }
 }

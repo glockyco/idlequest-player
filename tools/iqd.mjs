@@ -867,9 +867,13 @@ class Daemon {
     // When each character last rolled the casino, kept past the two days of history (`rolled` of decide).
     const rolled = metaGet(this.db, "casinoRolls") ?? {};
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
-    // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded.
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: this.targetWants, crowded: crowdedZones(tabs, now), points: Object.fromEntries(this.targetWants.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
+    // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded. A boss of
+    // the daily list or the raid goal is the boss plan's kill, by raid, so no group hunts it: group 1
+    // set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
+    const huntable = this.targetWants.filter((x) => !this.bossNames?.has(npcKey(x.npc)));
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
+    for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
     // from any other action of this pass, since summons and potions are time gated and a hunt is not.
@@ -1153,6 +1157,7 @@ class Daemon {
     // The bosses of the daily list and the goal that the open world puts up, from the content
     // snapshot, read once for their names.
     const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal])];
+    this.bossNames = new Set(names.map(npcKey));
     if (this.bossSpawns?.key !== names.join("|")) {
       const { namedSpawns } = await import("./lib/content.mjs");
       this.bossSpawns = { key: names.join("|"), spawns: await namedSpawns(names, npcKey).catch((e) => (this.log(`boss spawns: ${e.message}`), new Map())) };
