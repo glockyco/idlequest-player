@@ -57,9 +57,10 @@ export function dailyCandidates(daily) {
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
  * already has a summoned casino boss"), so the other potions wait for it. A boss of `first` comes
- * next, then the others by their worth. Every kill is a raid's: no task carries out a group's
- * visit to a boss, and the simulator, which fights a boss alone, gave group 1 four kills of four
- * against Phinigel Autropos, who won all 52 fights with the groups beside his seahorses. A raid
+ * next, then the others by their worth. Every kill is a raid's: a group can fight a boss in a
+ * hunt, but nothing yet judges it against the boss with its company. The simulator fights a boss
+ * alone and gave group 1 four kills of four against Phinigel Autropos, who beat it twice beside
+ * his seahorses (docs/plans/raids.md, Schedule). A raid
  * on a summon or a potion runs as soon as one is due, because a free summon comes back 24 hours
  * after its use. A boss that stands in the open world is killed there, which leaves its summon
  * for another boss, and outside `first` only in raid time that is paid. A potion's raid is led
