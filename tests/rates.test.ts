@@ -64,13 +64,26 @@ test("samples older than their cell add at their weight instead of growing the c
   expect(rates.kurn[10].t).toBe(NOW);
 });
 
-test("the crowd share compares the rate beside others with the rate alone at the same level, so the groups' levels stay out of it", () => {
-  // Level 10 earns 100 XP a second alone, level 12 240 alone and 120 beside two other groups.
-  // Pooled over both levels, alone would earn 170 and the share would read 0.71.
-  const run = (from: number, lvl: number, rate: number) => Array.from({ length: 11 }, (_, k) => at(from + k, rate * k, { lvl, ses: from }));
+test("the crowd share is the time a group hunts beside others over the same with the fewest others", () => {
+  // A quarter hour at each count: alone the group waits for a target 4% of the time, beside two
+  // others 10%, beside three 40% and beside four 20%, which reads better than three.
+  const SEC = 990;
+  const run = (from: number, lvl: number, crowdedSec: number) => Array.from({ length: SEC + 1 }, (_, k) => at(from + k, 100 * k, { lvl, ses: from, ...(k < crowdedSec ? { act: "idle", why: "crowded" } : {}) }));
   const crowding = {};
-  const others = (s: { t: number }) => (s.t >= NOW + 200000 ? 2 : 0);
-  for (const samples of [run(0, 10, 100), run(100, 12, 240), run(200, 12, 120)]) accumulate({}, samples, { zoneOf, others, crowding });
-  expect(crowdShare(crowding, "kurn", 11, 2, NOW + 210000)!.share).toBeCloseTo(0.5, 3);
-  expect(crowdShare(crowding, "kurn", 11, 3, NOW + 210000)).toBeNull();
+  const others = (s: { t: number }) => [0, 2, 3, 4][Math.floor((s.t - NOW) / 1000000)];
+  const waits = [0.04, 0.1, 0.4, 0.2];
+  waits.forEach((w, k) => accumulate({}, run(k * 1000, 10 + (k % 2), Math.round(w * SEC)), { zoneOf, others, crowding }));
+  const now = NOW + 4000000;
+  expect(crowdShare(crowding, "kurn", 11, 0, now)!.share).toBe(1);
+  expect(crowdShare(crowding, "kurn", 11, 2, now)!.share).toBeCloseTo(0.9 / 0.96, 2);
+  // Three and four pool, each by its time at the nearer level: a larger count never reads better than a smaller one.
+  const pooled = (0.6 * (2 / 3) + 0.8) / (2 / 3 + 1) / 0.96;
+  expect(crowdShare(crowding, "kurn", 11, 3, now)!.share).toBeCloseTo(pooled, 2);
+  expect(crowdShare(crowding, "kurn", 11, 4, now)!.share).toBeCloseTo(pooled, 2);
+  // No time beside one other: the share of the nearest smaller count, alone. Beside six: that of four.
+  expect(crowdShare(crowding, "kurn", 11, 1, now)!.share).toBe(1);
+  expect(crowdShare(crowding, "kurn", 11, 6, now)!.share).toBeCloseTo(pooled, 2);
+  // A zone without ten minutes at any count has no measurement.
+  expect(crowdShare(crowding, "guktop", 11, 2, now)).toBeNull();
+  expect(crowdShare({ kurn: { 11: { 2: { s: 300, xp: 1, t: now, c: 100 } } } }, "kurn", 11, 2, now)).toBeNull();
 });

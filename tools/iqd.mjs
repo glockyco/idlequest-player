@@ -397,7 +397,10 @@ export function drainInPage(a) {
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
 // Hours of a zone's own crowding measurement the crowding model's share counts as (`crowdFactors`).
-const CROWD_PRIOR_H = 2;
+// The measurement is the time a group waits for a target, which a quarter hour shows within a few
+// percent, and the model misses by more: it gave Kedge Keep 0.89 beside four groups, where a group
+// hunted 0.57 of its time alone, and the Tower of Frozen Shadow 0.75 beside six, where it lost nothing.
+const CROWD_PRIOR_H = 0.25;
 // A pass that failed, such as an Inventory Search the server timed out, comes again this soon.
 const GEAR_RETRY_MIN = 10;
 // A boss kill whose raid task failed is tried again this long after it, or at once under new code.
@@ -936,7 +939,10 @@ class Daemon {
     if (this.rates) return this.rates;
     const saved = metaGet(this.db, "zoneRates");
     this.crowding = metaGet(this.db, "zoneCrowding");
-    if (saved && this.crowding) return (this.rates = saved);
+    // A crowding record from before its cells counted the time waited for a target (`c`) is read
+    // again from the samples, and the rates with it, since they count time at the crowd factors.
+    const timed = Object.values(this.crowding ?? {}).every((levels) => Object.values(levels).every((counts) => Object.values(counts).every((cell) => "c" in cell)));
+    if (saved && this.crowding && timed) return (this.rates = saved);
     const dir = join(this.runs, "live");
     const read = async (name) => {
       const out = [];
@@ -945,7 +951,7 @@ class Daemon {
         if (!line) continue;
         try {
           const s = JSON.parse(line);
-          out.push({ ses: s.ses, t: s.t, act: s.act, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone, cid: s.cid });
+          out.push({ ses: s.ses, t: s.t, act: s.act, why: s.why, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone, cid: s.cid });
         } catch {
           /* a line cut short by a crash */
         }
@@ -1426,11 +1432,11 @@ class Daemon {
   /**
    * The zone choice's `crowdFactor(zone, level, n)`: the share of its rate alone a zone pays a group
    * at `level` while `n` other groups hunt there (docs/plans/zone-crowding.md). The zone's own
-   * measurement (`crowdShare`) and the model of tools/predict.mjs (every kill empties a point until
-   * its respawn, and the groups share the zone's spawn rate) are weighed by hours, the model as
-   * `CROWD_PRIOR_H` hours, so the measurement takes over in a zone the groups share often. A
-   * measured share above one counts as one. A zone the model lacks counts as shared evenly. The
-   * factors are kept until the next pass clears them (`crowdCache`).
+   * measurement (`crowdShare`, the time a group hunts and does not wait for a target) and the
+   * model of tools/predict.mjs (every kill empties a point until its respawn, and the groups share
+   * the zone's spawn rate) are weighed by hours, the model as `CROWD_PRIOR_H` hours, so the
+   * measurement takes over once the groups have shared a zone. A zone the model lacks counts as
+   * shared evenly. The factors are kept until the next pass clears them (`crowdCache`).
    */
   async crowdFactors() {
     const predict = await import("./predict.mjs");

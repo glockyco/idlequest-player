@@ -624,6 +624,13 @@ test("a group that stays keeps its rotation, and one that should move gets a new
   expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })).toHaveLength(1);
   const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
   expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+  // A group sent to a zone got that zone alone, so that the bot would go. Once it is there and
+  // stays, it gets the next zones too, where its bot goes when the zone fills.
+  const arrived = tab("A", "G3", 15, { zone: "kurn", rotation: ["kurn"] });
+  expect(assignZones({ now: NOW, tabs: [arrived], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
+  expect(assignZones({ now: NOW, tabs: [{ ...arrived, rotation: ["kurn", "runnyeye", "guktop"] }], rows: ROWS, rates: RATES })).toEqual([]);
+  // A row with one zone worth hunting has nothing to add.
+  expect(assignZones({ now: NOW, tabs: [arrived], rows: [[14, ["kurn"]]], rates: RATES })).toEqual([]);
 });
 
 test("a rotation set within the settle time stays while the group travels", () => {

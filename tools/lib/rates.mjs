@@ -19,11 +19,12 @@ const MAX_OTHERS = 7;
 const weight = (t0, t) => 2 ** (-(t - t0) / (HALF_LIFE_H * 3600000));
 
 // Add `sec` seconds and `xp` recorded at `t` to cell `key` of `cells`, decaying the older side.
-const addTo = (cells, key, sec, xp, t) => {
-  const cell = cells[key] ?? { s: 0, xp: 0, t };
+// `c` is the part of `sec` the group waited for a target (`crowdShare`).
+const addTo = (cells, key, sec, xp, t, c = 0) => {
+  const cell = cells[key] ?? { s: 0, xp: 0, t, c: 0 };
   const older = weight(cell.t, t); // the cell, when the sample is newer
   const late = weight(t, cell.t); // the sample, when the cell is newer
-  cells[key] = t >= cell.t ? { s: cell.s * older + sec, xp: cell.xp * older + xp, t } : { s: cell.s + late * sec, xp: cell.xp + late * xp, t: cell.t };
+  cells[key] = t >= cell.t ? { s: cell.s * older + sec, xp: cell.xp * older + xp, t, c: (cell.c ?? 0) * older + c } : { s: cell.s + late * sec, xp: cell.xp + late * xp, t: cell.t, c: (cell.c ?? 0) + late * c };
 };
 
 /**
@@ -35,8 +36,9 @@ const addTo = (cells, key, sec, xp, t) => {
  * seconds alone-equivalent. A pair of samples counts when it is one second of play by one character
  * in one zone at one level, outside tasks (`act` "task", or `busy`) and errands (`busy`). Deaths
  * count with the XP they lose. `crowding`, when given, gets the same play raw by the number of
- * other groups, `{ [zone]: { [level]: { [n]: { s, xp, t } } } }`, for `crowdShare`. `normal(dxp, t)`
- * gives an XP step at its normal worth (`normalXp` of tools/lib/xp-events.mjs), so the hours of an
+ * other groups, `{ [zone]: { [level]: { [n]: { s, xp, t, c } } } }`, for `crowdShare`: `c` are the
+ * seconds of `s` the group stood idle for want of a target (the bot's idle cause "crowded").
+ * `normal(dxp, t)`
  * XP event do not lift the zones hunted in it above the others.
  */
 export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = () => 1, crowding = null, normal = (dxp) => dxp }) {
@@ -52,7 +54,7 @@ export function accumulate(rates, samples, { zoneOf, others = () => 0, factor = 
     const zone = zoneOf(a.zone);
     if (!zone) continue;
     const n = others(a);
-    if (crowding) addTo(((crowding[zone] ??= {})[a.lvl] ??= {}), Math.min(n, MAX_OTHERS), dt / 1000, dxp, b.t);
+    if (crowding) addTo(((crowding[zone] ??= {})[a.lvl] ??= {}), Math.min(n, MAX_OTHERS), dt / 1000, dxp, b.t, a.act === "idle" && a.why === "crowded" ? dt / 1000 : 0);
     const f = n ? factor(zone, a.lvl, n) : 1;
     if (!(f > 0)) continue;
     addTo((rates[zone] ??= {}), a.lvl, (dt / 1000) * f, dxp, b.t);
@@ -81,26 +83,48 @@ export function estimate(rates, zone, level, now, span = 2) {
   return s > 0 ? { xph: (xp * 3600) / s, hours } : null;
 }
 
+// A crowding measurement counts from this many seconds of play at one number of other groups.
+const CROWD_MIN_SEC = 600;
+
 /**
- * The share of its rate alone zone `zone` pays a group at `level` beside `n` other account groups,
- * as measured (`crowding` of `accumulate`): at each level within two of `level`, the rate beside
- * `n` others over the rate alone, weighed by the hours of the scarcer of the two after decay to
- * `now`, the nearer levels more. Within a level, the groups' levels, which XP per hour grows with,
- * stay out of the share. Returns `{ share, hours }`, or null without both at one level.
+ * The share of its time alone a group hunts in `zone` beside `n` other account groups, as measured
+ * (`crowding` of `accumulate`): the time it does not stand idle for want of a target, over the
+ * same with the fewest others on record. The time is pooled over the levels within two of `level`,
+ * the nearer more, after decay to `now`, and the share never rises with the number of groups: a
+ * count that reads better than a smaller one is pooled with it. A count with no time of its own
+ * takes the share of the nearest smaller one, which bounds it from above. Returns `{ share, hours }`
+ * with the hours behind that count, or null where no count up to `n` has `CROWD_MIN_SEC` of play.
+ *
+ * The time is the measure, not the XP: over 100 group-hours on 2026-11-12 the Tower of Frozen
+ * Shadow cost no such time with up to seven other groups, and Kedge Keep 3% with one other, 13%
+ * with three and 31% with four, while its XP per hour by count at one level swung by half from
+ * one cell to the next, and no cell alone existed to compare with.
  */
 export function crowdShare(crowding, zone, level, n, now) {
-  let sum = 0;
-  let hours = 0;
-  for (let d = -2; d <= 2; d++) {
-    const cells = crowding?.[zone]?.[level + d];
-    const alone = cells?.[0];
-    const shared = cells?.[Math.min(n, MAX_OTHERS)];
-    if (!(alone?.s > 0 && alone.xp > 0 && shared?.s > 0)) continue;
-    const h = (Math.min(alone.s * weight(alone.t, now), shared.s * weight(shared.t, now)) / 3600) * (1 - Math.abs(d) / 3);
-    sum += h * (shared.xp / shared.s / (alone.xp / alone.s));
-    hours += h;
+  // Blocks of counts from `from` on, each with its seconds and the seconds hunted, merged while a
+  // larger count hunts more. All counts are fitted, so the shares of two counts never cross.
+  const blocks = [];
+  for (let k = 0; k <= MAX_OTHERS; k++) {
+    let s = 0;
+    let c = 0;
+    for (let d = -2; d <= 2; d++) {
+      const cell = crowding?.[zone]?.[level + d]?.[k];
+      if (!(cell?.s > 0)) continue;
+      const w = weight(cell.t, now) * (1 - Math.abs(d) / 3);
+      s += cell.s * w;
+      c += (cell.c ?? 0) * w;
+    }
+    if (s < CROWD_MIN_SEC) continue;
+    blocks.push({ from: k, s, hunted: s - c });
+    while (blocks.length > 1 && blocks.at(-1).hunted / blocks.at(-1).s > blocks.at(-2).hunted / blocks.at(-2).s) {
+      const b = blocks.pop();
+      blocks.at(-1).s += b.s;
+      blocks.at(-1).hunted += b.hunted;
+    }
   }
-  return hours > 0 ? { share: sum / hours, hours } : null;
+  const at = blocks.findLast((b) => b.from <= Math.min(n, MAX_OTHERS));
+  const base = blocks.length ? blocks[0].hunted / blocks[0].s : 0;
+  return at && base > 0 ? { share: at.hunted / at.s / base, hours: at.s / 3600 } : null;
 }
 
 /** Zone ids to short names, from the content snapshot's zone table. */

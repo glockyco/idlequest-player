@@ -660,7 +660,12 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     const rotationInRow = (t.rotation ?? []).length > 0 && t.rotation.length <= cfg.keep && t.rotation.every((z) => row.includes(z) && !busyZones.has(z)) && t.rotation.includes(t.zone);
     // The bot moves through its rotation as spawns run out, so the rotation is judged by its best zone.
     const rotationBest = Math.max(0, ...ranked.filter((m) => (t.rotation ?? []).includes(m.z)).map((m) => m.value));
-    if (stay && rotationInRow && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
+    // A rotation of one zone leaves the bot nowhere to go when that zone fills. A move leaves the
+    // old zone out, so the bot goes, and with two live zones in a row that left one: four groups
+    // stood in Kedge Keep for 37 to 62% of an hour with no second zone (2026-11-12). Once the group
+    // stays where it was sent, the rotation gets the ranking's next zones.
+    const noWayOut = (t.rotation ?? []).length < 2 && rotation.length > 1;
+    if (stay && rotationInRow && !noWayOut && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
     if (t.rotationSetAt && now - t.rotationSetAt < cfg.settleMin * 60000 && (t.rotation ?? []).every((z) => row.includes(z))) {
       occupy(t.rotation[0]);
       continue;
