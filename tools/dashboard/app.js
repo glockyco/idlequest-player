@@ -255,6 +255,9 @@ function renderProgress(s) {
 function renderGroups(s) {
   $("act-legend").innerHTML = ACT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("");
   const head = ["Group", "Level", "Zone", "Doing now", "XP/h", "Idle", "Last 2 hours", "Task"];
+  // How many of the account's groups hunt in each zone, since they share its enemies.
+  const inZone = {};
+  for (const g of s.groups) if (g.zone) inZone[g.zone] = (inZone[g.zone] ?? 0) + 1;
   const rows = s.groups
     .map((g) => {
       const open = openGroups.has(g.id);
@@ -262,7 +265,7 @@ function renderGroups(s) {
       return `<tr class="grow${g.stuck ? " stuck" : ""}${open ? " open" : ""}" data-g="${esc(g.id)}" tabindex="0" role="button" aria-expanded="${open}">
         <td class="gid"><span class="caret"></span><b>${esc(g.id)}</b> <span class="muted">${esc(g.leader)}</span></td>
         <td class="lvl" title="${g.partyMin != null ? `party levels ${g.partyMin} to ${g.partyMax}, ` : ""}${pct(g.share)} of the XP to level 60"><b>${g.level ?? "?"}</b>${g.xpPct != null ? `<span class="muted"> ${Math.round(g.xpPct)}%</span>` : ""}${meter(g.share)}</td>
-        <td class="zone">${esc(g.zone ?? "-")}</td>
+        <td class="zone">${esc(g.zone ?? "-")}${inZone[g.zone] > 1 ? ` <span class="muted small" title="groups of the account in this zone, which share its enemies">${inZone[g.zone]} groups</span>` : ""}</td>
         <td class="state">${stateCell(g)}<div class="zone2 muted small">${esc(g.zone ?? "-")}</div></td>
         <td class="n">${big(g.xpPerHour)}</td>
         <td class="idle ${idleCls}" title="share of the last ${g.idleWindow}">${pct(g.idleShare)}${g.idleCause ? ` <span class="muted">${esc(idleWord(g.idleCause))}</span>` : ""}</td>
