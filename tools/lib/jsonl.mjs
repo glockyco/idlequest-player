@@ -1,9 +1,9 @@
 // Reads of the run logs (runs/live/<leader>/samples.jsonl and events.jsonl): one JSON object a
-// line, appended in the order of their time `t`. A leader's event log grows by about half a
-// gigabyte a day, and the reports ask for its last hours. Read whole and parsed, one log took a
-// process one to two gigabytes, twelve of them at a time for a report of all groups, which put the
-// machine into its swap on 2026-11-12. So a reader finds where its window starts and reads from
-// there.
+// line, appended in the order of their time `t`. A leader's two logs held 400 to 500 MB after six
+// days of play on 2026-11-12, and the reports ask for their last hours. Read whole and parsed, they
+// took a process one to two gigabytes, for each of the twelve groups in turn and for several
+// reports at a time, on a machine whose swap was nearly full that day. So a reader finds where
+// its window starts and reads from there.
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 
 const CHUNK = 1 << 16;
