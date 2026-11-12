@@ -630,6 +630,7 @@ class Daemon {
     // The zone rates and the paces count an XP event's XP at its normal worth, so the pass waits
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
+    this.doing = "item searches";
     const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleErrands, settleHistory, AA_POLICY, aaOrder } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
@@ -731,6 +732,7 @@ class Daemon {
     // Spawn points from the content snapshot, read once per key and in one read for all new keys:
     // the opportunities' enemies, which a hunt camps, and each quest step's NPC, whose point the step
     // looks at, because a point that another NPC holds rolls again only when that NPC dies.
+    this.doing = "spawn points";
     this.points ??= new Map();
     const loadPoints = async (entries) => {
       const fresh = entries.filter((e) => !this.points.has(e.key));
@@ -749,7 +751,9 @@ class Daemon {
     // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
     settleHistory(state.history, tabs.map((t) => t.task));
     settleErrands(state.history, tabs, now);
+    this.doing = "experiments";
     const held = await this.experimentPass(now, tabs, state);
+    this.doing = "rates and paces";
     // Hours a level takes each character at its group's own XP per hour over the last two hours of
     // minute totals, minutes with a task left out (another member is active then, and a trip zone
     // pays its own rate): the pace at which gear pays (`copyValue` in tools/lib/acquire.mjs). A
@@ -810,6 +814,7 @@ class Daemon {
     // prior fitted to every fight on file, the simulator's fights of its six and its own fights at
     // its current level, once per pair for the pass. A chain's enemies share the target's name and
     // zone but not its level, so the level and hit points are part of the pair.
+    this.doing = "kill odds and the groups' actions";
     const odds = await this.killOdds(now);
     const chances = new Map();
     const killChance = (t, x) => {
@@ -830,7 +835,9 @@ class Daemon {
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
     // from any other action of this pass, since summons and potions are time gated and a hunt is not.
+    this.doing = "boss plan";
     const bossKill = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel, state.history).catch((e) => (this.log(`boss pass: ${e.message}`), null));
+    this.doing = "tasks and zones";
     if (bossKill) actions.splice(0, actions.length, ...actions.filter((a) => a.label !== bossKill.label), bossKill);
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
@@ -1306,6 +1313,7 @@ class Daemon {
     const spent = [];
     const part = async (name, f) => {
       const t = Date.now();
+      this.part = name;
       try {
         return await f();
       } finally {
@@ -1334,7 +1342,7 @@ class Daemon {
     // beside the cycles, one at a time.
     this.pass ??= this.coordinatePass(Date.now())
       .catch((e) => this.log(`coordinator: ${e.message}`))
-      .finally(() => (this.pass = null));
+      .finally(() => (this.pass = this.doing = null));
     await part("status", () => writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n"));
     const total = Date.now() - now;
     if (total > 60000) this.log(`cycle took ${Math.round(total / 1000)} s: ${spent.filter(([, ms]) => ms >= 1000).map(([name, ms]) => `${name} ${Math.round(ms / 1000)} s`).join(", ") || "no part over a second"}`);
@@ -1828,7 +1836,7 @@ class Daemon {
     let beat = Date.now();
     const watch = setInterval(() => {
       const t = Date.now();
-      if (t - beat > 20000) this.log(`the collector's thread was held for ${Math.round((t - beat) / 1000)} s`);
+      if (t - beat > 20000) this.log(`the collector's thread was held for ${Math.round((t - beat) / 1000)} s, in the cycle's part "${this.part ?? "none"}"${this.doing ? ` and the pass's part "${this.doing}"` : ""}`);
       beat = t;
     }, 1000);
     watch.unref?.();
