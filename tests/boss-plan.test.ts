@@ -46,6 +46,17 @@ test("bosses go by worth per raid minute, a goal boss among them, and a goal bos
   expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value, first: ["cazic"] }).kill).toBeNull();
 });
 
+test("a boss whose last raid is not due stands aside for the next one", () => {
+  // Lord Nagafen, killed at 22:25 on 2026-11-12, stayed the pick and held Innoruuk back.
+  const d = daily(1, [boss("nagafen"), boss("innoruuk")]);
+  const odds = { nagafen: { raid: { ...win, meanSec: 20 } }, innoruuk: { raid: { ...win, meanSec: 334 } } };
+  const value = { nagafen: 4.6, innoruuk: 2.7 };
+  expect(nextBossKill({ daily: d, odds, value }).kill).toMatchObject({ key: "nagafen" });
+  const r = nextBossKill({ daily: d, odds, value, waiting: (c: { key: string }) => (c.key === "nagafen" ? "killed at 22:25" : null) });
+  expect(r.kill).toMatchObject({ key: "innoruuk" });
+  expect(r.skipped).toEqual([{ key: "nagafen", why: "killed at 22:25" }]);
+});
+
 test("a raid boss that stands in the open world is killed there, without a summon", () => {
   const NOW = 1_800_000_000_000;
   // Phinigel Autropos in Kedge Keep on 2026-11-12: on the daily list with both summons spent, and

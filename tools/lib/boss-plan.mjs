@@ -69,12 +69,17 @@ export function dailyCandidates(daily) {
  * another boss, and outside `first` within the day's raid hours (`OPEN_BUY`). A potion's raid is
  * led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [] }) {
+export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [], waiting = () => null }) {
   const skipped = [];
   const ways = [];
+  // `waiting(candidate, source)` names why a boss's last raid holds it, such as a kill minutes
+  // ago, so the next boss gets its turn: Lord Nagafen, killed at 22:25 on 2026-11-12, stayed the
+  // plan's pick and held Innoruuk and Cazic-Thule back.
   const add = (c, source) => {
     const o = odds[c.key] ?? {};
-    if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
+    const held = waiting(c, source);
+    if (held) skipped.push({ key: c.key, why: held });
+    else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
