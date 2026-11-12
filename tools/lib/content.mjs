@@ -74,19 +74,48 @@ export async function spawnTimes(root) {
   };
 }
 
+// The spawn tables as lookups, read once per content root and process: NPC ids by name, spawn
+// groups by NPC and each zone's spawn points in the table's order.
+const spawnTables = new Map();
+function spawnLookups(root) {
+  const key = contentRoot(root);
+  if (!spawnTables.has(key)) {
+    spawnTables.set(
+      key,
+      (async () => {
+        const ids = new Map();
+        for await (const n of rows("npc_types", root)) (ids.get(n.name) ?? ids.set(n.name, []).get(n.name)).push(n.id);
+        const groups = new Map();
+        for await (const s of liveSpawnRows("spawnentry", root)) (groups.get(s.npcID) ?? groups.set(s.npcID, []).get(s.npcID)).push(s.spawngroupID);
+        const points = new Map();
+        for await (const p of liveSpawnRows("spawn2", root)) (points.get(p.zone) ?? points.set(p.zone, []).get(p.zone)).push(p);
+        // A pattern that is one whole name is looked up, not matched against every name.
+        const byKey = new Map();
+        for (const name of ids.keys()) (byKey.get(nameKey(name)) ?? byKey.set(nameKey(name), []).get(nameKey(name))).push(name);
+        return { ids, groups, points, byKey };
+      })(),
+    );
+  }
+  return spawnTables.get(key);
+}
+const nameKey = (name) => name.replace(/ /g, "_").toLowerCase();
+const WHOLE_NAME = /^\^((?:[^\\^$.*+?()[\]{}|]|\\.)+)\$$/;
+
 /**
  * The spawn points (spawn2 ids) in each query's `zone` whose spawn groups can put up an NPC whose
- * name matches its `pattern` (spaces match underscores), for many queries in one read of the
- * spawn tables. A directed hunt camps these points, and a quest step looks at its NPC's. Resolves
- * with one array of point ids per query, in the queries' order.
+ * name matches its `pattern` (spaces match underscores), for many queries at once. A directed hunt
+ * camps these points, and a quest step looks at its NPC's. Resolves with one array of point ids
+ * per query, in the queries' order. The tables are read once: matching every query against every
+ * row took the collector's thread for minutes after each start, with a query per gear target.
  */
 export async function spawnPoints(queries, root) {
-  const res = queries.map((q) => new RegExp(q.pattern.replace(/ /g, "[ _]"), "i"));
-  const npcs = queries.map(() => new Set());
-  for await (const n of rows("npc_types", root)) res.forEach((re, k) => re.test(n.name) && npcs[k].add(n.id));
-  const groups = queries.map(() => new Set());
-  for await (const s of liveSpawnRows("spawnentry", root)) npcs.forEach((set, k) => set.has(s.npcID) && groups[k].add(s.spawngroupID));
-  const points = queries.map(() => []);
-  for await (const p of liveSpawnRows("spawn2", root)) queries.forEach((q, k) => p.zone === q.zone && groups[k].has(p.spawngroupID) && points[k].push(p.id));
-  return points;
+  const { ids, groups, points, byKey } = await spawnLookups(root);
+  return queries.map((q) => {
+    const whole = WHOLE_NAME.exec(q.pattern);
+    const re = new RegExp(q.pattern.replace(/ /g, "[ _]"), "i");
+    const names = whole ? (byKey.get(nameKey(whole[1].replace(/\\(.)/g, "$1"))) ?? []) : [...ids.keys()];
+    const wanted = new Set();
+    for (const name of names) if (re.test(name)) for (const id of ids.get(name)) for (const g of groups.get(id) ?? []) wanted.add(g);
+    return (points.get(q.zone) ?? []).filter((p) => wanted.has(p.spawngroupID)).map((p) => p.id);
+  });
 }
