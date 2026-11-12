@@ -84,8 +84,11 @@
     avoidNames: "",
     // A fight the party has fought this long while the enemy it pulled keeps over half its HP is
     // left, and that enemy is skipped from then on (`slowFoes`): melee-immune wisps held parties
-    // without magic damage for minutes. 0 turns both off.
+    // without magic damage for minutes. 0 turns both off. The enemy a hunt came for is left only
+    // when such a span took less than `huntHeadway` of its HP, because a boss takes a group
+    // minutes: group 1 at 56 had Phinigel Autropos at 58% of 18,000 HP after 180 s without a death.
     slowFightSec: 180,
+    huntHeadway: 0.1,
     slowFoeShare: 0.25, // an enemy that pays less than this share of the party's usual XP per fight second is skipped
     // An enemy that was in this many fights the guard had to leave, and in more than a tenth as
     // many as the party killed it, is skipped too, and so are the spawn points of the fights it
@@ -565,7 +568,8 @@
   };
   // A fight that makes no headway costs the party every second it lasts. After `slowFightSec`
   // with the enemy it pulled still above half its HP, the guard leaves it the way it leaves a
-  // dangerous one, which also skips that fight's enemies for a while.
+  // dangerous one, which also skips that fight's enemies for a while. A hunt's own enemy is
+  // judged by what each such span took of its HP.
   const leaveSlowFight = (i, cb) => {
     const f = state.fight;
     if (!f || !config.slowFightSec || now() - f.t < config.slowFightSec * 1000 || leaderDead(i)) return;
@@ -576,7 +580,14 @@
     const e = state.errand;
     if (e?.arrived && enemyPattern(e.keep).test(f.name)) return; // an errand's enemy is worth its time
     const mob = Object.values(cb.engagedMobs ?? {}).find((x) => foeKey(x.name) === f.name && x.state === "alive");
-    if (!mob || !(mob.hp > mob.maxHp / 2) || typeof i.leaveFight !== "function") return;
+    if (!mob || typeof i.leaveFight !== "function") return;
+    const t = state.task;
+    if (t?.status === "running" && t.kind === "hunt" && enemyPattern(t.keep).test(f.name)) {
+      const mark = f.mark ?? { t: f.t, hp: mob.maxHp };
+      if (now() - mark.t < config.slowFightSec * 1000) return;
+      f.mark = { t: now(), hp: mob.hp };
+      if (mark.hp - mob.hp >= config.huntHeadway * mob.maxHp) return;
+    } else if (!(mob.hp > mob.maxHp / 2)) return;
     const secs = Math.round((now() - f.t) / 1000);
     const r = foeRecord(i, f.name);
     r.slow++;
@@ -1797,16 +1808,18 @@
   };
   /**
    * Fight the wanted enemies that are up through Enemy Targets: "killed", "none" when none is up,
-   * "lost" when no fight came of it, or "noroute:<name>" when the client found no route to the one
-   * it chose, whose kind then joins `skip` and is left out of the next call.
+   * "fighting" when the fight with one still runs, "lost" when no fight came of it, or
+   * "noroute:<name>" when the client found no route to the one it chose, whose kind then joins
+   * `skip` and is left out of the next call.
    */
   const directedKill = async (i, wanted, skip = new Set()) => {
     const rt = runtime(i);
     if (!rt?.selectEnemyTarget) throw new Error("the client's Enemy Targets action was not found");
     const cb = () => i.stores.combat.getState();
     // An enemy that attacked first, such as a script spawn at a corpse, is already the party's
-    // fight, so its kill is only awaited.
-    const engaged = () => i.stores.skills.getState().inCombat && wanted.test(cb().targetNPC?.name ?? "");
+    // fight, so its kill is only awaited. So is one the party still fights from the call before,
+    // whoever the leader's target is by then.
+    const engaged = () => i.stores.skills.getState().inCombat && (wanted.test(cb().targetNPC?.name ?? "") || Object.values(cb().engagedMobs ?? {}).some((m) => m.state === "alive" && wanted.test(m.name ?? "")));
     const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? "") && !skip.has(t.npcId));
     // The server can take a spawn out of automated combat (`automatedCombatExcluded`), as it does
     // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it
@@ -1841,7 +1854,7 @@
       }
       if (!busy && now() - t0 > 15000) return "lost";
     }
-    return "lost";
+    return engaged() ? "fighting" : "lost";
   };
   // With the wanted enemies' spawn points (`points`, spawn2 ids), a hunt camps them with the client's
   // own Spawn Camp (`startSpawnCamp` in the combat runtime), which kills whatever stands on them,
@@ -1951,6 +1964,9 @@
         } else if (r.startsWith("noroute:")) {
           task.noRoute = [...new Set([...(task.noRoute ?? []), r.slice(8)])];
           log(`task hunt: the client finds no route to ${r.slice(8)}, so the hunt goes on without it`);
+        } else if (r === "fighting") {
+          seen = now(); // a boss takes minutes, and the next call waits for the same fight's end
+          lost = 0;
         } else if (r === "lost") {
           // Fights that never start would otherwise fill the hunt's whole time.
           if (++lost >= HUNT_LOST_MAX) return void (task.result = `no fight came of ${lost} tries at ${task.keep}`);

@@ -1404,6 +1404,63 @@ test("a hunt task fights gray enemies through Enemy Targets with the leader, unt
   }
 });
 
+test("a hunt fights its boss for minutes while the boss loses HP, and leaves one that keeps it", async () => {
+  // Group 1 at 56 against Phinigel Autropos on 2026-11-12: 58% of 18,000 HP after 180 s, nobody
+  // dead, and the rule for fights without headway ended it.
+  vi.useFakeTimers();
+  try {
+    const fight = async (lossPerSec: number) => {
+      const f = await install([10, 20]);
+      f.bot.config.leaderId = 1;
+      const left: string[] = [];
+      const selected: number[][] = [];
+      const boss = { name: "Phinigel_Autropos", state: "alive", hp: 18000, maxHp: 18000 };
+      const over = () => {
+        f.skills.inCombat = false;
+        f.targets.splice(0);
+        Object.assign(f.combat, { engagedMobs: {} });
+      };
+      Object.assign(f.iq, { leaveFight: (why: string) => (left.push(why), over()) });
+      Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+      f.targets.push({ spawnInstanceId: 4, npcId: 64001, name: "Phinigel_Autropos", level: 53 } as { spawnInstanceId: number; name: string });
+      Object.assign(f.runtime, {
+        selectEnemyTarget: (ids: number[]) => {
+          selected.push(ids);
+          f.say("You engage Phinigel Autropos in combat!");
+          f.skills.inCombat = true;
+          // The leader's target moves to the seahorse that joins, as it did in that fight.
+          Object.assign(f.combat, { targetNPC: { name: "a_swirlspine_seahorse" }, engagedMobs: { 1: boss, 2: { name: "a_swirlspine_seahorse", state: "alive", hp: 9000, maxHp: 9777 } } });
+        },
+      });
+      f.bot.hunt({ zone: "kedge", keep: "Phinigel Autropos", waitMin: 0, minutes: 15 });
+      for (let k = 0; k < 700 && f.bot.state.task?.status === "running"; k++) {
+        vi.advanceTimersByTime(1000);
+        await flush();
+        if (f.skills.inCombat) {
+          boss.hp -= lossPerSec;
+          if (boss.hp <= 0) {
+            f.say("You have defeated Phinigel Autropos and gained 100 experience!");
+            over();
+          }
+        }
+        if (k % 10 === 0) await f.bot.tick();
+        f.bot.fastTick();
+      }
+      return { left, selected, task: f.bot.state.task };
+    };
+    const won = await fight(42); // dead after 429 s
+    expect(won.left).toEqual([]);
+    expect(won.selected).toEqual([[64001]]);
+    expect(won.task).toMatchObject({ status: "done", kills: 1 });
+    const healed = await fight(5); // 5% in 180 s
+    expect(healed.left).toHaveLength(1);
+    expect(healed.left[0]).toContain("phinigel autropos kept 95% of its HP");
+    expect(healed.task).toMatchObject({ status: "done", kills: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a hunt over several zones moves on when none of the enemies is up and ends after a round finds none", async () => {
   vi.useFakeTimers();
   try {
