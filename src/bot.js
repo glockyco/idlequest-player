@@ -2342,12 +2342,16 @@
       if (outcome === "killed") alert("raid", `killed ${boss.name}`, true, { killed: boss.name });
     } finally {
       // An end that has to stop a fight waits for the server, so it gets a second try. A raid left
-      // on keeps the group from leveling.
-      await raid.end().catch(async (e) => {
-        log(`task raid: end raid failed: ${e?.message ?? e}`);
-        await sleep(10000);
-        await raid.end().catch((e2) => alert("raid", `raid mode is still on: ${e2?.message ?? e2}`, true));
-      });
+      // on keeps the group from leveling. A task that a newer one replaced leaves the raid to it: a
+      // stopped raid of 2026-11-12 ended raid mode after the next raid had recruited, and that
+      // raid found nobody to attack with.
+      if (state.task === task || state.task?.kind !== "raid") {
+        await raid.end().catch(async (e) => {
+          log(`task raid: end raid failed: ${e?.message ?? e}`);
+          await sleep(10000);
+          await raid.end().catch((e2) => alert("raid", `raid mode is still on: ${e2?.message ?? e2}`, true));
+        });
+      }
     }
     // Raid kills leave their corpses to the leader's RAID LOOT tab instead of Auto Loot, and the
     // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted. The tab is
@@ -2452,6 +2456,9 @@
     alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
     endPause(`the ${task.kind} task`);
   };
+  // The body of the last task run, which the next task waits for (`runTask`).
+  let taskBody = null;
+  const TASK_HANDOVER_MS = 30000;
   const runTask = (task) => {
     // A task takes the tab, so a running errand ends here, as finished and not failed.
     if (state.errand) endErrand(iq(), `${task.kind} task took the tab`, false);
@@ -2475,10 +2482,15 @@
         }
       }
     };
-    // Only the task's current runner settles it: an older one, left by a reinstall, just stops.
+    // Only the task's current runner settles it: an older one, left by a reinstall, just stops. A
+    // stopped task's body still finishes its step and its cleanup, so a new task waits for that,
+    // up to `TASK_HANDOVER_MS`, before it acts.
     const mine = () => state.task === task && task.runner === runner;
-    (async () => {
+    const before = taskBody;
+    taskBody = (async () => {
+      if (before) await Promise.race([before, sleep(TASK_HANDOVER_MS)]);
       try {
+        if (!mine()) throw new TaskStopped();
         await TASKS[task.kind](iq(), task, step);
         if (mine() && task.status === "running") task.status = "done";
       } catch (e) {

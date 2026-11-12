@@ -1906,6 +1906,46 @@ test("a raid targets the boss by its whole name, not an enemy whose name holds i
   }
 });
 
+test("a raid started right after a stopped one keeps its raid mode and roster", async () => {
+  vi.useFakeTimers();
+  try {
+    // 2026-11-12: the stopped raid's cleanup ended raid mode after the next raid had recruited,
+    // and that one failed with "Add raid members before attacking".
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000 });
+    const raid = (f.iq as unknown as { raid: { end: () => Promise<void>; attack: () => Promise<unknown> } }).raid;
+    let active = false;
+    const open = (raid as unknown as { open: () => Promise<unknown> }).open;
+    (raid as unknown as { open: () => Promise<unknown> }).open = async () => ((active = true), open());
+    const end = raid.end;
+    raid.end = async () => ((active = false), end());
+    const attack = raid.attack;
+    raid.attack = async () => {
+      if (!active) throw new Error("Add raid members before attacking.");
+      return attack();
+    };
+    // The boss stands out of reach, so the first raid is inside its minute of Run To Target when it stops.
+    const boss = f.targets.find((t) => t.spawnInstanceId === 7) as { distance: number };
+    boss.distance = 2222;
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
+    for (let k = 0; k < 40 && f.bot.state.task?.step !== "move to Lord_Nagafen"; k++) {
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    expect(f.bot.state.task.step).toBe("move to Lord_Nagafen");
+    vi.advanceTimersByTime(4000);
+    await flush();
+    f.bot.stopTask();
+    boss.distance = 12;
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
+    for (let k = 0; k < 4 && f.bot.state.task?.status === "running"; k++) await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+    expect(calls.filter((c) => c === "open").length).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid fight past its minutes goes on while the boss still loses health and raid time is left", async () => {
   vi.useFakeTimers();
   try {
