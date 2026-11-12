@@ -54,12 +54,20 @@ buy, craft, kill with a wait, and a hand-in with coin. The Give Items window tak
 cursor, where the purse's own action puts an amount of one kind, and a member whose purse is short
 first takes the smallest balance of the account that covers the trade, with Manage Money's
 transfer, which keeps each kind of coin (`coinFor` in `src/bot.js`, `giveToNpc` and `takeCoin` in
-`src/bridge.js`). A pickup of a ground spawn, the cast of a summoning spell and a forage are new
-kinds, added when an epic in the plan needs them. A timer or a signal branch runs by itself once
-its starter has, so the step after it waits as a kill step waits for a summoned enemy. A hand-in is
-made by the active character, so the task plays the character whose epic it is, as quest tasks do
-now. A step at an NPC names the NPC's type ids, because two NPCs of a zone can share a name and
-answer to different items, as the two Spirit Sentinels of the Emerald Jungle do.
+`src/bridge.js`). A piece a merchant sells is bought at its hand-in when a merchant of that zone
+sells it, and else in a step of its own before it, in a city where any party can shop
+(`data/shop-zones.json`) when one sells it. A pickup of a ground spawn, the cast of a summoning
+spell and a forage are new kinds, added when an epic in the plan needs them. A timer or a signal
+branch runs by itself once its starter has, so the step after it waits as a kill step waits for a
+summoned enemy. A hand-in is made by the active character, so the task plays the character whose
+epic it is, as quest tasks do now. A step at an NPC names the NPC's type ids, because two NPCs of
+a zone can share a name and answer to different items, as the two Spirit Sentinels of the Emerald
+Jungle do.
+
+A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
+its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
+under a half (`questKillChance` in `tools/lib/coordinator.mjs`, the chance of
+[gear-acquisition.md](gear-acquisition.md)).
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
 progress the epic adds to its character's group, shared by the pieces still missing, so trips and
@@ -81,7 +89,7 @@ before a gear trip, because each step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them: coin hand-in (built, for the Necromancer's ten gold to a thunder spirit princess), ground pickup, summoning cast, forage, a purchase in another zone than its hand-in. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in and the purchase in a step of its own, which opened the Necromancer's and the Paladin's chains beside the Ranger's Earthcaller and the Shaman's. To build: ground pickup (Warrior, Enchanter, Rogue), summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage. | |
 | 5 | Raid pieces with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 
