@@ -1887,6 +1887,34 @@ test("a raid that deals no damage gets its attack order again", async () => {
   }
 });
 
+test("a leader that Run To Target leaves far from the boss walks there before the attack", async () => {
+  vi.useFakeTimers();
+  try {
+    // Cazic-Thule on 2026-11-12: the members ran to the boss and the leader, the raid's tank,
+    // stood 2,222 away for the whole fight.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true });
+    const boss = f.targets.find((t) => t.spawnInstanceId === 7) as { distance: number };
+    boss.distance = 2222;
+    Object.assign(f.runtime.combatScene, { dependencies: { getEntityPool: () => ({ getAliveEntities: () => [{ spawn: { spawnInstanceId: 7 }, currentPos: { x: -100, y: 5, z: 300 } }] }) } });
+    const walks: unknown[] = [];
+    Object.assign(f.iq, {
+      walkTo: async (pos: unknown) => {
+        walks.push(pos);
+        boss.distance = 12;
+        return true;
+      },
+    });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(walks).toEqual([{ x: 300, y: 100, z: 5 }]);
+    expect(calls.indexOf("attack Lord_Nagafen")).toBeGreaterThan(calls.indexOf("position Lord_Nagafen"));
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid task buys time when none is left, recruits, sets its orders, kills its target and ends the raid", async () => {
   vi.useFakeTimers();
   try {

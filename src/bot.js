@@ -2219,7 +2219,15 @@
           if (d != null && d <= RAID_REACH) return;
         }
         log(`task raid: the raid is ${Math.round(distance() ?? -1)} away from ${boss.name} after a minute`);
-      }, 75000);
+        // Run To Target moved the members but not the leader in Cazic-Thule's fight of
+        // 2026-11-12: he stood 2,222 away for 30 minutes, and without its tank the raid lost 66
+        // of 71. So the leader walks there with the ground navigation, as a click on the ground
+        // does, to the boss's place in the scene (`currentPos`, whose x is the EQ y negated).
+        const at = (rt?.combatScene?.dependencies?.getEntityPool?.()?.getAliveEntities?.() ?? []).find((e) => e.spawn?.spawnInstanceId === boss.spawnInstanceId)?.currentPos;
+        if (!at) return;
+        const r = await i.walkTo({ x: at.z, y: -at.x, z: at.y }, { radius: RAID_REACH, stillMs: 20000 }).then(() => "arrived", (e) => e?.message ?? String(e));
+        log(`task raid: the leader walked to ${boss.name}: ${r}, ${Math.round(distance() ?? -1)} away`);
+      }, 180000);
       const t0 = now();
       task.fight = { boss: boss.name, startedAt: t0, orders: [], deaths: 0, revives: 0, trace: [] };
       if (!killed()) await step(`attack ${boss.name}`, () => raid.attack(), 30000);
