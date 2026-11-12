@@ -93,6 +93,10 @@
     // eight hours without a kill, up to 16 an hour for one group, each with a death or a healer
     // out of mana and ten minutes of skipped enemies, after which the same pull brought him again.
     foeEscapes: 2,
+    // An enemy the client keeps out of AutoLevel counts as a danger to the fights around it when
+    // it is at most this many levels below the leader (`guardedSpawns`). 0 and more keep the rule,
+    // null turns it off.
+    wardenLevels: 3,
     rotation: [], // zone short names to cycle through as the reachable spawns run out, e.g. ["permafrost", "guktop"]
     rotateBelowShare: 0.6, // move on when the XP per hour of play over the last 10 minutes falls below this share of the visit's best
     rotateMinStayMin: 20, // and only after this many minutes in the zone
@@ -1046,6 +1050,28 @@
     }
   };
 
+  // The client keeps some enemies out of AutoLevel (`autoLevelExcluded` in the zone's spawn list):
+  // raid targets, named bosses, quest NPCs. Those that are aggressive still attack a party that
+  // fights inside their aggro radius. Phinigel Autropos, a raid target of level 53 that stands in
+  // Kedge Keep, joined 51 fights in a day, every one of them with one of the four swirlspine
+  // seahorses that spawn 111 to 163 units from him, inside his radius of 200, and within a second
+  // of the pull. No group killed him, and each fight ended in an escape. So AutoLevel skips the
+  // spawn points inside the aggro radius of such an enemy while the zone's list shows it alive and
+  // it is no more than `wardenLevels` below the leader. The set is worked out once per spawn list.
+  const guarded = { list: null, level: null, ids: new Set() };
+  const guardedSpawns = (i) => {
+    const spawns = i.zoneSpawns?.spawns;
+    const lvl = myLevel(i);
+    if (config.wardenLevels == null || !spawns) return new Set();
+    // Every packet brings a new list, so the list itself says whether the set still holds.
+    if (guarded.list === spawns && guarded.level === lvl) return guarded.ids;
+    const wardens = spawns.filter((s) => s.autoLevelExcluded && s.state === "alive" && s.aggroRadius > 0 && s.level >= lvl - config.wardenLevels);
+    const ids = new Set();
+    for (const w of wardens) for (const s of spawns) if (s !== w && Math.hypot(s.x - w.x, s.y - w.y, s.z - w.z) <= w.aggroRadius) ids.add(s.spawnInstanceId);
+    Object.assign(guarded, { list: spawns, level: lvl, ids });
+    return ids;
+  };
+
   // AutoLevel picks the nearest enemy that passes its con and level filters and is not on the
   // client's skip list (`deferAutoLevelSpawn`, which the client uses for spawns it cannot reach).
   // Enemies named by `avoidNames` and the slow ones (`slowFoes`) stay on that list, so AutoLevel
@@ -1055,7 +1081,8 @@
   // for a few seconds, so AutoLevel pulls the wanted one. With none such it hunts as usual, so an
   // errand never leaves the party idle. When the errand widened AutoLevel's range, the other
   // enemies outside the normal range stay on the list. The fast tick renews the entries.
-  // So do the spawn points of fights with an enemy the party keeps losing to (`state.lostCamps`).
+  // So do the spawn points of fights with an enemy the party keeps losing to (`state.lostCamps`),
+  // and those around an enemy the client keeps out of AutoLevel (`guardedSpawns`).
   const avoidTargets = (i) => {
     const e = state.errand;
     const keep = e?.arrived && zoneShort(i) === e.zone ? e.keep : null;
@@ -1065,7 +1092,8 @@
     for (const [k, level] of Object.entries(camps)) if (myLevel(i) >= level + 2) delete camps[k];
     const here = `${zoneShort(i)}:`;
     const lostHere = new Set(Object.keys(camps).filter((k) => k.startsWith(here)).map((k) => Number(k.slice(here.length))));
-    if (!config.avoidNames && !keep && !slow.size && !lostHere.size) return;
+    const wards = guardedSpawns(i);
+    if (!config.avoidNames && !keep && !slow.size && !lostHere.size && !wards.size) return;
     const rt = runtime(i);
     if (!rt?.deferAutoLevelSpawn) return;
     const avoid = config.avoidNames ? enemyPattern(config.avoidNames) : null;
@@ -1084,7 +1112,7 @@
       const name = t.name ?? "";
       const other = !wanted?.test(name);
       const outside = normal && (t.level < normal.minLevel || t.level > normal.maxLevel);
-      if (avoid?.test(name) || (other && (first || outside || slow.has(foeKey(name)) || lostHere.has(t.spawnInstanceId)))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
+      if (avoid?.test(name) || wards.has(t.spawnInstanceId) || (other && (first || outside || slow.has(foeKey(name)) || lostHere.has(t.spawnInstanceId)))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
     }
   };
 

@@ -709,6 +709,28 @@ test("a fight that makes no headway is left after slowFightSec and its enemy is 
   }
 });
 
+test("AutoLevel skips the spawn points inside the aggro radius of a live enemy the client keeps out of it", async () => {
+  // Kedge Keep on 2026-11-12: Phinigel Autropos, a raid target of level 53 with an aggro radius of
+  // 200, and the swirlspine seahorses that spawn 111 to 163 units from him.
+  const f = await install();
+  Object.assign(f.me, { level: 51 });
+  const spawn = (spawnInstanceId: number, name: string, x: number, extra = {}) => ({ spawnInstanceId, name, level: 50, x, y: 0, z: 0, state: "alive", aggroRadius: 60, ...extra });
+  const phinigel = spawn(1, "Phinigel_Autropos", 0, { level: 53, aggroRadius: 200, autoLevelExcluded: true });
+  // A quest NPC far below the party is excluded too and guards nothing.
+  const slave = spawn(2, "an_escaped_slave", 1000, { level: 8, autoLevelExcluded: true });
+  const spawns = [phinigel, slave, spawn(3, "a_swirlspine_seahorse", 111), spawn(4, "a_swirlspine_seahorse", 163), spawn(5, "a_cobalt_sailfin", 217), spawn(6, "a_piranha", 1010)];
+  Object.assign(f.iq, { zoneSpawns: { t: 1, spawns } });
+  f.targets.push(...(spawns.slice(2) as never[]));
+  const skipped = () => [...new Set(f.runtime.deferred)].sort();
+  f.bot.fastTick();
+  expect(skipped()).toEqual([3, 4]);
+  // Once the zone's list shows him dead, his guards are ordinary enemies again.
+  f.runtime.deferred.length = 0;
+  Object.assign(f.iq, { zoneSpawns: { t: 2, spawns: spawns.map((s) => (s === phinigel ? { ...s, state: "respawning" } : s)) } });
+  f.bot.fastTick();
+  expect(skipped()).toEqual([]);
+});
+
 test("an enemy that joins fights the guard has to leave is skipped with the camp it joins, and a common one is not", async () => {
   // Phinigel Autropos in Kedge Keep, 2026-11-12: he joined the fights with the seahorses around
   // him, 40 escapes in eight hours and no kill.
