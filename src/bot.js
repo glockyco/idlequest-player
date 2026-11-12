@@ -2267,7 +2267,9 @@
         let bossHp = null;
         let bossHpAt = now();
         const winning = () => now() - bossHpAt < 60000 && now() < raidEnds - 30000;
-        while (!killed() && (now() < task.startedAt + task.minutes * 60000 || winning())) {
+        // A stop ends the fight too: a stopped raid kept ordering revives, which held the client's
+        // raid lifecycle pending, so raid mode could not end (Cazic-Thule, 2026-11-12).
+        while (!killed() && task.status === "running" && (now() < task.startedAt + task.minutes * 60000 || winning())) {
           await sleep(2000);
           const s = raid.state();
           const hpNow = s.enemies.find((x) => x.id === boss.spawnInstanceId)?.hp ?? null;
