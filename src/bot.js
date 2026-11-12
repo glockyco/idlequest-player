@@ -1996,14 +1996,16 @@
     }
   };
   // The enemies of the zone's spawn list that a raid can target and the client keeps out of
-  // AutoLevel, as the collector's snapshot lists them (`wardens` in tools/iqd.mjs): a task that read
-  // the list keeps them (`task.seen`, `task.seenAt`), so the collector learns what stood in a zone
-  // the party has left again by its next look at the tab.
+  // AutoLevel, as the collector's snapshot lists them (`wardens` in tools/iqd.mjs), and the enemy
+  // `name` the task is after, whatever its flags: a task that read the list keeps them
+  // (`task.seen`, `task.seenAt`), so the collector learns what stood in a zone the party has left
+  // again by its next look at the tab.
   const bossKey = (name) => String(name ?? "").replace(/[#_-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  const readBosses = async (i, task) => {
+  const readBosses = async (i, task, name) => {
     await i.refreshSpawns();
     const list = i.zoneSpawns?.spawns ?? [];
-    Object.assign(task, { seenAt: now(), seen: list.filter((s) => s.autoLevelExcluded && s.level > 50).map((s) => ({ npcId: s.npcId, name: s.name, level: s.level, state: s.state, hp: s.currentHp ?? null, maxHp: s.maxHp ?? null, respawnAt: s.nextRespawnAtMs ?? null })) });
+    const kept = list.filter((s) => (s.autoLevelExcluded && s.level > 50) || bossKey(s.name) === bossKey(name));
+    Object.assign(task, { seenAt: now(), seen: kept.map((s) => ({ npcId: s.npcId, name: s.name, level: s.level, state: s.state, hp: s.currentHp ?? null, maxHp: s.maxHp ?? null, respawnAt: s.nextRespawnAtMs ?? null })) });
     return list;
   };
   // A look: the party travels to `zone`, reads its spawn list and leaves again, without a fight.
@@ -2017,7 +2019,7 @@
     const wait = Math.max(0, (task.until ?? 0) - now());
     await step(`look for ${task.name}`, async () => {
       for (;;) {
-        const at = (await readBosses(i, task)).filter((s) => bossKey(s.name) === bossKey(task.name));
+        const at = (await readBosses(i, task, task.name)).filter((s) => bossKey(s.name) === bossKey(task.name));
         if (at.some((s) => s.state === "alive")) return void (task.result = `${task.name} stands`);
         if (now() >= (task.until ?? 0)) {
           const next = Math.min(...at.map((s) => s.nextRespawnAtMs).filter((t) => t > now()));
@@ -2061,7 +2063,7 @@
     // A boss of the open world can be dead by the time the raid arrives, killed by other players,
     // so the raid looks before it buys an hour.
     if (task.open) {
-      const up = await step(`find ${task.target}`, async () => (await readBosses(i, task)).some((s) => s.state === "alive" && bossKey(s.name) === bossKey(task.target)), 30000);
+      const up = await step(`find ${task.target}`, async () => (await readBosses(i, task, task.target)).some((s) => s.state === "alive" && bossKey(s.name) === bossKey(task.target)), 30000);
       if (!up) return void (task.result = `${task.target} is not up`);
     }
     await step("raid time", async () => {
