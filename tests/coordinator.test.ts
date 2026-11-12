@@ -434,9 +434,9 @@ test("a move that has to be placed runs in its receiver's own tab, with the rece
     { label: "A", kind: "gear", spec: { moves: [whip, knife] } },
     { label: "C", kind: "gear", spec: { moves: [cloak] } },
   ]);
-  // With A3's tab busy its moves wait, and the cloak still goes.
+  // With A3's tab busy the Whip waits for the next plan, and A3's knife goes with the cloak.
   const busy = [tab("A", "G1", 41, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
-  expect(decide({ now: NOW, tabs: busy, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
+  expect(decide({ now: NOW, tabs: busy, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak, knife] } }]);
 });
 
 test("a quest chain takes a tab before a camp would", () => {

@@ -350,13 +350,14 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // free tab whose leader blocks the fewest moves, then to the one with the lowest levels, whose
   // hunting the minutes cost least. A move that has to be placed (`exact`) runs in the tab of the
   // receiver's own group, where the receiver can become the active character, together with the
-  // receiver's other moves, so no other tab changes what it wears meanwhile. Such moves wait for
-  // the next plan while that tab is busy.
+  // receiver's other moves, so no other tab changes what it wears meanwhile. While that tab is
+  // busy the placed move waits for the next plan, and the receiver's other moves go as usual.
   if (gear?.moves?.length) {
     const blocks = (t, m) => (m.loreHolders ?? []).includes(t.members[0]?.name);
-    const placed = new Set(gear.moves.filter((m) => m.exact).map((m) => m.to));
-    const anywhere = gear.moves.filter((m) => !placed.has(m.to));
-    for (const x of tabs.filter((x) => free(x) && x.members.some((m) => placed.has(m.name)))) {
+    const ownTab = (name) => tabs.find((x) => x.members.some((m) => m.name === name));
+    const placed = new Set(gear.moves.filter((m) => m.exact && ownTab(m.to) && free(ownTab(m.to))).map((m) => m.to));
+    const anywhere = gear.moves.filter((m) => !placed.has(m.to) && !m.exact);
+    for (const x of tabs.filter((x) => x.members.some((m) => placed.has(m.name)))) {
       const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && !blocks(x, m));
       if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, placed in their hands` });
     }
