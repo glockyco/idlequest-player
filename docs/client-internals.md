@@ -25,6 +25,15 @@ game server, so the client only sends a request.
   `tools/check-client.mjs` runs its discovery on a saved release. A method name alone does not
   identify a service: the bundle also exports a stand-in whose every method returns false.
 
+### What a page spends its time on
+
+- The 3D engine's render loop calls the client's simulation before it draws (`startRenderLoop`, `BHfVSHXB.js:465517-465530` in the release of 2026-11-10: `pump()` of the simulation, then the scene's render). Disable Rendering skips the draw only (`renderScene`, `476926-476936`). The simulation's step, `tickMovement` (`476886-476925`), runs with or without drawing: the zone's entities, the party's actors, the player's controller and its camera.
+- The simulation takes each wake's elapsed time in pieces of at most 100 ms (`pump`, `B6iSY2J0.js:14422-14438`), and a 100 ms timer of its own wakes it when no frame does. So a page steps at its frame rate and never fewer than ten times a second, and a hidden page, whose timers the browser slows to one a second, takes ten steps in a burst.
+- The frame rate is the option FPS Limit of Graphics Settings (`frameRateLimit` in `stores.combat`, `setFrameRateLimit`, any whole number from 1, 0 for none, the engine's `maxFPS`).
+- A step is costly because of its ray casts: ground height for every moving entity (`updateDynamicGrounding`), line of sight, the party's actors and the third-person camera each cast against the scene's collision meshes (`CEt`, `431285-431320`), and every cast outside a shared scope walks all of them and computes their world matrices again (`ETi`, `431044-431062`), which for a mesh of thin instances refreshes its bounds.
+- Measured on 2026-11-12 with twelve tabs on one machine: 120 stack samples of a page in The Hole had 81% inside `tickMovement`, 34% in `computeWorldMatrix` and what it calls, and 22% in `thinInstanceRefreshBoundingInfo` itself. A page in the Tower of Frozen Shadow spent 6.8 s of 8 s in tasks at a limit of 30 and 3.7 s at 10. In The Hole a step took 67 to 110 ms, so a page there stays near a full core at 10.
+- The relay passes the protocol's `Performance` and `Debugger` domains to a tab and not `Profiler`, `HeapProfiler` or `Memory`. `Performance.getMetrics` gives a page's task and script seconds, and pausing the debugger at random moments gives its stacks.
+
 ## Transport
 
 - `GET /api/transport/credentials` returns a certificate hash. The client opens WebTransport to the

@@ -42,8 +42,12 @@
     // what the account needs, so the bot's reserve (`keepReserve`) does their work. Rendering stays
     // off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel runs and
     // saves most of a tab's CPU, and the client forgets it at a sign-in (OSTsR53r.js:191477).
-    // A screenshot of the world turns it on for its moment (`render`).
-    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, deleteNoDrop: false, disable3D: true },
+    // A screenshot of the world turns it on for its moment (`render`). The FPS Limit stays at 10:
+    // the client steps its movement once a frame, ray casts against the zone's collision meshes
+    // for every actor with or without drawing, and in pieces of at most 100 ms, so ten frames a
+    // second are the fewest steps it takes. A page went from 85% to 46% of a core between a limit
+    // of 30 and 10 (docs/client-internals.md, "What a page spends its time on").
+    clientOptions: { autoUpgradeEnabled: false, autoUpgradeCompanionsEnabled: false, autoSellEnabled: false, deleteNoDrop: false, disable3D: true, frameRateLimit: 10 },
     // Party tactics the bot keeps for every account companion. Cures stay off, because their casts
     // cost more than the short poisons and diseases they clear (docs/plans/leveling-plan.md, lever
     // 5), and the root dispel turns them on only while it runs (`dispelRoots`).
@@ -917,16 +921,18 @@
   };
   const sameLimits = (cb, l) => cb.minCon === l.minCon && cb.maxCon === l.maxCon && cb.maxLevelDiff === l.maxLevelDiff;
   // The options live per character on the server, so a character switch brings the new
-  // character's own. Each setting flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`).
+  // character's own. A switch flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`)
+  // and a number is set with its setter (`frameRateLimit`, `setFrameRateLimit`).
   const keepOptions = (cb) => {
     for (const [key, setting] of Object.entries(config.clientOptions ?? {})) {
       // A screenshot of the world draws it for a moment (`render`).
       const want = key === "disable3D" && now() < state.renderUntil ? false : setting;
-      const toggle = cb[`toggle${key[0].toUpperCase()}${key.slice(1).replace(/Enabled$/, "")}`];
-      if (key in cb && cb[key] !== want && typeof toggle === "function") {
-        toggle();
-        log(`client option ${key} set to ${want}`);
-      }
+      if (!(key in cb) || cb[key] === want) continue;
+      const name = `${key[0].toUpperCase()}${key.slice(1)}`;
+      const change = typeof want === "number" ? cb[`set${name}`] : cb[`toggle${name.replace(/Enabled$/, "")}`];
+      if (typeof change !== "function") continue;
+      typeof want === "number" ? change(want) : change();
+      log(`client option ${key} set to ${want}`);
     }
   };
   // Overrides are kept per companion in the party spells store, and a companion that joins later,

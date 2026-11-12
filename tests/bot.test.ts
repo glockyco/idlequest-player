@@ -2535,7 +2535,7 @@ test("a quest running when the bot is reinstalled goes on under the new install"
   }
 });
 
-test("client options are kept at the bot's values with their toggles, and set ones are left alone", async () => {
+test("client options are kept at the bot's values, a switch with its toggle and a number with its setter, and set ones are left alone", async () => {
   const f = await install();
   const flips: string[] = [];
   Object.assign(f.combat, {
@@ -2543,10 +2543,12 @@ test("client options are kept at the bot's values with their toggles, and set on
     autoUpgradeCompanionsEnabled: false,
     toggleAutoUpgrade: () => (flips.push("self"), (f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled = false),
     toggleAutoUpgradeCompanions: () => flips.push("companions"),
+    frameRateLimit: 30,
+    setFrameRateLimit: (n: number) => (flips.push(`fps ${n}`), (f.combat as { frameRateLimit: number }).frameRateLimit = n),
   });
   await f.bot.tick();
   await f.bot.tick();
-  expect(flips).toEqual(["self"]);
+  expect(flips).toEqual(["self", "fps 10"]);
   expect((f.combat as { autoUpgradeEnabled: boolean }).autoUpgradeEnabled).toBe(false);
 });
 
