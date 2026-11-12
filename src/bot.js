@@ -2185,7 +2185,10 @@
           if (!(await i.useItem(task.potion))) throw new Error(`the server refused potion ${task.potion}`);
         }, 30000);
       }
-      const wanted = task.target ? enemyPattern(task.target) : null;
+      // The whole name, as the open-world check compares it (`bossKey`): "Innoruuk" also matched
+      // Cleric of Innoruuk, whom the raid of 2026-11-12 walked to. A target that is a pattern, as a
+      // caller may pass, still works as one.
+      const wanted = task.target ? (/^[\w #`'-]+$/.test(task.target) ? { test: (n) => bossKey(n) === bossKey(task.target) } : enemyPattern(task.target)) : null;
       const boss = await step("target", async () => {
         for (let k = 0; k < 30; k++) {
           const list = rt?.combatScene.getAliveCombatTargetList?.() ?? [];

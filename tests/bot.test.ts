@@ -1878,10 +1878,29 @@ test("a raid that deals no damage gets its attack order again", async () => {
     // full health, and the raid stood in combat under its old order until a new one.
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, stalls: true });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
     await runToEnd(f);
     expect(calls.filter((c) => c.startsWith("attack"))).toEqual(["attack Lord_Nagafen", "attack Lord_Nagafen"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", orders: [{ kind: "attack", why: "no damage for 20 s", result: "attacked" }] } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid targets the boss by its whole name, not an enemy whose name holds it", async () => {
+  vi.useFakeTimers();
+  try {
+    // Innoruuk on 2026-11-12: the raid walked to Cleric of Innoruuk.
+    const f = await install([10, 20]);
+    fakeRaid(f, { timeLeft: true });
+    f.targets.unshift({ spawnInstanceId: 9, npcId: 2000, name: "Cleric_of_Lord_Nagafen", level: 52, distance: 5 } as { spawnInstanceId: number; name: string });
+    const selected: number[] = [];
+    const select = f.runtime.selectEnemyTarget as (ids: number[]) => void;
+    f.runtime.selectEnemyTarget = (ids: number[]) => (selected.push(ids[0]), select(ids));
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(selected[0]).toBe(1032);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
   } finally {
     vi.useRealTimers();
   }
@@ -1898,7 +1917,7 @@ test("a raid fight past its minutes goes on while the boss still loses health an
     const t0 = Date.now();
     raid.state = () => ({ ...state(), enemies: [{ id: 7, hp: Math.max(1, 400000 - (Date.now() - t0)) }] });
     raid.time = async () => (calls.push("time"), { active: true, pricePp: 2000, expiresAt: Date.now() + 3600000 });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [], minutes: 1 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [], minutes: 1 });
     for (let k = 0; k < 4 && f.bot.state.task?.status === "running"; k++) await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", overtime: true } });
   } finally {
@@ -1924,7 +1943,7 @@ test("a leader that Run To Target leaves far from the boss walks there before th
         return true;
       },
     });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
     await runToEnd(f);
     expect(walks).toEqual([{ x: 300, y: 100, z: 5 }]);
     expect(calls.indexOf("attack Lord_Nagafen")).toBeGreaterThan(calls.indexOf("position Lord_Nagafen"));
@@ -1941,7 +1960,7 @@ test("a raid task buys time when none is left, recruits, sets its orders, kills 
     const calls = fakeRaid(f);
     // The leader carries the hour's price, so no balance is pulled.
     (f.me as unknown as { platinum: number }).platinum = 2000;
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", maxPp: 2500, effects: ["slow", "debuff"] });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", maxPp: 2500, effects: ["slow", "debuff"] });
     await runToEnd(f);
     // The heal mode stands before the fight, the raid walks to the boss first, and the nuke and
     // effect orders need the running fight. A debuff nobody can cast does not hold the fight.
@@ -1962,14 +1981,14 @@ test("a potion raid uses the potion after recruiting and fights its boss, and a 
     const calls = fakeRaid(f, { timeLeft: true });
     let accept = true;
     (f.iq as unknown as { useItem: (id: number) => Promise<boolean> }).useItem = async (id) => (calls.push(`potion ${id}`), accept);
-    f.bot.raid({ members: ["Edroun"], target: "Nagafen", potion: 990100, maxPp: 0 });
+    f.bot.raid({ members: ["Edroun"], target: "Lord Nagafen", potion: 990100, maxPp: 0 });
     await runToEnd(f);
     expect(calls.slice(0, 5)).toEqual(["time", "open", "recruit 20", "potion 990100", "heal all-balanced"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
     // Without the potion's boss there is nothing to fight, and the raid ends.
     calls.splice(0);
     accept = false;
-    f.bot.raid({ members: ["Edroun"], target: "Nagafen", potion: 990100, maxPp: 0 });
+    f.bot.raid({ members: ["Edroun"], target: "Lord Nagafen", potion: 990100, maxPp: 0 });
     await runToEnd(f);
     expect(f.bot.state.task.status).toBe("failed");
     expect(calls).toContain("end");
@@ -1984,14 +2003,14 @@ test("a raid task records a wipe, and without raid time it stops before releasin
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, outcome: "wiped" });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", heal: null, nuke: null, effects: [] });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", heal: null, nuke: null, effects: [] });
     await runToEnd(f);
     expect(calls).toEqual(["time", "open", "recruit 10", "position Lord_Nagafen", "attack Lord_Nagafen", "end"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "wiped", alive: 0 } });
 
     const g = await install([10, 20]);
     const none = fakeRaid(g, { pricePp: 3000 });
-    g.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", maxPp: 2500 });
+    g.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", maxPp: 2500 });
     await runToEnd(g);
     expect(g.bot.state.task.status).toBe("failed");
     expect(none).not.toContain("open");
@@ -2041,7 +2060,7 @@ test("a raid's leader pulls balances one after another until it carries the hour
       g.document = { querySelector: (sel: string) => (sel.includes("manage-money-panel") ? panel : null), querySelectorAll: () => [] };
       Object.assign(f.combat, { openManageMoney: () => {}, closeManageMoney: () => {} });
       const calls = fakeRaid(f, { pricePp: 10000 });
-      f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", maxPp: 10000, heal: null, nuke: null, effects: [] });
+      f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", maxPp: 10000, heal: null, nuke: null, effects: [] });
       await runToEnd(f);
       return { pulls, calls, task: f.bot.state.task };
     };
@@ -2064,7 +2083,7 @@ test("a raid task has a living member revive the fallen leader and fights on", a
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, leaderFalls: true, fightMs: 20000 });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen" });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen" });
     await runToEnd(f);
     expect(calls.filter((c) => c === "revive")).toHaveLength(1);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", deaths: 1, revives: 1 } });
@@ -2079,7 +2098,7 @@ test("a boss that leaves the fight alive is no kill, and one that dies on the ra
     // Lodizal fled two fights and was gone from the enemy list, with no kill line.
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, outcome: "fled" });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "ended", alive: 2 } });
     expect(f.bot.state.alerts.filter((a) => a.kind === "raid")).toEqual([]);
@@ -2087,7 +2106,7 @@ test("a boss that leaves the fight alive is no kill, and one that dies on the ra
     // The third fight killed him while the raid still walked to him.
     const g = await install([10, 20]);
     const early = fakeRaid(g, { timeLeft: true, diesOnArrival: true });
-    g.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen" });
+    g.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen" });
     await runToEnd(g);
     expect(g.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
     expect(early.filter((c) => /^(attack|nuke|effect)/.test(c))).toEqual([]);
@@ -2103,7 +2122,7 @@ test("a raid task attacks an enemy that heals its boss, once, and collects the l
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, healer: true, fightMs: 20000 });
-    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Nagafen", effects: [] });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
     await runToEnd(f);
     expect(calls.filter((c) => c.startsWith("attack"))).toEqual(["attack Lord_Nagafen", "attack a_swirlspine_seahorse"]);
     expect(f.bot.state.task.fight.orders).toMatchObject([{ kind: "healer", name: "a swirlspine seahorse", result: "attacked" }]);
@@ -2119,7 +2138,7 @@ test("any task that takes the tab ends a running errand as finished, not failed"
     const f = await install([10, 20]);
     fakeRaid(f, { timeLeft: true });
     await f.bot.errand({ zone: "permafrost", keep: "wisp", item: "Diamond Wedding Band", minutes: 60 });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen" });
     expect(f.bot.state.errand).toBeNull();
     expect(f.bot.state.alerts.find((a) => a.kind === "errand")).toMatchObject({ wake: false, text: expect.stringContaining("raid task took the tab") });
     await runToEnd(f);
@@ -2138,7 +2157,7 @@ test("a task's stop leaves a fight that still runs after 45 s", async () => {
     const left: string[] = [];
     f.skills.inCombat = true;
     Object.assign(f.iq, { leaveFight: (why: string) => (left.push(why), setTimeout(() => (f.skills.inCombat = false), 5000), true) });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen", effects: [] });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", effects: [] });
     await runToEnd(f);
     expect(left).toEqual(["a task waited 45 s for the fight to end"]);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
@@ -2152,14 +2171,14 @@ test("a raid end that fails is tried again, and a raid left on asks for attentio
   try {
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, endFails: 1 });
-    f.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen" });
     await runToEnd(f);
     expect(calls.filter((c) => c === "end")).toHaveLength(2);
     expect(f.bot.state.alerts.some((a) => a.kind === "raid" && /still on/.test(a.text))).toBe(false);
 
     const g = await install([10, 20]);
     fakeRaid(g, { timeLeft: true, endFails: 2 });
-    g.bot.raid({ members: ["Tagujazolu"], target: "Nagafen" });
+    g.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen" });
     await runToEnd(g);
     expect(g.bot.state.alerts.find((a) => a.kind === "raid" && /still on/.test(a.text))?.wake).toBe(true);
   } finally {
