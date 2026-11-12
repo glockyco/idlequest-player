@@ -1120,9 +1120,17 @@
   // one standing there can talk, so the spawned one comes first. Two NPCs of one name can also
   // stand apart and answer to different items, as the two Spirit Sentinels of the Emerald Jungle
   // do: `ids`, the NPC's type ids, then choose among the spawns in place of the name.
+  // A script can spawn an NPC without a spawn point, as Shmendrik Lavawalker's hand-in spawns
+  // Natasha Whitewater for five minutes, and the zone's spawn list then never holds it: two clerics
+  // stood near her and hailed in vain (2026-11-12). The scene's living entities carry her spawn
+  // record with its place, so one of them stands in when the list has no living one.
   const spawnOf = (name, ids = null) => {
-    const all = (zoneSpawns?.spawns ?? []).filter((x) => (ids?.length ? ids.includes(x.npcId) : looseName(x.name).includes(looseName(name))));
-    return all.find((x) => x.state === "alive") ?? all[0] ?? null;
+    const match = (x) => (ids?.length ? ids.includes(x.npcId) : looseName(x.name).includes(looseName(name)));
+    const all = (zoneSpawns?.spawns ?? []).filter(match);
+    const up = all.find((x) => x.state === "alive");
+    if (up) return up;
+    const entity = (runtime()?.combatScene?.dependencies?.getEntityPool?.()?.getAliveEntities?.() ?? []).map((e) => e.spawn).find((s) => s && match(s));
+    return entity ? { ...entity, state: "alive" } : (all[0] ?? null);
   };
   // The scene's world-interaction port, which the client hands to its UI through a React context,
   // read from the provider's props in the React tree. It walks the party (`navigateToGroundPositionEQ`)
