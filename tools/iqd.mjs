@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { statSync, openSync, readSync, closeSync, readFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join, isAbsolute } from "node:path";
+import { dirname, join, isAbsolute, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Relay, renewPage } from "../src/cdp.mjs";
@@ -1797,7 +1797,7 @@ class Daemon {
     const first = join(dir, `${day}-${slug}-kill.jpg`);
     const file = existsSync(first) ? join(dir, `${day}-${slug}-kill-${at.toTimeString().slice(0, 5).replace(":", "")}.jpg`) : first;
     await writeFile(file, await this.relay.screenshot(tr.targetId));
-    this.log(`raid kill: ${e.data.boss}, picture in ${file.slice(REPO.length + 1)}`);
+    this.log(`raid kill: ${e.data.boss}, picture in ${relative(REPO, file)}`);
   }
 
   /** The bosses of the raid goal (data/raid-goal.json), read once. */
