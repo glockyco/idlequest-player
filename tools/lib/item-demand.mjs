@@ -30,7 +30,8 @@ export async function loadItemModel(root) {
     names.set(i.id, i.Name);
     ids.set(i.Name, [...(ids.get(i.Name) ?? []), i.id]);
   }
-  const chains = Object.fromEntries(classes.flatMap(([cls, rewards]) => rewards.flatMap((r) => epicChains(model, trees.get(r), { cls, reward: r, names }).map(({ id, chain }) => [id, chain]))));
+  const shopZones = new Set(JSON.parse(await readFile(new URL("../../data/shop-zones.json", import.meta.url), "utf8")));
+  const chains = Object.fromEntries(classes.flatMap(([cls, rewards]) => rewards.flatMap((r) => epicChains(model, trees.get(r), { cls, reward: r, names, shopZones }).map(({ id, chain }) => [id, chain]))));
   return { epicNeeds, pieces, chains, branches: model.branches, bosses, epics, names, ids };
 }
 

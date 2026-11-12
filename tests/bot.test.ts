@@ -2331,6 +2331,41 @@ test("a hand-in with coin takes the smallest balance that covers it when the mem
   }
 });
 
+test("a step that only buys gets the copies a later hand-in takes, in the merchant's zone, and buys nothing it carries", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const bags: Record<string, number> = { Wine: 1 };
+    const log: string[] = [];
+    Object.assign(f.iq, {
+      carried: (item: string) => bags[item] ?? 0,
+      buyItem: async (item: string, merchant: string, n: number) => {
+        log.push(`buy ${n} ${item} from ${merchant} in ${f.combat.currentZone}`);
+        bags[item] = (bags[item] ?? 0) + n;
+        return { bought: n };
+      },
+      talkToNpc: async () => {},
+      giveToNpc: async (items: string[]) => {
+        log.push(`give ${items.join(", ")}`);
+        bags.Prize = 1;
+      },
+    });
+    const zones: Record<string, number> = { freporte: 10, najena: 44 };
+    f.iq.changeZone = async (zone: string) => void (f.combat.currentZone = zones[zone]);
+    f.bot.quest({ members: ["Tagujazolu"], steps: [
+      { zone: "freporte", buy: { merchant: "Gregor Nasin", items: ["Shirt", "Wine"], counts: { Shirt: 2, Wine: 1 } } },
+      { zone: "najena", npc: "Taker", give: ["Shirt", "Shirt", "Wine"], expect: "Prize" },
+    ] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(log).toEqual(["buy 2 Shirt from Gregor Nasin in 10", "give Shirt, Shirt, Wine"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a container on the cursor with every general slot taken sends the emptiest bag to the bank, and the bag comes back once a slot is free", async () => {
   vi.useFakeTimers();
   try {

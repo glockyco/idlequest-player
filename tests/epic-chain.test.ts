@@ -47,3 +47,24 @@ end`;
     },
   ]);
 });
+
+test("a piece sold in another zone is bought in a step of its own, in a city before a dungeon, and a hand-in carries its coin", () => {
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70, item2 = 71, gold = 10}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Taker.lua", taker)],
+    npcs: [{ id: 2, name: "Taker", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 2, zone: "z" }],
+    sources: [
+      // The shirt has a seller in a dungeon and one in a city, and the wine one beside the taker.
+      { item: 70, way: { kind: "buy", npc: "Dungeon Trader", zone: "dungeon" } },
+      { item: 70, way: { kind: "buy", npc: "City Tailor", zone: "city" } },
+      { item: 71, way: { kind: "buy", npc: "Vintner", zone: "z" } },
+    ],
+  });
+  const names = new Map([[30, "Prize"], [70, "Shirt"], [71, "Wine"]]);
+  const [chain] = epicChains(model, epicTree(model, "Cleric", 30), { cls: "Cleric", reward: 30, names, shopZones: new Set(["city"]) });
+  expect(chain.chain.steps).toEqual([
+    { zone: "city", buy: { merchant: "City Tailor", items: ["Shirt"], counts: { Shirt: 1 } } },
+    { zone: "z", npc: "Taker", npcIds: [2], give: ["Shirt", "Wine"], coin: { gold: 10 }, buy: { merchant: "Vintner", items: ["Wine"] }, expect: "Prize" },
+  ]);
+});

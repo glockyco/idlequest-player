@@ -1653,6 +1653,15 @@
           continue;
         }
       }
+      // A step that only buys gets what a later hand-in takes from a merchant of this zone.
+      if (s.buy && !s.npc) {
+        for (const item of s.buy.items) {
+          const n = s.buy.counts?.[item] ?? 1;
+          if (i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
+        }
+        m.at = k + 1;
+        continue;
+      }
       const need = { ...(s.each ?? {}) };
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {

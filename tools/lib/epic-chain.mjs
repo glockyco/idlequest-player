@@ -16,14 +16,16 @@ const CRAFT_TRIES = 10;
 /**
  * The chains of epic reward `reward` for class `cls` from its tree (`epicTree`), each `{ id, chain }`
  * with `chain` as data/quests.json keeps it: a say or a hand-in at its NPC, with the item it gives as
- * `expect` and a purchase from a merchant of the same zone as `buy`, a kill step for an NPC a hand-in
- * spawns with its loot as `expect`, and a craft step for a combine. A hunted piece (`huntPieces`)
- * and the deaths that bring it are no step: each part that takes hunted pieces starts a new chain
- * whose `needs` are those pieces and the part before's reward. A part's `minLevel` is its hardest
- * kill's level, and the median level of each zone it walks, less `KILL_MARGIN`. None for a tree that
- * is blocked or needs a kind the bot lacks (`missingKinds`). `names` maps item ids to names.
+ * `expect` and a purchase from a merchant of the same zone as `buy`, a step that only buys for a
+ * merchant of another zone, a kill step for an NPC a hand-in spawns with its loot as `expect`, and
+ * a craft step for a combine. A hunted piece (`huntPieces`) and the deaths that bring it are no
+ * step: each part that takes hunted pieces starts a new chain whose `needs` are those pieces and
+ * the part before's reward. A part's `minLevel` is its hardest kill's level, and the median level
+ * of each zone it walks, less `KILL_MARGIN`. None for a tree that is blocked or needs a kind the
+ * bot lacks (`missingKinds`). `names` maps item ids to names, and `shopZones` are the cities where
+ * a party of any level can shop (data/shop-zones.json).
  */
-export function epicChains(model, tree, { cls, reward, names }) {
+export function epicChains(model, tree, { cls, reward, names, shopZones = new Set() }) {
   if (!Number.isFinite(tree.cost) || missingKinds(model, tree).length) return [];
   const pieces = huntPieces(model, tree);
   const hunted = new Set(pieces.map((p) => p.itemId));
@@ -31,6 +33,12 @@ export function epicChains(model, tree, { cls, reward, names }) {
   const huntNpcs = new Set(pieces.flatMap((p) => p.sources.flatMap((s) => [s.npc, ...s.also])));
   const name = (id) => names.get(id) ?? `#${id}`;
   const bought = new Map(tree.steps.filter((s) => s.item && s.way.kind === "buy").map((s) => [s.item, s.way]));
+  // Where a bought piece is bought for a hand-in in `zone`: at a merchant of that zone when one
+  // sells it, else in a city where any party can shop, else at the merchant the tree chose.
+  const sellerOf = (id, zone) => {
+    const all = (model.ways.get(id) ?? []).filter((w) => w.kind === "buy");
+    return all.find((w) => w.zone === zone) ?? all.find((w) => shopZones.has(w.zone)) ?? bought.get(id);
+  };
   const parts = [];
   let part = { steps: [], needs: [], level: 0 };
   for (const s of tree.steps) {
@@ -64,13 +72,19 @@ export function epicChains(model, tree, { cls, reward, names }) {
     const buys = [...new Set(takes.filter((id) => bought.has(id)))];
     part.steps.push({
       zone: b.zone,
+    const near = buys.filter((id) => sellerOf(id, b.zone).zone === b.zone);
+    // A merchant of another zone sells in a step of its own, before the hand-in.
+    for (const id of buys.filter((x) => !near.includes(x))) {
+      const w = sellerOf(id, b.zone);
+      part.steps.push({ zone: w.zone, buy: { merchant: w.npc, items: [name(id)], counts: { [name(id)]: b.inputs[id] } } });
+    }
       npc: b.npc,
       // Another NPC of the zone can have this one's name, so the step names its type ids too.
       ...(b.npcIds?.length ? { npcIds: b.npcIds } : {}),
       ...(say ? { say: [say[0]] } : {}),
       ...(takes.length ? { give: takes.map(name) } : {}),
       ...(coin ? { coin } : {}),
-      ...(buys.length ? { buy: { merchant: bought.get(buys[0]).npc, items: buys.map(name) } } : {}),
+      ...(near.length ? { buy: { merchant: sellerOf(near[0], b.zone).npc, items: near.map(name) } } : {}),
       ...(gives.length ? { expect: name(gives[0]) } : {}),
     });
   }
