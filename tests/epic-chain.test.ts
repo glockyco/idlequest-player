@@ -68,3 +68,17 @@ test("a piece sold in another zone is bought in a step of its own, in a city bef
     { zone: "z", npc: "Taker", npcIds: [2], give: ["Shirt", "Wine"], coin: { gold: 10 }, buy: { merchant: "Vintner", items: ["Wine"] }, expect: "Prize" },
   ]);
 });
+
+test("a chain with a kill above level 60 exists, asks for the level cap and names the enemy for the kill chance", () => {
+  const giver = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 10}) then\n    eq.spawn2(500, 0, 0, 0, 0, 0, 0)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Giver.lua", giver)],
+    npcs: [{ id: 1, name: "Giver", level: 30, loottable: 0 }, { id: 500, name: "a_dragon", level: 65, hp: 32500, loottable: 9 }],
+    spawns: [{ npcId: 1, zone: "z" }],
+    loot: new Map([[9, [{ item: 30, p: 1 }]]]),
+    sources: [{ item: 10, way: { kind: "buy", npc: "Vintner", zone: "z" } }],
+  });
+  const [chain] = epicChains(model, epicTree(model, "Monk", 30), { cls: "Monk", reward: 30, names: new Map([[10, "Wine"], [30, "Fangs"]]) });
+  expect(chain.chain.minLevel).toBe(60);
+  expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", level: 65, hp: 32500, expect: "Fangs", waitSec: 60 });
+});

@@ -10,6 +10,8 @@ const SPAWN_WAIT_SEC = 60;
 // model gives a sure kill (1.00 three levels above the leader, runs/state/kill-odds.json), and as
 // far below the median level of the static NPCs of each zone it walks.
 const KILL_MARGIN = 3;
+// No character passes this level, so a part asks for no more, and its fight waits for the kill chance.
+const LEVEL_CAP = 60;
 // The attempts a craft step may take on a recipe that can fail, each pulling one set of inputs.
 const CRAFT_TRIES = 10;
 
@@ -104,7 +106,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     const last = p.steps.findLast((x) => x.expect)?.expect ?? name(reward);
     return {
       id: `epic-${key}-${reward}-${k + 1}`,
-      chain: { class: cls, minLevel: Math.max(1, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN)), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
+      chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
     };
   });
 }

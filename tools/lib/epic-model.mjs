@@ -523,9 +523,10 @@ export function epicTree(model, cls, reward) {
 
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
- * steps"): a raid kill, of an NPC above level 60, a ground pickup, a summoning cast, a hand-in of
- * more than four items, or an item a branch wants held. A timer or a signal branch runs by
- * itself, and dropped pieces come from hunts.
+ * steps"): a ground pickup, a summoning cast, a hand-in of more than four items, or an item a
+ * branch wants held. A timer or a signal branch runs by itself, and dropped pieces come from
+ * hunts. A kill above level 60 is no missing kind: a chain's fight waits for the group's kill
+ * chance, and so does a trip for a piece that drops, so the steps before it run meanwhile.
  */
 export function missingKinds(model, tree) {
   const out = new Set();
@@ -533,13 +534,11 @@ export function missingKinds(model, tree) {
     if (s.item) {
       if (s.way.kind === "ground") out.add("ground pickup");
       if (s.way.kind === "cast") out.add("summoning cast");
-      if ((s.way.kind === "drop" || s.way.kind === "scene") && (s.way.level ?? 0) > GROUP_MAX_LEVEL) out.add("raid kill");
       continue;
     }
     const b = s.branch;
     if (Object.values(b.inputs).reduce((a, n) => a + n, 0) > 4) out.add("hand-in of more than four items");
     if (s.held.length) out.add("held item");
-    if (b.event === "death" && b.npcIds.some((id) => (model.npcs.get(id)?.level ?? 0) > GROUP_MAX_LEVEL)) out.add("raid kill");
   }
   return [...out];
 }
