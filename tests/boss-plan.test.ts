@@ -31,15 +31,19 @@ test("a raid runs as soon as one is due, the most valuable first, potions includ
   expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds }).kill).toMatchObject({ key: "lodizal" });
 });
 
-test("a boss of the raid goal that no raid has killed goes before the more valuable ones", () => {
-  // Cazic-Thule is on the daily list and in the goal, and his loot is worth little next to Nagafen's.
-  const d = daily(2, [boss("nagafen"), boss("cazic")]);
-  const odds = { nagafen: { raid: win }, cazic: { raid: win } };
-  const value = { nagafen: 1.6, cazic: 0 };
-  expect(nextBossKill({ daily: d, odds, value }).kill).toMatchObject({ key: "nagafen" });
-  expect(nextBossKill({ daily: d, odds, value, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
+test("bosses go by worth per raid minute, a goal boss among them, and a goal boss the simulator does not kill waits", () => {
+  // After the server's restart of 2026-11-12: Cazic-Thule, a goal boss, fights ten minutes for
+  // little loot, and Lady Vox dies in 21 s for more.
+  const d = daily(2, [boss("vox"), boss("cazic")]);
+  const odds = { vox: { raid: { ...win, meanSec: 21 } }, cazic: { raid: { ...win, meanSec: 589 } } };
+  const value = { vox: 2.69, cazic: 1.7 };
+  expect(nextBossKill({ daily: d, odds, value, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
+  // Each raid takes three minutes besides its fight, so Vox's loot has to be worth about a third
+  // of Cazic's: 0.5 over 3.35 minutes beats 1.7 over 12.8, and 0.3 does not.
+  expect(nextBossKill({ daily: d, odds, value: { vox: 0.5, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
+  expect(nextBossKill({ daily: d, odds, value: { vox: 0.3, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
   // A goal boss the simulator does not kill in every fight still waits.
-  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose } }, value, first: ["cazic"] }).kill).toMatchObject({ key: "nagafen" });
+  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value, first: ["cazic"] }).kill).toBeNull();
 });
 
 test("a raid boss that stands in the open world is killed there, without a summon", () => {
@@ -62,8 +66,8 @@ test("a raid boss that stands in the open world is killed there, without a summo
   expect(r.kill).toMatchObject({ key: "phinigel", zone: "kedge", way: "raid", source: "open" });
   expect(killId(r.kill)).toBe("boss:open:phinigel");
   expect(r.skipped).toEqual([{ key: "lord yelinak", why: "the simulator kills it in 5 of 6 fights" }]);
-  // A goal boss that stands and that the raid kills goes first, and a boss that stands is not summoned.
-  const goal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2 }, first: ["lord yelinak"] });
+  // A goal boss that stands is planned, and a boss that stands is not summoned.
+  const goal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2, "lord yelinak": 21 }, first: ["lord yelinak"] });
   expect(goal.kill).toMatchObject({ key: "lord yelinak", source: "open" });
   const noGoal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open: [open[0]], odds: { ...odds, innoruuk: { raid: win } }, value: { phinigel: 5, innoruuk: 1.2 } });
   expect(noGoal.kill).toMatchObject({ key: "phinigel", source: "open" });

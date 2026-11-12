@@ -52,19 +52,22 @@ export function dailyCandidates(daily) {
  *   open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
- * - `first`: the keys of the bosses to kill before any other, the raid goal's bosses that no raid
- *   has killed yet (data/raid-goal.json): the account has to kill each of them once, whatever they drop.
+ * - `first`: the raid goal's bosses that no raid has killed yet (data/raid-goal.json): the account
+ *   has to kill each of them once, whatever they drop, so they are planned also outside paid time.
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
- * already has a summoned casino boss"), so the other potions wait for it. A boss of `first` comes
- * next, then the others by their worth. Every kill is a raid's: a group can fight a boss in a
- * hunt, but nothing yet judges it against the boss with its company. The simulator fights a boss
- * alone and gave group 1 four kills of four against Phinigel Autropos, who beat it twice beside
- * his seahorses (docs/plans/raids.md, Schedule). A raid
- * on a summon or a potion runs as soon as one is due, because a free summon comes back 24 hours
- * after its use. A boss that stands in the open world is killed there, which leaves its summon
- * for another boss, and outside `first` within the day's raid hours (`OPEN_BUY`). A potion's raid
- * is led by its holder.
+ * already has a summoned casino boss"), so the other potions wait for it. The others go by their
+ * worth per minute of raid time, the simulator's fight and `RAID_SETUP_MIN` together, also a
+ * boss of `first`: after the server's restart of 2026-11-12 five bosses stood, and the raid spent
+ * its hour on Cazic-Thule's ten-minute fight while Lady Vox, Trakanon and Phinigel Autropos each
+ * take the simulator under a minute and other players may take them first. Every kill is a raid's:
+ * a group can fight a boss in a hunt, but nothing yet judges it against the boss with its company.
+ * The simulator fights a boss alone and gave group 1 four kills of four against Phinigel
+ * Autropos, who beat it twice beside his seahorses (docs/plans/raids.md, Schedule). A raid on a
+ * summon or a potion runs as soon as one is due, because a free summon comes back 24 hours after
+ * its use. A boss that stands in the open world is killed there, which leaves its summon for
+ * another boss, and outside `first` within the day's raid hours (`OPEN_BUY`). A potion's raid is
+ * led by its holder.
  */
 export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [] }) {
   const skipped = [];
@@ -87,9 +90,14 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
     if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
     else add(p, "potion");
   }
-  const rank = (w) => (w.source === "standing" ? 0 : first.includes(w.key) ? 1 : 2);
-  return { kill: ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0))[0] ?? null, skipped };
+  const perMinute = (w) => (value[w.key] ?? 0) / (RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60);
+  const rank = (w) => (w.source === "standing" ? 0 : 1);
+  return { kill: ways.sort((a, b) => rank(a) - rank(b) || perMinute(b) - perMinute(a))[0] ?? null, skipped };
 }
+
+// The minutes a raid takes besides its fight: from the task's start to the engagement (two minutes
+// for Cazic-Thule on 2026-11-12), and the end and the loot.
+export const RAID_SETUP_MIN = 3;
 
 /** The coordinator's history id of a kill's raid task: a potion's boss with its holder, an open-world boss, or a summon's boss. */
 export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`);
