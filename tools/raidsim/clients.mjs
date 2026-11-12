@@ -75,6 +75,103 @@ export const CLIENTS = {
       bq: ["MO", "vO", "yO", "WO", "XO", "JO", "Ve", "sb", "_P"],
     },
   },
+  "20261112T194956-10b2f5bb": {
+    "dir": ".re/releases/20261112T194956-10b2f5bb/",
+    "files": {
+      "main": "BGHnfDlc.js",
+      "bq": "CefSTnO-.js",
+      "engine": "BVGWpf-0.js"
+    },
+    "names": {
+      "main": {
+        "spellStore": "c1",
+        "socket": "z",
+        "npcSpellBuilder": "cs",
+        "eventRecorder": "$2",
+        "characterStore": "t1",
+        "defaultProfile": "Z6",
+        "spellbookStore": "Zt",
+        "gameStore": "y1",
+        "raidTimeStore": "r2",
+        "raidTimeScope": "C5",
+        "hydrateSpells": "dD",
+        "skillNames": "Rc",
+        "resolveBosses": "Gd",
+        "memberFromSnapshot": "Ir",
+        "petsForRoster": "X7"
+      },
+      "bq": {
+        "combatStartRequest": "GL",
+        "sceneStandIn": "Y2",
+        "encounterClass": "F2"
+      },
+      "engine": {
+        "runtime": "hi",
+        "raidStore": "st",
+        "raidTick": "Zd",
+        "setAutoHeal": "QL",
+        "setAutoDps": "$Ge"
+      }
+    },
+    "counted": {
+      "main": [
+        "Ir",
+        "EQ",
+        "Rp",
+        "NJ",
+        "c8",
+        "dJ",
+        "l8",
+        "S6",
+        "Z0",
+        "Q8",
+        "mn",
+        "zp",
+        "w61",
+        "R61",
+        "N61",
+        "TQ"
+      ],
+      "bq": [
+        "RO",
+        "MO",
+        "hO",
+        "YO",
+        "JO",
+        "QO",
+        "Ve",
+        "ub",
+        "xP"
+      ],
+      "engine": [
+        "Zd",
+        "tze",
+        "eze",
+        "Lu",
+        "LGe",
+        "L_",
+        "gDt",
+        "l0e",
+        "a0e",
+        "o0e",
+        "MDt",
+        "DDt",
+        "tDt",
+        "eDt",
+        "wDt",
+        "ODt",
+        "CDt",
+        "IDt",
+        "EDt",
+        "cDt",
+        "oDt",
+        "nM",
+        "fDt",
+        "pDt",
+        "mDt"
+      ]
+    }
+  },
   "20261110T154736-1d13b899": {
     dir: ".re/releases/20261110T154736-1d13b899/",
     files: { main: "BpHyB6iC.js", bq: "B6iSY2J0.js", engine: "BHfVSHXB.js" },
