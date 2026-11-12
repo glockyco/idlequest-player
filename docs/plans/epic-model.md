@@ -60,8 +60,10 @@ sells it, and else in a step of its own before it, in a city where any party can
 client's own requests (`pickupGround`: the zone's ground items, then the pickup within 20 units),
 and one another player took ends the task until its respawn. A part whose craft trivials above 50
 waits until a character trains that tradeskill, because a failed attempt uses its components up.
-The cast of a summoning spell and a forage are new kinds, added when an epic in the plan needs
-them. A timer or a signal branch runs by itself once its starter has, so the step after it waits
+A summoning spell the epic's own class casts is a step of its own (`castSummon`: scribe the scroll,
+memorize it into the last gem, click the gem), at the spell's level. One only another class casts,
+such as the Enchanter's Enchant Platinum for the Shadow Knight, still keeps the epic's chains out,
+and so does a forage. A timer or a signal branch runs by itself once its starter has, so the step after it waits
 as a kill step waits for a summoned enemy. A hand-in is made by the active character, so the task
 plays the character whose epic it is, as quest tasks do now. A step at an NPC names the NPC's type
 ids, because two NPCs of a zone can share a name and answer to different items, as the two Spirit
@@ -96,7 +98,7 @@ before a gear trip, because each step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own and the ground pickup, which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Warrior and Enchanter beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill (the Warrior's Rebreathers). To build: summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage, tradeskill training. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own, the ground pickup and the summoning cast by the epic's own class, which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Warrior, Enchanter and Magician beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill (the Warrior's Rebreathers). To build: a cast by another class (the Shadow Knight's Enchanted Platinum Bar), forage, tradeskill training. | |
 | 5 | Kills and raid pieces a group cannot win, such as the Wizard's enraged golem at 65 with 175,000 HP, with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 

@@ -2281,6 +2281,59 @@
     },
 
     /**
+     * Cast summoning spell `spellId` as the spell bar does, for an item a quest takes: scribe its
+     * scroll from the bags when the book lacks the spell, memorize it into the last gem while
+     * sitting with the book open, then click that gem (`#spell_gem_<slot + 1>`) until the cast
+     * begins. Resolves once item `output` is on the cursor or in the bags, which the bot's cursor
+     * keeper then places. Call it out of combat.
+     */
+    async castSummon(spellId, { output, timeoutMs = 60000 } = {}) {
+      const sb = () => stores.spellbook.getState();
+      const p = () => stores.character.getState().characterProfile;
+      const held = () => (p()?.inventory ?? []).some((x) => itemName(x) === output);
+      const gems = document.querySelectorAll(".spell-gem-slot").length;
+      if (!gems) throw new Error("the spell bar has no gems");
+      if (stores.skills.getState().inCombat) throw new Error("in combat");
+      let gem = sb().memorizedSpells.find((m) => m.spellId === spellId)?.gemSlot;
+      if (gem == null) {
+        for (let k = 0; k < 5 && !stores.combat.getState().isPlayerSitting; k++) {
+          stores.combat.getState().setPlayerSitting(true);
+          await pause(600);
+        }
+        if (!stores.combat.getState().isSpellbookOpen) stores.combat.getState().toggleSpellbook();
+        await pause(800);
+        try {
+          if (!sb().scribedSpells.some((x) => x.spellId === spellId)) {
+            const scroll = (p()?.inventory ?? []).find((x) => x.itemDetails?.scrolleffect === spellId);
+            if (!scroll) throw new Error(`spell ${spellId} is neither in the book nor in the bags`);
+            if (!(await sb().scribeSpell(spellId, { characterId: p().id, itemBag: scroll.bag, itemSlot: scroll.slot, itemInstanceId: scroll.itemInstanceId }))) throw new Error(`could not scribe spell ${spellId}`);
+          }
+          gem = gems - 1;
+          if (!(await sb().memorizeSpell(spellId, gem))) throw new Error(`could not memorize spell ${spellId} into gem ${gem + 1}`);
+        } finally {
+          if (stores.combat.getState().isSpellbookOpen) stores.combat.getState().toggleSpellbook();
+          stores.combat.getState().setPlayerSitting(false);
+        }
+      }
+      const since = seqs.event;
+      const end = Date.now() + timeoutMs;
+      let clicks = 0;
+      while (!held() && Date.now() < end) {
+        const begun = events.some((e) => e.seq > since && /^You begin casting/.test(e.text));
+        if (!begun && clicks < 10) {
+          document.getElementById(`spell_gem_${gem + 1}`)?.click();
+          clicks++;
+        }
+        await pause(1500);
+      }
+      if (!held()) {
+        const said = events.filter((e) => e.seq > since && /cast|spell|mana|fizzle|interrupt|component/i.test(e.text)).map((e) => e.text).slice(-3).join(" | ");
+        throw new Error(`no ${output} after casting spell ${spellId} (${said || "no line"})`);
+      }
+      return `summoned ${output}`;
+    },
+
+    /**
      * Scribe every spell scroll in the inventory, then memorize the named spells into gems 0..n-1.
      * The client only allows this while sitting with the spellbook open, and sitting does not hold
      * while a fight is still ending. Call it out of combat; it waits at most 20 s for a fight to end

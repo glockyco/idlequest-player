@@ -121,3 +121,21 @@ test("a part with a craft that trivials above 50 is left out, and a no-fail craf
   expect(build(175, true)).toHaveLength(1);
   expect(build(40, false)[0].chain.steps.find((s: { craft?: unknown }) => s.craft)).toMatchObject({ craft: { recipeId: 492, skillId: 57, quantity: 10 } });
 });
+
+test("a summoning spell the epic's class casts is a cast step at the spell's level, and one of another class keeps the chain out", () => {
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const build = (cls: string) => {
+    const model = buildEpicModel({
+      scripts: [script("z/Taker.lua", taker)],
+      npcs: [{ id: 2, name: "Taker", level: 30, loottable: 0 }],
+      spawns: [{ npcId: 2, zone: "z" }],
+      edges: [{ kind: "spell", spell: 1944, name: "Summon Orb", classes: { Magician: 46 }, inputs: { 80: 1 }, outputs: [70] }],
+      sources: [{ item: 80, way: { kind: "buy", npc: "Vintner", zone: "z" } }],
+    });
+    return epicChains(model, epicTree(model, cls, 30), { cls, reward: 30, names: new Map([[30, "Staff"], [70, "Orb"], [80, "Spell: Summon Orb"]]) });
+  };
+  const [chain] = build("Magician");
+  expect(chain.chain.minLevel).toBe(46);
+  expect(chain.chain.steps.find((s: { cast?: unknown }) => s.cast)).toEqual({ zone: "z", cast: { spellId: 1944, spell: "Summon Orb" }, expect: "Orb" });
+  expect(build("Wizard")).toEqual([]);
+});

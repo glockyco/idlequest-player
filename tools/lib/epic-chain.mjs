@@ -58,6 +58,11 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       } else if (s.way.kind === "ground") {
         // A quest item that lies in its zone, picked up as a click on it does, and back after its respawn.
         part.steps.push({ zone: s.way.zone, pick: name(s.item), expect: name(s.item), respawnSec: s.way.respawn ?? null });
+      } else if (s.way.kind === "cast") {
+        // The epic's own character casts the summoning spell where the part stands: the model
+        // leaves a cast by another class out (`missingKinds`). It needs the spell's level.
+        part.steps.push({ zone: part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone, cast: { spellId: s.way.spell, spell: s.way.name }, expect: name(s.item) });
+        part.castLevel = Math.max(part.castLevel ?? 0, s.way.classes?.[cls] ?? 0);
       }
       continue;
     }
@@ -114,7 +119,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       return {
         id: `epic-${key}-${reward}-${k + 1}`,
         trivial: p.trivial ?? 0,
-        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
+        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.castLevel ?? 0, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
       };
     })
     // A part with a craft that trivials above `CRAFT_TRIVIAL_MAX` waits until the account trains

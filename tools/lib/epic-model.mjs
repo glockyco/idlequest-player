@@ -6,7 +6,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { contentRoot, craftableRecipes, rows } from "./content.mjs";
 import { dropChance, dropRow, loadSources, liveZoneNames, spawnSites } from "./gear-data.mjs";
-import { meets, parseScript, scriptOwner } from "./quest-script.mjs";
+import { CLASS_BY_NUMBER, meets, parseScript, scriptOwner } from "./quest-script.mjs";
 
 // Rough hours of one group, for choosing between ways to get a piece: talking or buying in passing,
 // a trip to a ground spawn, a hand-in trip, a combine, and a fight.
@@ -135,7 +135,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   for (const npcId of spawners.keys()) for (const { item, p } of loot.get(npcs.get(npcId)?.loottable) ?? []) addWay(ways, item, { kind: "scene", npcId, drop: p });
   for (const e of edges) {
     if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, skill: e.skill, trivial: e.trivial, nofail: e.nofail, inputs: e.inputs });
-    if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, inputs: e.inputs });
+    if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, name: e.name, classes: e.classes ?? {}, inputs: e.inputs });
   }
   for (const { item, way } of sources) addWay(ways, item, way);
   return { scripts, npcs, staticIds, sites, branches, spawners, ways, catalog };
@@ -148,8 +148,8 @@ const SUMMON_ITEM = 32;
  * The craftable recipes (`craftableRecipes`) and the summoning spells of the content snapshot as
  * edges `{ kind, inputs: { id: count }, outputs: [id] }`: a `combine` (with its recipe's `recipe`,
  * `skill`, `trivial` and `nofail`) takes its components and makes its products, and a
- * `spell` takes the scroll that teaches it and the components a cast consumes, and gives the item it
- * summons.
+ * `spell` (with its `name` and the `classes` that cast it, by name with their level) takes the
+ * scroll that teaches it and the components a cast consumes, and gives the item it summons.
  */
 async function craftEdges(root) {
   const edges = [];
@@ -161,7 +161,9 @@ async function craftEdges(root) {
     if (!summons.length || !scrolls.has(s.id)) continue;
     const inputs = { [scrolls.get(s.id)]: 1 };
     for (let k = 1; k <= 4; k++) if (s[`components${k}`] > 0) inputs[s[`components${k}`]] = (inputs[s[`components${k}`]] ?? 0) + (s[`component_counts${k}`] || 1);
-    edges.push({ kind: "spell", spell: s.id, inputs, outputs: summons });
+    const classes = {};
+    for (const [k, cls] of Object.entries(CLASS_BY_NUMBER)) if (s[`classes${k}`] > 0 && s[`classes${k}`] < 255) classes[cls] = s[`classes${k}`];
+    edges.push({ kind: "spell", spell: s.id, name: s.name, classes, inputs, outputs: summons });
   }
   for (const r of (await craftableRecipes(root)).values()) {
     if (!r.yields.length) continue;
@@ -518,21 +520,21 @@ export function epicTree(model, cls, reward) {
     steps.push({ item: id, cost: c?.cost ?? Infinity, way: open.way });
   };
   doItem(reward);
-  return { steps, gaps, blocked, cost: pick.itemCost(reward) };
+  return { steps, gaps, blocked, cost: pick.itemCost(reward), cls };
 }
 
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
- * steps"): a summoning cast, a hand-in of more than four items, or an item a branch wants held.
- * A timer or a signal branch runs by itself, and dropped pieces come from hunts. A kill above
- * level 60 is no missing kind: a chain's fight waits for the group's kill chance, and so does a
- * trip for a piece that drops, so the steps before it run meanwhile.
+ * steps"): a summoning cast by another class than the epic's, a hand-in of more than four items,
+ * or an item a branch wants held. A timer or a signal branch runs by itself, and dropped pieces
+ * come from hunts. A kill above level 60 is no missing kind: a chain's fight waits for the group's
+ * kill chance, and so does a trip for a piece that drops, so the steps before it run meanwhile.
  */
 export function missingKinds(model, tree) {
   const out = new Set();
   for (const s of tree.steps) {
     if (s.item) {
-      if (s.way.kind === "cast") out.add("summoning cast");
+      if (s.way.kind === "cast" && !s.way.classes?.[tree.cls]) out.add("summoning cast by another class");
       continue;
     }
     const b = s.branch;

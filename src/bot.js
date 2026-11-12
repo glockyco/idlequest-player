@@ -1792,6 +1792,8 @@
           throw new TaskLater(`${s.npc}'s spawn point: ${r.result}`, r.nextAt ? r.nextAt + 30000 : now() + 1800000);
         }, 1200000);
       }
+      // A summoning spell the member casts itself, as the Magician's Summon Orb.
+      if (s.cast) await step(`cast ${s.cast.spell}`, () => i.castSummon(s.cast.spellId, { output: s.expect }), 180000);
       // A quest item that lies in the zone is picked up where it lies. One that another player
       // took is back after its respawn, when the task comes back.
       if (s.pick) {
