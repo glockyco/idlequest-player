@@ -923,10 +923,13 @@
   // The options live per character on the server, so a character switch brings the new
   // character's own. A switch flips with its toggle (`autoUpgradeEnabled`, `toggleAutoUpgrade`)
   // and a number is set with its setter (`frameRateLimit`, `setFrameRateLimit`).
-  const keepOptions = (cb) => {
+  const keepOptions = (cb, raid = false) => {
     for (const [key, setting] of Object.entries(config.clientOptions ?? {})) {
-      // A screenshot of the world draws it for a moment (`render`).
-      const want = key === "disable3D" && now() < state.renderUntil ? false : setting;
+      // A screenshot of the world draws it for a moment (`render`), and raid mode draws it all the
+      // time: the client's raid player controller runs on the camera's frames, and without them the
+      // raid leader neither ran to the boss nor switched his auto attack on, in every raid up to
+      // 2026-11-12, so the boss's hate went from one melee member to the next.
+      const want = key === "disable3D" && (raid || now() < state.renderUntil) ? false : setting;
       if (!(key in cb) || cb[key] === want) continue;
       const name = `${key[0].toUpperCase()}${key.slice(1)}`;
       const change = typeof want === "number" ? cb[`set${name}`] : cb[`toggle${name.replace(/Enabled$/, "")}`];
@@ -2170,6 +2173,7 @@
       log(`task raid: bought an hour of raid time for ${b.pricePp}pp`);
     }, 150000);
     await step("open the raid", () => raid.open(), 30000);
+    keepOptions(i.stores.combat.getState(), true);
     try {
       const ids = task.members.map((m) => findCharacter(i, m)?.id).filter((id) => id != null).map(Number);
       const joined = await step("recruit", () => raid.recruit(ids), 120000);
@@ -2925,7 +2929,7 @@
       if (state.pauseUntil && now() >= state.pauseUntil) endPause(pauseName());
       // The client options protect every character the tab plays, so they hold also while a task
       // plays another character or a pause holds the tab.
-      if (i.stores.character.getState().characterProfile?.id && !i.stores.combat.getState().isZoneLoading) keepOptions(i.stores.combat.getState());
+      if (i.stores.character.getState().characterProfile?.id && !i.stores.combat.getState().isZoneLoading) keepOptions(i.stores.combat.getState(), inRaid(i));
       noteHold(i);
       await serveParty(i);
       // AutoLevel and the idle remedies act after the watchers that hold the party, and also under a
