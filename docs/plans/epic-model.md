@@ -67,7 +67,9 @@ Jungle do.
 A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
 its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
 under a half (`questKillChance` in `tools/lib/coordinator.mjs`, the chance of
-[gear-acquisition.md](gear-acquisition.md)).
+[gear-acquisition.md](gear-acquisition.md)). An enemy above level 60 is held the same way, not
+left out: a chain exists for every epic whose steps the bot can run, and its part waits at the
+fight, while the parts before it run. A part asks for level 60 at most.
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
 progress the epic adds to its character's group, shared by the pieces still missing, so trips and
@@ -89,8 +91,8 @@ before a gear trip, because each step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in and the purchase in a step of its own, which opened the Necromancer's and the Paladin's chains beside the Ranger's Earthcaller and the Shaman's. To build: ground pickup (Warrior, Enchanter, Rogue), summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage. | |
-| 5 | Raid pieces with the raid way and the boss kills. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in and the purchase in a step of its own, which opened the Necromancer's and the Paladin's chains beside the Ranger's Earthcaller and the Shaman's, and with hard kills held by the kill chance the Cleric's, Monk's, Bard's and Wizard's. To build: ground pickup (Warrior, Enchanter, Rogue), summoning cast (Shadow Knight, Magician, Druid, the Ranger's Swiftwind), forage. | |
+| 5 | Kills and raid pieces a group cannot win, such as the Wizard's enraged golem at 65 with 175,000 HP, with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 
 ## Checks
