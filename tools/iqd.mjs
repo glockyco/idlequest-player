@@ -817,12 +817,19 @@ class Daemon {
     this.doing = "kill odds and the groups' actions";
     const odds = await this.killOdds(now);
     const chances = new Map();
+    // The record is the same for every group at a level, so it is read once per enemy and level.
+    const records = new Map();
+    const recordOf = (npc, level) => {
+      const key = `${npc}|${level}`;
+      if (!records.has(key)) records.set(key, recordCounts(this.db, { npc, level, now }));
+      return records.get(key);
+    };
     const killChance = (t, x) => {
       const key = `${t.group}|${x.zone}|${x.npc}|${x.npcLevel}|${x.npcHp}`;
       if (chances.has(key)) return chances.get(key);
       const level = t.members[0]?.level ?? 0;
       const prior = odds?.prior && x.npcLevel != null ? priorOf(odds.prior, x.npcLevel - level, x.npcHp) : null;
-      const k = killChanceOf({ prior, record: recordCounts(this.db, { grp: t.group, npc: x.npc, level, now }), sim: odds?.odds?.[`${x.zone}|${npcKey(x.npc)}`]?.groups?.[t.group] ?? null });
+      const k = killChanceOf({ prior, record: recordOf(x.npc, level), sim: odds?.odds?.[`${x.zone}|${npcKey(x.npc)}`]?.groups?.[t.group] ?? null });
       chances.set(key, k);
       return k;
     };

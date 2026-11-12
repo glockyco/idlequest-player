@@ -24,15 +24,18 @@ test("an enemy has one key however the game spells its name", () => {
   expect(["Cazic-Thule", "#Cazic_Thule", "Cazic Thule"].map(npcKey)).toEqual(["cazic thule", "cazic thule", "cazic thule"]);
 });
 
-test("a group's record counts its recent fights at its current level, and only its own", () => {
+test("the record counts the kills of leaders at a group's level or below and the escapes of those at it or above", () => {
   const db = new Database(":memory:");
   db.run(FIGHTS_SCHEMA);
   const fight = (t: number, level: number, outcome: string) => ({ t, npc: "lady vox", level, outcome, rule: outcome === "escape" ? "dying" : null });
   recordFights(db, "G1", [fight(T0, 52, "kill"), fight(T0 + 1, 52, "escape"), fight(T0 + 2, 52, "kill")]);
-  // A fight at another level and one three weeks old stay out.
+  // A weaker leader's kill counts, and a fight three weeks old does not.
   recordFights(db, "G1", [fight(T0 + 3, 51, "kill"), fight(T0 - 20 * 86400000, 52, "kill")]);
   // A fight the guard left by its level rule was refused, not lost.
   recordFights(db, "G1", [{ t: T0 + 4, npc: "lady vox", level: 52, outcome: "escape", rule: "level" }]);
-  expect(recordCounts(db, { grp: "G1", npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 2, escapes: 1 });
-  expect(recordCounts(db, { grp: "G2", npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 0, escapes: 0 });
+  // Another group's fights count the same: a stronger leader's escape, and not its kill.
+  recordFights(db, "G2", [fight(T0 + 5, 54, "escape"), fight(T0 + 6, 54, "kill")]);
+  expect(recordCounts(db, { npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 3, escapes: 2 });
+  expect(recordCounts(db, { npc: "Lady_Vox", level: 51, now: T0 + 10 })).toEqual({ kills: 1, escapes: 2 });
+  expect(recordCounts(db, { npc: "Lady_Vox", level: 55, now: T0 + 10 })).toEqual({ kills: 4, escapes: 0 });
 });

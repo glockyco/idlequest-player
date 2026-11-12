@@ -39,12 +39,18 @@ export function recordFights(db, grp, rows) {
 }
 
 /**
- * Group `grp`'s kills and escapes against enemy `npc` in the last `days`, while its leader stood at
- * `level`: the group's strength changes with every level, so older fights at lower levels say
- * little about the next one. An escape by the guard's level rule was a fight refused at its first
- * second, which says nothing about how it would have gone, so it does not count. `{ kills, escapes }`.
+ * The kills and escapes against enemy `npc` in the last `days` that say how a group whose leader
+ * stands at `level` fares: `{ kills, escapes }`. A kill counts when a leader at this level or below
+ * won it, and an escape when a leader at this level or above lost it, whichever group fought,
+ * because the groups are built alike and grow with their level. So a group knows an enemy the
+ * others lost to before it meets it, and keeps what it knew when it gains a level: Phinigel
+ * Autropos beat eleven groups 46 times on 2026-11-12, each of them sent on its own record. An
+ * escape by the guard's level rule was a fight refused at its first second, which says nothing
+ * about how it would have gone, so it does not count.
  */
-export function recordCounts(db, { grp, npc, level, now = Date.now(), days = 14 }) {
-  const r = db.query("SELECT SUM(outcome = 'kill') AS kills, SUM(outcome = 'escape' AND rule IS NOT 'level') AS escapes FROM fights WHERE grp = ? AND npc = ? AND t >= ? AND level = ?").get(grp, npcKey(npc), now - days * 86400000, level);
+export function recordCounts(db, { npc, level, now = Date.now(), days = 14 }) {
+  const r = db
+    .query("SELECT SUM(outcome = 'kill' AND level <= ?1) AS kills, SUM(outcome = 'escape' AND rule IS NOT 'level' AND level >= ?1) AS escapes FROM fights WHERE npc = ?2 AND t >= ?3")
+    .get(level, npcKey(npc), now - days * 86400000);
   return { kills: r?.kills ?? 0, escapes: r?.escapes ?? 0 };
 }
