@@ -10,6 +10,7 @@
 import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { readJsonlSince } from "./lib/jsonl.mjs";
 
 const { values: opt } = parseArgs({ options: { last: { type: "string", default: "60" }, since: { type: "string" }, until: { type: "string" }, json: { type: "boolean", default: false } } });
 const REPO = new URL("..", import.meta.url).pathname;
@@ -32,17 +33,11 @@ async function analyze(leader) {
   }
 }
 
-// The leader's chat lines inside the window, newest first.
+// The leader's chat lines inside the window, newest first, read from the window's start
+// (tools/lib/jsonl.mjs).
 async function windowEvents(leader) {
   try {
-    const lines = (await readFile(`${REPO}runs/live/${leader}/events.jsonl`, "utf8")).trimEnd().split("\n");
-    const out = [];
-    for (let k = lines.length - 1; k >= 0; k--) {
-      const e = JSON.parse(lines[k]);
-      if (e.t < since) break;
-      if (e.t <= until && e.type !== "bot") out.push(e);
-    }
-    return out;
+    return readJsonlSince(`${REPO}runs/live/${leader}/events.jsonl`, since).filter((e) => e.t <= until && e.type !== "bot").reverse();
   } catch {
     return null;
   }

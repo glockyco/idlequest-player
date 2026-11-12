@@ -30,6 +30,7 @@
 // section of src/bridge.js), read from the client's own state. "Activity" reports their seconds, keyed
 // `act` or `act/why` for idle and travel, over the covered seconds that carry a label.
 import { readFile, readdir } from "node:fs/promises";
+import { lastJsonl, readJsonlSince } from "./lib/jsonl.mjs";
 import { homedir } from "node:os";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 import { xpStep } from "./lib/samples.mjs";
@@ -45,20 +46,23 @@ if (!dir) {
   process.exit(2);
 }
 
-const readJsonl = async (p) => (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
-let samples = await readJsonl(`${dir}/samples.jsonl`);
-let events = await readJsonl(`${dir}/events.jsonl`).catch(() => []);
-
+// The window comes first, and each log is read from where it starts (tools/lib/jsonl.mjs): a
+// leader's event log holds days, and a report asks for its last hour or two.
 const parseDuration = (s) => {
   const m = /^(\d+)(s|m|h)$/.exec(s ?? "");
   return m ? Number(m[1]) * { s: 1000, m: 60000, h: 3600000 }[m[2]] : null;
 };
-const end = opt("until") ? Number(opt("until")) : samples.at(-1)?.t;
-const start = opt("since") ? Number(opt("since")) : opt("last") ? end - parseDuration(opt("last")) : samples[0]?.t;
-samples = samples.filter((s) => s.t >= start && s.t <= end);
+const end = opt("until") ? Number(opt("until")) : lastJsonl(`${dir}/samples.jsonl`)?.t;
+const start = opt("since") ? Number(opt("since")) : opt("last") ? end - parseDuration(opt("last")) : 0;
+let samples = readJsonlSince(`${dir}/samples.jsonl`, start).filter((s) => s.t <= end);
+let events = [];
+try {
+  events = readJsonlSince(`${dir}/events.jsonl`, start - 2000).filter((e) => e.t <= end + 2000);
+} catch {
+  /* a run without an event log */
+}
 if (opt("label")) samples = samples.filter((s) => s.label === opt("label"));
 if (opt("vis") != null) samples = samples.filter((s) => s.vis === Number(opt("vis")));
-events = events.filter((e) => e.t >= start - 2000 && e.t <= end + 2000);
 if (samples.length < 2) {
   console.error("not enough samples in the selected window");
   process.exit(1);

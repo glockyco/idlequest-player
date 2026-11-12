@@ -1,0 +1,91 @@
+// Reads of the run logs (runs/live/<leader>/samples.jsonl and events.jsonl): one JSON object a
+// line, appended in the order of their time `t`. A leader's event log grows by about half a
+// gigabyte a day, and the reports ask for its last hours. Read whole and parsed, one log took a
+// process one to two gigabytes, twelve of them at a time for a report of all groups, which put the
+// machine into its swap on 2026-11-12. So a reader finds where its window starts and reads from
+// there.
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+
+const CHUNK = 1 << 16;
+// Lines of different sources can lie a little out of order, so the search stops this far ahead of
+// the time asked for.
+const SLACK_MS = 60000;
+
+/** `t` of the first whole line that starts after byte `pos`, or null when none does or it has none. */
+function timeAfter(fd, size, pos) {
+  for (let len = CHUNK; ; len *= 4) {
+    const buf = Buffer.alloc(Math.min(len, size - pos));
+    const n = readSync(fd, buf, 0, buf.length, pos);
+    const text = buf.toString("utf8", 0, n);
+    const whole = pos + n >= size;
+    const from = pos === 0 ? 0 : text.indexOf("\n") + 1;
+    if (pos > 0 && from === 0) {
+      if (whole) return null;
+      continue;
+    }
+    const to = text.indexOf("\n", from);
+    if (to < 0 && !whole) continue;
+    try {
+      return JSON.parse(text.slice(from, to < 0 ? undefined : to)).t ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+const readFrom = (fd, size, pos) => {
+  const buf = Buffer.alloc(size - pos);
+  for (let got = 0; got < buf.length; ) {
+    const n = readSync(fd, buf, got, buf.length - got, pos + got);
+    if (!n) return buf.toString("utf8", 0, got);
+    got += n;
+  }
+  return buf.toString("utf8");
+};
+
+/**
+ * The rows of the JSONL file `path` with `t >= since`, in the file's order, found by a search over
+ * the file's bytes and read from there to the end, not from the start. A file that does not exist
+ * throws as a read does.
+ */
+export function readJsonlSince(path, since) {
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    let lo = 0;
+    let hi = size;
+    while (hi - lo > CHUNK) {
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const t = timeAfter(fd, size, mid);
+      if (t == null || t >= since - SLACK_MS) hi = mid;
+      else lo = mid;
+    }
+    const text = readFrom(fd, size, lo);
+    const rows = [];
+    for (const line of (lo > 0 ? text.slice(text.indexOf("\n") + 1) : text).split("\n")) {
+      if (!line) continue;
+      const row = JSON.parse(line);
+      if (row.t >= since) rows.push(row);
+    }
+    return rows;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** The last row of the JSONL file `path`, or null for an empty file. */
+export function lastJsonl(path) {
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    for (let len = CHUNK; ; len *= 4) {
+      const pos = Math.max(0, size - len);
+      const lines = readFrom(fd, size, pos).split("\n").filter(Boolean);
+      // The first line of a chunk that starts inside the file is cut, so it needs a second one.
+      if (lines.length > (pos > 0 ? 1 : 0)) return JSON.parse(lines.at(-1));
+      if (pos === 0) return null;
+    }
+  } finally {
+    closeSync(fd);
+  }
+}

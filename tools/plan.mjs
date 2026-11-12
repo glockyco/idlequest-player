@@ -42,6 +42,7 @@ import { conLimits, cfgFromFlags, evalZone, loadZones } from "./predict.mjs";
 import { factor, xpStart } from "./lib/xp.mjs";
 import { xpStep } from "./lib/samples.mjs";
 import { normalXp } from "./lib/xp-events.mjs";
+import { lastJsonl, readJsonlSince } from "./lib/jsonl.mjs";
 
 const here = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -152,14 +153,16 @@ const db = new Database(join(here, "runs/iq.db"), { readonly: true });
 const xpEvents = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'xpEvents'").get()?.v ?? "null");
 const sessions = db.query("SELECT leader, snap FROM sessions WHERE ended IS NULL").all().map((r) => ({ leader: r.leader, snap: JSON.parse(r.snap ?? "{}") }));
 const playing = sessions.filter(({ snap }) => snap.bot?.enabled !== false && snap.autoLevel?.running);
-const readLines = (file) => readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+// The logs are read from where the window starts (tools/lib/jsonl.mjs): the samples of the last
+// six hours, which is as far back as the window looks, and the events since the window's start.
 const groups = [];
 const idle = []; // playing groups with under 15 minutes of AutoLevel in the last 6 hours
 for (const { leader, snap } of playing) {
   const file = join(here, "runs/live", leader, "samples.jsonl");
   if (!existsSync(file)) continue;
-  const rows = readLines(file);
-  const now = rows.at(-1);
+  const now = lastJsonl(file);
+  if (!now) continue;
+  const rows = readJsonlSince(file, now.t - 6 * 3600000);
   // The last --window minutes of AutoLevel played by the leader itself, looking back up to 6 hours. The collector's
   // samples follow the active character, which changes during lightstone trips and other errands, and errands run
   // other modes. Only pairs of samples at the leader's level or one below count.
@@ -201,14 +204,7 @@ for (const { leader, snap } of playing) {
   kill += lost; // the kill XP is what the counter gained before the deaths took XP back
   let deaths = 0;
   const evFile = join(here, "runs/live", leader, "events.jsonl");
-  if (existsSync(evFile)) {
-    const lines = readFileSync(evFile, "utf8").trimEnd().split("\n");
-    for (let k = lines.length - 1; k >= 0; k--) {
-      const e = JSON.parse(lines[k]);
-      if (e.t < fromT) break;
-      if (e.type === "DEATH" && /^You have been slain/.test(e.text)) deaths++;
-    }
-  }
+  if (existsSync(evFile)) deaths = readJsonlSince(evFile, fromT).filter((e) => e.type === "DEATH" && /^You have been slain/.test(e.text)).length;
   const rateNow = net / hours;
   const killRate = kill / hours;
   // The group's own rate noise: the spread of the ten-minute blocks of kill XP in the window.
