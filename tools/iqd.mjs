@@ -1188,10 +1188,14 @@ class Daemon {
     // fought again at once, which the check of the chosen kill below keeps.
     const waiting = (c, source) => {
       if (source === "standing") return null;
-      const l = history.filter((h) => h.id === killId({ ...c, source })).at(-1);
+      // Every raid on this boss counts, by summon or in the open world: Cazic-Thule's open-world
+      // raid went out at 23:32 on 2026-11-12 after two lost summon raids. A raid stopped or failed
+      // in its fight counts as lost, as the one stopped by hand at 23:07 that evening.
+      const ids = new Set(["summon", "open", "potion"].map((s) => killId({ ...c, source: s })));
+      const l = history.filter((h) => h.kind === "raid" && (ids.has(h.id) || (h.id ?? "").endsWith(`:${c.key}`))).at(-1);
       if (!l) return null;
       const killed = /^killed /.test(l.result ?? "");
-      const lost = /^(time is up|wiped|ended) /.test(l.result ?? "");
+      const lost = !killed && (/^(time is up|wiped|ended) /.test(l.result ?? "") || /^fight /.test(l.step ?? ""));
       const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, this.code);
       return now < at ? `its last raid ${killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
     };
