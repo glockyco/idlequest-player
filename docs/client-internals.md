@@ -110,6 +110,20 @@ names such as `castSpellAtSelectedTarget` and `getAliveCombatTargetList` when ex
   deferral list or charmed by the party, has a level outside the limits, is evading or owned by
   another character's combat, or (with Farm Items active) lies outside the chosen category
   (`engine.pretty.js:442453-442475`, `OK.pretty.js:8428-8434`).
+- The client itself brings the enemies that join a fight ("a swirlspine seahorse joins the fight!").
+  After "You engage" it starts a fight with up to four helpers (`startSocialAssistAdds`,
+  `Bip1bGL8.js:5965` of release `20261110T154736-1d13b899`): living spawns whose faction is among
+  the engaged enemy's assisting factions, that do not carry `socialAssistDisabled`, are not green
+  to the leader unless level 50 or above, stand within their own assist radius of the enemy in
+  the horizontal plane and in its sight, the nearest first (`BpHyB6iC.js:69360`). In raid mode the
+  helpers come when the raid's first spell lands, and in zones flagged `ongoingSocialAssist` the
+  scan repeats during the fight. The zone's spawn list carries each spawn's faction and radii, so
+  the company of an enemy is known before a fight.
+- An enemy flagged `autoLevelExcluded` stays in the Enemy Targets list, so a party fights it in
+  normal play when it is picked there with attack on arrival: no raid mode, no raid time, the
+  companions act by their tactics, and the kill's XP is split among the party. The bot's hunt
+  task does this (`directedKill`). Group 1 killed Lady Vox that way for 88,539 XP to the leader
+  and 86,836 to a member, against 435,600 to the leader alone in a raid.
 - The level limits come from the active character's level, `minCon`, `maxCon` and `maxLevelDiff`
   (`OK.pretty.js:5283-5340`, `8739-8752`). The minimum level is the low edge of the `minCon`
   colour and the maximum is the high edge of the `maxCon` colour, capped at level plus
