@@ -139,8 +139,8 @@ async function kitActive(iq, tab, coinFrom, log) {
 /**
  * Create and start group `id` from data/roster.json. `attach` is src/client.mjs's export. Opens
  * the tab `iq-<id>`, so call it with no game running in that name. Writes the created names to
- * data/roster.json as soon as they exist. Resolves with the members, the zone and the leader's
- * platinum.
+ * data/roster.json as soon as they exist, so a call after one that stopped at a name creates the
+ * characters still planned. Resolves with the members, the zone and the leader's platinum.
  */
 export async function createGroup({ browser, attach, id, kitZone = "rivervale", log = console.log }) {
   const roster = await readRoster();
@@ -153,8 +153,10 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
   let iq = await attach(tab);
   log(`${id}: signed in`);
 
-  const made = [];
-  for (const slug of g.planned) {
+  // Each name goes to the roster at once, so a call after one that stopped creates only the
+  // characters still planned.
+  const made = [...(g.members ?? [])];
+  for (const slug of [...g.planned]) {
     const cls = className(slug);
     const race = await bestRace(cls);
     let name = null;
@@ -164,19 +166,15 @@ export async function createGroup({ browser, attach, id, kitZone = "rivervale", 
       if (r?.ok) name = n;
       else await sleep(1500);
     }
-    if (!name) {
-      g.members = made;
-      g.planned = g.planned.slice(made.length);
-      await writeRoster(roster);
-      throw new Error(`${id}: could not create the ${race} ${cls} after 8 names`);
-    }
+    if (!name) throw new Error(`${id}: could not create the ${race} ${cls} after 8 names`);
     made.push(name);
+    g.members = made;
+    g.planned = g.planned.slice(1);
+    if (!g.planned.length) delete g.planned;
+    await writeRoster(roster);
     log(`${id}: created ${name}, ${race} ${cls}`);
     await sleep(1500);
   }
-  g.members = made;
-  delete g.planned;
-  await writeRoster(roster);
 
   const [leader, ...rest] = made;
   const ids = await tab.evaluate((names) => Object.fromEntries((window.iq.stores.roster.getState().characters ?? []).filter((c) => names.includes(c.name)).map((c) => [c.name, Number(c.id)])), made);
