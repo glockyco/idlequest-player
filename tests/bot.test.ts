@@ -2385,7 +2385,7 @@ test("a trade the NPC refuses is tried again after talking to the NPC", async ()
   }
 });
 
-test("a hand-in with coin takes the smallest balance that covers it when the member's purse is short", async () => {
+test("a hand-in with coin takes the smallest balance that covers it, its own leader's first, and the leader takes the rest back", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
@@ -2418,8 +2418,25 @@ test("a hand-in with coin takes the smallest balance that covers it when the mem
     f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "airplane", npc: "a thunder spirit princess", coin: { gold: 10 }, expect: "Gkzzallk in a Box" }] });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done" });
-    expect(took).toEqual(["Enough"]);
+    expect(took[0]).toBe("Enough");
     expect(gave).toEqual([[[], { gold: 10 }]]);
+    // Back with the leader, the bot takes the member's coin back to it.
+    for (let k = 0; k < 10 && took.length < 2; k++) {
+      vi.advanceTimersByTime(15000);
+      await f.bot.tick();
+      await flush();
+    }
+    expect(took).toEqual(["Enough", "Tagujazolu"]);
+
+    // A leader whose purse covers the trade pays for it, however rich.
+    took.length = 0;
+    box = 0;
+    (f.me as { gold?: number }).gold = 3;
+    const balances = f.iq.balances;
+    f.iq.balances = async () => [...(await balances()), { name: "Me", carried: { gold: 900 }, totalCopper: 99000000 }];
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "airplane", npc: "a thunder spirit princess", coin: { gold: 10 }, expect: "Gkzzallk in a Box" }] });
+    await runToEnd(f);
+    expect(took[0]).toBe("Me");
   } finally {
     vi.useRealTimers();
   }

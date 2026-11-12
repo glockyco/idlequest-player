@@ -1613,18 +1613,33 @@
   };
   // A hand-in with coin takes it from the member's purse, which is empty for most members, since
   // the leader loots and sells. Manage Money moves a character's whole balance to the active one
-  // and keeps each kind of coin, so a short member takes the smallest balance of the account that
-  // covers the trade, which then stays with it.
+  // and keeps each kind of coin. So a short member takes its own group's leader's balance when that
+  // covers the trade, else the smallest one of the account that does, and the rest goes back to the
+  // group's leader once it is active again (`returnCoin`): the first coin hand-in took another
+  // group's leader's 1,215 platinum and left it with 138 (2026-11-12).
   const coinFor = async (i, m, coin) => {
     const purse = () => i.stores.character.getState().characterProfile ?? {};
     const lacks = (extra = {}) => Object.entries(coin).some(([type, n]) => (purse()[type] ?? 0) + (extra[type] ?? 0) < n);
     if (!lacks()) return;
-    const from = (await i.balances()).filter((b) => !lacks(b.carried)).sort((a, b) => a.totalCopper - b.totalCopper)[0];
+    const leader = findCharacter(i, config.leaderId)?.name;
+    const covering = (await i.balances()).filter((b) => !lacks(b.carried));
+    const from = covering.find((b) => b.name === leader) ?? covering.sort((a, b) => a.totalCopper - b.totalCopper)[0];
     const text = Object.entries(coin).map(([type, n]) => `${n} ${type}`).join(" and ");
     if (!from) throw new Error(`no character of the account carries ${text} for ${m.name}'s hand-in`);
     await i.takeCoin(from.name);
+    state.coinBack = [...new Set([...(state.coinBack ?? []), m.name])];
     log(`quest: ${m.name} took ${from.name}'s coin for a hand-in of ${text}`);
     if (lacks()) throw new Error(`${m.name} still lacks ${text} after taking ${from.name}'s coin`);
+  };
+  // The coin a member took for a hand-in goes to the group's leader, the character that spends it.
+  const returnCoin = async (i) => {
+    if (!state.coinBack?.length || Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
+    const name = state.coinBack[0];
+    await i.takeCoin(name).then(
+      (moved) => log(`coin: the leader took back ${name}'s coin (${Object.entries(moved ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`).join(", ") || "none"})`),
+      (e) => log(`coin: taking back ${name}'s coin failed: ${e.message}`),
+    );
+    state.coinBack = state.coinBack.slice(1);
   };
   const questMember = async (i, m, step) => {
     if (m.done) return;
@@ -2855,6 +2870,7 @@
     keepTactics(i);
     avoidTargets(i);
     await upkeepIfDue(i);
+    await returnCoin(i);
     await keepReserve(i);
     await restoreBags(i);
   };
