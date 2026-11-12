@@ -1713,6 +1713,40 @@ test("a summoned enemy that is up already sends the member to the fight", async 
   }
 });
 
+test("a quest's fight that outlasts the step's wait and the client's target goes on until the kill", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const jaeil = { spawnInstanceId: 9, npcId: 39154, name: "Jaeil_the_Insane", level: 55 };
+    let dead = false;
+    let hammer = 0;
+    Object.assign(f.iq, { carried: (item: string) => (item === "Soulbound Hammer" ? hammer : 0), talkToNpc: async () => {}, giveToNpc: async () => {} });
+    Object.assign(f.party, { requestAccountCharacterAvailability: () => {}, availableAccountCharacterIds: [] });
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => (dead ? [] : [jaeil]);
+    // The fight takes 200 s, longer than the step's 60 s and one call's 150 s, and the client shows
+    // no target through it.
+    Object.assign(f.runtime, {
+      selectEnemyTarget: () => {
+        f.skills.inCombat = true;
+        setTimeout(() => {
+          dead = true;
+          f.skills.inCombat = false;
+          hammer = 1;
+          f.say("You have defeated Jaeil the Insane and gained 77680 experience!");
+        }, 200000);
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "hole", kill: "Jaeil the Insane", expect: "Soulbound Hammer", waitSec: 60 }] });
+    for (let k = 0; k < 4 && f.bot.state.task?.status === "running"; k++) await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // The raid adapter the bridge offers (`window.iq.raid`), with a fight that lasts `fightMs`
 // and ends in a kill, a wipe or, with outcome "fled", a boss that leaves the fight alive. A kill
 // shows as the server's kill line and leaves one drop on the corpse. `leaderFalls` kills the

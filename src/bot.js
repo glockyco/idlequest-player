@@ -1713,9 +1713,12 @@
         const wanted = enemyPattern(s.kill);
         const since = now();
         const end = since + (s.waitSec ?? 60) * 1000;
+        // A fight that still runs is no lost one, however long it takes: group 9 fought Jaeil the
+        // Insane for 159 s, and the step gave up eight seconds before the kill, so nobody looted
+        // the hammer it dropped (2026-11-12).
         for (let r = null; r !== "killed" && !killedSince(i, wanted, since); ) {
-          if (r && now() > end) throw new Error(`${r === "none" ? `no ${s.kill} came up` : `the fight with ${s.kill} was lost`} (${fightState(i)})`);
-          if (r) await sleep(2000);
+          if (r && r !== "fighting" && now() > end) throw new Error(`${r === "none" ? `no ${s.kill} came up` : `the fight with ${s.kill} was lost`} (${fightState(i)})`);
+          if (r && r !== "fighting") await sleep(2000);
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
         m.foughtAt = since;
@@ -1868,8 +1871,11 @@
     const cb = () => i.stores.combat.getState();
     // An enemy that attacked first, such as a script spawn at a corpse, is already the party's
     // fight, so its kill is only awaited. So is one the party still fights from the call before,
-    // whoever the leader's target is by then.
-    const engaged = () => i.stores.skills.getState().inCombat && (wanted.test(cb().targetNPC?.name ?? "") || Object.values(cb().engagedMobs ?? {}).some((m) => m.state === "alive" && wanted.test(m.name ?? "")));
+    // whoever the leader's target is by then, also when the client lists it only among the
+    // enemies it can attack: group 9's fight with Jaeil the Insane showed no target and counted
+    // as lost while the pets hit him.
+    const wantedUp = () => (rt.combatScene.getAliveCombatTargetList?.() ?? []).some((t) => wanted.test(t.name ?? ""));
+    const engaged = () => i.stores.skills.getState().inCombat && (wanted.test(cb().targetNPC?.name ?? "") || Object.values(cb().engagedMobs ?? {}).some((m) => m.state === "alive" && wanted.test(m.name ?? "")) || wantedUp());
     const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? "") && !skip.has(t.npcId));
     // The server can take a spawn out of automated combat (`automatedCombatExcluded`), as it does
     // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it
