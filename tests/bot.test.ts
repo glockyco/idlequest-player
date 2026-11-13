@@ -571,6 +571,45 @@ test("a party signed out or held through the last ten minutes keeps its zone, be
   }
 });
 
+test("an errand queued in a long fight moves once the fight ends, and gives up after five minutes of fighting", async () => {
+  vi.useFakeTimers();
+  try {
+    // The call waits 22 s for the fight, a second at a time.
+    const wait = async () => {
+      for (let k = 0; k < 30; k++) {
+        vi.advanceTimersByTime(1000);
+        await flush();
+      }
+    };
+    const f = await install();
+    f.combat.currentZone = 65;
+    f.skills.inCombat = true;
+    const queued = f.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 60 });
+    await wait();
+    // The call returns while the fight runs, with the errand kept and AutoLevel held for its move.
+    expect(await queued).toContain("once the fight ends");
+    expect(f.moves).toEqual([]);
+    expect(f.bot.state.errand).toMatchObject({ arrived: false });
+    f.skills.inCombat = false;
+    await f.bot.tick();
+    expect(f.moves).toEqual(["permafrost"]);
+    expect(f.bot.state.errand).toMatchObject({ arrived: true });
+
+    const g = await install();
+    g.combat.currentZone = 65;
+    g.skills.inCombat = true;
+    const late = g.bot.errand({ zone: "permafrost", keep: "wisp", minutes: 60 });
+    await wait();
+    await late;
+    vi.advanceTimersByTime(5 * 60000);
+    await g.bot.tick();
+    expect(g.bot.state.errand).toBeNull();
+    expect(g.bot.state.alerts.find((a) => a.kind === "errand")).toMatchObject({ wake: true, text: expect.stringContaining("could not move to permafrost") });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("an errand puts its enemies first while AutoLevel can pull one and holds rotation until its item drops or its minutes end", async () => {
   vi.useFakeTimers();
   try {
@@ -1944,6 +1983,26 @@ test("a raid targets the boss by its whole name, not an enemy whose name holds i
     await runToEnd(f);
     expect(selected[0]).toBe(1032);
     expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed" } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid drop the leader cannot put away is taken again once the party has gathered", async () => {
+  vi.useFakeTimers();
+  try {
+    // Lord Nagafen on 2026-11-13: the leader held a Torn, Burnt Book, the second went back to the corpse.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true });
+    const loot = (f.iq as unknown as { raid: { loot: { take: (id: string) => Promise<unknown> } } }).raid.loot;
+    const take = loot.take;
+    let tries = 0;
+    loot.take = async (id: string) => (++tries === 1 ? (calls.push("loot"), null) : take(id));
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen", effects: [] });
+    await runToEnd(f);
+    expect(calls.filter((c) => c === "loot")).toHaveLength(2);
+    expect(f.bot.state.task.fight.loot).toMatchObject({ left: [] });
+    expect(f.bot.state.task.fight.loot.looted).toHaveLength(1);
   } finally {
     vi.useRealTimers();
   }

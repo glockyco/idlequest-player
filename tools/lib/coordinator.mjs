@@ -169,9 +169,10 @@ const ERRAND_MAX_MS = 2.5 * 3600000;
 /**
  * Write the end of each errand into its history entry. An errand is a mode of the bot and not a
  * task, so nothing reports its end: it is over once its tab shows no errand, or a later one.
- * `tabs` are `[{ label, errand }]` for the tabs seen now, `errand` with the bot's `since`. The end
- * is the time it was first seen over, at most a cycle late. Without it the errands' hours were
- * missing from every count of what trips cost. Returns whether an entry changed.
+ * `tabs` are `[{ label, errand }]` for the tabs seen now, `errand` with the time the bot took it
+ * (`queuedAt`, which stays while `since` restarts when the party arrives). The end is the time it
+ * was first seen over, at most a cycle late. Without it the errands' hours were missing from every
+ * count of what trips cost. Returns whether an entry changed.
  */
 export function settleErrands(history, tabs, now) {
   const byLabel = new Map(tabs.map((t) => [t.label, t]));
@@ -180,7 +181,7 @@ export function settleErrands(history, tabs, now) {
     if (h.kind !== "errand" || h.status) continue;
     const tab = byLabel.get(h.label);
     // A tab not seen now says nothing, and an errand queued a moment ago may not show yet.
-    if (!tab || now - h.t < 120000 || (tab.errand && !(tab.errand.since > h.t + 120000))) continue;
+    if (!tab || now - h.t < 120000 || (tab.errand && !((tab.errand.queuedAt ?? tab.errand.since) > h.t + 120000))) continue;
     // An entry from before the ends were recorded, or from before a long stop of the collector,
     // is over at a time nobody saw, so it gets no length.
     Object.assign(h, now - h.t > ERRAND_MAX_MS ? { status: "done" } : { ms: now - h.t, endedAt: now, status: "done" });

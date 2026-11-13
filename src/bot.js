@@ -177,7 +177,7 @@
     petChecked: {}, // owner character id -> owner level at which its pet was last replaced or kept
     memory: [], // [t, used MB] every five minutes
     memoryAlertAt: 0,
-    errand: null, // { zone, keep, item, minutes, minCon, limits, arrived, since, until } while an errand runs
+    errand: null, // { zone, keep, item, minutes, minCon, limits, arrived, queuedAt, since, until } while an errand runs
   };
   const state = prev?.state ?? fresh;
   for (const [k, v] of Object.entries(fresh)) if (!(k in state)) state[k] = v;
@@ -499,6 +499,8 @@
     // An item on the cursor leaves the next kill's loot on its corpse, and the client refuses a
     // destroy while the server has not confirmed the move, so the fight waits for the discard.
     if (state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) return "a discard on the cursor";
+    // An errand whose party still fights where it was moves once the fight is over (`watchErrand`).
+    if (state.errand && !state.errand.arrived) return `the errand's move to ${state.errand.zone}`;
     return null;
   };
   // Both ticks note the holds, and the end of one wakes the tick, so AutoLevel starts without
@@ -2447,7 +2449,17 @@
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
     if (task.fight) {
       await keepReserve(i, true);
-      const loot = task.status !== "running" ? await collectRaidLoot(i) : await step("collect the loot", () => collectRaidLoot(i), 120000);
+      const collect = () => (task.status !== "running" ? collectRaidLoot(i) : step("collect the loot", () => collectRaidLoot(i), 120000));
+      let loot = await collect();
+      // An item the leader could not put away is mostly a lore item it holds already, which only a
+      // party member can take, and the raid's end left the leader alone: a second Torn, Burnt Book
+      // of Lord Nagafen went back to his corpse (2026-11-13). So the party gathers and the tab is
+      // looked into once more, where the held item goes to a member (`settleHeld`).
+      if (loot.left.length && task.status === "running") {
+        await step("gather the party for the loot", () => gatherParty(i), 60000).catch((e) => log(`task raid: the party did not gather for the loot (${e?.message ?? e})`));
+        const again = await collect();
+        loot = { looted: [...loot.looted, ...again.looted], left: again.left };
+      }
       task.fight.loot = loot;
       task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
       log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
@@ -2752,9 +2764,21 @@
     state.zoneBestRate = 0;
     alert("errand", `${e.item ?? e.keep} in ${e.zone}: ${why}`, failed);
   };
+  // An errand queued during a fight waits this long for the fight's end and its move.
+  const ERRAND_MOVE_MS = 5 * 60000;
+  const arriveErrand = (i, e) => {
+    Object.assign(e, { arrived: true, since: now(), until: now() + e.minutes * 60000 });
+    widenForErrand(i, e);
+  };
   const watchErrand = async (i) => {
     const e = state.errand;
-    if (!e?.arrived) return;
+    if (!e) return;
+    if (!e.arrived) {
+      if (zoneShort(i) === e.zone) arriveErrand(i, e);
+      else if (now() - e.queuedAt > ERRAND_MOVE_MS) endErrand(i, `could not move to ${e.zone}`, true);
+      else if (!i.stores.skills.getState().inCombat && (await moveTo(i, e.zone, `errand: ${e.item ?? e.keep}`)) && state.errand === e) arriveErrand(i, e);
+      return;
+    }
     if (!e.widened) widenForErrand(i, e);
     const cb = i.stores.combat.getState();
     if (e.item && hasItem(i, e.item)) return endErrand(i, `got ${e.item}`, false);
@@ -3247,20 +3271,22 @@
       if (item && hasItem(i, item)) return `already carrying ${item}`;
       const cb = i.stores.combat.getState();
       const what = item ? `${item} from enemies matching ${keep}` : `enemies matching ${keep}`;
-      state.errand = { zone, keep, item, minutes, limits: { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff }, arrived: false, since: now(), until: now() + minutes * 60000 };
+      state.errand = { zone, keep, item, minutes, limits: { minCon: cb.minCon, maxCon: cb.maxCon, maxLevelDiff: cb.maxLevelDiff }, arrived: false, queuedAt: now(), since: now(), until: now() + minutes * 60000 };
       log(`errand: ${what} in ${zone}, up to ${minutes} min`);
       // A zone change waits for the fight at hand to end, so AutoLevel stops pulling meanwhile. The
-      // wait stays under the 30 s a script's page call may last.
+      // wait stays under the 30 s a script's page call may last. A fight that outlasts it leaves
+      // the move to the tick (`watchErrand`): a fight of a level 55 group takes a minute, and an
+      // errand that gave up after 22 s failed sixteen times in a day.
       if (zoneShort(i) !== zone && i.stores.skills.getState().inCombat) {
         holdAutoLevel(i.stores.combat.getState(), `the errand's move to ${zone}`);
         for (let k = 0; k < 22 && i.stores.skills.getState().inCombat; k++) await sleep(1000);
+        if (i.stores.skills.getState().inCombat) return `moving to ${zone} for ${what} once the fight ends`;
       }
       if (zoneShort(i) !== zone && !(await moveTo(i, zone, `errand: ${what}`))) {
         state.errand = null;
         throw new Error(`could not move to ${zone}`);
       }
-      Object.assign(state.errand, { arrived: true, since: now(), until: now() + minutes * 60000 });
-      widenForErrand(i, state.errand);
+      arriveErrand(i, state.errand);
       return `hunting ${what} in ${zone}`;
     },
 

@@ -311,7 +311,7 @@ export function snapshotInPage(a) {
         pauseReason: st.pauseReason ?? null,
         rotation: bot.config.rotation ?? [],
         crowdedAt: st.crowdedAt ?? {},
-        errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, since: st.errand.since, until: st.errand.until } : null,
+        errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, queuedAt: st.errand.queuedAt ?? st.errand.since, since: st.errand.since, until: st.errand.until } : null,
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
         task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
@@ -920,8 +920,10 @@ export class Daemon {
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
-        state.history.push({ t: Date.now(), endedAt: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: null, code: tab.code, status: "failed", error: e.message });
-        this.log(`coordinator: ${a.label} ${a.kind} not queued: ${e.message}`);
+        // The page's error comes with its stack, of which the first line says what failed.
+        const error = String(e.message).split("\n")[0];
+        state.history.push({ t: Date.now(), endedAt: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: null, code: tab.code, status: "failed", error });
+        this.log(`coordinator: ${a.label} ${a.kind} not queued: ${error}`);
       }
     }
     this.saveCoordinator(state);
