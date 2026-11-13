@@ -370,6 +370,8 @@
   //     noEnemies    AutoLevel off since the client found no enemy within its limits in the zone
   //     off          AutoLevel off with none of these since it last ran
   //     waitAttack   AutoLevel at its target with Auto Attack off
+  //     stuckApproach an approach that has not moved the party for a minute: group 1 stood 30 min
+  //                  at one spot in Karnor's Castle on 2026-11-13 "approaching" a drolvarg sentry
   //     readyWait    AutoLevel retrying its readiness wait with the party full
   //     afterKill    the client's pause after a won fight, with the party full
   //     lootSettle   AutoLevel waiting for a kill's loot to settle
@@ -385,6 +387,8 @@
     // A fight goes quiet for at most 29 s (8,100 fights of twelve groups over ten hours), and the two
     // dead ones in them stood for six and ten minutes, until someone left them by hand.
     const DEAD_FIGHT_MS = 45000;
+    // A walk to a target moves the party at least once in this time. One that does not is stuck.
+    const STUCK_APPROACH_MS = 60000;
     // The client's lines that stop AutoLevel (CAUokwED.js): its supervisor's pause, the target
     // approach's abandon when AutoLevel had stopped or fought a single target (while AutoLevel
     // runs, the client tries another target after 500 ms), and the target search that found nothing.
@@ -418,7 +422,7 @@
       if (v.trip) return ["travel", v.trip === "death-return" ? "deathReturn" : "restock"];
       const rt = v.runtime;
       if (!rt) return ["idle", "unknown"];
-      if (rt.attempt) return rt.attempt === "waiting-to-attack" ? ["idle", "waitAttack"] : ["approach"];
+      if (rt.attempt) return rt.attempt === "waiting-to-attack" ? ["idle", "waitAttack"] : v.stillMs > STUCK_APPROACH_MS ? ["idle", "stuckApproach"] : ["approach"];
       if (rt.buffPhase) return ["recover"];
       if (rt.retrying) return v.partyFull ? ["idle", "readyWait"] : ["recover"];
       if (!v.running) return ["idle", offCause(v)];
@@ -464,6 +468,16 @@
     if (cause) lastStop = { t: e.t, cause };
   };
   for (const e of events) noteStop(e);
+  // When the party's position last changed by more than two units (`stillMs`).
+  let movedAt = Date.now();
+  let movedFrom = null;
+  setInterval(() => {
+    if (!lastPos) return;
+    if (!movedFrom || Math.hypot(lastPos.x - movedFrom.x, lastPos.y - movedFrom.y) > 2) {
+      movedFrom = { x: lastPos.x, y: lastPos.y };
+      movedAt = Date.now();
+    }
+  }, 1000);
   /** What the label rules read: the client's stores and combat runtime, and the bot's pause and holds. */
   const activityView = () => {
     const p = stores.character.getState().characterProfile;
@@ -483,6 +497,8 @@
       escaping: guard.phase === "leaving",
       inCombat,
       fightQuietMs: inCombat ? t - Math.max(fightSince, fightLineAt) : 0,
+      // How long the party's position has stood still, from the client's own position packets.
+      stillMs: t - movedAt,
       raid: Boolean(stores.raid?.getState?.().raidModeActive),
       hidden: document.visibilityState !== "visible",
       pause: (bot?.pauseUntil ?? 0) > t ? String(bot.pauseReason ?? "").slice(0, 40) : null,

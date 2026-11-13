@@ -842,6 +842,8 @@
     },
     noEnemies: { afterSec: 0, rungs: ["widen", "move"] },
     waitAttack: { afterSec: 20, rungs: ["restart"], untilKill: true },
+    // An approach that has not moved the party for a minute (src/bridge.js) skips its target, then moves on.
+    stuckApproach: { afterSec: 0, rungs: ["skipTarget", "restart", "move"], untilKill: true },
     readyWait: { afterSec: 30, rungs: ["restart"], untilKill: true },
     noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"], untilKill: true },
     crowded: { afterSec: 60, rungs: ["widen", "move"], errand: ["leave"], untilKill: true },
@@ -864,6 +866,16 @@
     restart: (i, cb) => {
       holdAutoLevel(cb, "a fresh start");
       return "stopped AutoLevel for a fresh start";
+    },
+    // A target the party cannot walk to is deferred, as the guard defers a fight it leaves, and
+    // AutoLevel starts fresh on another one.
+    skipTarget: (i, cb) => {
+      const rt = runtime(i);
+      const id = rt?.combatApproach?.attempt?.spawnInstanceId ?? cb.targetNPC?.spawnInstanceId;
+      if (!Number.isInteger(id) || typeof rt?.deferAutoLevelSpawn !== "function") return null;
+      rt.deferAutoLevelSpawn(id, 600000);
+      holdAutoLevel(cb, "a fresh start");
+      return `skipped ${cb.targetNPC?.name ?? `spawn ${id}`} for 10 min and stopped AutoLevel for a fresh start`;
     },
     // Undo what narrowed the limits: the guard's tightening first, then the level floor, then a
     // minimum con above blue. `keepLimits` returns them to `limits` after `widenMin`.

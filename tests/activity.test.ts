@@ -12,6 +12,7 @@ interface View {
   escaping: boolean;
   inCombat: boolean;
   fightQuietMs: number;
+  stillMs?: number;
   raid: boolean;
   hidden: boolean;
   pause: string | null;
@@ -73,6 +74,15 @@ test("a failed load, a missing runtime and the waits after a kill get their own 
   expect(rules.label(view({ partyFull: false, sinceKillMs: 8000, runtime: { ...rest, pendingLoot: 1 } }))).toEqual(["recover"]);
   expect(rules.label(view({ runtime: { ...rest, waitingTargets: true } }))).toEqual(["idle", "crowded"]);
   expect(rules.label(view())).toEqual(["idle", "noTarget"]);
+});
+
+test("an approach that has not moved the party for a minute is stuck", () => {
+  // Group 1 stood 30 min at one spot in Karnor's Castle on 2026-11-13, approaching a drolvarg sentry.
+  const walking = { runtime: { ...rest, attempt: "approaching" } };
+  expect(rules.label(view({ ...walking, stillMs: 20000 }))).toEqual(["approach"]);
+  expect(rules.label(view({ ...walking, stillMs: 61000 }))).toEqual(["idle", "stuckApproach"]);
+  // At the target with Auto Attack off is a cause of its own, however long it stands.
+  expect(rules.label(view({ runtime: { ...rest, attempt: "waiting-to-attack" }, stillMs: 61000 }))).toEqual(["idle", "waitAttack"]);
 });
 
 test("a fight without a combat line for 45 s is dead, except in a raid and on a hidden page", () => {
