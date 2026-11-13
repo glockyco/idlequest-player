@@ -35,13 +35,11 @@ bun tools/loot.mjs --groups G1 --last 600 --enemy wisp   # kills, stones per kil
 ```
 
 Scouting without stopping AutoLevel: `tools/zone-snapshots.mjs` builds the same zone files offline
-from the content snapshot (one most-likely NPC per spawn point). Blackburrow, the Qeynos Aqueduct
-and Greater Faydark came out within about 10% of live scouts in candidates and nearest-candidate
-distance at level 5. Toxxulia Forest did not: the snapshot has two zones with that name (`tox` and
-`toxxulia`), `tox` shows 114 candidates against 86 live, and only `toxxulia` matched the live
-scout before the client's zone list changed. Check a zone live before committing to it.
-`tools/zones.mjs` skips zones the game does not have (`data/idlequest-zones.json`, from the wiki,
-with each zone's XP multiplier), but it matches them by long name, so both Toxxulia rows pass.
+from the content snapshot (one most-likely NPC per spawn point). Check a zone live before
+committing to it, because this approximation does not reproduce every live spawn.
+`tools/zones.mjs` filters zones by long name using `data/idlequest-zones.json`, so duplicate
+versions of a zone can pass that filter. Confirm the short name against the live client's zone
+list before choosing a destination.
 `tools/predict.mjs` and `tools/gear.mjs` also require the short name to be in
 `data/live-zones.json`, the live client's zone list. Zone changes and the bot's rotation use those
 names. Refresh the file when a zone change fails with "zone not found":
@@ -95,7 +93,7 @@ bun tools/predict.mjs --check                        # the model against three m
 Flags: `--min-diff` and `--max-diff` (levels relative to the leader, default -99 and 5, so with the bot's minimum con Blue only AutoLevel's green rule sets the lower edge), `--dps` and `--dps-level` (party damage per second against a same-level enemy and the leader level it was measured at), `--dps-exp`, `--spell-share`, `--nuke-resist`, `--overhead`, `--mana-per-sec`, `--tank-hp`, `--tank-ac`, `--healer-mana-pool`, `--caster-mana-pool` (the pools default to group 1's at level 24, scaled with the party level), `--magic-melee` (the share of melee and pet damage from magical hits, default 1), `--heal-cost`, `--speed`, `--stay` (minutes in the zone, which spreads the initial stock of enemies), `--party-levels` (a comma list, default six equal levels), `--content` (the content snapshot directory), `--all` (zones the game does not have) and `--json`. The header of the file explains each step. `--fit` refits `--dps`, `--overhead` and `--mana-per-sec` to the three cases, using the quantities each case measured.
 
 The model includes the spawn table with spawn chances and respawn times, enemy HP, damage, special abilities and resists, the party's hit chance and resist penalty by level difference, the tank's damage taken, recovery from mana and HP at 2.5% per 0.6 s, walking between candidate spawn points, and a spawn-rate cap per zone. It leaves out wandering and named spawns beyond their chance, enemy spells, enrage and rampage timing (a fixed extra damage instead), crowd control, pets as separate damage dealers, other players taking spawns, content flags and spawn conditions, the trip to the zone and loot. Melee immunity follows the client: special ability 19 stops all melee, 23 stops only non-magical hits, and magic weapons and pets of level 10 or more count as magical. The other special ability names follow the EQEmu numbering (`tools/mobs.mjs` says it is from memory), not a check against the client. Walking is the distance to the nearest candidate point, lengthened by a detour factor and by the share of points the party and the account's other groups in the zone have emptied. Party damage follows a curve fitted to the live runs below level 18. Read the table as a ranking, and check a zone live before committing to it.
-`tools/calibrate.mjs` compares the model with every stretch of at least 20 minutes that a group spent in one zone at one level, from the collector's run logs, and splits the gap into kills per hour, XP per kill and the fight, move, recover and idle seconds per kill. `--compare` shows the model before and after its last refit per level band, and `--fit` refits the damage curve, the walking detour and the damage factor of groups 2 to 12. The model is least certain at levels 1 to 3, 11 to 14 (Crushbone fights take twice the model's time for a reason not found) and above 39, where no group has played yet.
+`tools/calibrate.mjs` compares the model with every stretch of at least 20 minutes that a group spent in one zone at one level, from the collector's run logs, and splits the gap into kills per hour, XP per kill and the fight, move, recover and idle seconds per kill. `--compare` shows the model before and after its last refit per level band, and `--fit` refits the damage curve, the walking detour and the damage factor of groups 2 to 12. Check the calibration output for the level and zone before relying on a prediction, because a fitted damage curve does not account for every zone's fight conditions.
 
 ```sh
 bun tools/calibrate.mjs --compare
@@ -109,7 +107,7 @@ bun tools/plan.mjs --new-groups 6
 
 ## Simulating a raid fight
 
-`tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot. It compares roster choices against a boss before the characters exist, or the account as the last gear survey found it (`--roster account --leader <name>`). It loads the newest saved client release (`--client` picks another one, and a release needs a table in `tools/raidsim/clients.mjs`, which `tools/raidsim/map-client.mjs` writes). Members get the live creation stats of their race and class (`data/char-create.json`) and the server's skill caps for their level (`data/skill-caps.json`, which `bun tools/skill-caps.mjs` refreshes after a server update), both read from the game. The file header lists what is replaced and what is still assumed. A roster entry overrides race, stats, the bonus-point allocation (`alloc`), skills, items, spells and gear policy.
+`tools/raidsim.mjs` runs the client's own raid code offline: its member builder, raid tick and boss engine, with a boss from the content snapshot. It compares roster choices against a boss before the characters exist, or the account as the last gear survey found it (`--roster account --leader <name>`). It loads the newest saved client release with a table in `tools/raidsim/clients.mjs` (`--client` picks another one, and `tools/raidsim/map-client.mjs` writes the table). Members get the live creation stats of their race and class (`data/char-create.json`) and the server's skill caps for their level (`data/skill-caps.json`, which `bun tools/skill-caps.mjs` refreshes after a server update), both read from the game. The file header lists what is replaced and what is still assumed. A roster entry overrides race, stats, the bonus-point allocation (`alloc`), skills, items, spells and gear policy.
 
 ```sh
 bun tools/raidsim.mjs --boss "Hraashna the Warder" --roster tools/raidsim/rosters/groups-1-3.json   # 20 seeded fights, per-member table
@@ -118,7 +116,7 @@ bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --seeds 1 --trace "G
 bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --gear farm --gear-report   # dropped gear and spells, with where each item comes from
 ```
 
-Every fight runs in its own process and takes a few seconds. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the remaining assumptions, so use them to compare rosters and not as a forecast.
+Every fight runs in its own process and normally takes a few seconds. A fight process that runs for ten minutes is killed and reported as a timeout. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the remaining assumptions, so use them to compare rosters and not as a forecast.
 
 A member without `items` or `spells` gets a default kit from a gear policy: `--gear merchant` (the default), `"gear"` in the roster file, or `"gear"` in a member, which wins. `merchant` is the best item per slot that any merchant sells and every merchant scroll. `farm` is, per slot, the best item by the score of `tools/gear.mjs` that the member's class and race can use at its level and can get from a merchant in a live zone or from the drops of an ordinary NPC in a live zone (no Raid Resolve boss, no raid target, none above level 60), where one copy takes at most `--farm-hours` of camping (default 4). That time is the respawn time divided by the spawn chance and the drop chance, for one spawn point. Scrolls follow the same rule and add to the merchant ones. `--gear-report` prints every member's items with their sources, so a pick can be checked against the content tables. The farm kit applies the client's item rules (only the highest haste counts, hit point and mana regeneration stop at 15), leaves out items that need a deity and does not value the worn and focus effects of items. The score and the source tables are in `tools/lib/gear-data.mjs`, shared with `tools/gear.mjs`.
 
@@ -136,6 +134,8 @@ bun tools/raid-kit.mjs --boss 72003 --seeds 6   # Cazic-Thule
 ```
 
 `tools/kill-odds.mjs` fights each daily boss and each casino potion boss the survey finds with all roster characters and with the strongest group's six, and the pairs of group and gear target with the highest expected value under the model fitted to every simulated fight (`tools/lib/kill-prior.mjs`). Its fights run in the client's raid mode, which takes only enemies above level 50. It writes the kill chances and the model to `runs/state/kill-odds.json`, keeps a result for a day at its group's level, and fights `--pairs` pairs a run.
+
+Kill odds uses the newest saved client release that has a table in `tools/raidsim/clients.mjs`. It prints a notice when a newer saved release lacks a table. A failed group or raid simulation is saved as an error for that variant, while the remaining variants and targets proceed. Errors are not treated as fresh successful results on the next run.
 
 ## Measuring play
 
@@ -157,8 +157,8 @@ still while someone is below full HP or mana) or ready-idle, and names the party
 last. Compare configurations by label, with similar level and enemy mix, and never on one block.
 The leader's rate depends on the leader's race and class factor, so compare setups with different
 leaders by a member who is a companion in both (`--member`). The "Zone multiplier" section checks
-each zone's XP multiplier against the content snapshot and the wiki, which disagree for 29 zones,
-by testing which one makes every kill's XP fit a whole NPC level.
+each zone's XP multiplier against the content snapshot and the wiki by testing which one makes
+every kill's XP fit a whole NPC level. Use the fit shares rather than assuming either source is correct.
 
 - Check that a setting took effect in the event log before trusting a comparison. A tactic written
   under the wrong key is stored and silently ignored.

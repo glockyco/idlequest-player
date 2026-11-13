@@ -25,12 +25,33 @@ await iq.pausedAutoLevel(() => iq.travelTo("gfaydark"));  // pause, teleport, re
 await iq.setLeader("Tagujazolu");                  // lead the group with another member for good; the bot switches and regroups
 await iq.switchCharacter("Edroun");                // play another character for a while; the bot switches back when its pause ends
 await iq.handIn({ members: [{ name: "Edroun", counts: { "Greater Lightstone": 2 } }] });  // the bot's task: each member hands in at Smith Tv`ysa, then back to the leader
-await iq.quest({ members: ["Tagujazolu"], steps: quests["warrior-epic-1"].steps });  // quest steps from data/quests.json for each member, as the active character
+await iq.quest({ members: ["Tagujazolu"], steps: quests["warrior-epic-1"].steps, ids: quests["warrior-epic-1"].ids });  // quest steps and item ids from data/quests.json
 await iq.hunt({ zone: "mistmoore", keep: "gypsy dancer", item: "Power of Wind", waitMin: 3 });  // gray drops through Enemy Targets
 await iq.raidTime();                                // price of a raid hour in platinum, expiry (read only)
 await iq.dailyBosses();                             // the zone's daily raid bosses and resets, from level 46
 await iq.raid({ members: ["Domeyafun", "Edroun"], target: "Nagafen", zone: "soldungb", maxPp: 2500 });  // the bot's raid task: one fight, then back to leveling
 ```
+
+## Item identity in the page
+
+The page bridge is `window.iq`, distinct from the handle returned by `attach`.
+Its `carried`, `giveToNpc`, `pullItem`, `giveItem`, `equipOwn`, `buyItem` and
+`pickupGround` helpers accept an item name or `{ name, id }`. `giveToNpc` takes an
+array of those references. `castSummon` accepts the same reference in its `output`
+option. An id selects the item type rather than another item with the same name.
+`carried` counts only bags and general slots, not worn, banked or cursor items.
+
+`handInEach(npc, counts, { ids })` keeps counts keyed by name and takes an optional
+name-to-item-id map. `window.iqBot.quest({ members, steps, ids })` accepts that map
+for the quest's item checks and actions, including expected rewards on the cursor.
+Pass a chain's `ids` alongside its `steps` when starting it.
+
+`bagSpace()` returns `cursor` for the held item's name and `cursorId` for its item
+type id, both null when the cursor is empty. `window.iq.lastPos` exposes the latest
+outgoing player position as `{ x, y, z, st }`, or null before one is recorded.
+`sellCursor()` returns null for an empty cursor, returns the sale message on
+success and throws when the client refuses the sale.
+
 
 ## Spells
 

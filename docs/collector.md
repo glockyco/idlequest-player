@@ -6,7 +6,7 @@
 
 Every cycle iqd evaluates one read-only expression in each game tab through the relay's browser-level CDP endpoint (`src/cdp.mjs`), stores what it returns and raises attention items from it, so an agent sleeps in one `wait` call instead of polling the tabs. It attaches only to pages whose URL starts with `https://idlequest.net/play`, and every attach is logged in the `attach_log` table. It also asks the browser to treat each game tab as focused, because the browser throttles the timers of a hidden tab and its fights stop ending. The tabs therefore need not be in front while iqd runs.
 
-A plain `run` only reads. `--recover` adds the page supervisor, which signs tabs in and installs the page code, and `--coordinate` adds the coordinator, which gives the bots tasks. `tools/play.sh` runs with both.
+A plain `run` only reads. `--recover` adds the page supervisor, which signs tabs in and installs the page code, and `--coordinate` adds the coordinator, which gives the bots tasks. `tools/play.sh` runs with both and restarts the relay if it exits.
 
 ## Commands
 
@@ -75,9 +75,7 @@ its last hour, because the gear model does not price pieces. Each farm in `data/
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file
-spends the reward on), nor the done items of a chain in the file that `needs` the reward. One task per tab. Members who carry the item of the step
-that uses up what the chain `needs`, or of a later step, always run, and the others at most as many
-as the account holds copies of those items. A chain that stopped part way goes on after the last step `expect` the member
+spends the reward on), nor the done items of a chain in the file that `needs` the reward. One task per tab. A member who carries progress from a later step can resume it. Otherwise, every needed copy must be carried by that member or covered by a free account copy outside the chain's needers (`own` and `have` in `tools/lib/coordinator.mjs`). Chains may carry an `ids` map to distinguish items sharing a name. A chain that stopped part way goes on after the last step `expect` the member
 carries, so an item that counts only inside a timed encounter is no `expect`: the Damaged Goblin
 Crown goes to Natasha Whitewater, whom Shmendrik Lavawalker's hand-in spawns for five minutes, and a
 chain that stopped inside the encounter starts it again. A step talks to its `npc` with `say` keywords once the NPC stands on one of its spawn points:
@@ -103,10 +101,13 @@ removed before its end puts its groups back on `without` and registers no job. A
 coordinator task while a task or errand runs or a pause holds, and the next one as soon as it ends:
 each quest, hunt and target comes back on its own retry time, a failure at once after a deploy,
 which may have fixed it, unless it failed at the same step as the run before it, and a hand-in or
-farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`). While an XP
+farm join that failed holds its tab for `failHoldMin` (`tools/lib/coordinator.mjs`).
+Tasks the coordinator cannot queue are recorded as failed and wait their retry time too. Consecutive failures at the same step double that wait, up to a day (`retryTime` in `tools/lib/coordinator.mjs`). While an XP
 event multiplies kill XP (`tools/lib/xp-events.mjs`), quest chains and piece hunts wait for its end
 and a gear trip goes only when its value pays the event's factor times its cost, because an hour
 of hunting is then worth that many normal hours.
+
+The kill chance refresh logs its exit code and stderr when it fails, waits half an hour before trying again and raises an `odds` attention item after two consecutive failures. A successful refresh clears that item.
 
 The same pass sets each free group's `rotation` (`assignZones`): the zones of the band row at its
 leader's level in `data/band-rotations.json`, and of the next row from two levels below it
@@ -185,12 +186,12 @@ minute is a session the server ended ("Log in before entering the world."), so i
 show the login form. It installs the bridge and bot as
 `attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
 otherwise at most every two minutes, and installs the deployed code in a tab that runs other code
-(`iqd deploy`), outside raids and after a task that plays in the world. iqd loads `src/install.mjs` once,
+(`iqd deploy`), outside raids. A running task delays installation only while its page is in the world and the task is younger than `PAGE.taskWaitMin` in `tools/lib/page.mjs`. iqd loads `src/install.mjs` once,
 so a change to that file needs an iqd restart. A signed-out tab keeps its bot, which enters the
 world from the character select. The bot keeps its settings in the tab's sessionStorage, so it
 enters the world as its leader and regroups by itself, and a tab without them gets its group from
-`data/roster.json`. The supervisor gives a tab a new browser process when the floor of its page's
-JS heap, the lowest reading over 10 minutes, stays at `heapShare` of its limit (`PAGE` in
+`data/roster.json`. A page that stays on its loading screen is reloaded after `PAGE.loadingMin`, subject to the sign-in limits. The supervisor gives a tab a new browser process when the floor of its page's
+JS heap stays at `PAGE.heapShare` of its limit across `PAGE.heapWindowMin`, with enough readings throughout the whole window (`PAGE` in
 `tools/lib/page.mjs`). The client keeps memory it no longer needs, and a tab's process keeps what
 a reload frees, so a reload is not enough: the tab goes to a page the collector serves, which ends
 its process, and that page returns to the game by itself in a new one (`Relay.renew` in
@@ -208,7 +209,9 @@ Which commit's page code the tabs run is set with `iqd deploy` ([README](../READ
 
 ## Data
 
-`--runs <dir>` or `IQD_RUNS` moves the data directory, `runs/` by default, which is not in git. The tables are created in `runs/iq.db` by `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `runs/live/<leader>/samples.jsonl` and `events.jsonl` of the tab's group leader, also while a task plays a member, in `exportRun`'s format, read from the page's buffers without removing anything, once each, so `tools/analyze.mjs runs/live/<leader>` works on them and `iq.exportRun` can still run on the same tab. Surveys and plans the tools share are under `runs/state/`. What `run` prints, such as the coordinator's decisions, the page supervisor's actions and the cycles that took long, also goes to `runs/log/iqd-<day>.log`.
+`--runs <dir>` or `IQD_RUNS` moves only the collector's own files from the default repository `runs/` directory, which is not in git. `tools/play.sh` follows `IQD_RUNS` for the collector's status file, but play uses the default directory: `tools/kill-odds.mjs`, `tools/plan.mjs`, `tools/characters.mjs` and the SDK (`src/client.mjs`) still read or write the repository's `runs/`. The tables are created in `iq.db` by `SCHEMA` in `tools/iqd.mjs`. Recorder rows go to `live/<leader>/samples.jsonl` and `events.jsonl` of the tab's group leader, also while a task plays a member, in `exportRun`'s format, read from the page's buffers without removing anything, once each, so `tools/analyze.mjs runs/live/<leader>` works with the default directory and `iq.exportRun` can still run on the same tab. Surveys and plans the tools share are under `state/`. What `run` prints, such as the coordinator's decisions, the page supervisor's actions and the cycles that took long, also goes to `log/iqd-<day>.log`.
+
+At the first look after a raid kill, the collector saves a screenshot to the repository's `diary/media/` (`killPicture` in `tools/iqd.mjs`).
 
 `status` labels each session and lists the characters by leveling group from `data/roster.json`, where the first member of a group leads and planned groups name the classes still to create and the first letter of their names. Edit the file when groups change. Each session line shows what the party does now and for how long, its rates and the idle share of the last 10 minutes. It lists the items that need a person and counts the others by kind.
 
@@ -222,18 +225,8 @@ The collector raises an item for every trouble it sees. An open item needs a per
 
 `wait` returns every such item that no earlier `wait` returned, prints it with the status and exits 0. With `--severity decide` it returns only decisions, and with `--severity info` every open item. After the time is up it prints the status and exits 0 as well. Between `wait` calls nothing is lost, because the items already returned are stored in the database. The first `wait` of a severity starts after the items that count then, and `status` lists those.
 
-| Kind | Severity | Raised when | Closes |
-| --- | --- | --- | --- |
-| `gone` | act | The tab is missing from the relay or does not answer for 60 s, also when its bot is disabled | When the tab answers again, or `ack` ends the session |
-| `nobridge` | act | `window.iq` or `window.iqBot` is missing, or the snapshot fails | When both answer |
-| `stall` | act | The party is idle or dead for 2 min, or makes no kill for 5 min, outside raid mode and bot pauses. Errands count. The text names the cause and the activity shares of the last 10 minutes. | When the party is busy and killing again |
-| `heap` | act | The page's JS heap is above 85% of its limit | Below 85% |
-| `longtask` | act | A bot task has run for over an hour, which the stall rule does not see because a task holds its tab under a bot pause. The coordinator stops a task at 90 minutes and logs it as an intervention. | When the task ends |
-| `death` | act | The bot's `death` alert with `wake`, which means the leader or a party member died | As an event, see below |
-| `alert-<kind>` | act | Any other bot alert with `wake`, with its text copied. `levelUp` is left out because the level rules report it. | As an event, see below |
-| `levelup` | info | A leader or an account companion is above its last stored level | After ten minutes |
-| `trigger` | decide | A leader crosses a level listed in `data/triggers.json` (`level`, `text`, `doc`) | `ack` |
+The kinds, labels and mechanisms that handle them are defined in `KINDS` in `tools/lib/attention.mjs`, rather than duplicated here. Conditions are defined by `CONDITION_KINDS` in `tools/iqd.mjs` and close when their state ends. Other items are events: one closes at once when the tab's state shows it is over (a later task finished, the bags have room, the page is back in the world), when a newer act event of its kind for the tab replaces it, an info event after ten minutes and an act event after an hour without an open condition on the tab (`EVENT_TTL_MS` in `tools/iqd.mjs`). A decision stays open until `ack`.
 
-The first five are conditions and close when their state ends. The others are events: one closes at once when the tab's state shows it is over (a later task finished, the bags have room, the page is back in the world), when a newer one of its kind for the tab replaces it, an info event after ten minutes and an act event after an hour without an open condition on the tab (`EVENT_TTL_MS` in `tools/iqd.mjs`). A decision stays open until `ack`.
+Ended errands and raid kills are informational. The `client` item reports a saved client release missing an API the bot uses, and `odds` reports repeated kill chance refresh failures. Neither kind has a mechanism in `KINDS`, so both need a person at once.
 
 A tab whose bot is disabled is parked: `status` shows it as `PARKED`, and it raises nothing but `gone` when it cannot be reached. On its first look at a page, iqd takes the bot's wake alerts of the last 15 minutes and raises no level rules for a character it has not stored before. The thresholds are in `THRESHOLDS` in `tools/iqd.mjs` and the rules are tested in `tests/iqd.test.ts`.

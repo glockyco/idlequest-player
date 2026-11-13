@@ -7,8 +7,9 @@ research per class stays in [epics.md](epics.md) until the model reproduces it.
 
 ## Problem
 
-- The coordinator runs 21 hand-written chains (`data/quests.json`) that cover the early steps of ten
-  epics. The rest of every epic is prose in `epics.md`, so no character progresses past those steps.
+- The coordinator runs chains from `data/quests.json` beside generated model parts, excluding parts
+  whose steps yield a hand-kept chain's reward for the same class. Unsupported steps still block
+  their epic's generated chains.
 - A hand-written chain drifts from its scripts: a step that spawns a scene, a keyword the NPC wants
   first or a piece a later hand-in replaces has to be found and typed by hand, and a content update
   breaks it silently.
@@ -46,6 +47,19 @@ the cheapest way the account can get it: held already (NO DROP pieces move betwe
 characters with `pullItem`, and a LORE copy blocks a second), made, bought, looted from a group kill,
 or looted from a raid kill. The character's next steps are those whose inputs the account holds or
 can get now. A kill that several characters need, one copy each, is planned once for all of them.
+
+Chains, generated or kept in `data/quests.json`, can carry an `ids` map from item
+name to item type id. The coordinator and quest task use it to distinguish items
+with the same name. A generated part's `needs` lists every copy its steps consume
+that an earlier step in that part has not yielded and that the part does not buy.
+An earlier yield covers one consumed copy, not every later use of that item.
+
+The coordinator's `decide` uses `own` for pieces a member already holds and `have`
+for copies outside the chain's needers. It schedules a member only when each
+needed copy is held by that member or covered by a free outside copy. Each free
+copy covers one member's missing copy. A member already past the consuming step
+can continue without those inputs, and pulls avoid other needers' copies.
+
 
 ### Running the steps
 

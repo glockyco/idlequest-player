@@ -1,6 +1,6 @@
 # Progression guide
 
-How to take this account from new characters to a raid roster without repeating the first group's mistakes. It is written for whoever starts the next group, agent or person. The current hunting plan for group 1 is in [plans/leveling-plan.md](plans/leveling-plan.md), and the measurements behind each rule are in the diary.
+How to build a raid roster from new characters. The current hunting plan for group 1 is in [plans/leveling-plan.md](plans/leveling-plan.md).
 
 IdleQuest recreates classic EverQuest through Velious, so classic guides such as the P99 wiki, Almar's and EQProgression are a good first source for zones, camps, spells and quests. Treat what they say as a candidate and confirm it with the IdleQuest wiki, the content snapshot or a measured run before relying on it, because IdleQuest changes XP sharing, buffs, cures and much of the automation.
 
@@ -35,13 +35,13 @@ A new group does not have to start empty. Before switching leaders (<https://idl
 
 ## Kit for new characters
 
-New characters start with no weapon equipped and with their eight general slots full of starter items. Inventory Search on the macro bar lists every character's carried items, bags and banks, and the inspect window shows any character's equipment. `createGroup` in `src/group.mjs` runs every step below for a planned group of `data/roster.json`. By hand, kit every member before the first hunt:
+New characters start with no weapon equipped and with their eight general slots full of starter items. Inventory Search on the macro bar lists every character's carried items, bags and banks, and the inspect window shows any character's equipment. `createGroup` in `src/group.mjs` transfers coin, equips starter weapons, packs starter items and buys bags for a planned group in `data/roster.json`. It does not buy the upgraded weapons below. By hand, kit every member before the first hunt:
 
 1. Coin: Manage Money (`iq.manageMoney({ transferFrom })`) moves an earlier character's whole balance to the new leader.
 2. Free the general slots and arm the character: enter the world as each new character (`iq.switchCharacter`, which brings the party along and keeps the zone) and run `iq.kitStarter()`. It puts the starred starter weapon into the empty primary slot and packs the other general-slot items (starter food, the note, bandages, auto-bought food) into the starter `Backpack*`. Starter spell scrolls are already scribed.
 3. Weapons: every class gets a starred starter weapon, which `kitStarter` equips. For a better one, buy it from a weapons merchant and give it with `iq.giveItem(name, member, true)`. Tyeg Envil in West Freeport sells a Two Handed Sword (22 pp, Paladin and other plate melee) and a Warhammer (6 pp, Cleric, Druid, Shaman). The merchant item's class bits are in `item.classes`. Auto-Upgrade Companions does not equip a starter weapon, and a move onto an occupied slot does nothing, so move a hand item to a bag first.
-4. Bags: disable the bot first (`iq.setBot({ enabled: false })`), because its cleanup sells a surplus Backpack. While each character is the active one, pull the coin to it with `iq.manageMoney({ transferFrom })` and buy Backpacks into its free general slots with `iq.buyItem("Backpack", { count, merchant })`, where `merchant` is a Path To row that lists Bags (Iksob Darkchaser in Oggok). A bag cannot go inside a bag, so each purchase needs a free general slot. Enable the bot again afterwards.
-5. Once every member has a weapon, set AutoLevel's minimum con to White (`minCon: 10`) and give the bot the same limits as its target (`iq.setBot({ limits: { minCon: 10, maxCon: 13, maxLevelDiff: 5 } })`). Kill XP grows with the square of the enemy's level, and at Blue a level 3 party kept spending fights on level 1 rats worth 20 XP. The bot's remedy table (`REMEDIES` in `src/bot.js`) lowers the minimum to Blue when the zone has no enemies within the limits or AutoLevel waits a minute for an enemy others hold, and moves to another rotation zone when that happens again at Blue. The limits return to the target after `widenMin` minutes, at a zone change and after an errand. Without a target they stay wherever the last remedy left them.
+4. Bags: while each character is the active one, pull the coin to it with `iq.manageMoney({ transferFrom })` and buy Backpacks into its free general slots with `iq.buyItem("Backpack", { count, merchant })`, where `merchant` is a Path To row that lists Bags (Iksob Darkchaser in Oggok). A bag cannot go inside a bag, so each purchase needs a free general slot. The bot's inventory cleanup excludes containers from both selling and discarding.
+5. Keep the bot's default Blue through Red limits, capped at five levels above the leader (`limits: { minCon: 4, maxCon: 13, maxLevelDiff: 5 }` in `src/bot.js`). Change the bot's `limits` when changing the target range, because `keepLimits` checks on every tick and restores that target unless an errand, running task or recent widening holds it. After a remedy widens the range, restoration waits `widenMin` minutes. The guard can retain a tighter level cap. `createGroup` initially starts AutoLevel at White, but does not change the bot's default target, so that initial minimum is not persistent.
 
 ## First hour of a new group
 
@@ -57,24 +57,12 @@ These settings worked for group 1. Treat them as a starting point and change the
 
 ## Where to hunt
 
-Rates are the leader's XP per hour while AutoLevel ran, taken per character level and zone from the recorded runs of group 1 (`runs/2026-11-06-tox-ab`, `runs/2026-11-07-live`, local only) for levels with at least 10 minutes in a zone. The samples record whether the tab was visible, and whether a hidden tab is slower is unproven ([leveling plan](plans/leveling-plan.md)), so compare like with like.
+Use the bot's band rows in `data/band-rotations.json` for the current level rather than a fixed zone itinerary. The rows are the rotation's source of truth, and the [leveling plan](plans/leveling-plan.md) explains how to evaluate alternatives.
 
-| Levels | Zone (multiplier) | Measured | Notes |
-| --- | --- | --- | --- |
-| 3-5 | Toxxulia Forest (1.00) | 37k-121k | Levels 1 and 2 are not in the recorded runs. Go to a full group as soon as possible. |
-| 5-7 | Greater Faydark (1.00) | 79k-156k | Few targets are left at 7: XP fell to about 70k with half the time spent walking. |
-| 8-11 | Steamfont Mountains (1.00) | 152k-279k | White to Red, up to three levels above, gave 351k against 201k for Blue to Yellow, one 4 to 5 minute block each. |
-| 11-14 | Crushbone (1.19) | 208k-394k | Other players hunt the same orcs and leave AutoLevel waiting for spawns at times. |
-| 15-17 | Kurn's Tower (1.28) | 0.87M-1.03M | Burynai excavators cast Root on the party. By 18 most kills were level 12 to 15. |
-| 18-19 | Permafrost Caverns (1.44) | 1.47M-1.54M | |
-| 20-21 | The City of Guk (1.19) | 1.55M-1.66M | Froglok shamans cast Root about once a minute. A level-30 froglok tsu shaman caused 16 guard escapes at 20. |
-| 22-27 | Permafrost Caverns (1.44) | 1.75M-2.46M | The stock of in-band enemies shrinks as the party levels. |
-| 28 | Lair of the Splitpaw (1.28) | 2.32M | Permafrost fell to 1.72M the same level. |
-| 29-31 | The Estate of Unrest (1.13) | 2.04M-2.59M | Level 31 has only 10 minutes recorded. |
-
-The bot's band rows (`data/band-rotations.json`) choose the zones at every level, and the leveling plan gives the evidence for each row. Below level 22 the rows put the Warrens first on the model's ranking, which group 1 never visited, so its first visit is the check.
-
-Avoid at these levels, from guard events and deaths in the same runs: Blackburrow at 5 (a level-15 gnoll high shaman joined a fight and killed the leader), the City of Guk at 12 (21 guard escapes from froglok warriors, knights and shamans of level 22 to 27) and Permafrost at 28 (189 guard escapes from ice giants of level 47 to 50 and a giant wooly spider).
+- Compare candidate zones with `tools/predict.mjs` and `tools/zones.mjs`, then check actual fights and XP with `tools/analyze.mjs`. The model does not include other players taking spawns or enemy spell casts.
+- Check stronger nearby enemies as well as target density. They can join a fight even when AutoLevel would not pull them.
+- Watch guard escapes, deaths and time waiting for targets before leaving a group unattended. A zone with good eligible targets can still lose time to dangerous adds or competition.
+- Reconsider the rotation after a level-up. The eligible enemy pool changes with the party's level and configured limits.
 
 ## Deciding where to hunt and what to do
 
@@ -124,11 +112,11 @@ Whatever the choice, label the block, compare it with the one before, and record
 
 ## Mistakes to avoid
 
-- Asking a question and waiting for the answer while the party plays: AutoLevel stayed off or the loot was lost for hours.
-- Leaving an item on the cursor: a backpack held there took eight slots out of play and the loot stayed on corpses.
-- Old spells: the active character casts only memorized spells and a living pet keeps its tier, so a new spell or pet tier sits unused until it is memorized or the pet is replaced.
-- Picking a zone by target density alone, without looking at the stronger monsters nearby.
-- Reloading or navigating the game tab: the login session lives in page memory, so it needs a new sign-in.
+- Stop AutoLevel before work that needs supervision if nobody can watch the party. An unanswered question does not pause play.
+- Clear the cursor before hunting. A container held there is not available as an inventory bag.
+- Check memorized spells and pet tiers after leveling. The active character casts only memorized spells, and a living pet keeps its tier until replaced.
+- Check stronger nearby monsters before choosing a zone. Target density alone does not describe add risk.
+- Avoid reloading or navigating the game tab during play. The login session lives in page memory, so either action requires a new sign-in.
 
 ## Decisions to revisit
 

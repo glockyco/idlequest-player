@@ -55,13 +55,23 @@ of a constant per symptom.
 
 | Task | Steps | Ends |
 | --- | --- | --- |
-| Hunt | AutoLevel in the assigned zone, with priority enemies when an errand applies | Never; it is what every other task returns to |
-| Errand | Travel, then Hunt with the errand's enemies first | Item in the bags, deadline, or the party leaves the zone |
+| Default hunting (bot mode) | AutoLevel in the assigned zone, with priority enemies when an errand applies | Does not end on its own. It is what tasks return to |
 | Quest | For each member: let the fight end, become active, then per step travel, look at the step's NPC on its spawn points (another NPC there is cleared by the group's leader with its gathered party and the client's Spawn Camp), pull what the step hands over from whoever holds it, talk with keywords, give items or hand them in, and check the reward. A hand-in is a quest of one hand-in step per member | Every member done, a step fails twice, or the step's NPC is not up, which ends the task as waiting until its spawn point rolls again; then the pause ends and the bot restores the leader. A member that stopped part way goes on after the last reward it carries |
 | Gear | Let the fight end, then per move buy the item in the merchant's city or pull it from its holder, and give it equipped to its receiver, in the party or not | Every move done or recorded as failed |
 | Raid | Raid time within a price limit, Start Raid, recruit, target, attack, follow the fight, End Raid | Boss dead, wipe or deadline; the fight's outcome, duration and member damage stay in the task |
 | Directed hunt | Let the fight end, travel, then camp the enemies' spawn points with the client's Spawn Camp, or fight them through Enemy Targets one after another when no points are given. The leader loots | Item in the bags, every camped point waiting for its respawn (the task reports the first one), none of them up for `waitMin`, or the deadline; then the pause ends and the bot restores the leader |
+| Casino | Become the named roller when given, read availability, pull coin when needed, and roll within the spending cap | Potion won, cooldown, unavailable coin, spending cap or a failed step. Waiting outcomes carry a retry time, and the bot restores its leader |
+| Look | Let the fight end, travel to the boss's zone, read its spawn points, optionally wait and read again, then return to the first rotation zone | Boss seen alive, the observation deadline, no spawn point on an immediate look, or a failed step |
 | Recovery | Choose a resurrection or the free respawn, pull coin from the account's largest balance when a resurrection is worth more than it costs, then the reconciler returns the party to its zone | The leader is alive in its zone. It runs as the reconciler's death step (`watchDeath` in `src/bot.js`) and not as a task, because each step reads the Resurrection window afresh and can repeat safely |
+
+Errand is a bot mode, not a `TASKS` entry. It gives the named enemies priority during ordinary
+hunting and widens their level range while preserving the normal range for other enemies. It
+ends when the item is in the bags, its time expires, the party leaves the zone outside a guard
+escape, the configured guard-escape limit is reached, the crowded remedy ends it, a task takes
+the tab, or it is explicitly stopped. Failure to reach the errand zone clears it and reports an
+error. `watchErrand`, `REMEDIES` and the errand API in `src/bot.js` define these ends.
+Recovery is likewise a reconciler step rather than a task. The task runner's
+registry is `TASKS` in that file.
 
 ## Migration
 

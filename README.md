@@ -109,6 +109,8 @@ The project has only run on macOS.
 
    A call opens a game tab, signs in with the stored login, enters the world as the group's leader with the others in its party and starts AutoLevel. It ends with a line such as `G1: Aleader leads in Qeynos Hills, AutoLevel running, 12 pp`, and the tab shows the party fighting. Then bring up the next group. Groups that already play go on meanwhile.
 
+   Before any deploy state exists, `attach` installs the working tree's bridge and bot. The collector establishes the initial deployment when play first starts.
+
    `createGroup` first creates the six characters, writes their names into the roster and buys each a kit of bags with the account's coin. It has only run on an account that had coin. Without coin the purchases fail and are skipped, so expect the first groups of a new account to start without bags. [docs/sdk.md](docs/sdk.md#bringing-up-a-group) says what to do when a call stops halfway.
 
 7. Start play in a terminal of its own and leave it running.
@@ -131,7 +133,7 @@ The project has only run on macOS.
 
 ## Run
 
-`tools/play.sh` runs the browser relay and the collector in the foreground. It starts the collector again when it exits or finishes no cycle for a quarter of an hour.
+`tools/play.sh` runs the browser relay and the collector in the foreground. It starts the collector again when it exits or finishes no cycle for a quarter of an hour, and restarts a relay that exits.
 
 ```sh
 tools/play.sh                 # play until Ctrl-C
@@ -150,7 +152,7 @@ To add a group, add it to `data/roster.json` and bring it up as in steps 5 and 6
 
 ### Deploying page code
 
-The tabs run the bridge and the bot of a commit that was deployed, never the working tree. An edit of `src/bridge.js` or `src/bot.js` plays only after it is committed and deployed:
+Once deploy state exists, the tabs run the bridge and the bot of the deployed commit. Before that, `attach` installs the working tree, as in setup step 6. To change the deployed page code, commit and deploy an edit of `src/bridge.js` or `src/bot.js`:
 
 ```sh
 bun tools/iqd.mjs deploy --canary G7   # HEAD in group 7 first, the others keep their code
@@ -158,7 +160,7 @@ bun tools/iqd.mjs deploy               # HEAD in every group
 bun tools/iqd.mjs revert               # every group back to the commit that ran before this one, also after a canary
 ```
 
-`deploy` takes a commit as its first argument and runs `bun test` first. The tests run on the working tree, so it refuses while the tree's page files differ from the commit's. `--untested` skips both. The collector installs the code within about two minutes, after a tab's running task and outside raids. `iqd status` names the deployed commit and the groups that do not run it yet. Before the first deploy the collector deploys the commit at HEAD.
+`deploy` takes a commit as its first argument and runs `bun test` first. The tests run on the working tree, so it refuses while the tree's page files differ from the commit's. `--untested` skips both. The collector installs the code within about two minutes, outside raids. A running task delays installation only while its page is in the world and the task is younger than `PAGE.taskWaitMin` in `tools/lib/page.mjs`. `iqd status` names the deployed commit and the groups that do not run it yet. Before the first deploy the collector deploys the commit at HEAD.
 
 The collector's own code under `tools/` is the working tree's and loads when the collector starts. After changing it, stop `tools/play.sh` with Ctrl-C and start it again at once.
 
@@ -180,7 +182,7 @@ The collector's own code under `tools/` is the working tree's and loads when the
 ## Troubleshooting
 
 - A tool fails with `ENOENT ... /data/zone` or cannot read a table: the content snapshot is missing or elsewhere (step 2).
-- `iqd status` says `daemon NOT STARTED` or `NOT RUNNING`: `tools/play.sh` is not running, or a cycle takes long. Its terminal shows what the collector does.
+- `iqd status` says `daemon NOT STARTED`, `STOPPED` or `NOT RUNNING`: play has not started, stopped cleanly, or no recent cycle finished. Check the terminal running `tools/play.sh` for what the collector does.
 - `iqd: another iqd run is active`: one collector runs per data directory. Stop the other one.
 - `status` shows `relay DOWN`: the collector has no connection to the browser. Check that the extension is loaded in `chrome://extensions` and that its badge is on.
 - A group shows as `GONE`: the collector cannot reach its tab. When the tab is still there, the browser's debugging notice was dismissed or DevTools is open in it. When it is not, or it stays `GONE` for five minutes, bring the group back in a new tab with `restoreGroup` (step 6) and close the old tab in the browser.
