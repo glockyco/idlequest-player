@@ -3,9 +3,9 @@
 //
 // `iqd run` reads every game tab through the browser relay (src/cdp.mjs) on a timer, keeps a
 // durable history in runs/iq.db and runs/live/<leader>/, and raises attention items, so an agent
-// can sleep in `iqd wait` instead of polling the tabs. It never clicks, types or injects anything.
-// With `--coordinate` it also queues tasks in the bots (tools/lib/coordinator.mjs) through their
-// own task API, which plays the steps.
+// can sleep in `iqd wait` instead of polling the tabs. Plain `run` only reads the pages.
+// With `--recover` it supervises and installs page code. With `--coordinate` it also queues tasks
+// in the bots (tools/lib/coordinator.mjs) through their own task API, which plays the steps.
 // Usage: see `iqd help` and docs/collector.md.
 import { Database } from "bun:sqlite";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -264,7 +264,7 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
   const newest = new Map(events.filter((e) => e.severity === "act").map((e) => [e.kind, e.id]));
   for (const e of events) {
     if (CONDITION_KINDS.includes(e.kind) || !(e.severity in EVENT_TTL_MS)) continue;
-    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room", "alert-switch": "the leader plays again", "alert-clientUpdate": "the client lacks nothing", "alert-memory": "the page's memory is under half its limit" }[e.kind] ?? "the tab plays again", now);
+    if (res.settled?.[e.kind] >= e.t) resolveItem(db, e.id, { "alert-task": "a later task finished", "alert-cursor": "the cursor is empty", "alert-lootFull": "the bags have room", "alert-switch": "the leader plays again", "alert-clientUpdate": "the client lacks nothing", "alert-memory": `the page's memory is under ${PAGE.heapShare * 100}% of its limit` }[e.kind] ?? "the tab plays again", now);
     else if (e.severity === "act" && newest.get(e.kind) !== e.id) resolveItem(db, e.id, `replaced by #${newest.get(e.kind)}`, now);
     else if (now - e.t >= EVENT_TTL_MS[e.severity] && (e.severity === "info" || !conditionOpen)) resolveItem(db, e.id, "expired", now);
   }
@@ -279,7 +279,7 @@ export function syncAttention(db, { label, oldLabel = label, res, now = Date.now
 export function sweepOrphans(db, labels, now = Date.now()) {
   const live = new Set(labels);
   for (const e of db.query("SELECT id, t, severity, kind, session FROM attention WHERE resolved IS NULL").all()) {
-    if (live.has(e.session)) continue;
+    if (e.session == null || live.has(e.session)) continue;
     if (CONDITION_KINDS.includes(e.kind)) resolveItem(db, e.id, "no tab shows this label", now);
     else if (e.severity in EVENT_TTL_MS && now - e.t >= EVENT_TTL_MS[e.severity]) resolveItem(db, e.id, "expired", now);
   }
@@ -314,7 +314,7 @@ export function snapshotInPage(a) {
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, since: st.errand.since, until: st.errand.until } : null,
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
@@ -423,11 +423,11 @@ const REFUSED_RETRY_MIN = 360;
 const CASINO_PP_PER_DAY = 3366;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
-/** Inventory Search over every account character for `a.q`: `[{ item, who, n }]`. Read-only, through the bridge's `query`. */
+/** Inventory Search over every account character for `a.q`: `[{ item, itemId, who, n }]`. Read-only, through the bridge's `query`. */
 export async function searchInPage(a) {
   const p = window.iq.stores.character.getState().characterProfile;
   const r = await window.iq.query(1241, { characterId: p.id, stateSessionId: p.stateSessionId, action: "search", query: a.q });
-  return (r?.matches ?? []).map((m) => ({ item: m.itemName, who: m.characterName, n: m.quantity ?? 1 }));
+  return (r?.matches ?? []).map((m) => ({ item: m.itemName, itemId: m.itemId, who: m.characterName, n: m.quantity ?? 1 }));
 }
 
 /** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`, `iqBot.errand`), which checks it and runs it in the page. `stopErrand` ends the errand and `stopTask` the running task. */
@@ -618,7 +618,7 @@ const safeName = (s) => String(s).replace(/[^A-Za-z0-9_-]+/g, "_");
 
 // ---- Daemon -------------------------------------------------------------------------------------
 
-class Daemon {
+export class Daemon {
   constructor({ db, relay, runs, intervalSec, log, coordinate = false, recover = false }) {
     this.db = db;
     this.relay = relay;
@@ -664,9 +664,9 @@ class Daemon {
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
     const tabs = [...this.trackers.values()]
-      .filter((tr) => tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
+      .filter((tr) => tr.usable && tr.snap?.leader && tr.snap.bot?.enabled !== false && !tr.state.unreachableSince && !tr.snap.raid && !(tr.snap.bot?.pauseUntil > now && tr.snap.bot?.task?.status !== "running"))
       // `stale`: the page runs older code than the tabs should, which the supervisor replaces between tasks.
-      .map((tr) => ({ targetId: tr.targetId, label: tr.label, group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.codeOf(tr)), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
+      .map((tr) => ({ targetId: tr.targetId, label: tr.label, code: this.codeOf(tr), group: groupOf.get(tr.snap.leader.name) ?? null, members: [tr.snap.leader, ...(tr.snap.party ?? []).filter((m) => m.type === 2)].map((m) => ({ name: m.name, level: m.level, class: m.class ?? null })), task: tr.snap.bot?.task ?? null, errand: tr.snap.bot?.errand ?? null, stale: Boolean(this.recover && this.code && tr.snap.code !== this.codeOf(tr)), zone: tr.snap.zoneShort ?? null, rotation: tr.snap.bot?.rotation ?? null, crowdedAt: tr.snap.bot?.crowdedAt ?? {}, rotationSetAt: this.zoneSetAt?.get(tr.label) ?? null, gameHour: tr.snap.gameHour }));
     // The five minutes count from a pass that has tabs to work with: the first cycle of a run can
     // come before any tab is read, and its empty pass then held the next one back for five minutes.
     if (!tabs.length) return;
@@ -709,7 +709,18 @@ class Daemon {
     // server up to three times, in at most 30 s.
     const searched = new Map();
     const search = (q) => {
-      if (!searched.has(q)) searched.set(q, this.relay.evaluate(tabs[0].targetId, call(searchInPage, { q }), { timeout: 35000 }));
+      if (!searched.has(q)) searched.set(q, (async () => {
+        const readers = tabs.filter((t) => this.trackers.get(t.targetId)?.usable).slice(0, 2);
+        let error = new Error("item search: no usable reader");
+        for (const t of readers) {
+          try {
+            return await this.relay.evaluate(t.targetId, call(searchInPage, { q }), { timeout: 35000 });
+          } catch (e) {
+            error = e;
+          }
+        }
+        throw error;
+      })());
       return searched.get(q);
     };
     const stock = {};
@@ -717,42 +728,49 @@ class Daemon {
     const holders = {};
     const started = {};
     const have = {};
+    // The copies of a chain's pieces each of its needers carries itself (`own` of `decide`).
+    const own = {};
     // The copies of each piece a chain's needers still lack past the free copies of others, which
     // makes a looted copy progress (`recordPassProgress`).
     const lacking = {};
     const members = tabs.flatMap((t) => t.members);
-    const carriers = async (item) => (await search(item)).filter((m) => m.item === item).map((m) => m.who);
+    const matches = (row, item, ids) => ids?.[item] != null ? row.itemId === ids[item] : row.item === item;
+    const carriers = async (item, ids) => (await search(item)).filter((m) => matches(m, item, ids)).map((m) => m.who);
     for (const [id, q] of Object.entries(quests)) {
       // A character is done with a chain while it carries an item that shows it (`doneItems`): the
       // reward, or what the reward was spent on, so a spent reward does not restart the chain.
-      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map(carriers))).flat())];
+      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map((n) => carriers(n, q.ids)))).flat())];
       // A step's item shows progress only once the chain's needed pieces lie behind it
       // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
-      started[id] = [...new Set((await Promise.all(progressItems(q).map(carriers))).flat())];
+      started[id] = [...new Set((await Promise.all(progressItems(q).map((n) => carriers(n, q.ids)))).flat())];
       if (!q.needs?.length) continue;
-      // A copy a needer of the chain carries is its own: it is not free for others (`have`), and a
-      // needer that carries every piece runs like one part way through.
+      // A copy a needer of the chain carries is its own: it is not free for others (`have`), it
+      // counts for that needer (`own`), and a needer that carries every piece runs like one part
+      // way through.
       const needers = chainNeeders(id, { quests, holders, members });
-      const rows = await Promise.all(q.needs.map(async (n) => (await search(n)).filter((m) => m.item === n)));
-      q.needs.forEach((n, k) => (have[n] = Math.min(have[n] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0))));
+      const rows = await Promise.all(q.needs.map(async (n) => (await search(n)).filter((m) => matches(m, n, q.ids))));
+      q.needs.forEach((n, k) => { const key = q.ids?.[n] ?? n; have[key] = Math.min(have[key] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0)); });
       q.needs.forEach((n, k) => {
         const free = rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0);
-        lacking[n] = Math.max(lacking[n] ?? 0, needers.filter((who) => !rows[k].some((m) => m.who === who)).length - free);
+        const key = q.ids?.[n] ?? n;
+        lacking[key] = Math.max(lacking[key] ?? 0, needers.filter((who) => !rows[k].some((m) => m.who === who)).length - free);
       });
       started[id].push(...needers.filter((who) => rows.every((r) => r.some((m) => m.who === who))));
+      own[id] = Object.fromEntries(needers.map((who) => [who, Object.fromEntries(q.needs.map((n, k) => [q.ids?.[n] ?? n, rows[k].filter((m) => m.who === who).reduce((a, m) => a + m.n, 0)]))]));
     }
     const missing = {};
     const carriedBy = {};
     // An opportunity is done once the account holds the copies its characters need (`piecesNeeded`),
     // wherever they lie, because Inventory Search moves NO DROP pieces between characters. Only
-    // pieces some group can hunt now, by its level, are searched for, which keeps the pass short.
+    // pieces some group can hunt now are searched for, which keeps the pass short: a group in the
+    // opportunity's level band, or above it, which hunts the gray enemies directed (`decide`).
     const groupLevels = tabs.map((t) => t.members.reduce((s, m) => s + (m.level ?? 0), 0) / Math.max(1, t.members.length));
-    const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0] && l <= o.levels[1]);
+    const reachable = (o) => !o.levels || groupLevels.some((l) => l >= o.levels[0]);
     // Four searches at a time: one at a time made the pass take two minutes, and all at once timed out.
     const queue = opportunities.filter(reachable);
     await Promise.all(Array.from({ length: 4 }, async () => {
       for (let o; (o = queue.shift()); ) {
-        const rows = (await search(o.item)).filter((m) => m.item === o.item);
+        const rows = (await search(o.item)).filter((m) => o.itemId != null ? m.itemId === o.itemId : m.item === o.item);
         missing[o.id] = Math.max(0, piecesNeeded(o, { quests, holders, members }) - rows.reduce((a, m) => a + m.n, 0));
         carriedBy[o.id] = rows.map((m) => m.who);
       }
@@ -766,8 +784,12 @@ class Daemon {
       const fresh = entries.filter((e) => !this.points.has(e.key));
       if (!fresh.length) return;
       const { spawnPoints } = await import("./lib/content.mjs");
-      const found = await spawnPoints(fresh).catch(() => fresh.map(() => []));
-      fresh.forEach((e, k) => this.points.set(e.key, found[k]));
+      try {
+        const found = await spawnPoints(fresh);
+        fresh.forEach((e, k) => this.points.set(e.key, found[k]));
+      } catch (e) {
+        this.log(`spawn points: ${e.message}`);
+      }
     };
     await loadPoints(opportunities.filter((o) => o.camp !== false).map((o) => ({ key: o.id, zone: o.zone, pattern: o.keep })));
     for (const o of opportunities) if (o.camp === false) this.points.set(o.id, []);
@@ -781,6 +803,7 @@ class Daemon {
     settleErrands(state.history, tabs, now);
     this.doing = "experiments";
     const held = await this.experimentPass(now, tabs, state);
+    this.saveCoordinator(state);
     this.doing = "zone rates";
     // Hours a level takes each character at its group's own XP per hour over the last two hours of
     // minute totals, minutes with a task left out (another member is active then, and a trip zone
@@ -825,7 +848,7 @@ class Daemon {
     // in the db meta key `gearKeep`, so a restart keeps them.
     this.itemModel ??= await loadItemModel();
     this.gearKeep ??= metaGet(this.db, "gearKeep") ?? { counts: {}, instances: [] };
-    const epicHolders = new Set((await Promise.all(Object.values(this.itemModel.epics).flat().map((id) => carriers(this.itemModel.names.get(id))))).flat());
+    const epicHolders = new Map(await Promise.all(Object.values(this.itemModel.epics).flat().map(async (id) => [id, new Set(await carriers(this.itemModel.names.get(id), { [this.itemModel.names.get(id)]: id }))])));
     // The lightstone hand-ins the coordinator runs (`STONES`), read from Smith Tv`ysa's script.
     const stones = handInDemand(this.itemModel.branches, "Smith Tv-ysa");
     const stoneXp = Object.fromEntries(Object.entries(stones.xp).map(([id, xp]) => [this.itemModel.names.get(Number(id)), xp]));
@@ -873,7 +896,7 @@ class Daemon {
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
+    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
@@ -888,17 +911,20 @@ class Daemon {
       try {
         // An errand travels to its zone inside this call, after waiting for the fight at hand, which
         // takes up to about 30 s, so a shorter limit reported errands as not queued that had started.
+        if (!this.trackers.get(tab.targetId)?.usable) throw new Error("tab is not usable");
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
-        state.history.push({ t: now, label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: this.code });
-        if (a.kind === "gear") this.pendingGear = null;
+        state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: tab.code });
+        if (a.kind === "gear") this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
         if (a.kind === "casino") metaSet(this.db, "casinoRolls", { ...rolled, [a.who]: now });
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
+        state.history.push({ t: Date.now(), endedAt: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: null, code: tab.code, status: "failed", error: e.message });
         this.log(`coordinator: ${a.label} ${a.kind} not queued: ${e.message}`);
       }
     }
+    this.saveCoordinator(state);
     // Zone rotations by measured XP per hour, with the model's rates as the prior of a zone with
     // little time. A tab given a task this pass keeps its rotation.
     const rows = JSON.parse(await readFile(join(REPO, "data/band-rotations.json"), "utf8"));
@@ -944,9 +970,19 @@ class Daemon {
     const chains = chainSummary({ quests, holders, started, members });
     this.recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore: state.last?.chains, chains, aaBefore, aa });
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, missing, chains, epicHolders: [...epicHolders].sort(), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, chains, epicHolders: [...new Set([...epicHolders.values()].flatMap((s) => [...s]))].sort(), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
     // How long the pass took, so a slow pass shows before it delays the groups.
-    metaSet(this.db, "coordinator", { ...state, passMs: Date.now() - now });
+    this.saveCoordinator(state, Date.now() - now);
+  }
+
+  saveCoordinator(state, passMs) {
+    const stored = metaGet(this.db, "coordinator") ?? {};
+    const key = (h) => `${h.t}|${h.label}|${h.kind}|${h.id}|${h.task}`;
+    const history = new Map((state.history ?? []).map((h) => [key(h), h]));
+    for (const h of stored.history ?? []) history.set(key(h), { ...history.get(key(h)), ...h });
+    const merged = { ...stored, ...state, history: [...history.values()].filter((h) => state.last?.t == null || state.last.t - h.t < 2 * 86400000) };
+    if (passMs != null) merged.passMs = passMs;
+    metaSet(this.db, "coordinator", merged);
   }
 
   /**
@@ -962,8 +998,8 @@ class Daemon {
     recordProgress(this.db, [...chainChanges(chainsBefore, chains, now), ...aaChanges(aaBefore, aa, now)], this.groups());
     const label = (q) => `the ${q.class} chain for ${q.reward}`;
     const pieceFor = new Map();
-    for (const q of Object.values(quests)) for (const n of q.needs ?? []) if (lacking[n] > 0 && !pieceFor.has(n)) pieceFor.set(n, label(q));
-    for (const o of opportunities) if (missing[o.id] > 0 && !pieceFor.has(o.item)) pieceFor.set(o.item, quests[o.quest] ? label(quests[o.quest]) : null);
+    for (const q of Object.values(quests)) for (const n of q.needs ?? []) if (lacking[q.ids?.[n] ?? n] > 0 && !pieceFor.has(n)) pieceFor.set(n, { for: label(q), copies: lacking[q.ids?.[n] ?? n], t: now });
+    for (const o of opportunities) if (missing[o.id] > 0 && !pieceFor.has(o.item)) pieceFor.set(o.item, { for: quests[o.quest] ? label(quests[o.quest]) : null, copies: missing[o.id], t: now });
     for (const id of Object.keys(quests)) for (const item of [...doneItems(id, quests), ...progressItems(quests[id])]) pieceFor.delete(item);
     this.pieceFor = pieceFor;
     metaSet(this.db, "wanted", Object.fromEntries(pieceFor));
@@ -979,11 +1015,16 @@ class Daemon {
     this.modelRates ??= new Map();
     const missing = [...zones].filter((z) => !this.modelZones.has(z));
     if (missing.length) {
-      const loaded = await predict.loadZones(`^(${missing.join("|")})$`).catch(() => new Map());
-      for (const z of missing) this.modelZones.set(z, loaded.get(z) ?? null);
+      try {
+        const loaded = await predict.loadZones(`^(${missing.join("|")})$`);
+        for (const z of missing) this.modelZones.set(z, loaded.get(z) ?? null);
+      } catch (e) {
+        this.log(`zone model: ${e.message}`);
+      }
     }
     return (zone, level) => {
       const k = `${zone}|${level}`;
+      if (!this.modelZones.has(zone)) return 0;
       if (!this.modelRates.has(k)) {
         const z = this.modelZones.get(zone);
         this.modelRates.set(k, z ? (predict.evalZone(z, predict.cfgFromFlags(level)).xph ?? 0) : 0);
@@ -1108,12 +1149,30 @@ class Daemon {
    * groups that leveled.
    */
   async killOdds(now) {
-    const odds = JSON.parse(await readFile(join(this.runs, "state/kill-odds.json"), "utf8").catch(() => "null"));
-    if ((!odds || now - odds.t > 3600000) && !this.oddsJob) {
+    try {
+      this.odds = JSON.parse(await readFile(join(this.runs, "state/kill-odds.json"), "utf8"));
+    } catch {
+      // A refresh writes after each enemy. Keep the last complete file during a write.
+    }
+    const odds = this.odds ?? null;
+    if ((!odds || now - odds.t > 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
-      this.oddsJob = Bun.spawn(["bun", "tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: "pipe" });
-      void this.oddsJob.exited.then((code) => {
-        this.log(`kill chances: ${code === 0 ? "refreshed" : `failed with exit code ${code}`}`);
+      const job = this.oddsJob = Bun.spawn(["bun", "tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: "pipe" });
+      const stderr = new Response(job.stderr).text();
+      void Promise.all([job.exited, stderr]).then(([code, error]) => {
+        const t = Date.now();
+        if (code === 0) {
+          this.oddsFailures = 0;
+          this.oddsRetryAt = 0;
+          for (const item of this.db.query("SELECT id FROM attention WHERE kind = 'odds' AND resolved IS NULL").all()) resolveItem(this.db, item.id, "kill chances refreshed", t);
+          this.log("kill chances: refreshed");
+        } else {
+          this.oddsFailures = (this.oddsFailures ?? 0) + 1;
+          this.oddsRetryAt = t + 30 * 60000;
+          const detail = error.trim().split("\n").slice(-10).join("\n");
+          this.log(`kill chances: failed with exit code ${code}${detail ? `\n${detail}` : ""}`);
+          if (this.oddsFailures >= 2) raiseItem(this.db, { t, kind: "odds", severity: "act", key: "odds", text: `The kill chance refresh (tools/kill-odds.mjs) failed ${this.oddsFailures} times in a row: ${detail.split("\n").at(-1) || `exit code ${code}`}` });
+        }
         this.oddsJob = null;
       });
     }
@@ -1136,7 +1195,7 @@ class Daemon {
     if (!reader) return null;
     const st = await this.relay.evaluate(reader.targetId, call(bossStateInPage, {}), { timeout: 30000 });
     await writeFile(join(this.runs, "state/daily-bosses.json"), JSON.stringify({ readAt: now, by: reader.members[0].name, ...st.daily }, null, 1)).catch(() => {});
-    const raiding = [...this.trackers.values()].some((tr) => tr.snap?.raid || (tr.snap?.bot?.task?.kind === "raid" && tr.snap.bot.task.status === "running"));
+    const raiding = [...this.trackers.values()].some((tr) => tr.usable && !tr.state.unreachableSince && (tr.snap?.raid || (tr.snap?.bot?.task?.kind === "raid" && tr.snap.bot.task.status === "running")));
     const casino = this.itemModel.bosses;
     // The survey is the last gear pass's, so a potion a raid used since then is left out (`potionSpent`).
     const surveyAt = metaGet(this.db, "gear")?.t ?? 0;
@@ -1184,10 +1243,10 @@ class Daemon {
     // six hours, since the daily list can still offer its summon ("Resume with Tagujazolu" after
     // Lord Nagafen's kill on 2026-11-12). A boss the raid fought and lost to waits twelve hours,
     // for the groups' levels and gear, whatever the simulator says: Cazic-Thule beat three raids
-    // that evening that the simulator kills in four fights of four. A standing potion boss is
-    // fought again at once, which the check of the chosen kill below keeps.
+    // that evening that the simulator kills in four fights of four. A standing potion boss gets
+    // three fights before the same twelve-hour hold applies.
     const waiting = (c, source) => {
-      if (source === "standing") return null;
+      if (source === "standing" && c.fights < 3) return null;
       // Every raid on this boss counts, by summon or in the open world: Cazic-Thule's open-world
       // raid went out at 23:32 on 2026-11-12 after two lost summon raids. A raid stopped or failed
       // in its fight counts as lost, as the one stopped by hand at 23:07 that evening.
@@ -1196,15 +1255,16 @@ class Daemon {
       if (!l) return null;
       const killed = /^killed /.test(l.result ?? "");
       const lost = !killed && (/^(time is up|wiped|ended) /.test(l.result ?? "") || /^fight /.test(l.step ?? ""));
-      const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, this.code);
+      const lastTab = tabs.find((t) => t.label === l.label);
+      const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
     };
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
     // A look goes only to a boss the plan would kill if it stood: a goal boss the raid kills in
     // the simulator, and another one inside paid raid time or the day's hours, for a kill worth an hour.
     const raidOdds = (w) => odds.odds[w.key]?.raid;
-    const wanted = (w) => killable(raidOdds(w)) && ((w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth));
-    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, wanted });
+    const wanted = (w) => !waiting(w, "open") && killable(raidOdds(w)) && ((w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth));
+    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), wanted });
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, look, watch: watchRows({ watch, seen, log, value, odds: odds.odds }), hours: hoursLastDay(hours, now), resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
@@ -1215,11 +1275,11 @@ class Daemon {
     // The refusal is over once a raid has killed a casino boss after it, the one that stood.
     const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
     const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
-    const retryMin = kill?.source === "standing" && kill.fights < 3 ? 0 : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
+    const retryMin = kill?.source === "standing" ? (kill.fights < 3 ? 0 : 12 * 60) : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
     const leader = kill?.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     const free = (t) => t && !t.stale && t.task?.status !== "running";
-    const due = kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : this.code) && kill.zone;
+    const due = kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : tab?.code ?? this.code) && kill.zone;
     // A boss of the open world stands until another player kills it, so the raid's leader does
     // not finish a hunt first, which can run for half an hour: the hunt is stopped, and the pass
     // comes again with the next cycle to send the raid.
@@ -1273,7 +1333,7 @@ class Daemon {
     // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
     // the middle of a character switch, is tried once more.
     const party = [];
-    for (const tr of [...this.trackers.values()].filter((x) => x.snap?.leader && !x.state.unreachableSince && !x.snap.raid)) {
+    for (const tr of [...this.trackers.values()].filter((x) => x.usable && x.snap?.leader && !x.state.unreachableSince && !x.snap.raid && !(x.snap.bot?.task?.kind === "gear" && x.snap.bot.task.status === "running"))) {
       let rows = null;
       for (let k = 0; k < 2 && !rows?.length; k++) {
         if (k) await Bun.sleep(3000);
@@ -1290,13 +1350,26 @@ class Daemon {
     const kept = last.filter((r) => r.location === "Equipped" && groups.has(r.characterName) && !read.has(r.characterName));
     const unseen = new Set(kept.map((r) => r.characterName));
     if (kept.length) this.log(`gear pass: no tab showed ${[...unseen].join(", ")}, so they keep their last worn items and get no moves`);
-    const id = await this.relay.evaluate(tabs[0].targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...party, ...kept].map((r) => r.itemName))] }), { timeout: 10000 });
     let job = null;
-    for (let k = 0; k < 90 && !job?.done; k++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      job = await this.relay.evaluate(tabs[0].targetId, call(jobInPage, { id }), { timeout: 10000 });
+    let searchError = new Error("item search: no usable reader");
+    const readers = tabs.filter((t) => this.trackers.get(t.targetId)?.usable).slice(0, 2);
+    for (const reader of readers) {
+      try {
+        const id = await this.relay.evaluate(reader.targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...party, ...kept].map((r) => r.itemName))] }), { timeout: 10000 });
+        job = null;
+        for (let k = 0; k < 90 && !job?.done; k++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          job = await this.relay.evaluate(reader.targetId, call(jobInPage, { id }), { timeout: 10000 });
+        }
+        if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
+        break;
+      } catch (e) {
+        job = null;
+        searchError = e;
+        this.log(`gear pass: ${reader.label}'s search failed: ${e.message}`);
+      }
     }
-    if (!job?.ok) throw new Error(`item search: ${job?.error ?? "did not finish"}`);
+    if (!job?.ok) throw searchError;
     const survey = mergeSurvey([...party, ...kept], job.result.rows);
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
@@ -1329,8 +1402,10 @@ class Daemon {
     // shortens (`recoveryShares`), each Bard's walk, which its percussion instrument speeds up
     // (`walkShares`), and each member's melee and spell share of its party's damage, by which its gear
     // counts (`damageShares`). A character the party never waited for gets a zero recovery share.
-    const proc = Bun.spawn(["bun", join(REPO, "tools/groups.mjs"), "--last", "120", "--json"], { stdout: "pipe", stderr: "ignore" });
-    const groupRows = await new Response(proc.stdout).json().catch(() => []);
+    const proc = Bun.spawn(["bun", join(REPO, "tools/groups.mjs"), "--last", "120", "--json"], { stdout: "pipe", stderr: "pipe" });
+    const [output, error, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    if (exit !== 0) throw new Error(`groups report exited ${exit}: ${error.trim().split("\n").slice(-10).join("\n")}`);
+    const groupRows = JSON.parse(output);
     const recoveryOf = recoveryShares(groupRows);
     const runSongs = new Set(groupRows.map((r) => r.runSpeed?.bard?.spellId).filter(Boolean));
     this.spellRows ??= new Map();
@@ -1351,15 +1426,19 @@ class Daemon {
     const refused = refusedGoods(metaGet(this.db, "coordinator")?.history ?? [], now);
     const shop = this.shop.filter((s) => !refused.has(`${s.merchant}|${this.items.get(s.itemId)?.Name}`));
     const raidPpPerDay = (metaGet(this.db, "bossPlan")?.price ?? 8000) + CASINO_PP_PER_DAY;
-    // Each character's class epic it does not hold, with the pieces a hunt gets that the account
-    // holds none of (docs/plans/epic-model.md, step 3).
-    const carried = new Set(survey.map((r) => r.itemId));
+    // Each epic reward is separate. Carried pieces cover their holders first, then other needers.
     const epicsOf = (cls) => Object.entries(this.itemModel.epics).find(([c]) => c.toLowerCase().replace(/ /g, "") === cls)?.[1] ?? [];
-    const epics = people.flatMap((p) => {
-      const mine = epicsOf(p.cls);
-      if (survey.some((r) => r.characterName === p.name && mine.includes(r.itemId))) return [];
-      return mine.map((rewardId) => ({ rewardId, to: p.name, pieces: (this.itemModel.pieces.get(rewardId) ?? []).filter((x) => !carried.has(x.itemId)).map((x) => ({ ...x, name: this.itemModel.names.get(x.itemId) })) })).filter((e) => e.pieces.length);
-    });
+    const epics = people.flatMap((p) => epicsOf(p.cls).filter((rewardId) => !survey.some((r) => r.characterName === p.name && r.itemId === rewardId)).map((rewardId) => {
+      const needers = people.filter((other) => epicsOf(other.cls).includes(rewardId) && !survey.some((r) => r.characterName === other.name && r.itemId === rewardId));
+      const pieces = (this.itemModel.pieces.get(rewardId) ?? []).filter((x) => {
+        const rows = survey.filter((r) => r.itemId === x.itemId);
+        if (rows.some((r) => r.characterName === p.name)) return false;
+        const held = new Set(rows.filter((r) => needers.some((n) => n.name === r.characterName)).map((r) => r.characterName));
+        const free = rows.reduce((n, r) => n + (r.quantity ?? 1), 0) - held.size;
+        return free < needers.length - held.size;
+      }).map((x) => ({ ...x, name: this.itemModel.names.get(x.itemId) }));
+      return { rewardId, to: p.name, pieces };
+    }).filter((e) => e.pieces.length));
     // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
     const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
     const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
@@ -1433,11 +1512,12 @@ class Daemon {
         return await f();
       } finally {
         spent.push([name, Date.now() - t]);
+        this.part = null;
       }
     };
     // An acknowledged vanished tab ends its session. Stop tracking it until it comes back.
     const ended = new Set(this.db.query("SELECT id FROM sessions WHERE ended IS NOT NULL").all().map((r) => r.id));
-    for (const [id, tr] of this.trackers) if (tr.rowId && ended.has(tr.rowId)) this.trackers.delete(id);
+    for (const [id, tr] of this.trackers) if ((tr.rowId && ended.has(tr.rowId)) || (!tr.rowId && this.relay.connected && !this.relay.tabs().has(id))) this.trackers.delete(id);
     for (const id of this.relay.tabs().keys()) {
       if (!this.trackers.has(id)) this.trackers.set(id, { targetId: id, rowId: null, label: `tab:${id.slice(-4)}`, leader: null, state: {} });
     }
@@ -1472,6 +1552,7 @@ class Daemon {
     await part("status", () => writeFile(join(this.runs, "status.md"), renderStatus(this.db, Date.now()) + "\n"));
     const total = Date.now() - now;
     if (total > 60000) this.log(`cycle took ${Math.round(total / 1000)} s: ${spent.filter(([, ms]) => ms >= 1000).map(([name, ms]) => `${name} ${Math.round(ms / 1000)} s`).join(", ") || "no part over a second"}`);
+    this.part = null;
   }
 
   /**
@@ -1508,21 +1589,32 @@ class Daemon {
   async checkRelease(now) {
     if (this.checkingRelease) return;
     const done = metaGet(this.db, "clientChecks") ?? {};
-    const release = [...this.trackers.values()].map((tr) => tr.snap?.release).find((r) => r && !done[r]);
+    const release = [...this.trackers.values()].map((tr) => tr.snap?.release).find((r) => r && !done[r] && !(now < this.clientRetryAt?.get(r)));
     if (!release) return;
     this.checkingRelease = true;
     try {
       const run = async (args) => {
         const p = Bun.spawn(["bun", ...args], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
-        const out = await new Response(p.stdout).text();
-        await p.exited;
-        return out;
+        const [out, error, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+        return { out, error, code };
       };
-      await run(["tools/client-snapshot.mjs"]);
+      const snapshot = await run(["tools/client-snapshot.mjs"]);
+      if (snapshot.code !== 0) {
+        (this.clientRetryAt ??= new Map()).set(release, now + 3600000);
+        return this.log(`client snapshot failed for ${release}: ${snapshot.error.trim().split("\n").slice(-10).join("\n")}`);
+      }
       const dir = join(REPO, ".re/releases", release);
       // The site may serve a newer release than this page runs, which a later page brings.
-      if (!(await readdir(dir).catch(() => null))) return void this.log(`client check: release ${release} is no longer served`);
-      const fails = [...(await run(["tools/check-client.mjs", dir])).matchAll(/^FAIL \S+\s+(\S+)/gm)].map((m) => m[1]);
+      if (!(await readdir(dir).catch(() => null))) {
+        metaSet(this.db, "clientChecks", { ...done, [release]: { t: now, unserved: true } });
+        return void this.log(`client check: release ${release} is no longer served`);
+      }
+      const checked = await run(["tools/check-client.mjs", dir]);
+      const fails = [...checked.out.matchAll(/^FAIL \S+\s+(\S+)/gm)].map((m) => m[1]);
+      if (checked.code !== 0 && !fails.length) {
+        (this.clientRetryAt ??= new Map()).set(release, now + 3600000);
+        return this.log(`client check crashed for ${release}: ${checked.error.trim().split("\n").slice(-10).join("\n")}`);
+      }
       metaSet(this.db, "clientChecks", { ...done, [release]: { t: now, fails } });
       this.log(`client check: ${release} ${fails.length ? `lacks ${fails.join(", ")}` : "has everything the bot uses"}`);
       if (fails.length) raiseItem(this.db, { t: now, severity: "act", kind: "client", key: `client:${release}`, text: `The client update ${release} lacks ${fails.join(", ")}, which the bot uses. Fix them in CLIENT_SURFACE (src/bridge.js).` });
@@ -1550,6 +1642,7 @@ class Daemon {
     if (snap?.leader?.name) tr.label = snap.leader.name;
 
     const usable = snap && !snap.error && snap.hasBridge && snap.pageSession != null;
+    tr.usable = Boolean(usable);
     if (usable) {
       if (tr.state.pageSession != null && tr.state.pageSession !== snap.pageSession) {
         // The page reloaded: a new session with its own rule timers and alert cursor.
@@ -1679,6 +1772,7 @@ class Daemon {
       return note(`gave the tab a new process: ${action.why}`);
     }
     const commit = this.commitOf(tr);
+    if (!commit) return this.log(`page ${tr.label}: install skipped because no deploy state is available`);
     for (const e of await installExpressions(commit)) await evaluate(e, 30000);
     const g = JSON.parse(readFileSync(join(REPO, "data/roster.json"), "utf8")).groups.find((x) => x.members?.[0] === tr.leader);
     const set = g ? await evaluate(`(${setGroupInPage})(${JSON.stringify({ leader: g.members[0], members: g.members.slice(1) })})`) : false;
@@ -1841,7 +1935,13 @@ class Daemon {
    */
   itemFor(item, nth = 0) {
     this.pieceFor ??= new Map(Object.entries(metaGet(this.db, "wanted") ?? {}));
-    if (this.pieceFor.has(item)) return { for: this.pieceFor.get(item), piece: true };
+    if (this.pieceFor.has(item)) {
+      // The meta key held a chain's name alone before it held the copies lacking and their time.
+      const raw = this.pieceFor.get(item);
+      const piece = raw && typeof raw === "object" ? raw : { for: raw, copies: 1, t: Date.now() };
+      const n = nth + this.db.query("SELECT COUNT(*) AS n FROM progress WHERE kind = 'item' AND item = ? AND t >= ?").get(item, piece.t ?? 0).n;
+      if (n < (piece.copies ?? 0)) return { for: piece.for, piece: true };
+    }
     this.targetWants ??= metaGet(this.db, "gear")?.targets ?? [];
     const w = this.targetWants.flatMap((x) => x.items ?? []).find((x) => x.item === item);
     if (!w) return null;
@@ -2107,7 +2207,7 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
 
   const c = progressCounts(db, now - 86400000);
   const ms = db.query("SELECT t, grp, text FROM progress WHERE sig >= 2 ORDER BY t DESC LIMIT 1").get();
-  out.push(cut(`Progress (24 h): ${c.level} levels, ${c.gear} gear slots, ${c.item} items, ${c.chain} chains, ${c.aa} AA ranks, ${c.raid} raid kills${ms ? ` | latest milestone ${dur(now - ms.t)} ago: ${ms.grp ? `${ms.grp} ` : ""}${ms.text}` : ""}`, 150));
+  out.push(cut(`Progress (24 h): ${c.level} levels, ${c.gear} gear slots, ${c.item} items, ${c.chain} chains, ${c.aa} AA ranks, ${c.raid} boss kills (all bosses)${ms ? ` | latest milestone ${dur(now - ms.t)} ago: ${ms.grp ? `${ms.grp} ` : ""}${ms.text}` : ""}`, 150));
 
   // What waits for a person, by the rule the dashboard's "Needs you" uses (tools/lib/attention.mjs).
   const items = db.query("SELECT * FROM attention WHERE resolved IS NULL ORDER BY id").all();

@@ -1,7 +1,16 @@
 // Checks the attention rules of tools/iqd.mjs on fixture snapshots. No browser, no relay, no clock.
 // Run with `bun test`.
-import { expect, test } from "bun:test";
-import { openDb, raiseItem, renderStatus, resolveItem, stepSession, sweepOrphans, syncAttention } from "../tools/iqd.mjs";
+import { expect, spyOn, test } from "bun:test";
+import type { Subprocess } from "bun";
+import type { Database } from "bun:sqlite";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as gearPlan from "../tools/lib/gear-plan.mjs";
+import * as coordinator from "../tools/lib/coordinator.mjs";
+import * as content from "../tools/lib/content.mjs";
+import { settleHistory } from "../tools/lib/coordinator.mjs";
+import { Daemon, openDb, raiseItem, renderStatus, resolveItem, searchInPage, stepSession, sweepOrphans, syncAttention } from "../tools/iqd.mjs";
 
 const T0 = 1_800_000_000_000;
 const SEC = 1000;
@@ -305,4 +314,325 @@ test("a task running past an hour under its bot pause raises a long-task item, a
   const res = run(() => tasked(T0 - 61 * 60 * SEC), 1, 30);
   expect(kinds(res)).toEqual(["longtask"]);
   expect(res.items[0].text).toContain("wait for Anson McBale");
+});
+
+const collector = (over: Record<string, unknown> = {}) => Object.assign(new Daemon({
+  db: openDb(":memory:"), relay: { connected: true, tabs: () => new Map() }, runs: "", intervalSec: 30, log: () => {},
+}), over);
+const meta = (db: Database, key: string, value?: unknown) => {
+  if (value !== undefined) db.query("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)").run(key, JSON.stringify(value));
+  return JSON.parse(db.query("SELECT v FROM meta WHERE k = ?").get(key)?.v ?? "null");
+};
+// Only the streams and exit promise are used by the collector's subprocess boundary.
+const processResult = (code: number, out = "", error = "") => ({
+  stdout: new Blob([out]).stream(), stderr: new Blob([error]).stream(), exited: Promise.resolve(code),
+}) as unknown as Subprocess;
+
+test("sessionless client attention survives orphan sweeps", () => {
+  const d = collector();
+  const id = raiseItem(d.db, { t: T0, kind: "client", severity: "act", key: "client:release", text: "missing store" });
+  sweepOrphans(d.db, [], T0 + 2 * 3600000);
+  expect(d.db.query("SELECT resolved FROM attention WHERE id = ?").get(id).resolved).toBeNull();
+});
+
+test("saving a pass keeps outcomes recorded by intervening cycles and taskless failures", () => {
+  const d = collector();
+  const h = { t: T0, label: "A", kind: "hunt", id: "piece", task: 1 };
+  meta(d.db, "coordinator", { history: [{ ...h, status: "done", endedAt: T0 + SEC, kills: 2 }], extra: 7 });
+  const failure = { t: T0 + 2 * SEC, label: "B", kind: "quest", id: "q", task: null, status: "failed", error: "not queued" };
+  const state = { history: [h, failure], experiments: { running: {} }, last: { t: T0 } };
+  d.saveCoordinator(state, 2000);
+  const saved = meta(d.db, "coordinator");
+  expect(saved.history).toEqual([{ ...h, status: "done", endedAt: T0 + SEC, kills: 2 }, failure]);
+  expect(saved.extra).toBe(7);
+  expect(saved.passMs).toBe(2000);
+  expect(settleHistory(saved.history, [{ id: 2, status: "done" }])).toBe(false);
+  expect(saved.history[1]).toEqual(failure);
+});
+
+test("chain loot progress stops at the missing copies, including loot not written yet", () => {
+  const d = collector({ targetWants: [] });
+  d.recordPassProgress(T0, {
+    quests: { q: { class: "Ranger", reward: "Sword", needs: ["Piece"], ids: { Piece: 21 } } },
+    opportunities: [], missing: {}, lacking: { 21: 2 }, doneItems: () => [], progressItems: () => [],
+    chainsBefore: [], chains: [], aaBefore: {}, aa: {},
+  });
+  expect(d.itemFor("Piece", 0)?.piece).toBe(true);
+  expect(d.itemFor("Piece", 1)?.piece).toBe(true);
+  expect(d.itemFor("Piece", 2)).toBeNull();
+  d.db.query("INSERT INTO progress (t, kind, sig, item, text, key) VALUES (?, 'item', 1, 'Piece', '', 'loot')").run(T0 + SEC);
+  expect(d.itemFor("Piece", 1)).toBeNull();
+  delete d.pieceFor;
+  expect(d.itemFor("Piece", 0)?.piece).toBe(true);
+  expect(d.itemFor("Piece", 1)).toBeNull();
+});
+
+test("an unusable poll marks the tracker without reusing the old snapshot", async () => {
+  const d = collector({ relay: { connected: true, tabs: () => new Map([["tab", {}]]), evaluate: async () => ({ hasBridge: false }) } });
+  const old = snap();
+  const tr = { targetId: "tab", rowId: null, label: "A", state: {}, usable: true, snap: old };
+  d.applyItems = () => {};
+  await d.poll(tr, T0, []);
+  expect(tr.usable).toBe(false);
+  expect(tr.snap).toBe(old);
+});
+
+test("an install without deploy state never evaluates page code", async () => {
+  let calls = 0;
+  const d = collector({ relay: { evaluate: async () => { calls++; } } });
+  await d.pageAction({ targetId: "tab", label: "A" }, { kind: "install", why: "missing bridge" }, T0);
+  expect(calls).toBe(0);
+});
+
+test("Inventory Search preserves item ids for same-name pieces", async () => {
+  // The in-page function needs only this fixture, not a DOM implementation.
+  const host = globalThis as unknown as { window: unknown };
+  const previous = host.window;
+  host.window = { iq: {
+    stores: { character: { getState: () => ({ characterProfile: { id: 1, stateSessionId: 2 } }) } },
+    query: async () => ({ matches: [{ itemId: 16545, itemName: "Shovel", characterName: "A", quantity: 1 }, { itemId: 99, itemName: "Shovel", characterName: "B", quantity: 2 }] }),
+  } };
+  try {
+    expect((await searchInPage({ q: "Shovel" })).map((r: { itemId: number; n: number }) => [r.itemId, r.n])).toEqual([[16545, 1], [99, 2]]);
+  } finally {
+    host.window = previous;
+  }
+});
+
+test("unserved releases are recorded and checker crashes are throttled without recording success", async () => {
+  const d = collector({ trackers: new Map([["tab", { snap: { release: "__iqd_unserved_fixture__" } }]]) });
+  const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(0));
+  try {
+    await d.checkRelease(T0);
+    expect(meta(d.db, "clientChecks").__iqd_unserved_fixture__.unserved).toBe(true);
+    // This resolves to the repository, which exists, without creating a release fixture there.
+    d.trackers = new Map([["tab", { snap: { release: "../.." } }]]);
+    spawn.mockImplementation((args) => processResult(Array.isArray(args) && args[1] === "tools/check-client.mjs" ? 1 : 0, "", "fixture crash"));
+    await d.checkRelease(T0);
+    expect(meta(d.db, "clientChecks")["../.."]).toBeUndefined();
+    const calls = spawn.mock.calls.length;
+    await d.checkRelease(T0 + 3599999);
+    expect(spawn.mock.calls.length).toBe(calls);
+    await d.checkRelease(T0 + 3600000);
+    expect(spawn.mock.calls.length).toBe(calls + 2);
+  } finally {
+    spawn.mockRestore();
+  }
+});
+
+test("kill odds retain a complete file through a partial rewrite", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iqd-odds-"));
+  const d = collector({ runs: dir });
+  try {
+    await mkdir(join(dir, "state"));
+    await writeFile(join(dir, "state/kill-odds.json"), JSON.stringify({ t: T0, odds: { boss: {} } }));
+    const good = await d.killOdds(T0);
+    await writeFile(join(dir, "state/kill-odds.json"), '{"t":');
+    expect(await d.killOdds(T0 + SEC)).toBe(good);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("kill odds failures back off, report stderr and raise attention until success", async () => {
+  const logs: string[] = [];
+  const d = collector({ odds: null, log: (s: string) => logs.push(s) });
+  const clock = spyOn(Date, "now").mockReturnValue(T0);
+  let exit = 1;
+  const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(exit, "", "fixture error"));
+  const finish = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+  try {
+    await d.killOdds(T0);
+    await finish();
+    expect(d.oddsRetryAt).toBe(T0 + 1800000);
+    await d.killOdds(T0 + 1799999);
+    expect(spawn.mock.calls.length).toBe(1);
+    clock.mockReturnValue(T0 + 1800000);
+    await d.killOdds(T0 + 1800000);
+    await finish();
+    expect(d.db.query("SELECT kind, severity, resolved FROM attention").get()).toEqual({ kind: "odds", severity: "act", resolved: null });
+    expect(logs.some((s) => s.includes("fixture error"))).toBe(true);
+    exit = 0;
+    clock.mockReturnValue(T0 + 3600000);
+    await d.killOdds(T0 + 3600000);
+    await finish();
+    expect(d.db.query("SELECT resolved FROM attention").get().resolved).toBe(T0 + 3600000);
+  } finally {
+    clock.mockRestore();
+    spawn.mockRestore();
+  }
+});
+
+test("gear surveys skip running gear, retry search and reject a crashed group report", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iqd-gear-"));
+  const called: string[] = [];
+  const trackers = new Map(["a", "b"].map((id) => [id, { targetId: id, label: id, usable: true, state: {}, snap: { leader: {}, bot: { task: { kind: "gear", status: "running" } } } }]));
+  const d = collector({ runs: dir, trackers, shop: [], items: new Map(), itemModel: { epics: {} }, killsPerHour: { g1: 100 }, relay: { evaluate: async (id: string, expression: string) => {
+    called.push(expression);
+    if (expression.includes("inventoryInPage")) throw new Error("must not read running gear");
+    if (id === "a") throw new Error("page reloaded");
+    return expression.includes("startJobInPage") ? 1 : { done: true, ok: true, result: { rows: [] } };
+  } } });
+  const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(1, "", "groups crash"));
+  // Polling is immediate in this fixture and does not wait on the wall clock.
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout);
+  try {
+    await mkdir(join(dir, "state"));
+    await expect(d.gearPass(T0, [{ targetId: "a", label: "a" }, { targetId: "b", label: "b" }])).rejects.toThrow("groups crash");
+    expect(called.some((s) => s.includes("inventoryInPage"))).toBe(false);
+    expect(called.filter((s) => s.includes("startJobInPage")).length).toBe(2);
+    expect(d.killsPerHour).toEqual({ g1: 100 });
+    expect(meta(d.db, "gear").next).toBe(T0 + 600000);
+    expect(meta(d.db, "gearPlan")).toBeNull();
+  } finally {
+    timer.mockRestore();
+    spawn.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("epic targets keep separate rewards and the pieces other needers still lack", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iqd-epics-"));
+  const survey = [
+    { characterName: "R1", characterId: 1, itemId: 10, itemInstanceId: "reward", location: "Carried" },
+    { characterName: "R1", characterId: 1, itemId: 21, itemInstanceId: "piece", location: "Carried" },
+  ];
+  const d = collector({
+    runs: dir, shop: [], drops: [], items: new Map([10, 11, 21, 22].map((id) => [id, { id, Name: `Item${id}` }])),
+    itemModel: { epics: { Ranger: [10, 11] }, epicNeeds: new Map(), pieces: new Map([[10, []], [11, [{ itemId: 21 }, { itemId: 22 }]]]), names: new Map([[21, "Piece21"], [22, "Piece22"]]) },
+    trackers: new Map([["tab", { usable: true, state: {}, snap: {} }]]),
+    relay: { evaluate: async (_id: string, expression: string) => expression.includes("startJobInPage") ? 1 : { done: true, ok: true, result: { rows: survey } } },
+  });
+  const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(0, "[]"));
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout);
+  const people = spyOn(gearPlan, "rosterPeople").mockReturnValue([{ name: "R1", cls: "ranger" }, { name: "R2", cls: "ranger" }]);
+  let epics: { rewardId: number; to: string; pieces: { itemId: number }[] }[] = [];
+  const plan = spyOn(gearPlan, "planGear").mockImplementation((input) => { epics = input.epics; throw new Error("captured plan"); });
+  try {
+    await mkdir(join(dir, "state"));
+    await expect(d.gearPass(T0, [{ targetId: "tab" }])).rejects.toThrow("captured plan");
+    expect(epics).toEqual([
+      { rewardId: 11, to: "R1", pieces: [{ itemId: 22, name: "Piece22" }] },
+      { rewardId: 11, to: "R2", pieces: [{ itemId: 21, name: "Piece21" }, { itemId: 22, name: "Piece22" }] },
+    ]);
+  } finally {
+    plan.mockRestore();
+    people.mockRestore();
+    timer.mockRestore();
+    spawn.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("boss planning ignores stale raids and holds looks and retries with each tab's code", async () => {
+  const d = collector({
+    runs: "/__iqd_fixture_missing__", code: "fleet", targetWants: [], itemModel: { bosses: [] },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 2, bosses: [{ key: "boss", name: "Boss", zone: "z", status: "available" }] }, time: null }) },
+    trackers: new Map([["gone", { usable: false, state: {}, snap: { raid: true } }]]),
+    bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
+  });
+  d.raidGoal = () => ["Boss"];
+  const tabs = [{ targetId: "tab", label: "A", group: "g1", code: "canary", members: [{ name: "A", level: 50 }] }];
+  const groupOf = new Map([["A", "g1"]]);
+  const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds))?.kind).toBe("raid");
+  const failed = { t: T0 - 600000, endedAt: T0 - 600000, label: "A", kind: "raid", id: "boss:summon:boss", status: "failed", code: "canary" };
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [failed])).toBeNull();
+  expect(meta(d.db, "bossPlan").look).toBeNull();
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [{ ...failed, step: "fight Boss", result: "wiped in z" }])).toBeNull();
+  expect(meta(d.db, "bossPlan").look).toBeNull();
+});
+
+test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
+  const boss = { key: "boss", name: "Boss", zone: "z", itemId: 99 };
+  const d = collector({
+    runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [boss] },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: null }) },
+    bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
+  });
+  d.raidGoal = () => ["Boss"];
+  const tabs = [{ targetId: "tab", label: "A", group: "g1", members: [{ name: "A", level: 50 }] }];
+  const groupOf = new Map([["A", "g1"]]);
+  const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
+  const history = [3, 2, 1].map((n) => ({ t: T0 - n * 60000, endedAt: T0 - n * 60000, label: "A", kind: "raid", id: "boss:potion:99:A", status: "failed", step: "fight Boss", result: "wiped in z" }));
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds, {}, history.slice(0, 2)))?.kind).toBe("raid");
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, history)).toBeNull();
+});
+
+test("queued tasks use queue time and tab code, failures persist, and only queued gear leaves the plan", async () => {
+  const a = { item: "A" }, b = { item: "B" }, held = { item: "Held" };
+  let time = T0;
+  let firstSearch = true;
+  let fallback = false;
+  const trackers = new Map(["a", "b"].map((id) => [id, {
+    targetId: id, label: id, usable: true, state: {}, snap: { leader: { name: id, level: 50 }, bot: { enabled: true } },
+  }]));
+  const d = collector({
+    coordinate: true, runs: "/__iqd_fixture_missing__", xpEvents: {}, trackers, pendingGear: { moves: [a, b, held] },
+    itemModel: { chains: {}, epics: {}, epicNeeds: new Map(), names: new Map(), ids: new Map(), branches: [], bosses: [] },
+    relay: { evaluate: async (id: string, expression: string) => {
+      if (expression.includes("searchInPage")) {
+        if (firstSearch) { firstSearch = false; throw new Error("reloaded"); }
+        if (id === "b") fallback = true;
+        return [];
+      }
+      if (expression.includes("queueInPage")) {
+        time += 180000;
+        if (id === "b") throw new Error("could not move");
+        return { id: expression.includes('"kind":"gear"') ? 1 : null };
+      }
+      return [];
+    } },
+  });
+  d.codeOf = (tr: { targetId: string }) => tr.targetId === "a" ? "canary" : "fleet";
+  d.experimentPass = async (_now: number, _tabs: unknown, state: { experiments?: unknown }) => { state.experiments = { running: { fixture: {} } }; return []; };
+  d.loadRates = async () => ({});
+  d.gearPass = async () => null;
+  d.bossPass = async () => null;
+  d.killOdds = async () => null;
+  d.predictedRates = async () => { throw new Error("zone fixture failure"); };
+  const decide = spyOn(coordinator, "decide").mockReturnValue({ actions: [
+    { label: "a", kind: "gear", spec: { moves: [a] }, why: "" },
+    { label: "b", kind: "gear", spec: { moves: [b] }, why: "" },
+    { label: "a", kind: "errand", id: "errand", spec: {}, why: "" },
+  ], targets: {} });
+  const points = spyOn(content, "spawnPoints").mockImplementation(async (entries) => entries.map(() => []));
+  const clock = spyOn(Date, "now").mockImplementation(() => time);
+  try {
+    await expect(d.coordinatePass(T0)).rejects.toThrow("zone fixture failure");
+    const state = meta(d.db, "coordinator");
+    expect(fallback).toBe(true);
+    expect(state.experiments.running.fixture).toEqual({});
+    expect(state.history.map((h: { t: number; code: string; status?: string; task: number | null }) => [h.t, h.code, h.status ?? null, h.task])).toEqual([
+      [T0 + 180000, "canary", null, 1],
+      [T0 + 360000, "fleet", "failed", null],
+      [T0 + 540000, "canary", null, null],
+    ]);
+    expect(state.history[1].error).toBe("could not move");
+    expect(d.pendingGear.moves).toEqual([b, held]);
+    expect(coordinator.settleErrands(state.history, [{ label: "a", errand: { since: T0 + 540000 } }], T0 + 900000)).toBe(false);
+  } finally {
+    clock.mockRestore();
+    points.mockRestore();
+    decide.mockRestore();
+  }
+});
+
+test("cycles drop never-usable vanished tabs and clear the active part even on failure", async () => {
+  const d = collector({
+    runs: "/__iqd_fixture_missing__",
+    trackers: new Map([["missing", { rowId: null, targetId: "missing", label: "tab:missing", state: {} }]]),
+  });
+  d.triggers = async () => [];
+  d.recordOutcomes = async () => {};
+  d.checkRelease = async () => {};
+  d.coordinatePass = async () => {};
+  const clock = spyOn(Date, "now").mockReturnValue(T0);
+  try {
+    await expect(d.cycle()).rejects.toThrow();
+    expect(d.trackers.size).toBe(0);
+    expect(d.part).toBeNull();
+  } finally {
+    clock.mockRestore();
+  }
 });
