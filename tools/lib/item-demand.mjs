@@ -37,18 +37,20 @@ export async function loadItemModel(root) {
 
 /**
  * Copies of each item the roster's class epics take: one copy of a class's epic reward for each of
- * its members, and for each member that holds none of the rewards (`epicHolders`, names), the
- * copies each reward's chosen steps take (`epicNeeds`, by reward).
+ * its members, and for each member missing a reward (`epicHolders`, reward id to names),
+ * the copies that reward's chosen steps take (`epicNeeds`, by reward).
  */
-export function chainDemand({ epicNeeds, epics, members, epicHolders = new Set() }) {
+export function chainDemand({ epicNeeds, epics, members, epicHolders = new Map() }) {
   const out = {};
   const add = (id, n) => (out[id] = (out[id] ?? 0) + n);
   for (const [cls, rewards] of Object.entries(epics)) {
     const ofClass = members.filter((m) => m.class === cls);
-    for (const reward of rewards) add(reward, ofClass.length);
-    const needers = ofClass.filter((m) => !epicHolders.has(m.name)).length;
-    if (!needers) continue;
-    for (const reward of rewards) for (const [id, n] of Object.entries(epicNeeds.get(reward) ?? {})) add(id, n * needers);
+    for (const reward of rewards) {
+      add(reward, ofClass.length);
+      const needers = ofClass.filter((m) => !epicHolders.get(reward)?.has(m.name)).length;
+      if (!needers) continue;
+      for (const [id, n] of Object.entries(epicNeeds.get(reward) ?? {})) add(id, n * needers);
+    }
   }
   return out;
 }
@@ -61,16 +63,16 @@ export function chainDemand({ epicNeeds, epics, members, epicHolders = new Set()
  */
 export function stepDemand({ quests, holders = {}, members, ids }) {
   const out = {};
-  const add = (name, n) => {
-    for (const id of ids.get(name) ?? []) out[id] = (out[id] ?? 0) + n;
+  const add = (name, n, exact = {}) => {
+    for (const id of exact[name] != null ? [exact[name]] : ids.get(name) ?? []) out[id] = (out[id] ?? 0) + n;
   };
   for (const [id, q] of Object.entries(quests)) {
     const ofClass = members.filter((m) => m.class === q.class);
-    for (const name of doneItems(id, quests)) add(name, ofClass.length);
+    for (const name of doneItems(id, quests)) add(name, ofClass.length, q.ids);
     const open = ofClass.filter((m) => !(holders[id] ?? []).includes(m.name)).length;
     if (!open) continue;
-    const items = [...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])];
-    for (const name of new Set(items.filter(Boolean))) add(name, open);
+    const items = [...(q.needs ?? []), ...q.steps.flatMap((s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...(s.cast?.inputs ?? []), ...Object.keys(s.each ?? {}), s.expect])];
+    for (const name of new Set(items.filter(Boolean))) add(name, open, q.ids);
   }
   return out;
 }

@@ -9,7 +9,16 @@ test("chain demand counts each reward's step items once per member that still ne
   const epics = { Bard: [10], Wizard: [11] };
   const members = [{ name: "A", class: "Bard" }, { name: "B", class: "Bard" }, { name: "C", class: "Wizard" }];
   // B holds the epic, so only A needs its steps' items.
-  expect(chainDemand({ epicNeeds, epics, members, epicHolders: new Set(["B"]) })).toEqual({ 10: 2, 11: 1, 20: 1, 21: 2 });
+  expect(chainDemand({ epicNeeds, epics, members, epicHolders: new Map([[10, new Set(["B"])]]) })).toEqual({ 10: 2, 11: 1, 20: 1, 21: 2 });
+});
+
+test("holding one Ranger reward leaves demand for the other reward's inputs", () => {
+  expect(chainDemand({
+    epicNeeds: new Map([[10, { 20: 1 }], [11, { 21: 2 }]]),
+    epics: { Ranger: [10, 11] },
+    members: [{ name: "R", class: "Ranger" }],
+    epicHolders: new Map([[10, new Set(["R"])]]),
+  })).toEqual({ 10: 1, 11: 1, 21: 2 });
 });
 
 test("step demand keeps an open chain's items for its class and a done chain's proof for every member", () => {
@@ -64,4 +73,9 @@ test("every copy of an item the hand-in NPC takes alone for XP is kept, and noth
     branch("Mrysila", { 10500: 1 }, 14500),
   ];
   expect(handInDemand(branches, "Smith Tv-ysa")).toEqual({ demand: { 10300: ALL_COPIES }, xp: { 10300: 140000 } });
+});
+
+test("step demand reserves the specified duplicate-name id and cast inputs", () => {
+  const quests = { q: { class: "Magician", reward: "Prize", ids: { Shovel: 16545 }, needs: ["Shovel"], steps: [{ cast: { inputs: ["Scroll"] }, expect: "Prize" }] } };
+  expect(stepDemand({ quests, members: [{ name: "M", class: "Magician" }], ids: new Map([["Shovel", [6026, 16545]], ["Scroll", [80]], ["Prize", [90]]]) })).toEqual({ 16545: 1, 80: 1, 90: 2 });
 });

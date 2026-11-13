@@ -326,3 +326,35 @@ test("an item card keeps the facts a tooltip prints and leaves out the zeros", (
   const card = itemCard({ id: 3213, Name: "Kylong War Helm", icon: 625, slots: 4, classes: 33695, races: 65535, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, astr: 0, nodrop: 0, loregroup: -1, magic: 1, itemtype: 10 });
   expect(card).toEqual({ id: 3213, name: "Kylong War Helm", icon: 625, slots: ["head"], classes: 33695, races: 65535, reqlevel: 0, type: 10, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, flags: ["NO DROP", "LORE", "MAGIC"] });
 });
+
+test("two-handed epic targets pay for removing either a shield or an off-hand weapon", () => {
+  for (const cls of ["warrior", "paladin", "shadowknight"]) for (const off of [6, 7]) {
+    const people = [{ name: "P", cls, level: 30, race: "" }];
+    const epics = [{ rewardId: 5, to: "P", pieces: [{ itemId: 900, name: "Piece", sources: [{ zone: "z", npc: "a keeper", npcLevel: 30, hours: 1, drop: 1, spawn: 1 }] }] }];
+    const plan = planGear({ survey: [row("P", 4, "Equipped", 13, 1), row("P", off, "Equipped", 14, 2)], items, people, epics });
+    expect(plan.targets).toHaveLength(1);
+    expect(plan.targets[0].items[0].gain).toBeGreaterThan(0);
+    const strongShield = new Map([...items, item(6, "Buckler", { slots: 1 << 14, itemtype: 8, attack: 10000 })]);
+    expect(planGear({ survey: [row("P", 4, "Equipped", 13, 1), row("P", 6, "Equipped", 14, 2)], items: strongShield, people, epics }).targets).toEqual([]);
+  }
+});
+
+test("non-lore paired jewelry reserves one copy per slot and lore jewelry only one", () => {
+  const people = [{ name: "P", cls: "warrior", level: 30, race: "" }];
+  for (const slots of [(1 << 1) | (1 << 4), (1 << 9) | (1 << 10), (1 << 15) | (1 << 16)]) for (const loregroup of [0, -1]) {
+    const paired = new Map([item(90, "Jewelry", { slots, attack: 12, loregroup })]);
+    const plan = planGear({ survey: [], items: paired, people, drops: [{ itemId: 90, zone: "z", npc: "a keeper", hours: 1 }] });
+    expect(plan.keep.counts[90]).toBe(loregroup ? 1 : 2);
+  }
+});
+
+test("a moved lore copy releases its holder for a later copy unless another stays", () => {
+  const lore = new Map([...items, item(8, "Lore Cloak", { slots: 1 << 8, attack: 20, loregroup: -1 })]);
+  const people = [{ name: "A", cls: "warrior", level: 30, race: "", shares: { melee: 0.4, spell: 0 } }, { name: "B", cls: "warrior", level: 30, race: "", shares: { melee: 0.1, spell: 0 } }];
+  const copy = (who: string, inst: number) => ({ ...row(who, 1, "Carried", 25, inst), itemId: 8, itemName: "Lore Cloak" });
+  const plan = planGear({ survey: [copy("B", 1), copy("Holder", 2)], items: lore, people });
+  expect(plan.moves.map((m) => [m.from, m.to])).toEqual([["B", "A"], ["Holder", "B"]]);
+  expect(plan.moves[1].loreHolders).toEqual(["A"]);
+  const retained = planGear({ survey: [copy("B", 1), copy("Holder", 2), { ...copy("B", 3), location: "Bank" }], items: lore, people });
+  expect(retained.moves).toHaveLength(1);
+});

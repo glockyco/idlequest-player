@@ -319,7 +319,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // bags, speeds up.
   const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s) || s === PRIMARY || s === SECONDARY).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
-  const offer = (r, p) => {
+  const offer = (r, p, epic = false) => {
     const item = items.get(r.itemId);
     if (unworn.has(r.itemId)) return [];
     // A lore item is one per character, so a second copy is refused.
@@ -361,8 +361,11 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     }
     // A main hand counts for its stats and its swings against the one it replaces, so a caster
     // keeps a main hand worn for its stats unless the new one's stats and swings beat it.
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !mine.get(SECONDARY))) {
-      const gain = gainIn(PRIMARY) + meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, offHeld) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !offHeld || epic)) {
+      const after = new Map([...mine, [PRIMARY, item]]);
+      const newOff = TWO_HANDED.has(item.itemtype) ? null : offHeld;
+      if (!newOff) after.delete(SECONDARY);
+      const gain = value(p, after) - value(p, mine) + meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, newOff) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
       if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;
@@ -414,20 +417,25 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       spent.add(key(r));
       keepInstances.add(r.itemInstanceId);
     }
+    if (r.characterName && r.characterName !== p.name && owned.has(r.characterName)) {
+      const remains = survey.some((s) => s.characterName === r.characterName && s.itemId === r.itemId && !spent.has(key(s))) || moves.some((m) => m.to === r.characterName && m.itemId === r.itemId);
+      if (!remains) owned.get(r.characterName).delete(r.itemId);
+    }
     if (toBags) bags.get(p.name).push(items.get(r.itemId));
     else worn.get(p.name).set(slot, items.get(r.itemId));
     owned.get(p.name).add(r.itemId);
-    offers = offers.filter((o) => !spent.has(key(o.r)) && o.p.name !== p.name);
-    for (const f of sources()) if (!spent.has(key(f))) offers.push(...offer(f, byName.get(p.name)));
+    const changed = new Set([p.name, r.characterName]);
+    offers = offers.filter((o) => !spent.has(key(o.r)) && !changed.has(o.p.name));
+    for (const f of sources()) if (!spent.has(key(f))) for (const n of changed) if (byName.has(n)) offers.push(...offer(f, byName.get(n)));
   }
-  // Characters who would still take a virtual copy after the moves mean the account is short of the
-  // item, because a free copy would have been moved: that many looted copies are kept until the next pass.
+  // Slots that would still take a virtual copy after the moves mean the account is short of the
+  // item. A lore item serves at most one slot per character.
   const virtual = (itemId) => ({ characterName: null, itemId, itemName: items.get(itemId).Name, itemInstanceId: `drop:${itemId}` });
   // What each character would take of one copy, computed once per item: the drops list an item for
   // every enemy that drops it, about 18 rows per item across the live zones.
   const offersOf = new Map();
   const offersFor = (itemId) => offersOf.get(itemId) ?? offersOf.set(itemId, people.map((p) => [p, offer(virtual(itemId), p)])).get(itemId);
-  const takers = (itemId) => offersFor(itemId).filter(([, o]) => o.length > 0).length;
+  const takers = (itemId) => offersFor(itemId).reduce((n, [, o]) => n + (isLore(items.get(itemId)) ? Number(o.length > 0) : o.length), 0);
   const counts = {};
   for (const [id, n] of bought) counts[id] = n;
   for (const id of new Set([...candidates, ...drops.filter((d) => items.has(d.itemId)).map((d) => d.itemId)])) {
@@ -464,7 +472,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   for (const e of epics) {
     const p = people.find((x) => x.name === e.to);
     if (!p || !items.has(e.rewardId) || !e.pieces.length) continue;
-    const gain = Math.max(0, ...offer(virtual(e.rewardId), p).map((o) => o.gain));
+    const gain = Math.max(0, ...offer(virtual(e.rewardId), p, true).map((o) => o.gain));
     if (gain < 2 * minGain) continue;
     const share = Math.round((gain / e.pieces.length) * 100) / 100;
     for (const piece of e.pieces) {

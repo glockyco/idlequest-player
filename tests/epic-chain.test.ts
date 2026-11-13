@@ -35,7 +35,7 @@ end`;
       id: "epic-cleric-30-1",
       // The guardian's level less three, above the zone's median level less three. A step at an NPC
       // names its type ids, which tell it from another NPC of its name.
-      chain: { class: "Cleric", minLevel: 37, reward: "Fang", steps: [
+      chain: { class: "Cleric", minLevel: 37, reward: "Fang", ids: { Note: 10, Fang: 20 }, steps: [
         { zone: "z", npc: "Giver", npcIds: [1], say: ["task"], expect: "Note" },
         { zone: "z", npc: "Giver", npcIds: [1], give: ["Note"] },
         { zone: "z", kill: "a guardian", level: 40, hp: null, expect: "Fang", waitSec: 60 },
@@ -43,7 +43,7 @@ end`;
     },
     {
       id: "epic-cleric-30-2",
-      chain: { class: "Cleric", minLevel: 27, reward: "Prize", needs: ["Fang", "Hide"], steps: [{ zone: "z", npc: "Taker", npcIds: [2], give: ["Fang", "Hide"], expect: "Prize" }] },
+      chain: { class: "Cleric", minLevel: 27, reward: "Prize", ids: { Fang: 20, Hide: 60, Prize: 30 }, needs: ["Fang", "Hide"], steps: [{ zone: "z", npc: "Taker", npcIds: [2], give: ["Fang", "Hide"], expect: "Prize" }] },
     },
   ]);
 });
@@ -119,6 +119,7 @@ test("a part with a craft that trivials above 50 is left out, and a no-fail craf
   };
   expect(build(175, false)).toEqual([]);
   expect(build(175, true)).toHaveLength(1);
+  expect(build(175, true)[0].chain.steps[0]).toMatchObject({ buy: { items: ["Part"], counts: { Part: 1 } } });
   expect(build(40, false)[0].chain.steps.find((s: { craft?: unknown }) => s.craft)).toMatchObject({ craft: { recipeId: 492, skillId: 57, quantity: 10 } });
 });
 
@@ -136,6 +137,56 @@ test("a summoning spell the epic's class casts is a cast step at the spell's lev
   };
   const [chain] = build("Magician");
   expect(chain.chain.minLevel).toBe(46);
-  expect(chain.chain.steps.find((s: { cast?: unknown }) => s.cast)).toEqual({ zone: "z", cast: { spellId: 1944, spell: "Summon Orb" }, expect: "Orb" });
+  expect(chain.chain.steps.find((s: { cast?: unknown }) => s.cast)).toEqual({ zone: "z", cast: { spellId: 1944, spell: "Summon Orb", inputs: ["Spell: Summon Orb"] }, expect: "Orb" });
+  expect(chain.chain.steps[0]).toMatchObject({ buy: { items: ["Spell: Summon Orb"] } });
   expect(build("Wizard")).toEqual([]);
+});
+
+test("parts retain every external input and repeated hunted copies for hand-ins, combines and casts", () => {
+  for (const kind of ["trade", "combine", "cast"]) {
+    const drop = { kind: "drop", npcId: 7, npc: "a beast", zone: "z", level: 30, drop: 1, spawn: 1, points: 1, respawn: 60 };
+    const model = buildEpicModel({ scripts: [], npcs: [], sources: [{ item: 20, way: drop }] });
+    const branch = (inputs: Record<number, number>, gives: number[]) => ({ event: "trade", zone: "z", npc: "Taker", npcIds: [], inputs, when: [], actions: [{ give: gives }] });
+    const inputs = { 10: 1, 20: 2, 40: 1 };
+    const tree = { cls: "Magician", cost: 1, steps: [
+      { item: 20, cost: 1, way: drop },
+      { branch: branch({}, [10]), held: [] },
+      ...(kind === "trade" ? [{ branch: branch(inputs, [30]), held: [] }] : [{ item: 30, way: { kind, inputs, classes: { Magician: 1 }, nofail: true } }]),
+    ] };
+    const chains = epicChains(model, tree, { cls: "Magician", reward: 30, names: new Map([[10, "Earlier"], [20, "Hide"], [30, "Prize"], [40, "Other"]]) });
+    expect(chains).toHaveLength(2);
+    expect(chains[1].chain.needs).toEqual(["Earlier", "Hide", "Hide", "Other"]);
+    expect(chains[1].chain.ids).toEqual({ Earlier: 10, Hide: 20, Prize: 30, Other: 40 });
+  }
+});
+
+test("death gifts become rewards and hunt deaths match ids without conflating punctuation", () => {
+  const scripts = [script("z/a_beast-D.lua", "function event_death_complete(e)\n e.other:SummonItem(10)\nend")];
+  const model = buildEpicModel({ scripts, npcs: [{ id: 7, name: "a_beast`D", level: 30, loottable: 0 }], spawns: [{ npcId: 7, zone: "z" }], sources: [{ item: 20, way: { kind: "drop", npcId: 7, npc: "a_beast`D", zone: "z", level: 30, drop: 1, spawn: 1, points: 1, respawn: 60 } }] });
+  const death = { branch: model.branches[0], held: [] };
+  const names = new Map([[10, "Gift"], [20, "Hide"]]);
+  const [gift] = epicChains(model, { cost: 1, steps: [death] }, { cls: "Cleric", reward: 10, names });
+  expect(gift.chain.reward).toBe("Gift");
+  expect(gift.chain.steps[0].expect).toBe("Gift");
+  const [hunt] = epicChains(model, { cost: 1, steps: [{ item: 20, cost: 1, way: model.ways.get(20)![0] }, death] }, { cls: "Cleric", reward: 20, names });
+  expect(hunt.chain.steps).toEqual([]);
+  model.ways.get(20)![0].npcId = 8;
+  const [distinct] = epicChains(model, { cost: 1, steps: [{ item: 20, cost: 1, way: model.ways.get(20)![0] }, death] }, { cls: "Cleric", reward: 20, names });
+  expect(distinct.chain.steps[0].expect).toBe("Gift");
+  delete model.ways.get(20)![0].npcId;
+  const [differentSpelling] = epicChains(model, { cost: 1, steps: [{ item: 20, cost: 1, way: model.ways.get(20)![0] }, death] }, { cls: "Cleric", reward: 20, names });
+  expect(differentSpelling.chain.steps[0].expect).toBe("Gift");
+  model.ways.get(20)![0].npc = "#a_beast-D";
+  const [sameSpelling] = epicChains(model, { cost: 1, steps: [{ item: 20, cost: 1, way: model.ways.get(20)![0] }, death] }, { cls: "Cleric", reward: 20, names });
+  expect(sameSpelling.chain.steps).toEqual([]);
+});
+
+test("hand-kept ambiguous names use the script's item ids", async () => {
+  const quests = await Bun.file(new URL("../data/quests.json", import.meta.url)).json();
+  expect(quests["cleric-epic-1"].ids).toEqual({ "Ornate Sea Shell": 28047 });
+  expect(quests["paladin-epic-note"].ids).toEqual({ "Sealed Note": 18936 });
+  expect(quests["paladin-epic-hayle"].ids).toEqual({ "Sealed Note": 18936, Note: 18937 });
+  expect(quests["magician-epic-orb"].ids).toEqual({ "Power of the Orb": 18958 });
+  expect(quests["magician-epic-broom"].ids).toEqual({ Broom: 16544 });
+  expect(quests["magician-epic-shovel"].ids).toEqual({ Shovel: 16545, Ruby: 10035 });
 });

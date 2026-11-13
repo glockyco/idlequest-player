@@ -23,18 +23,21 @@ const CRAFT_TRIVIAL_MAX = 50;
  * `expect` and a purchase from a merchant of the same zone as `buy`, a step that only buys for a
  * merchant of another zone, a kill step for an NPC a hand-in spawns with its loot as `expect`, and
  * a craft step for a combine. A hunted piece (`huntPieces`) and the deaths that bring it are no
- * step: each part that takes hunted pieces starts a new chain whose `needs` are those pieces and
- * the part before's reward. A part's `minLevel` is its hardest kill's level, and the median level
- * of each zone it walks, less `KILL_MARGIN`. None for a tree that is blocked or needs a kind the
- * bot lacks (`missingKinds`). `names` maps item ids to names, and `shopZones` are the cities where
- * a party of any level can shop (data/shop-zones.json).
+ * step. Each part that takes hunted pieces starts a new chain whose `needs` include every input
+ * not produced earlier in that part or bought, and the part before's reward for ordering.
+ * A part's `minLevel` is its hardest kill's level and each zone's median level, less `KILL_MARGIN`.
+ * None for a blocked tree or a kind the bot lacks (`missingKinds`). `names` maps ids to names.
+ * `shopZones` are the cities where a party of any level can shop (data/shop-zones.json).
  */
 export function epicChains(model, tree, { cls, reward, names, shopZones = new Set() }) {
   if (!Number.isFinite(tree.cost) || missingKinds(model, tree).length) return [];
   const pieces = huntPieces(model, tree);
   const hunted = new Set(pieces.map((p) => p.itemId));
   // The NPCs of the hunts, whose deaths belong to the hunt rather than to the chain.
-  const huntNpcs = new Set(pieces.flatMap((p) => p.sources.flatMap((s) => [s.npc, ...s.also])));
+  const npcKey = (n) => n.replace(/^#/, "").replace(/_/g, " ").trim();
+  const huntIds = new Set(pieces.flatMap((p) => p.sources.flatMap((s) => [s.npcId, ...(s.alsoIds ?? [])])).filter((id) => id != null));
+  const huntNpcs = new Set(pieces.flatMap((p) => p.sources.flatMap((s) => [s.npc, ...s.also])).map(npcKey));
+  const unnamedHunts = new Set(pieces.flatMap((p) => p.sources.filter((s) => s.npcId == null).flatMap((s) => [s.npc, ...s.also])).map(npcKey));
   const name = (id) => names.get(id) ?? `#${id}`;
   const bought = new Map(tree.steps.filter((s) => s.item && s.way.kind === "buy").map((s) => [s.item, s.way]));
   // Where a bought piece is bought for a hand-in in `zone`: at a merchant of that zone when one
@@ -45,42 +48,73 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
   };
   const parts = [];
   let part = { steps: [], needs: [], level: 0 };
+  let available = new Map();
+  const take = (inputs) => {
+    const takes = Object.entries(inputs).flatMap(([id, n]) => Array(n).fill(Number(id)));
+    if (takes.some((id) => hunted.has(id)) && part.steps.length) {
+      parts.push(part);
+      part = { steps: [], needs: [], level: 0 };
+      available = new Map();
+    }
+    for (const id of takes) {
+      if (bought.has(id)) continue;
+      const n = available.get(id) ?? 0;
+      if (n) available.set(id, n - 1);
+      else part.needs.push(name(id));
+    }
+    return takes;
+  };
+  const yieldItem = (id) => available.set(id, (available.get(id) ?? 0) + 1);
+  const buyInputs = (inputs, zone) => {
+    for (const [raw, n] of Object.entries(inputs)) {
+      const id = Number(raw);
+      if (!bought.has(id)) continue;
+      const w = sellerOf(id, zone);
+      part.steps.push({ zone: w.zone, buy: { merchant: w.npc, items: [name(id)], counts: { [name(id)]: n } } });
+    }
+  };
   for (const s of tree.steps) {
     if (s.item) {
       if (s.way.kind === "scene" && !hunted.has(s.item)) {
         // A kill names its enemy's level and hit points, for the group's chance against it.
         part.steps.push({ zone: s.way.by?.zone ?? [...(model.sites.get(s.way.npcId)?.keys() ?? [])][0], kill: s.way.npc, level: s.way.level ?? model.npcs.get(s.way.npcId)?.level ?? null, hp: model.npcs.get(s.way.npcId)?.hp ?? null, expect: name(s.item), waitSec: SPAWN_WAIT_SEC });
         part.level = Math.max(part.level, s.way.level ?? 0);
+        yieldItem(s.item);
       } else if (s.way.kind === "combine") {
-        const inputs = Object.keys(s.way.inputs).map(Number).filter((id) => !model.catalog.has(id)).map(name);
-        part.steps.push({ zone: part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone, craft: { recipeId: s.way.recipe, skillId: s.way.skill, quantity: s.way.nofail ? 1 : CRAFT_TRIES, inputs, output: { item: name(s.item), id: s.item } }, expect: name(s.item) });
+        const carried = Object.fromEntries(Object.entries(s.way.inputs).filter(([id]) => !model.catalog.has(Number(id))));
+        const inputs = take(carried).map(name);
+        const zone = part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone;
+        buyInputs(carried, zone);
+        part.steps.push({ zone, craft: { recipeId: s.way.recipe, skillId: s.way.skill, quantity: s.way.nofail ? 1 : CRAFT_TRIES, inputs, output: { item: name(s.item), id: s.item } }, expect: name(s.item) });
         if (!s.way.nofail) part.trivial = Math.max(part.trivial ?? 0, s.way.trivial ?? 0);
+        yieldItem(s.item);
       } else if (s.way.kind === "ground") {
         // A quest item that lies in its zone, picked up as a click on it does, and back after its respawn.
         part.steps.push({ zone: s.way.zone, pick: name(s.item), expect: name(s.item), respawnSec: s.way.respawn ?? null });
+        yieldItem(s.item);
       } else if (s.way.kind === "cast") {
         // The epic's own character casts the summoning spell where the part stands: the model
         // leaves a cast by another class out (`missingKinds`). It needs the spell's level.
-        part.steps.push({ zone: part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone, cast: { spellId: s.way.spell, spell: s.way.name }, expect: name(s.item) });
+        const inputs = take(s.way.inputs).map(name);
+        const zone = part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone;
+        buyInputs(s.way.inputs, zone);
+        part.steps.push({ zone, cast: { spellId: s.way.spell, spell: s.way.name, inputs }, expect: name(s.item) });
+        yieldItem(s.item);
         part.castLevel = Math.max(part.castLevel ?? 0, s.way.classes?.[cls] ?? 0);
       }
       continue;
     }
     const b = s.branch;
-    if (b.event === "timer" || b.event === "signal" || (b.event === "death" && huntNpcs.has(b.npc))) continue;
+    if (b.event === "timer" || b.event === "signal" || (b.event === "death" && (b.npcIds?.length ? b.npcIds.some((id) => huntIds.has(id)) || unnamedHunts.has(npcKey(b.npc)) : huntNpcs.has(npcKey(b.npc))))) continue;
     if (b.event === "death") {
       const hardest = b.npcIds.map((id) => model.npcs.get(id)).filter(Boolean).sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
-      part.steps.push({ zone: b.zone, kill: b.npc, level: hardest?.level ?? null, hp: hardest?.hp ?? null, waitSec: SPAWN_WAIT_SEC });
+      const gives = b.actions.flatMap((a) => a.give ?? []);
+      part.steps.push({ zone: b.zone, kill: b.npc, level: hardest?.level ?? null, hp: hardest?.hp ?? null, ...(gives.length ? { expect: name(gives[0]) } : {}), waitSec: SPAWN_WAIT_SEC });
+      for (const id of gives) yieldItem(id);
       part.level = Math.max(part.level, ...b.npcIds.map((id) => model.npcs.get(id)?.level ?? 0));
       continue;
     }
-    const takes = Object.entries(b.inputs).flatMap(([id, n]) => Array(n).fill(Number(id)));
-    const fresh = [...new Set(takes.filter((id) => hunted.has(id)))].map(name);
-    if (fresh.length && part.steps.length) {
-      parts.push(part);
-      part = { steps: [], needs: [], level: 0 };
-    }
-    part.needs.push(...fresh);
+    const takes = take(b.inputs);
     const say = b.when.find((c) => c.say)?.say;
     const coin = b.when.find((c) => c.trade?.coin)?.trade.coin;
     const gives = b.actions.flatMap((a) => a.give ?? []).filter((id) => !(String(id) in b.inputs));
@@ -102,6 +136,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       ...(near.length ? { buy: { merchant: sellerOf(near[0], b.zone).npc, items: near.map(name) } } : {}),
       ...(gives.length ? { expect: name(gives[0]) } : {}),
     });
+    for (const id of b.actions.flatMap((a) => a.give ?? [])) yieldItem(id);
   }
   parts.push(part);
   // The median level of each zone's static NPCs.
@@ -112,6 +147,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     return l.length ? l[Math.floor(l.length / 2)] : 0;
   };
   const key = cls.toLowerCase().replace(/ /g, "-");
+  const ids = Object.fromEntries(tree.steps.flatMap((s) => s.item ? [s.item, ...Object.keys(s.way.inputs ?? {}).map(Number)] : [...Object.keys(s.branch.inputs).map(Number), ...s.branch.actions.flatMap((a) => a.give ?? [])]).map((id) => [name(id), id]));
   return parts
     .map((p, k) => {
       const prev = k > 0 ? parts[k - 1].steps.findLast((x) => x.expect)?.expect : null;
@@ -119,7 +155,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       return {
         id: `epic-${key}-${reward}-${k + 1}`,
         trivial: p.trivial ?? 0,
-        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.castLevel ?? 0, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ...(p.needs.length || prev ? { needs: [...(prev ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
+        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.castLevel ?? 0, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ids: Object.fromEntries([...new Set([last, ...(prev ? [prev] : []), ...p.needs, ...p.steps.flatMap((s) => [s.expect, s.pick, ...(s.give ?? []), ...(s.buy?.items ?? []), ...(s.craft?.inputs ?? []), s.craft?.output?.item, ...(s.cast?.inputs ?? [])])].filter(Boolean))].map((n) => [n, ids[n]])), ...(p.needs.length || prev ? { needs: [...(prev && !p.needs.includes(prev) ? [prev] : []), ...p.needs] } : {}), steps: p.steps },
       };
     })
     // A part with a craft that trivials above `CRAFT_TRIVIAL_MAX` waits until the account trains

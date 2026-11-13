@@ -549,15 +549,15 @@ export function missingKinds(model, tree) {
  * at a static NPC, each death spawning the next with its branch's chance `q`. A death that spawns
  * its own NPC again, with chance `r`, keeps that NPC's line going, so a line ends in the next NPC
  * with the chance `q / (1 - r)`, after `1 / q` deaths on average. Returns `{ root, yield, kills,
- * also, level, hp, fights }`: the static NPC, the copies of `npcId` one of its spawns brings, the
- * kills one meeting takes, the chain's other NPCs by name, the hardest NPC's level and hit points,
- * and `fights`, each NPC of the chain with its level, hit points and the kills one meeting takes of
- * it, or null when only a hand-in or a keyword spawns it.
+ * also, alsoIds, level, hp, fights }`: the static NPC id, the copies of `npcId` one spawn brings,
+ * the kills one meeting takes, the chain's other NPC names and ids, its hardest level and hit
+ * points, and each fight's level, hit points and kills, or null when only a hand-in or keyword
+ * spawns it.
  */
 function meeting(model, npcId, seen = new Set()) {
   const npc = model.npcs.get(npcId);
   const fight = { npc: npc?.name ?? `#${npcId}`, level: npc?.level ?? 0, hp: npc?.hp ?? null, kills: 1 };
-  if (model.staticIds.has(npcId)) return { root: npcId, yield: 1, kills: 1, also: [], level: fight.level, hp: fight.hp, fights: [fight] };
+  if (model.staticIds.has(npcId)) return { root: npcId, yield: 1, kills: 1, also: [], alsoIds: [], level: fight.level, hp: fight.hp, fights: [fight] };
   let best = null;
   for (const b of model.spawners.get(npcId) ?? []) {
     if (b.event !== "death") continue;
@@ -572,6 +572,7 @@ function meeting(model, npcId, seen = new Set()) {
         yield: prev.yield * Math.min(1, q / Math.max(q, 1 - r)),
         kills: prev.kills / Math.max(q, 1e-3) + 1,
         also: [...prev.also, npc?.name ?? `#${npcId}`],
+        alsoIds: [...prev.alsoIds, npcId],
         level: Math.max(prev.level, npc?.level ?? 0),
         hp: Math.max(prev.hp ?? 0, npc?.hp ?? 0) || null,
         fights: [...prev.fights.map((f) => ({ ...f, kills: f.kills / Math.max(q, 1e-3) })), fight],
@@ -588,7 +589,8 @@ function meeting(model, npcId, seen = new Set()) {
  * static NPC that drops the piece, and for the loot of an NPC a chain of deaths spawns (`meeting`),
  * the static NPC at the chain's start, whose spawns give the piece at the chain's yield times its
  * drop, after the chain's kills, with the chain's other NPCs in `also`, which the hunt kills too, and
- * its `fights` per copy.
+ * its `fights` per copy. Sources retain the root's `npcId` and the other NPCs' `alsoIds` so chain
+ * generation can distinguish NPCs whose names look alike.
  */
 export function huntPieces(model, tree) {
   const out = [];
@@ -596,13 +598,13 @@ export function huntPieces(model, tree) {
     if (!s.item || !Number.isFinite(s.cost)) continue;
     let sources = [];
     if (s.way.kind === "drop") {
-      sources = (model.ways.get(s.item) ?? []).filter((w) => w.kind === "drop").map((w) => ({ ...dropRow(s.item, { ...w, zoneShort: w.zone }), also: [] }));
+      sources = (model.ways.get(s.item) ?? []).filter((w) => w.kind === "drop").map((w) => ({ ...dropRow(s.item, { ...w, zoneShort: w.zone }), npcId: w.npcId, also: [], alsoIds: [] }));
     } else if (s.way.kind === "scene") {
       const m = meeting(model, s.way.npcId);
       if (!m) continue;
       const root = model.npcs.get(m.root)?.name ?? `#${m.root}`;
       const fights = m.fights.map((f) => ({ ...f, kills: f.kills / Math.max(s.way.drop, 1e-3) }));
-      sources = [...(model.sites.get(m.root) ?? [])].map(([zone, site]) => ({ ...dropRow(s.item, { zoneShort: zone, npc: root, level: m.level, hp: m.hp, spawn: site.spawn, drop: m.yield * s.way.drop, points: site.points, respawn: site.respawn, when: site.when, kills: m.kills / Math.max(s.way.drop, 1e-3) }), also: m.also, fights }));
+      sources = [...(model.sites.get(m.root) ?? [])].map(([zone, site]) => ({ ...dropRow(s.item, { zoneShort: zone, npc: root, level: m.level, hp: m.hp, spawn: site.spawn, drop: m.yield * s.way.drop, points: site.points, respawn: site.respawn, when: site.when, kills: m.kills / Math.max(s.way.drop, 1e-3) }), npcId: m.root, also: m.also, alsoIds: m.alsoIds, fights }));
     }
     sources = sources.filter((r) => r.itemId != null);
     if (sources.length) out.push({ itemId: s.item, sources });

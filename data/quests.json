@@ -151,6 +151,7 @@
     "class": "Cleric",
     "minLevel": 34,
     "reward": "Coral Statue of Tarew",
+    "ids": { "Ornate Sea Shell": 28047 },
     "doneIf": [
       "Orb of Frozen Water",
       "Orb of the Triumvirate",
@@ -235,6 +236,7 @@
     "class": "Paladin",
     "minLevel": 15,
     "reward": "Sealed Note",
+    "ids": { "Sealed Note": 18936 },
     "doneIf": [
       "SoulFire",
       "Fiery Avenger",
@@ -314,6 +316,7 @@
     "class": "Paladin",
     "minLevel": 22,
     "reward": "Note",
+    "ids": { "Sealed Note": 18936, "Note": 18937 },
     "doneIf": [
       "SoulFire",
       "Fiery Avenger",
@@ -618,6 +621,7 @@
     "class": "Magician",
     "minLevel": 28,
     "reward": "Power of the Orb",
+    "ids": { "Power of the Orb": 18958 },
     "doneIf": [
       "Element of Fire",
       "Spell: Summon Orb",
@@ -645,6 +649,7 @@
     "class": "Magician",
     "minLevel": 22,
     "reward": "Broom of Trilon",
+    "ids": { "Broom": 16544 },
     "doneIf": [
       "Element of Earth",
       "Spell: Summon Orb",
@@ -674,6 +679,7 @@
     "class": "Magician",
     "minLevel": 22,
     "reward": "Shovel of Ponz",
+    "ids": { "Shovel": 16545, "Ruby": 10035 },
     "doneIf": [
       "Element of Earth",
       "Spell: Summon Orb",
