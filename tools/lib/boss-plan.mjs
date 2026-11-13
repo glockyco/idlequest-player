@@ -258,6 +258,10 @@ export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, look
   return due.map((d) => ({ key: d.w.key, name: d.w.name, zone: d.w.zone, until: d.until > now ? d.until : 0, why: d.why }));
 }
 
+// Two respawn times of one boss are the same respawn within a minute: after its restart of
+// 2026-11-12 the server gave Venril Sathir's time cut to the second, 691 ms off.
+const sameRespawn = (a, b) => (a ?? null) === (b ?? null) || (a != null && b != null && Math.abs(a - b) < 60000);
+
 /**
  * The sightings on record with what the tabs see now of the watched bosses added (`log`, at most
  * 300 rows `{ key, state, respawnAt, seenAt, lastAt }`): one row when a boss's state or respawn
@@ -271,7 +275,7 @@ export function noteSightings(log = [], watch = [], seen = {}) {
     if (!s || s.zone !== w.zone) continue;
     const i = out.findLastIndex((r) => r.key === w.key);
     const last = out[i];
-    if (last && last.state === s.state && (last.respawnAt ?? null) === (s.respawnAt ?? null)) {
+    if (last && last.state === s.state && sameRespawn(last.respawnAt, s.respawnAt)) {
       if (s.seenAt > (last.lastAt ?? last.seenAt)) out[i] = { ...last, lastAt: s.seenAt };
     } else out.push({ key: w.key, state: s.state, respawnAt: s.respawnAt ?? null, seenAt: s.seenAt, lastAt: s.seenAt });
   }
@@ -284,7 +288,9 @@ export function noteSightings(log = [], watch = [], seen = {}) {
 // came back, and before it was first seen down.
 function killWindow(w, s, log) {
   const rows = log.filter((r) => r.key === w.key);
-  const i = rows.findLastIndex((r) => r.state !== "alive" && r.respawnAt === s.respawnAt);
+  // The first row of this respawn, also where the record holds it twice.
+  let i = rows.findLastIndex((r) => r.state !== "alive" && sameRespawn(r.respawnAt, s.respawnAt));
+  while (i > 0 && rows[i - 1].state !== "alive" && sameRespawn(rows[i - 1].respawnAt, s.respawnAt)) i--;
   const nominal = s.respawnAt - w.respawnMs;
   const to = Math.min(nominal + (w.varianceMs ?? 0), rows[i]?.seenAt ?? s.seenAt);
   let from = nominal - (w.varianceMs ?? 0);
