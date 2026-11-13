@@ -201,10 +201,9 @@ for (const { leader, snap } of playing) {
     idle.push(leader);
     continue;
   }
-  kill += lost; // the kill XP is what the counter gained before the deaths took XP back
   let deaths = 0;
   const evFile = join(here, "runs/live", leader, "events.jsonl");
-  if (existsSync(evFile)) deaths = readJsonlSince(evFile, fromT).filter((e) => e.type === "DEATH" && /^You have been slain/.test(e.text)).length;
+  if (existsSync(evFile)) deaths = readJsonlSince(evFile, fromT).filter((e) => e.t <= now.t && e.type === "DEATH" && /^You have been slain/.test(e.text)).length;
   const rateNow = net / hours;
   const killRate = kill / hours;
   // The group's own rate noise: the spread of the ten-minute blocks of kill XP in the window.
@@ -216,7 +215,7 @@ for (const { leader, snap } of playing) {
   const members = [{ name: leader, race: snap.leader?.race, cls: snap.leader?.class }, ...(snap.party ?? []).filter((m) => m.type === 2).map((m) => ({ name: m.name, race: m.race, cls: m.class }))];
   const fLeader = factor(snap.leader?.race, snap.leader?.class);
   const slowest = members.reduce((a, m) => (factor(m.race, m.cls) > factor(a.race, a.cls) ? m : a), members[0]);
-  groups.push({ leader, zone: snap.zone, level: leaderLevel, xp: (snap.leader?.xp ?? now.xp) / fLeader, rateNow, killRate, deaths: deaths / hours, fLeader, f: factor(slowest.race, slowest.cls), slowest: slowest.name, size: members.length, minutes: Math.round(hours * 60), sigma, con: `${snap.autoLevel?.minCon ?? 4}-${snap.autoLevel?.maxCon ?? 13}`, stone: stoneOf(leader) });
+  groups.push({ leader, zone: snap.zone, level: leaderLevel, xp: (snap.leader?.xp ?? now.xp) / fLeader, rateNow, killRate, deaths: deaths / ((now.t - fromT) / 3600000), fLeader, f: factor(slowest.race, slowest.cls), slowest: slowest.name, size: members.length, minutes: Math.round(hours * 60), sigma, con: `${snap.autoLevel?.minCon ?? 4}-${snap.autoLevel?.maxCon ?? 13}`, stone: stoneOf(leader) });
 }
 // Crowd: other playing groups in the same zone, now and ahead.
 for (const g of groups) {

@@ -4,6 +4,7 @@
 import { availableParallelism, setPriority } from "node:os";
 
 const WORKER = new URL("./worker.mjs", import.meta.url).pathname;
+const FIGHT_TIMEOUT_MS = 10 * 60 * 1000;
 // A quarter of the cores by default: game tabs share the machine with the simulator.
 export const DEFAULT_JOBS = Math.max(1, Math.floor(availableParallelism() / 4));
 
@@ -15,7 +16,14 @@ async function runOne(payload) {
   } catch {
     // A process that already exited cannot be reprioritized, and its result is read below.
   }
-  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  }, FIGHT_TIMEOUT_MS);
+  const exited = child.exited.finally(() => clearTimeout(timer));
+  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), exited]);
+  if (timedOut) throw new Error("fight timed out after ten minutes");
   let message;
   try {
     message = JSON.parse(out);
@@ -30,11 +38,17 @@ export async function runJobs(jobs, concurrency = DEFAULT_JOBS, onDone = () => {
   const results = new Array(jobs.length);
   let next = 0;
   let done = 0;
+  let failed = false;
   const lane = async () => {
-    while (next < jobs.length) {
+    while (!failed && next < jobs.length) {
       const i = next++;
-      results[i] = await runOne(JSON.stringify(jobs[i]));
-      onDone(++done, jobs.length);
+      try {
+        results[i] = await runOne(JSON.stringify(jobs[i]));
+        onDone(++done, jobs.length);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, lane));

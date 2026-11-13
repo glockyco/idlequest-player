@@ -204,16 +204,21 @@ export const CLIENTS = {
   },
 };
 
-// Without a reference the newest saved release is used. A reference is a release id, "legacy", or
-// a directory that is one of the two.
+// Without a reference the newest saved release with a client table is used. A reference is a
+// release id, "legacy", or a directory that is one of the two.
 export async function resolveClient(reference) {
   let id = reference;
-  if (!id) id = (await readdir(`${repo}.re/releases`).catch(() => [])).sort().at(-1) ?? "legacy";
+  let newest;
+  if (!id) {
+    const saved = (await readdir(`${repo}.re/releases`).catch(() => [])).sort();
+    newest = saved.at(-1);
+    id = saved.findLast((release) => CLIENTS[release]) ?? "legacy";
+  }
   id = id.replace(/\/+$/, "").split("/").pop();
   if (id === "js") id = "legacy";
   const client = CLIENTS[id];
   if (!client) throw new Error(`no client table for ${JSON.stringify(id)} (known: ${Object.keys(CLIENTS).join(", ")}); write one with tools/raidsim/map-client.mjs`);
-  return { id, ...client, dir: `${repo}${client.dir}` };
+  return { id, ...client, dir: `${repo}${client.dir}`, ...(newest && newest !== id ? { newest } : {}) };
 }
 
 // The client's Raid Resolve bosses ({ ids: Set of npc ids, names: Set of names }), read from the list

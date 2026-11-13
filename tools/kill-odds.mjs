@@ -11,13 +11,13 @@
 //   an NPC above level 50 or an already engaged enemy.", `beginCombatForTarget` in the raid store),
 //   so a target of 50 or below keeps the prior and the live record.
 // - The prior (tools/lib/kill-prior.mjs) is fitted again to every group result on file.
-// One `simulate` run fights all of an enemy's rosters, and the file is written after each enemy.
+// Each `simulate` run fights one enemy's roster variant, and the file is written after each enemy.
 // The coordinator adds each group's own fight record (tools/lib/fight-record.mjs) to these.
 //
 //   bun tools/kill-odds.mjs [--seeds 4] [--pairs 150]
 //   bun tools/kill-odds.mjs --refit    the prior alone, after a change to its model, without fights
 import { Database } from "bun:sqlite";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { casinoBosses } from "./lib/client-tables.mjs";
 import { liveSpawnRows, rows } from "./lib/content.mjs";
@@ -39,7 +39,9 @@ const survey = await read("runs/state/account-items.json", []);
 const daily = await read("runs/state/daily-bosses.json", { bosses: [] });
 const casino = await casinoBosses();
 const before = await read(OUT, { odds: {} });
-process.env.RAIDSIM_CLIENT = (await resolveClient()).id; // read by every fight process (raidsim/env.mjs)
+const client = await resolveClient();
+process.env.RAIDSIM_CLIENT = client.id; // read by every fight process (raidsim/env.mjs)
+if (client.newest) console.log(`Using client table ${client.id}, older than newest saved release ${client.newest}`);
 
 // Each group's leader level from the survey, and the strongest group by its members' mean level,
 // whose leader leads the simulated raid.
@@ -110,7 +112,11 @@ for (const { key, x, g } of pairs.sort((a, b) => b.priority - a.priority).slice(
 
 // Leader deaths count apart from companions', because only the leader's death costs XP (`deathHours` in tools/lib/acquire.mjs).
 const result = (s) => ({ t: Date.now(), sim: SIM_VERSION, kills: s.kills, fights: s.fights, meanSec: s.killSec.mean, deathsPerFight: s.deathsPerFight, leaderDeathsPerFight: (s.members.find((m) => m.leader)?.deaths ?? 0) / s.fights, hpLeft: s.bossHpLeftMean });
-const save = () => writeFile(OUT, JSON.stringify({ t: Date.now(), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
+const save = async () => {
+  const temp = `${OUT}.${process.pid}.tmp`;
+  await writeFile(temp, JSON.stringify({ t: Date.now(), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
+  await rename(temp, OUT);
+};
 
 console.log(`${enemies.size} enemies, ${pairs.length} open pairs of group and target, prior ${prior ? `fitted to ${prior.fights} fights` : "not fitted yet"}`);
 // `--refit` only writes the prior fitted again to the results on file, as after a change to its model.
@@ -128,23 +134,24 @@ for (const e of enemies.values()) {
   const row = named.get(npc);
   const entry = { npc, name: e.name, zone: e.zone, level: row?.level ?? old.level ?? null, hp: Number(row?.hp) || old.hp || null, raid: old.raid, groups: { ...(old.groups ?? {}) } };
   const variants = [];
-  if (e.raid && !fresh(old.raid)) variants.push({ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) });
-  for (const g of e.groups) if (!fresh(old.groups?.[g.id], leaderLevel(g))) variants.push({ label: g.id, level: leaderLevel(g), entries: entriesOf(g.members[0], g.members) });
-  if (variants.length) {
+  if (e.raid && !fresh(old.raid)) variants.push({ label: "raid", leader: strongest.members[0], names: roster.flatMap((g) => g.members) });
+  for (const g of e.groups) if (!fresh(old.groups?.[g.id], leaderLevel(g))) variants.push({ label: g.id, level: leaderLevel(g), leader: g.members[0], names: g.members });
+  for (const variant of variants) {
+    let outcome;
     try {
+      const entries = entriesOf(variant.leader, variant.names);
       const boss = await bossSpec(await findBoss(String(npc)));
-      const results = await simulate({ boss, variants, seeds: Number(opt.seeds), maxSec: 900, dpsMode: "dps-all-out", healMode: "all-balanced" });
-      for (const [k, r] of results.entries()) {
-        if (r.label === "raid") entry.raid = result(r.summary);
-        else entry.groups[r.label] = { level: variants[k].level, ...result(r.summary) };
-      }
+      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: "dps-all-out", healMode: "all-balanced" });
+      outcome = result(r.summary);
     } catch (error) {
-      entry.error = error.message;
+      outcome = { t: Date.now(), sim: SIM_VERSION, error: error.message };
     }
+    if (variant.label === "raid") entry.raid = outcome;
+    else entry.groups[variant.label] = { level: variant.level, ...outcome };
   }
   odds[e.key] = entry;
   await save();
-  const said = Object.entries(entry.groups).map(([id, o]) => `${id} ${o.kills}/${o.fights}`).join(", ");
-  console.log(`${e.key} (${npc}, level ${entry.level}): ${entry.error ?? `${entry.raid ? `raid ${entry.raid.kills}/${entry.raid.fights}${said ? ", " : ""}` : ""}${said}`}`);
+  const said = Object.entries(entry.groups).map(([id, o]) => `${id} ${o.error ?? `${o.kills}/${o.fights}`}`).join(", ");
+  console.log(`${e.key} (${npc}, level ${entry.level}): ${entry.raid ? `raid ${entry.raid.error ?? `${entry.raid.kills}/${entry.raid.fights}`}${said ? ", " : ""}` : ""}${said}`);
 }
 await save();

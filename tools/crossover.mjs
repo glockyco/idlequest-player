@@ -42,7 +42,7 @@ async function period(since, until) {
   const out = await new Response(proc.stdout).text();
   await proc.exited;
   const hours = (until - since) / 3600000;
-  return new Map(JSON.parse(out).map((r) => [r.group, { ...r, xpPerHour: huntingRate(r.group, since, until), escH: r.escapes / hours, deadH: r.deaths / hours, leadH: r.leaderDeaths / hours }]));
+  return new Map(JSON.parse(out).map((r) => [r.group, { ...r, xpPerHour: huntingRate(r.group, since, until), escH: r.escapes == null ? NaN : r.escapes / hours, deadH: r.deaths == null ? NaN : r.deaths / hours, leadH: r.leaderDeaths == null ? NaN : r.leaderDeaths / hours }]));
 }
 const end = start + blocks * block;
 if (Date.now() < end) console.log(`The last block ends ${new Date(end).toTimeString().slice(0, 8)}; the numbers below are partial.`);

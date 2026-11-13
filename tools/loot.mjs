@@ -13,6 +13,7 @@
 // out. Kills while another member led the tab (a hand-in task) are in that member's own log.
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { readJsonlSince } from "./lib/jsonl.mjs";
 
 const { values: opt } = parseArgs({
   options: {
@@ -45,17 +46,15 @@ const COIN = /^\d+ (?:platinum|gold|silver|copper)\b/;
 
 /** Kills and loot per enemy name for one leader's log inside the window. */
 async function tally(leader) {
-  let text = "";
+  let events;
   try {
-    text = await readFile(`${REPO}runs/live/${leader}/events.jsonl`, "utf8");
+    events = readJsonlSince(`${REPO}runs/live/${leader}/events.jsonl`, since);
   } catch {
     return null;
   }
   const enemies = new Map();
   let last = null;
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    const e = JSON.parse(line);
+  for (const e of events) {
     if (e.t < since || e.t > until || e.type === "bot") continue;
     const k = KILL.exec(e.text);
     if (k) {

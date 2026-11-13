@@ -233,7 +233,7 @@ if (flag("class-sweep")) {
 }
 if (flag("gear-report")) {
   console.log("\nGear of each member (as given)\n");
-  for (const line of gearReport(normalized[0], itemRows)) console.log(line);
+  for (const line of gearReport(normalized[0], await byId("items"))) console.log(line);
 }
 if (traceIndex !== undefined) {
   console.log();

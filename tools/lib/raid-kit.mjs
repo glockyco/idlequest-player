@@ -224,6 +224,7 @@ export function buildBatch(state, kit, ranked, limit = Infinity) {
   for (const s of ranked) {
     if (batch.length >= limit) break;
     if (members.has(s.character) || taken.has(`${s.character}:${s.slot}`)) continue;
+    if (!allowed(next, next.people.get(s.character), next.items.get(s.itemId), s.slot)) continue;
     if (copyFor(next, s.character, s.itemId) === null) continue;
     applySwap(next, s);
     members.add(s.character);

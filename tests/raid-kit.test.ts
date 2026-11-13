@@ -159,6 +159,19 @@ test("a batch takes one swap per member and never a slot the kit holds", () => {
   expect(buildBatch(s, kit, ranked).every((b) => !(b.character === "A" && b.slot === 8))).toBe(true);
 });
 
+test("a batch rejects stale hand swaps after the kit changes the other hand", () => {
+  const s = state([worn("A", 12, 13), carried("A", 9), carried("A", 10)], ["A"]);
+  const ranked = candidates(s);
+  const axe = ranked.find((c) => c.itemId === 9)!;
+  const shield = ranked.find((c) => c.itemId === 10)!;
+  const withAxe = state([worn("A", 12, 13), carried("A", 9), carried("A", 10)], ["A"]);
+  applySwap(withAxe, axe);
+  expect(buildBatch(withAxe, [axe], [shield])).toEqual([]);
+  const withShield = state([worn("A", 12, 13), carried("A", 9), carried("A", 10)], ["A"]);
+  applySwap(withShield, shield);
+  expect(buildBatch(withShield, [shield], [axe])).toEqual([]);
+});
+
 test("swaps change only their members' entries", () => {
   const entries = [{ name: "A", items: { 8: 1, 1: 7 } }, { name: "B", items: { 8: 1 } }];
   const next = withSwaps(entries, [{ character: "A", slot: 8, itemId: 2 }]);
