@@ -95,7 +95,9 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           return row ? JSON.parse(row.v) : null;
         };
         const groupOf = rosterGroups();
-        const catalog = makeCatalog({ opportunities: readJson("data/opportunities.json", []), quests: readJson("data/quests.json", {}), farms: readJson("data/farms.json", []), targets: meta("gear")?.targets ?? [], zones: await zones() });
+        // The chains the epic model generates are not in data/quests.json. The coordinator's last
+        // pass names each with its class and reward, which is what a task's name needs.
+        const catalog = makeCatalog({ opportunities: readJson("data/opportunities.json", []), quests: { ...(meta("coordinator")?.last?.chains ?? {}), ...readJson("data/quests.json", {}) }, farms: readJson("data/farms.json", []), targets: meta("gear")?.targets ?? [], zones: await zones() });
         const roster = rosterView(db, rosterFile);
         const report = reports.groups.get();
         const plan = reports.plan.get();

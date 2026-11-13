@@ -87,9 +87,11 @@ const delta = (n, unit) => (n > 0 ? ` <span class="up" title="in the last 24 hou
 function raidNote(R) {
   const next = R.next[0];
   const when = !next ? "" : R.resets > 0 ? ", at the next raid" : R.resetAt ? `, when the free summons return at ${hhmm(R.resetAt)}` : "";
+  // A raid goes only to a boss the simulated raid kills in every fight (`killable` in tools/lib/boss-plan.mjs).
+  const unsure = next?.raid && !next.raid.error && next.raid.kills < next.raid.fights;
   return [
     R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : R.reached < R.characters ? `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.` : "None of them yet.",
-    next ? `Next: ${esc(next.name)}${next.raid ? `, killed in ${next.raid.kills} of ${next.raid.fights} simulated fights` : ""}${when}.` : "",
+    !next ? "" : unsure ? `Next: ${esc(next.name)}. The simulated raid kills it in ${next.raid.kills} of ${next.raid.fights} fights, and a raid goes once it wins every one.` : `Next: ${esc(next.name)}${next.raid?.fights ? `, killed in all ${next.raid.fights} simulated fights` : ""}${when}.`,
     R.others ? `${R.others} other boss${R.others === 1 ? "" : "es"} killed in the last 24 hours.` : "",
   ].filter(Boolean).join(" ");
 }
