@@ -77,7 +77,7 @@ async function install(partyIds: number[] = []) {
   const events: PageEvent[] = [];
   const seqs = { event: 0 };
   // AutoLevel's limits and the guard's tightening memory, which some tests change.
-  const guard: { phase: string; preferred: { minCon: number; maxCon: number; maxLevelDiff: number } | null; trips: { t: number; reason: string; zone: number }[] } = { phase: "watching", preferred: null, trips: [] };
+  const guard: { config: { enabled: boolean }; phase: string; preferred: { minCon: number; maxCon: number; maxLevelDiff: number } | null; trips: { t: number; reason: string; zone: number }[] } = { config: { enabled: true }, phase: "watching", preferred: null, trips: [] };
   const combat = {
     isRunning: true,
     isZoneLoading: false,
@@ -354,13 +354,20 @@ test("widened limits return to the target limits after widenMin, and a move star
 });
 
 test("account characters missing from the party are asked to rejoin", async () => {
-  const { bot, recruited } = await install([10, 11, 12]);
-  expect(bot.state.alerts.map((a) => a.kind)).toContain("rejoin");
-  await Bun.sleep(5200);
-  expect(recruited).toEqual([11, 12]);
-}, 10000);
+  vi.useFakeTimers();
+  try {
+    const { bot, recruited } = await install([10, 11, 12]);
+    expect(bot.state.alerts.map((a) => a.kind)).toContain("rejoin");
+    await advance(5200);
+    expect(recruited).toEqual([11, 12]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 test("a party short of members stops pulling during a fight and asks them to rejoin once it ends", async () => {
+  vi.useFakeTimers();
+  try {
   const p = await install([10, 20]);
   p.party.companions.splice(1); // Edroun (20) dropped out
   p.skills.inCombat = true;
@@ -370,9 +377,12 @@ test("a party short of members stops pulling during a fight and asks them to rej
   expect([p.autoLevel.stops, p.recruited]).toEqual([1, []]);
   p.skills.inCombat = false;
   await p.bot.tick();
-  await Bun.sleep(2600);
-  expect(p.recruited).toEqual([20]);
-}, 10000);
+    await advance(2600);
+    expect(p.recruited).toEqual([20]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 test("a hang restarts AutoLevel, the same hang before the next kill widens the limits, and the client's pause after a kill is left alone", async () => {
   vi.useFakeTimers();
@@ -462,7 +472,7 @@ test("a leader at 0 HP with no recovery pending camps and enters the world again
   }
 });
 
-test("an empty zone first undoes the guard's tightening, then a raised minimum con, then wakes a script", async () => {
+test("an empty zone first undoes the guard's tightening, then a raised minimum con, then waits for respawns", async () => {
   const empty = { act: "idle", why: "noEnemies", since: Date.now() };
   const tightened = await install();
   tightened.guard.preferred = { minCon: 4, maxCon: 13, maxLevelDiff: 5 };
@@ -480,7 +490,7 @@ test("an empty zone first undoes the guard's tightening, then a raised minimum c
   const unfit = await install();
   Object.assign(unfit.activity, empty);
   await unfit.bot.tick();
-  expect(unfit.bot.state.alerts.filter((a) => a.kind === "idle").map((a) => a.wake)).toEqual([true]);
+  expect(unfit.bot.state.alerts.filter((a) => a.kind === "idle")).toEqual([]);
 });
 
 test("a level floor follows the leader's level, and an empty zone lifts it before it lowers the con", async () => {
@@ -950,11 +960,17 @@ test("a dead fight is left through the guard, also under a task's pause", async 
 });
 
 test("a task does not take a tab that a pause holds", async () => {
+  vi.useFakeTimers();
+  try {
   const f = await install();
   f.bot.pause(5, "loot by hand");
   expect(() => f.bot.casino()).toThrow("the tab is paused for loot by hand");
   f.bot.resume();
   expect(f.bot.casino().status).toBe("running");
+    f.bot.stopTask();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a root that outlasts a fight is dispelled only when that saves time, and cures go back off", async () => {
@@ -1207,6 +1223,12 @@ test("the reserve keeps copies up to the account's demand, counting stacks, and 
 // Lets the bot's in-page switch job run its fake commands to the end.
 const flush = async () => {
   for (let k = 0; k < 20; k++) await Promise.resolve();
+};
+const advance = async (ms: number) => {
+  for (let left = ms; left > 0; left -= 500) {
+    vi.advanceTimersByTime(Math.min(left, 500));
+    await flush();
+  }
 };
 
 test("when a pause ends with another character active, the bot switches back to its leader and regroups", async () => {
@@ -1559,6 +1581,7 @@ test("a look waits in a boss's zone for its respawn, keeps what the zone's list 
     const down = await look(3 * 3600000, 0);
     expect(down.task).toMatchObject({ status: "done", seen: [{ name: "Lord_Yelinak", state: "respawning" }] });
     expect(down.task.result).toMatch(/^Lord Yelinak is not up, next spawn at \d\d:\d\d$/);
+    expect(down.task.seen[0].respawnAt).toBe(down.t0 + 3 * 3600000);
     expect(down.reads).toBe(1);
     expect(down.moves).toEqual(["skyshrine", "hole"]);
   } finally {
@@ -1793,7 +1816,7 @@ test("a quest item that lies in the zone is picked up, and one another player to
     f.bot.quest({ members: ["Tagujazolu"], steps });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "waiting" });
-    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(9 * 60000);
+    expect(f.bot.state.task.nextAt).toBe(f.bot.state.task.endedAt + 600000);
   } finally {
     vi.useRealTimers();
   }
@@ -2414,7 +2437,7 @@ test("a quest NPC's point is looked at once: the NPC goes on, a respawn ends as 
     f.bot.quest({ members: ["Tagujazolu"], steps });
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "waiting" });
-    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(19 * 60000);
+    expect(f.bot.state.task.nextAt).toBe(zone.spawns[0].nextRespawnAtMs + 30000);
     expect(f.bot.state.alerts.filter((a) => a.kind === "task").map((a) => a.wake)).toEqual([false]);
 
     // An occupant waits while the leader's party does not gather: the leader enters the world alone,
@@ -2447,7 +2470,7 @@ test("a quest NPC's point is looked at once: the NPC goes on, a respawn ends as 
     expect(f.moves.slice(moved).at(-1)).toBe("guktop");
     expect(f.combat.currentZone).toBe(65);
     expect(f.bot.state.task).toMatchObject({ status: "waiting" });
-    expect(f.bot.state.task.nextAt - Date.now()).toBeGreaterThan(29 * 60000);
+    expect(f.bot.state.task.nextAt).toBe(zone.spawns[0].nextRespawnAtMs + 30000);
 
     // With the NPC up, the member hands in.
     zone.spawns = [{ name: "Tykar_Renlin", spawn2Id: 3075, currentHp: 651, state: "alive" }];
@@ -2744,11 +2767,12 @@ test("the reserve discards surplus without a price first, then sells surplus che
     // and the gear plan's copy, which its move takes from the leader, stays.
     f.party.companions = [{ companionType: 2, characterId: 20, name: "Edroun", curHp: 100, maxHp: 100 }];
     const given: string[] = [];
-    (f.iq as unknown as { giveItem: (item: string, id: number) => Promise<{ ok: boolean }> }).giveItem = async (item, id) => {
-      given.push(`${item} to ${id}`);
-      drop(inv.find((r) => r.itemDetails.Name === item));
+    Object.assign(f.iq, { giveItem: async (item: string | { name: string; id: number }, id: number) => {
+      const name = typeof item === "string" ? item : item.name;
+      given.push(`${name} to ${id}`);
+      drop(inv.find((r) => r.itemDetails.Name === name));
       return { ok: true };
-    };
+    } });
     f.bot.config.minFreeSlots = 9;
     await f.bot.cleanup();
     expect(given).toEqual(["Power of Fire to 20"]);
@@ -3034,4 +3058,268 @@ test("long DoTs are left out per class except snares, and 0 clears the list", as
   f.bot.config.dotMaxTicks = 0;
   await f.bot.tick();
   expect(ps.castingPreferences["character:20"].excludedSpellIds).toEqual([]);
+});
+
+test("missing members only hold the first thirty seconds despite repeated requests", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 11]);
+    Object.assign(f.activity, { act: "idle", why: "held", since: Date.now() });
+    f.combat.isRunning = false;
+    await advance(21000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(0);
+    await advance(10000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an empty zone restarts AutoLevel after respawns without widening an errand", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.combat.currentZone = 65;
+    Object.assign(f.activity, { act: "idle", why: "noEnemies", since: Date.now() - 21000 });
+    f.combat.isRunning = false;
+    f.bot.state.errand = { zone: "guktop", keep: "rat", arrived: true, since: Date.now(), until: Date.now() + 3600000, minutes: 60 };
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(1);
+    f.combat.isRunning = false;
+    Object.assign(f.activity, { act: "idle", why: "noEnemies", since: Date.now() });
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(1);
+    await advance(621000);
+    await f.bot.tick();
+    await advance(21000);
+    await f.bot.tick();
+    expect(f.autoLevel.starts).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a disabled guard neither leaves nor marks a slow fight", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const left: string[] = [];
+    Object.assign(f.iq, { leaveFight: (why: string) => (left.push(why), true) });
+    f.guard.config.enabled = false;
+    f.skills.inCombat = true;
+    f.bot.state.fight = { name: "wisp", t: Date.now() - 200000 };
+    Object.assign(f.combat, { engagedMobs: { 1: { name: "wisp", state: "alive", hp: 100, maxHp: 100 } } });
+    Object.assign(f.activity, { act: "idle", why: "deadFight", since: Date.now() });
+    await f.bot.tick();
+    expect(left).toEqual([]);
+    expect(f.bot.state.fight?.name).toBe("wisp");
+    expect(f.bot.state.foes.wisp?.slow ?? 0).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("coin returns retain failed transfers and retry after their back-off", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.config.leaderId = 1;
+    f.bot.state.coinBack = ["Edroun"];
+    let tries = 0;
+    Object.assign(f.iq, { takeCoin: async () => {
+      if (++tries === 1) throw new Error("busy");
+      return { platinum: 100 };
+    } });
+    await f.bot.tick();
+    await f.bot.tick();
+    expect([tries, f.bot.state.coinBack]).toEqual([1, ["Edroun"]]);
+    await advance(61000);
+    await f.bot.tick();
+    expect([tries, f.bot.state.coinBack]).toEqual([2, []]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("turning root dispels off restores cures and releases ordinary tactics", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.bot.state.dispel = { app: "root", target: "Me", at: Date.now(), endsAt: Date.now() + 120000, who: [{ name: "Edroun", prev: false }] };
+    f.iq.setTactic("Edroun", "cure", true);
+    f.bot.config.dispelRoots = false;
+    f.bot.fastTick();
+    expect(f.bot.state.dispel).toBeNull();
+    expect(f.tactics.at(-1)).toEqual(["Edroun", "cure", false]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a camp counts every kill in a poll and stops before another task acts", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    let starts = 0;
+    Object.assign(f.runtime, { startSpawnCamp: () => {
+      starts++;
+      Object.assign(f.combat, { isRunning: true, spawnCampStatus: "Waiting for next spawn" });
+      setTimeout(() => {
+        f.say("You have slain a rat, but gain no experience.");
+        f.say("You have slain a rat, but gain no experience.");
+      }, 1000);
+    } });
+    Object.assign(f.iq, { refreshSpawns: async () => {}, zoneSpawns: { spawns: [] } });
+    f.bot.hunt({ zone: "guktop", keep: "rat", points: [1], minutes: 10 });
+    await runToEnd(f);
+    expect(f.bot.state.task.kills).toBe(2);
+    f.bot.hunt({ zone: "guktop", keep: "rat", points: [1], minutes: 10 });
+    await advance(1000);
+    f.bot.stopTask();
+    await advance(30000);
+    expect(starts).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid ignores an add's kill and recognizes a healer whose name contains the boss", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000 });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", effects: [] });
+    await advance(5000);
+    f.targets.push({ spawnInstanceId: 8, npcId: 1099, name: "Cleric of Lord Nagafen", distance: 12 });
+    f.say("You have slain a Cleric of Lord Nagafen, but gain no experience.");
+    f.say("Cleric of Lord Nagafen heals Lord Nagafen for 10000 points.");
+    await advance(4000);
+    expect(f.bot.state.task.status).toBe("running");
+    expect(calls).toContain("attack a_swirlspine_seahorse");
+    await runToEnd(f);
+    expect(f.bot.state.task.fight.outcome).toBe("killed");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("stopping a raid after the kill still collects its corpse", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 10000 });
+    const raid = f.iq.raid;
+    const attack = raid.attack;
+    raid.attack = async () => {
+      await attack();
+      setTimeout(() => f.bot.stopTask(), 10000);
+    };
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", effects: [] });
+    await advance(30000);
+    expect(f.bot.state.task.status).toBe("stopped");
+    expect(f.bot.state.task.fight.outcome).toBe("killed");
+    expect(calls).toContain("loot");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("quest item ids leave a same-named wrong item alone and accept only the right cursor reward", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    handInPage(f, {}, { ok: true });
+    const inventory = [{ name: "Shovel", id: 1 }];
+    let cursor: { name: string; id: number } | null = null;
+    Object.assign(f.iq, {
+      carried: (item: string | { name: string; id: number }) => inventory.filter((r) => typeof item === "string" ? r.name === item : r.id === item.id).length,
+      pullItem: async (item: { name: string; id: number }) => (inventory.push(item), { got: true }),
+      talkToNpc: async () => {},
+      giveToNpc: async (items: { name: string; id: number }[]) => {
+        for (const item of items) inventory.splice(inventory.findIndex((r) => r.id === item.id), 1);
+        cursor = { name: "Note", id: 3 };
+      },
+      bagSpace: () => ({ free: 30, capacity: 58, cursor: cursor?.name ?? null, cursorId: cursor?.id ?? null }),
+    });
+    f.bot.quest({ members: ["Tagujazolu"], ids: { Shovel: 2, Note: 4 }, steps: [{ zone: "guktop", npc: "Smith", give: ["Shovel"], expect: "Note" }] });
+    await runToEnd(f);
+    expect(inventory).toEqual([{ name: "Shovel", id: 1 }]);
+    expect(f.bot.state.task).toMatchObject({ status: "failed", error: expect.stringContaining("did not get Note") });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("resumed casino tasks retain their spending limit and hunt kill counts", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    let rolls = 0;
+    Object.assign(f.iq, { casino: {
+      status: async () => ({}),
+      dice: () => [{ dice: 3, pricePp: 10 }],
+      roll: async () => (++rolls, { pricePp: 10 }),
+    } });
+    f.bot.state.task = { kind: "casino", status: "running", startedAt: Date.now(), dice: 3, maxPp: 20, rolls: 2, spentPp: 20 };
+    const g = globalThis as unknown as FakeGlobals;
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    let bot = g.iqBot!;
+    clearInterval(bot.timerId);
+    clearInterval(bot.fastTimerId);
+    await runToEnd({ ...f, bot });
+    expect(bot.state.task).toMatchObject({ status: "waiting", rolls: 2, spentPp: 20 });
+    expect(rolls).toBe(0);
+    bot.state.task = { kind: "hunt", status: "running", startedAt: Date.now() - 60000, minutes: 1, kills: 7, zone: "guktop", keep: "rat" };
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    bot = g.iqBot!;
+    clearInterval(bot.timerId);
+    clearInterval(bot.fastTimerId);
+    await runToEnd({ ...f, bot });
+    expect(bot.state.task).toMatchObject({ status: "done", kills: 7 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a reinstall settles a running raid and releases its long task pause", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    fakeRaid(f, { timeLeft: true, fightMs: 120000 });
+    f.bot.raid({ members: ["Tagujazolu"], target: "Lord Nagafen", effects: [] });
+    await advance(5000);
+    expect(f.bot.state.pauseUntil).toBeGreaterThan(Date.now() + 60000);
+    const g = globalThis as unknown as FakeGlobals;
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    const bot = g.iqBot!;
+    clearInterval(bot.timerId);
+    clearInterval(bot.fastTimerId);
+    await advance(5000);
+    expect(bot.state.task.status).toBe("stopped");
+    expect(bot.state.task.endedAt).toBeGreaterThan(0);
+    expect(bot.state.pauseUntil).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a quest buy with no added item fails at the merchant without pulling a substitute", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    handInPage(f, {}, { ok: true });
+    let pulls = 0;
+    Object.assign(f.iq, {
+      buyItem: async () => ({ bought: 0, platinum: 4 }),
+      pullItem: async () => (++pulls, { got: false }),
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "guktop", npc: "Smith", give: ["Shovel"], buy: { merchant: "Merchant", items: ["Shovel"] } }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "failed", error: expect.stringContaining("Merchant sold too little Shovel (4 pp carried)") });
+    expect(pulls).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

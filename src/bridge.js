@@ -203,10 +203,6 @@
   // END CLIENT_SURFACE
 
   const socketMethods = CLIENT_SURFACE.SOCKET.methods;
-  if (window.iq) {
-    // Wrappers are instance properties that shadow prototype methods, so deleting them restores the originals.
-    for (const fn of socketMethods) if (window.iq.socket) delete window.iq.socket[fn];
-  }
 
   const ASSET_RE = CLIENT_SURFACE.ASSET_RE;
 
@@ -291,6 +287,8 @@
   // The last loot packets, `{ t, items }` with the items' names, so a task that expects an item
   // from a kill can say what the corpse gave when the item did not come.
   const lootLog = window.iq?.lootLog ?? [];
+  // Discovery succeeded. Restore the originals immediately before replacing the traffic hooks.
+  for (const fn of socketMethods) if (window.iq?.socket) delete window.iq.socket[fn];
   const origObserve = socket.observeIncomingOpcode.bind(socket);
   socket.observeIncomingOpcode = (op, payload) => {
     try {
@@ -344,6 +342,7 @@
   // are told to stop too: their next pause throws, and a bot task that ran them resumes on this one.
   window.iq?.dispose?.();
   if (window.iq?.samplerId) clearInterval(window.iq.samplerId);
+  if (window.iq?.movementId) clearInterval(window.iq.movementId);
   if (window.iq?.unsubChat) window.iq.unsubChat();
 
   // ---- Activity -----------------------------------------------------------------------------
@@ -471,7 +470,7 @@
   // When the party's position last changed by more than two units (`stillMs`).
   let movedAt = Date.now();
   let movedFrom = null;
-  setInterval(() => {
+  const movementId = setInterval(() => {
     if (!lastPos) return;
     if (!movedFrom || Math.hypot(lastPos.x - movedFrom.x, lastPos.y - movedFrom.y) > 2) {
       movedFrom = { x: lastPos.x, y: lastPos.y };
@@ -586,6 +585,7 @@
   const samplerId = setInterval(() => {
     try {
       applyShims();
+      while (kills.length && kills[0].t < Date.now() - 3600000) kills.shift();
       const s = sample();
       if (!s) return;
       samples.push(s);
@@ -608,7 +608,7 @@
    * (ScribeAvailableSpells). Returns one line per scope with the server's reply.
    */
   const buyMissingSpells = async (scopes = ["self", "companions"]) => {
-    if (buying) return ["a purchase is already running"];
+    if (buying) return [];
     const opId = Number(Object.entries(opName).find(([, n]) => n === "ScribeAvailableSpells")?.[0]);
     if (!opId) throw new Error("opcode table not loaded");
     buying = true;
@@ -684,7 +684,7 @@
       if (chores.autoBuySpells && /missing \d+ merchant spells?/i.test(m.text) && Date.now() - lastSpellBuy > 30000) {
         lastSpellBuy = Date.now();
         buyMissingSpells()
-          .then((lines) => choreNote(`bought spells: ${lines.join(" | ")}`))
+          .then((lines) => { if (lines.length) choreNote(`bought spells: ${lines.join(" | ")}`); })
           .catch((e) => choreNote(`spell purchase failed: ${e.message}`));
       }
     }
@@ -747,6 +747,7 @@
     preferred: guardPrev?.preferred ?? null, // limits to return to after a quiet hour, once tightened
     trips: guardPrev?.trips ?? [],
     knownDown: new Set(),
+    retryAt: 0,
     hp: [], // the leader's HP once a second over the last 10 s, for the dying trigger
     timerId: null,
   };
@@ -921,8 +922,8 @@
     const cfg = guard.config;
     const cb = stores.combat.getState();
     const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state === "alive");
-    if (!mobs.length) return null;
-    const p = stores.character.getState().characterProfile;
+    const wasDown = new Set(guard.knownDown);
+    const p = stores.character.getState().characterProfile ?? {};
     const cs = stores.companions.getState();
     const classes = Object.fromEntries((stores.staticData.getState().classes ?? []).map((c) => [c.id, c.name]));
     const members = [{ name: p.name, hp: p.curHp, maxHp: p.maxHp }];
@@ -930,6 +931,8 @@
       if (c.companionType !== 0 && c.companionType !== 2) continue;
       members.push({ name: c.name, hp: c.curHp, maxHp: c.maxHp, mana: c.curMana, maxMana: c.maxMana, cls: classes[cs.botCombatDataMap?.[c.id]?.class] });
     }
+    guard.knownDown = new Set(members.filter((m) => !(m.hp > 0)).map((m) => m.name));
+    if (!mobs.length) return null;
     const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
     // A mob fights the party when it targets, chases or hates "player", "character-<id>" or a pet
     // ("pet_<...>"). Ids of the form "npc:<id>" are other NPCs, such as a guard fighting a kobold.
@@ -948,13 +951,8 @@
         return { reason: `dying: leader at ${p.curHp}/${p.maxHp} HP, losing ${Math.round(perSec)} HP/s`, mob };
       }
     }
-    for (const m of members) {
-      if (m.hp > 0) guard.knownDown.delete(m.name);
-      else if (!guard.knownDown.has(m.name)) {
-        guard.knownDown.add(m.name);
-        return { reason: `down: ${m.name} died`, mob: mobs[0] };
-      }
-    }
+    const down = members.find((m) => !(m.hp > 0) && !wasDown.has(m.name));
+    if (down) return { reason: `down: ${down.name} died`, mob: mobs[0] };
     const hurt = members.some((m) => m.maxHp && (m.hp / m.maxHp) * 100 < cfg.healerHpPct && m.hp > 0);
     const dry = members.find((m) => m.cls === "Cleric" && m.maxMana && (m.mana / m.maxMana) * 100 < cfg.healerManaPct);
     if (hurt && dry) return { reason: `healer: ${dry.name} has ${dry.mana}/${dry.maxMana} mana`, mob: mobs[0] };
@@ -1013,53 +1011,66 @@
     // the measured XP per hour to decide (`analyze.mjs` counts escapes and their cost), not the
     // guard. Absolute "safe" limits do not work across levels: they can leave nothing to fight.
     const ownPull = mob && mob.level <= leader + limits.maxLevelDiff;
-    if (ownPull && guard.trips.length >= cfg.escalateAfter && limits.maxLevelDiff > cfg.minLevelDiff) {
-      guard.preferred ??= { ...limits };
-      limits = { ...limits, maxLevelDiff: limits.maxLevelDiff - 1 };
-      guardNote(`${guard.trips.length} escapes in the last hour, lowering the AutoLevel cap to ${limits.maxLevelDiff}`);
-    }
+    const tighten = ownPull && guard.trips.length >= cfg.escalateAfter && limits.maxLevelDiff > cfg.minLevelDiff;
     guard.phase = "leaving";
-    guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
-    // The rule and the enemy go along as fields, which the collector's fight record counts per
-    // enemy (tools/lib/fight-record.mjs), and the fight's living enemies with their spawn points
-    // (`mobs`), by which the bot learns which enemies and camps it keeps losing to.
-    const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state !== "dead" && Number.isInteger(m.spawnInstanceId)).map((m) => ({ id: m.spawnInstanceId, name: m.name }));
-    guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`, { escape: reason.split(":")[0], npc: mob?.name ?? null, npcLevel: mob?.level ?? null, leaderLevel: leader, mobs });
-    // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
-    // the same dangerous mob would join again, every few seconds. The client skips spawns it has
-    // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
-    // survive the zone change. Defer every mob of this fight.
-    const rt = runtime();
-    const skip = [
-      ...new Set(
-        [
-          ...Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId),
-          cb.activeCombatTargetSpawnInstanceId,
-          cb.targetNPC?.spawnInstanceId,
-          rt?.combatApproach?.attempt?.spawnInstanceId,
-          rt?.automatedCombatFocusSpawnInstanceId,
-        ].filter((id) => Number.isInteger(id) && id > 0),
-      ),
-    ];
-    if (rt?.deferAutoLevelSpawn && skip.length && cfg.avoidMin > 0) {
-      for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
-      guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
-    }
-    // The escape is one of the bot's holds, so the bot starts AutoLevel again once it ends.
-    cb.setIsRunning(false);
     try {
+      // The fight's living enemies with their spawn points, by which the bot learns which enemies
+      // and camps it keeps losing to.
+      const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state !== "dead" && Number.isInteger(m.spawnInstanceId)).map((m) => ({ id: m.spawnInstanceId, name: m.name }));
+      guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`);
+      // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
+      // the same dangerous mob would join again, every few seconds. The client skips spawns it has
+      // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
+      // survive the zone change. Defer every mob of this fight.
+      const rt = runtime();
+      const skip = [
+        ...new Set(
+          [
+            ...Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId),
+            cb.activeCombatTargetSpawnInstanceId,
+            cb.targetNPC?.spawnInstanceId,
+            rt?.combatApproach?.attempt?.spawnInstanceId,
+            rt?.automatedCombatFocusSpawnInstanceId,
+          ].filter((id) => Number.isInteger(id) && id > 0),
+        ),
+      ];
+      if (rt?.deferAutoLevelSpawn && skip.length && cfg.avoidMin > 0) {
+        for (const id of skip) rt.deferAutoLevelSpawn(id, cfg.avoidMin * 60000);
+        guardNote(`AutoLevel skips ${skip.length} mob(s) of that fight for ${cfg.avoidMin} min`);
+      }
+      // The escape is one of the bot's holds, so the bot starts AutoLevel again once it ends.
+      cb.setIsRunning(false);
       await changeZone(target ?? null);
+      // Only an escape that left the zone counts: as a trip toward the lower cap, and as an escape
+      // from its enemy. The rule and the enemy go along as fields of the closing line, which the
+      // collector's fight record counts per enemy (tools/lib/fight-record.mjs) and the bot reads
+      // with the fight's enemies (`mobs`). The client refuses travel while its zone is out of
+      // sync, and a guard that counted each refusal lowered the cap once a second.
+      guard.trips.push({ t: Date.now(), reason, zone: cb.currentZone });
+      if (tighten) {
+        guard.preferred ??= { ...limits };
+        limits = { ...limits, maxLevelDiff: limits.maxLevelDiff - 1 };
+        guardNote(`${guard.trips.length} escapes in the last hour, lowering the AutoLevel cap to ${limits.maxLevelDiff}`);
+      }
+      applyLimits(stores.combat.getState(), limits);
+      guardNote("escape done", { escape: reason.split(":")[0], npc: mob?.name ?? null, npcLevel: mob?.level ?? null, leaderLevel: leader, mobs });
     } catch (e) {
-      guardNote(`zone change failed: ${e.message}`);
+      // A refused or timed out zone change is tried again after a few seconds.
+      guard.retryAt = Date.now() + 5000;
+      throw e;
+    } finally {
+      guard.phase = "watching";
     }
-    applyLimits(stores.combat.getState(), limits);
-    guardNote("escape done");
-    guard.phase = "watching";
   };
+  guard.knownDown = new Set([
+    stores.character.getState().characterProfile,
+    ...(stores.companions.getState().companions ?? []).filter((c) => c.companionType === 0 || c.companionType === 2),
+  ].filter((m) => m && !(m.curHp > 0)).map((m) => m.name));
   guard.timerId = setInterval(() => {
     const cbNow = stores.combat.getState();
+    const dangerNow = guardDanger();
     // Raid bosses stand far above the leader by design, and the raid controls command each fight.
-    if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading || stores.raid?.getState?.().raidModeActive) return;
+    if (!guard.config.enabled || guard.phase !== "watching" || cbNow.isZoneLoading || stores.raid?.getState?.().raidModeActive || Date.now() < guard.retryAt) return;
     // The escape is a request to the server, so the guard waits while the connection is down. In
     // the server's restart of 2026-11-11 a dying leader's escape failed three times in three
     // seconds ("WorldSocket not connected"), each counted as an escape, and the cap fell from 5 to 2.
@@ -1067,10 +1078,10 @@
     guard.hp.push({ t: Date.now(), hp: stores.character.getState().characterProfile?.curHp ?? 0 });
     while (guard.hp[0].t < Date.now() - 10000) guard.hp.shift();
     // `testGuard` queues a one-shot trigger, so a test never leaves a setting changed behind it.
-    const danger = guard.force ? { reason: guard.force } : guardDanger();
+    const danger = guard.force ? { reason: guard.force } : dangerNow;
     guard.force = null;
     if (danger) {
-      guardLeave(danger.reason, danger.mob);
+      guardLeave(danger.reason, danger.mob).catch((e) => guardNote(`escape failed: ${e.message}`));
       return;
     }
     // A quiet hour after the limits were tightened: go back to the limits that were in use before.
@@ -1091,6 +1102,8 @@
   const pause = (ms) => new Promise((r, reject) => setTimeout(() => (disposed ? reject(new Error("the bridge was reinstalled")) : r()), ms));
   const looseName = (s) => String(s ?? "").replace(/[_`']/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   const itemName = (row) => row.itemDetails?.Name ?? row.itemDetails?.name;
+  const refName = (item) => typeof item === "string" ? item : item.name;
+  const matchesItem = (row, item) => Boolean(row) && (item?.id != null ? (row.itemid ?? row.itemDetails?.id) === item.id : itemName(row) === refName(item));
   const inBags = (row) => row.bag > 0 || (row.bag === 0 && row.slot >= 22 && row.slot <= 29);
 
   // ---- Queries ------------------------------------------------------------------------------
@@ -1124,7 +1137,7 @@
     }
   };
   /** Copies of `name` in the active character's bags and general slots. */
-  const carried = (name) => (stores.character.getState().characterProfile?.inventory ?? []).filter((x) => inBags(x) && itemName(x) === name).reduce((s, x) => s + (x.quantity || 1), 0);
+  const carried = (item) => (stores.character.getState().characterProfile?.inventory ?? []).filter((x) => inBags(x) && matchesItem(x, item)).reduce((s, x) => s + (x.quantity || 1), 0);
   const buttonByText = (re, root = document) => [...root.querySelectorAll("button")].find((b) => re.test((b.textContent ?? "").trim())) ?? null;
   const giveItemsReady = () => {
     const b = buttonByText(/^Give Items$/i);
@@ -1248,11 +1261,12 @@
    * its pickup request. Throws "no ... lies in" when the zone holds no such item now, as after
    * another player took it. Resolves with the server's message.
    */
-  const pickupGround = async (name) => {
+  const pickupGround = async (item) => {
+    const name = refName(item);
     const cs = stores.combat.getState();
     const zone = cs.getZoneNameById?.(cs.currentZone);
     if (!zone) throw new Error("the zone's name is not known");
-    const it = ((await query(1124, { zoneName: zone }))?.groundItems ?? []).find((g) => g.itemName === name);
+    const it = ((await query(1124, { zoneName: zone }))?.groundItems ?? []).find((g) => item?.id != null ? g.itemId === item.id : g.itemName === name);
     if (!it) throw new Error(`no ${name} lies in ${zone} now`);
     await walkTo({ x: it.x, y: it.y, z: it.z }, { radius: 12 });
     const r = await socket.sendJsonRequest(1167, 1168, { id: it.id, zoneName: zone });
@@ -1390,16 +1404,16 @@
     // A trade cut short before Give takes back what it placed with the window's Cancel, which
     // returns the offered items to the bags, so a retry finds them there again.
     let give = null;
-    let offer = items.join(", ");
+    let offer = items.map(refName).join(", ");
     try {
       for (let k = 0; k < items.length; k++) {
-        const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === items[k]);
-        if (!found) throw new Error(`no ${items[k]} in the bags`);
+        const found = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && matchesItem(x, items[k]));
+        if (!found) throw new Error(`no ${refName(items[k])} in the bags`);
         let from = { bag: found.bag, slot: found.slot };
         if ((found.quantity ?? 1) > 1) {
           ch().splitItemToCursor(from, 1);
           for (let j = 0; j < 20 && !cursorRow(); j++) await pause(200);
-          if (!cursorRow()) throw new Error(`could not take one ${items[k]} from its stack`);
+          if (!cursorRow()) throw new Error(`could not take one ${refName(items[k])} from its stack`);
           await pause(400);
           from = { bag: 0, slot: 30 };
         }
@@ -1422,10 +1436,15 @@
         for (let j = 0; j < 10 && ch().cursorCurrency; j++) await pause(200);
         if (ch().cursorCurrency) throw new Error(`the Give Items window did not take ${n} ${type}`);
       }
-      // What the window offers, by its coin buttons' labels ("Offer platinum: 1000"), which a
-      // refusal names, since a coin hand-in was refused twice with the coin taken off the cursor.
-      offer = [...items, ...["platinum", "gold", "silver", "copper"].map((type) => [type, Number(/:\s*(\d+)/.exec(win.querySelector(`[data-testid="quest-give-currency-${type}"]`)?.getAttribute("aria-label") ?? "")?.[1] ?? 0)]).filter(([, n]) => n > 0).map(([type, n]) => `${n} ${type}`)].join(", ");
-      for (const [type, n] of coins) if (!offer.includes(`${n} ${type}`)) throw new Error(`the Give Items window offers ${offer || "nothing"}, not ${n} ${type}`);
+      // What the window offers, by its coin buttons' labels ("Offer platinum: 1000"). The window
+      // counts the coin in its own state, which its next render shows and which Give sends from
+      // that render. So Give waits for the labels: pressed in the same turn as the coin's click, it
+      // sent the items without the coin and the NPC refused them (2026-11-12 and 2026-11-13).
+      const offered = () => [...items.map(refName), ...["platinum", "gold", "silver", "copper"].map((type) => [type, Number(/:\s*(\d+)/.exec(win.querySelector(`[data-testid="quest-give-currency-${type}"]`)?.getAttribute("aria-label") ?? "")?.[1] ?? 0)]).filter(([, n]) => n > 0).map(([type, n]) => `${n} ${type}`)].join(", ");
+      const coinShown = () => coins.every(([type, n]) => offered().split(", ").includes(`${n} ${type}`));
+      for (let j = 0; j < 15 && !coinShown(); j++) await pause(200);
+      offer = offered();
+      if (!coinShown()) throw new Error(`the Give Items window offers ${offer || "nothing"}, not ${coins.map(([type, n]) => `${n} ${type}`).join(", ")}`);
       give = buttonByText(/^Give$/i, win);
       if (!give || give.disabled) throw new Error("the Give button is disabled");
     } catch (e) {
@@ -1454,7 +1473,10 @@
   /** Sell what the cursor holds with the client's own sale. Resolves with its reply, or null for an empty cursor. */
   const sellCursor = async () => {
     const held = (stores.character.getState().characterProfile?.inventory ?? []).some((x) => x.bag === 0 && x.slot === 30);
-    return held ? ((await clientFn("sell")(0, 30))?.message ?? "sold") : null;
+    if (!held) return null;
+    const reply = await clientFn("sell")(0, 30);
+    if (!reply?.success) throw new Error(reply?.message ?? "the sale was refused");
+    return reply.message ?? "sold";
   };
   /**
    * Use the carried item with id `itemId` as a click on it in the bags does, with the client's own
@@ -1500,24 +1522,25 @@
    * goes where `settle` puts it (`settled`). Resolves with the trades, the items handed in and the
    * XP gained.
    */
-  const handInEach = async (name, counts, { settle } = {}) => {
+  const handInEach = async (name, counts, { settle, ids = {} } = {}) => {
     const xpNow = () => stores.character.getState().characterProfile?.experienceProgress?.current ?? 0;
     const xp0 = xpNow();
     const due = { ...counts };
+    const reference = (name) => ids[name] != null ? { name, id: ids[name] } : name;
     let trades = 0;
     let items = 0;
     await settled(settle); // an earlier trade's leftover would block this one
     await talkToNpc(name);
     for (;;) {
-      const have = Object.fromEntries(Object.keys(due).map((n) => [n, carried(n)]));
+      const have = Object.fromEntries(Object.keys(due).map((n) => [n, carried(reference(n))]));
       const names = Object.keys(due).filter((n) => due[n] > 0 && have[n] > 0).slice(0, 4);
       if (!names.length) break;
       const trade = async () => {
         if (!giveItemsReady()) await talkToNpc(name); // the dialogue closed between trades
-        await giveToNpc(names, { closeNote: false });
+        await giveToNpc(names.map(reference), { closeNote: false });
         await settled(settle);
         await pause(500);
-        return names.filter((n) => carried(n) < have[n]);
+        return names.filter((n) => carried(reference(n)) < have[n]);
       };
       let got = await trade();
       // A trade from too far away comes back: walk up again and give once more.
@@ -1542,6 +1565,8 @@
    * item arrived.
    */
   const pullItem = async (item, { from = null, avoid = [], timeoutMs = 20000 } = {}) => {
+    const name = refName(item);
+    const matches = item?.id != null ? (await searchItems([name])).rows.filter((r) => r.itemId === item.id) : null;
     const cb = () => stores.combat.getState();
     cb().openInventorySearch();
     try {
@@ -1549,21 +1574,27 @@
       for (let k = 0; k < 25 && !(panel = document.querySelector('[data-testid="inventory-search-panel"]')); k++) await pause(200);
       if (!panel) throw new Error("Inventory Search did not open");
       const input = panel.querySelector("input");
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, item);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, name);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       const me = stores.character.getState().characterProfile?.name;
-      const prefix = `Transfer ${item} from `;
+      const prefix = `Transfer ${name} from `;
       const usable = (b) => {
         const l = b.getAttribute("aria-label") ?? "";
-        return !b.disabled && l.startsWith(prefix) && (from ? l === prefix + from : l !== prefix + me && !avoid.some((n) => l === prefix + n));
+        // A row of the panel carries its item instance in its test id, or its bank kind and item id
+        // for a banked stack, which tells the items of one name apart.
+        const rowId = b.closest("tr")?.getAttribute("data-testid") ?? "";
+        const tail = (r) => String(r.bankKind ? `${r.bankKind}-${r.itemId}` : r.itemInstanceId);
+        const exact = !matches || matches.some((r) => r.characterName === l.slice(prefix.length) && rowId.endsWith(tail(r)) && !/\d/.test(rowId.charAt(rowId.length - tail(r).length - 1)));
+        return !b.disabled && l.startsWith(prefix) && exact && (from ? l === prefix + from : l !== prefix + me && !avoid.some((n) => l === prefix + n));
       };
-      const end = Date.now() + timeoutMs;
+      let end = Date.now() + timeoutMs;
       let btn = null;
       while (Date.now() < end && !(btn = [...panel.querySelectorAll("button")].find(usable))) await pause(300);
-      if (!btn) throw new Error(`no transferable ${item}${from ? ` on ${from}` : ""}`);
+      if (!btn) throw new Error(`no transferable ${name}${from ? ` on ${from}` : ""}`);
       const giver = btn.getAttribute("aria-label").slice(prefix.length);
       const before = carried(item);
       btn.click();
+      end = Date.now() + timeoutMs;
       // The window first shows "Transferring item…", then the result.
       let reply = null;
       while (Date.now() < end && (!reply || /…$|^Transferring/.test(reply) || (!panel.querySelector('[role="alert"]') && carried(item) === before))) {
@@ -1586,6 +1617,7 @@
    * want of coin. Resolves with the number bought and the platinum left.
    */
   const buyItem = async (item, merchant, count = 1) => {
+    const name = refName(item);
     const cb = () => stores.combat.getState();
     const ms = () => stores.merchant.getState();
     // The client selects a merchant and opens its window only once the party stands in range
@@ -1604,8 +1636,8 @@
       if (Date.now() > end) throw new Error(`${merchant} did not open`);
       const m = ms();
       if (!cb().isMerchantWindowOpen || m.selectedMerchant?.name !== merchant || m.isLoadingItems || !(m.merchantItems ?? []).length) continue;
-      goods = m.merchantItems.find((g) => g.item?.name === item) ?? false;
-      if (goods === false) throw new Error(`${merchant} does not sell ${item}`);
+      goods = m.merchantItems.find((g) => item?.id != null ? g.item?.id === item.id : g.item?.name === name) ?? false;
+      if (goods === false) throw new Error(`${merchant} does not sell ${name}`);
     }
     let bought = 0;
     for (; bought < count; bought++) {
@@ -1616,7 +1648,7 @@
       // disabled for a moment after a consider while the client is busy.
       for (let k = 0; k < 20 && !ms().consideredItem; k++) await pause(250);
       ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
-      const shown = () => ms().consideredItem?.item?.id === goods.item.id && [...document.querySelectorAll("body *")].some((el) => el.childElementCount === 0 && el.textContent.trim() === item);
+      const shown = () => ms().consideredItem?.item?.id === goods.item.id && [...document.querySelectorAll("body *")].some((el) => el.childElementCount === 0 && el.textContent.trim() === name);
       let button = null;
       for (let k = 0; k < 20 && !(shown() && (button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE" && !b.disabled))); k++) await pause(250);
       if (!button || !shown()) break;
@@ -1687,14 +1719,15 @@
    */
   const giveItem = async (item, characterId, { equip = true, settle } = {}) => {
     const ch = () => stores.character.getState();
-    if (cursorItem() !== item) await settled(settle);
-    const row = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && itemName(x) === item);
-    if (!row) throw new Error(`no ${item} in the bags`);
+    const cursor = () => (ch().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === 30);
+    if (!matchesItem(cursor(), item)) await settled(settle);
+    const row = (ch().characterProfile?.inventory ?? []).find((x) => inBags(x) && matchesItem(x, item));
+    if (!row) throw new Error(`no ${refName(item)} in the bags`);
     const from = { bag: row.bag, slot: row.slot };
     const since = seqs.event;
     ch().moveItemToSlot(from, { bag: 0, slot: 30 });
     await pause(900);
-    if (cursorItem() !== item) throw new Error(`the cursor holds ${cursorItem() ?? "nothing"} instead of ${item}`);
+    if (!matchesItem(cursor(), item)) throw new Error(`the cursor holds ${cursorItem() ?? "nothing"} instead of ${refName(item)}`);
     const ok = await stores.companions.getState().transferHeldItem(characterId, equip);
     await pause(900);
     if (cursorItem()) {
@@ -1714,15 +1747,15 @@
   const equipOwn = async (item, slotNum) => {
     const ch = () => stores.character.getState();
     const inv = () => ch().characterProfile?.inventory ?? [];
-    const row = inv().find((x) => inBags(x) && itemName(x) === item);
-    if (!row) throw new Error(`no ${item} in the bags`);
+    const row = inv().find((x) => inBags(x) && matchesItem(x, item));
+    if (!row) throw new Error(`no ${refName(item)} in the bags`);
     const from = { bag: row.bag, slot: row.slot };
     const to = { bag: 0, slot: slotNum };
     await (inv().some((x) => x.bag === 0 && x.slot === slotNum) ? ch().swapItems(from, to) : ch().moveItemToSlot(from, to));
     await pause(900);
     if (cursorItem()) throw new Error(`${cursorItem()} is on the cursor`);
     const worn = (ch().characterProfile?.inventory ?? []).find((x) => x.bag === 0 && x.slot === slotNum);
-    return { ok: Boolean(worn) && itemName(worn) === item };
+    return { ok: matchesItem(worn, item) };
   };
   /**
    * Inventory Search (opcode 1241, action "search") for each of `words`, four at a time, merged by
@@ -1803,6 +1836,8 @@
     missingApi,
     surface: CLIENT_SURFACE,
     log,
+    movementId,
+    get lastPos() { return lastPos; },
     kills,
     lootLog,
     faults,
@@ -2288,7 +2323,7 @@
         free += r ? size - inv.filter((i) => i.bag === slot + 1).length : 1;
       }
       const cursor = inv.find((i) => i.bag === 0 && i.slot === 30);
-      return { free, capacity, cursor: cursor ? (cursor.itemDetails?.Name ?? cursor.itemDetails?.name ?? cursor.itemid) : null };
+      return { free, capacity, cursor: cursor ? (cursor.itemDetails?.Name ?? cursor.itemDetails?.name ?? cursor.itemid) : null, cursorId: cursor ? (cursor.itemid ?? cursor.itemDetails?.id ?? null) : null };
     },
 
     /** Last chat lines the client shows. */
@@ -2306,7 +2341,7 @@
     async castSummon(spellId, { output, timeoutMs = 60000 } = {}) {
       const sb = () => stores.spellbook.getState();
       const p = () => stores.character.getState().characterProfile;
-      const held = () => (p()?.inventory ?? []).some((x) => itemName(x) === output);
+      const held = () => (p()?.inventory ?? []).some((x) => matchesItem(x, output));
       const gems = document.querySelectorAll(".spell-gem-slot").length;
       if (!gems) throw new Error("the spell bar has no gems");
       if (stores.skills.getState().inCombat) throw new Error("in combat");
@@ -2335,7 +2370,8 @@
       const end = Date.now() + timeoutMs;
       let clicks = 0;
       while (!held() && Date.now() < end) {
-        const begun = events.some((e) => e.seq > since && /^You begin casting/.test(e.text));
+        const latest = events.findLast((e) => e.seq > since && /^(You begin casting|Your spell fizzles!|Your spell is interrupted\.)/.test(e.text));
+        const begun = /^You begin casting/.test(latest?.text ?? "");
         if (!begun && clicks < 10) {
           document.getElementById(`spell_gem_${gem + 1}`)?.click();
           clicks++;
@@ -2344,9 +2380,9 @@
       }
       if (!held()) {
         const said = events.filter((e) => e.seq > since && /cast|spell|mana|fizzle|interrupt|component/i.test(e.text)).map((e) => e.text).slice(-3).join(" | ");
-        throw new Error(`no ${output} after casting spell ${spellId} (${said || "no line"})`);
+        throw new Error(`no ${refName(output)} after casting spell ${spellId} (${said || "no line"})`);
       }
-      return `summoned ${output}`;
+      return `summoned ${refName(output)}`;
     },
 
     /**

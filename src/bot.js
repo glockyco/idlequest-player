@@ -351,9 +351,13 @@
     for (const k of rows) {
       if (i.bagSpace().free >= Math.max(config.minFreeSlots, config.targetFreeSlots) || stored.length >= config.sellPerTick) break;
       if (now() - (state.storeRefused[k.instanceId] ?? 0) < 3600000) continue;
+      const row = rowAt(i, k);
+      const id = row?.itemid ?? row?.itemDetails?.id;
+      const first = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => ((r.bag === 0 && r.slot >= 22 && r.slot <= 29) || (r.bag >= 23 && r.bag <= 30)) && (r.itemDetails?.Name ?? r.itemDetails?.name ?? r.name) === k.name && (id == null || (r.itemid ?? r.itemDetails?.id) === id));
+      if (first?.itemInstanceId !== k.instanceId) continue;
       let to = null;
       for (const m of members) {
-        const r = await (async () => i.giveItem(k.name, Number(m.characterId), { equip: false, settle: () => settleHeld(i) }))().catch(() => null);
+        const r = await (async () => i.giveItem(id == null ? k.name : { name: k.name, id }, Number(m.characterId), { equip: false, settle: () => settleHeld(i) }))().catch(() => null);
         if (r?.ok && rowAt(i, k)?.itemInstanceId !== k.instanceId) {
           to = m.name;
           break;
@@ -491,7 +495,7 @@
     if (i.guard?.phase === "leaving") return "the guard's escape";
     if (leaderDead(i)) return "the leader's death";
     // Companions asked to rejoin arrive one every 2.5 s, and a pull before they do fights short-handed.
-    if (now() - state.rejoinAt < 30000 && partyMissing(i).length) return "members joining";
+    if (state.rejoinSince != null && now() - state.rejoinSince < 30000 && partyMissing(i).length) return "members joining";
     // An item on the cursor leaves the next kill's loot on its corpse, and the client refuses a
     // destroy while the server has not confirmed the move, so the fight waits for the discard.
     if (state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) return "a discard on the cursor";
@@ -584,8 +588,9 @@
     const e = state.errand;
     if (e?.arrived && enemyPattern(e.keep).test(f.name)) return; // an errand's enemy is worth its time
     const mob = Object.values(cb.engagedMobs ?? {}).find((x) => foeKey(x.name) === f.name && x.state === "alive");
-    if (!mob || typeof i.leaveFight !== "function") return;
+    if (!mob || typeof i.leaveFight !== "function" || !i.guard?.config?.enabled || i.guard.phase !== "watching" || now() < (i.guard.retryAt ?? 0) || !i.socket?.isConnected || cb.isZoneLoading || inRaid(i)) return;
     const t = state.task;
+    if (t?.status === "running" && t.kind === "quest" && t.members.some((m) => m.steps[m.at ?? 0]?.kill && enemyPattern(m.steps[m.at ?? 0].kill).test(f.name))) return;
     if (t?.status === "running" && t.kind === "hunt" && enemyPattern(t.keep).test(f.name)) {
       const mark = f.mark ?? { t: f.t, hp: mob.maxHp };
       if (now() - mark.t < config.slowFightSec * 1000) return;
@@ -840,7 +845,7 @@
       },
       rungs: ["start"],
     },
-    noEnemies: { afterSec: 0, rungs: ["widen", "move"] },
+    noEnemies: { afterSec: 0, rungs: ["widen", "move", "start"], untilKill: true },
     waitAttack: { afterSec: 20, rungs: ["restart"], untilKill: true },
     // An approach that has not moved the party for a minute (src/bridge.js) skips its target, then moves on.
     stuckApproach: { afterSec: 0, rungs: ["skipTarget", "restart", "move"], untilKill: true },
@@ -923,7 +928,7 @@
       return "pressed Try Again";
     },
     // The guard's escape enters the zone again, which ends the fight for the client and the server.
-    leaveFight: (i) => (typeof i.leaveFight === "function" && i.leaveFight("the fight showed no combat line for 45 s") ? "left the fight through the guard" : null),
+    leaveFight: (i, cb) => (typeof i.leaveFight === "function" && i.guard?.config?.enabled && i.guard.phase === "watching" && now() >= (i.guard.retryAt ?? 0) && i.socket?.isConnected && !cb.isZoneLoading && !inRaid(i) && i.leaveFight("the fight showed no combat line for 45 s") ? "left the fight through the guard" : null),
   };
   // The setters overwrite each other in this order (docs/client-internals.md).
   const setLimits = (cb, l) => {
@@ -1069,6 +1074,8 @@
     const cb = i.stores.combat.getState();
     const zone = i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === cb.currentZone)?.longName ?? "this zone";
     while (c.rung < rungs.length) {
+      // Empty zones get time to respawn before the last rung starts another search.
+      if (a.why === "noEnemies" && rungs[c.rung] === "start" && now() - Math.max(c.at, a.since) < 20000) return void wake(20000 - (now() - Math.max(c.at, a.since)));
       const done = await remedies[rungs[c.rung++]](i, cb, `idle (${a.why}) in ${zone}`, a.why);
       if (done) {
         c.at = now();
@@ -1218,16 +1225,21 @@
     return out.sort((a, b) => b.level + b.mod - (a.level + a.mod));
   };
   const dispelRoots = (i, cb) => {
-    if (!config.dispelRoots || typeof i.setTactic !== "function") return;
     state.dispelSkip ??= [];
     const fighting = i.stores.skills.getState().inCombat;
     const roots = partyRoots(i);
     const run = state.dispel;
     if (run) {
       const gone = !roots.some((r) => r.app === run.app);
-      const stop = gone ? "gone" : fighting ? "a fight started" : !cb.isRunning ? "AutoLevel stopped" : run.endsAt - now() <= config.dispelOverheadSec * 1000 ? "nearly expired" : null;
+      const stop = !config.dispelRoots || typeof i.setTactic !== "function" ? "dispels disabled" : gone ? "gone" : fighting ? "a fight started" : !cb.isRunning ? "AutoLevel stopped" : run.endsAt - now() <= config.dispelOverheadSec * 1000 ? "nearly expired" : null;
       if (!stop) return;
-      for (const w of run.who) i.setTactic(w.name, "cure", w.prev ?? false);
+      for (const w of run.who) {
+        if (typeof i.setTactic === "function") i.setTactic(w.name, "cure", w.prev ?? false);
+        else {
+          const c = (i.stores.companions.getState().companions ?? []).find((c) => c.name === w.name);
+          if (c) i.stores.partySpells?.getState?.().setTactic?.(`character:${c.characterId}`, "cure", w.prev ?? false);
+        }
+      }
       state.dispel = null;
       const took = Math.round((now() - run.at) / 1000);
       const left = Math.max(0, Math.round((run.endsAt - now()) / 1000));
@@ -1235,6 +1247,7 @@
       alert("dispel", stop === "gone" ? `root on ${run.target} gone after ${took}s with ${left}s of it left; cures back off` : `stopped after ${took}s (${stop}) with ${left}s of the root left; cures back off`);
       return;
     }
+    if (!config.dispelRoots || typeof i.setTactic !== "function") return;
     if (fighting || !cb.isRunning || !roots.length) return;
     const root = roots.reduce((a, b) => (b.endsAt > a.endsAt ? b : a));
     if (state.dispelSkip.some((s) => s.app === root.app && s.until > now())) return;
@@ -1306,7 +1319,7 @@
     // sign-in, so the wait that earlier failed switches set no longer holds. Group 5 stood there
     // ten minutes for a retry time set while the server was quiet (2026-11-12).
     if (atSelect && !state.selectSince && !(state.switching && !state.switching.done)) Object.assign(state, { switchRetryAt: 0, switchFails: 0 });
-    state.selectSince = atSelect ? (state.selectSince ?? now()) : null;
+    state.selectSince = atSelect && !(state.switching && !state.switching.done) ? (state.selectSince ?? now()) : null;
     const ok = i.socket.isConnected && screen === "game";
     if (ok) {
       state.offlineSince = null;
@@ -1337,7 +1350,10 @@
     if (!config.partyIds.length || now() < state.pauseUntil) return;
     const available = new Set(i.stores.companions.getState().availableAccountCharacterIds ?? []);
     const missing = partyMissing(i).filter((id) => !available.size || available.has(id));
-    if (!missing.length) return;
+    if (!missing.length) {
+      state.rejoinSince = null;
+      return;
+    }
     if (i.stores.skills.getState().inCombat) {
       if (cb.isRunning) {
         holdAutoLevel(cb, "members to gather");
@@ -1347,6 +1363,7 @@
     }
     if (now() - state.rejoinAt < 20000) return;
     state.rejoinAt = now();
+    state.rejoinSince ??= now();
     i.stores.companions.getState().requestAccountCharacterAvailability();
     missing.forEach((id, k) => setTimeout(() => iq()?.stores.companions.getState().controlAccountCharacter(id), 2500 * (k + 1)));
     alert("rejoin", `asked ${missing.length} account character(s) to rejoin the party: ${missing.join(", ")}`);
@@ -1526,7 +1543,7 @@
   const pullOne = async (i, item, from = null, avoid = []) => {
     if (i.bagSpace().free < 2) await keepReserve(i, true);
     const r = await i.pullItem(item, { from, avoid });
-    if (!r.got) throw new Error(`pulling ${item} from ${r.from} failed: ${r.reply ?? "no reply"}`);
+    if (!r.got) throw new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`);
   };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
@@ -1621,7 +1638,7 @@
   const questTask = async (i, task, step) => {
     const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
     try {
-      for (const m of task.members) await questMember(i, m, step);
+      for (const m of task.members) await questMember(i, m, step, task);
     } finally {
       i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
@@ -1648,22 +1665,42 @@
   };
   // The coin a member took for a hand-in goes to the group's leader, the character that spends it.
   const returnCoin = async (i) => {
-    if (!state.coinBack?.length || Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
+    if (!state.coinBack?.length || now() < (state.coinBackAt ?? 0) || Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
     const name = state.coinBack[0];
-    await i.takeCoin(name).then(
-      (moved) => log(`coin: the leader took back ${name}'s coin (${Object.entries(moved ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`).join(", ") || "none"})`),
-      (e) => log(`coin: taking back ${name}'s coin failed: ${e.message}`),
-    );
-    state.coinBack = state.coinBack.slice(1);
+    try {
+      const moved = await i.takeCoin(name);
+      log(`coin: the leader took back ${name}'s coin (${Object.entries(moved ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`).join(", ") || "none"})`);
+      state.coinBack = state.coinBack.slice(1);
+      state.coinBackAt = 0;
+    } catch (e) {
+      state.coinBackAt = now() + 60000;
+      log(`coin: taking back ${name}'s coin failed: ${e.message}`);
+    }
   };
-  const questMember = async (i, m, step) => {
+  const questMember = async (i, m, step, task) => {
+    const ref = (name) => m.ids?.[name] == null ? name : { name, id: m.ids[name] };
+    const buy = async (s, item, n) => {
+      if (i.carried(ref(item)) >= n) return;
+      await step(`coin for ${m.name}'s purchase`, async () => {
+        const from = await pullCoin(i, s.buy.price ?? 1).catch((e) => {
+          log(`quest: no coin pull for ${item} (${e.message})`);
+          return null;
+        });
+        if (from) {
+          if (Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) state.coinBack = [...new Set([...(state.coinBack ?? []), m.name])];
+          log(`quest: ${m.name} pulled ${from} for ${item}`);
+        }
+      }, 60000);
+      const r = await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(ref(item), s.buy.merchant, n - i.carried(ref(item))), 240000);
+      if (i.carried(ref(item)) < n) throw new Error(`${s.buy.merchant} sold too little ${item} (${r.platinum ?? i.stores.character.getState().characterProfile?.platinum ?? 0} pp carried)`);
+    };
     if (m.done) return;
     const t0 = now();
     await step(`stop for ${m.name}`, () => calm(i), 75000);
     await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
     // A chain that stopped part way, in this task or an earlier one, goes on after the last step
     // whose reward the member carries, so no step repeats and no reward is asked for twice.
-    const resume = m.steps.findLastIndex((s) => s.expect && i.carried(s.expect) > 0) + 1;
+    const resume = m.steps.findLastIndex((s) => s.expect && i.carried(ref(s.expect)) > 0) + 1;
     m.at = Math.max(m.at ?? 0, resume);
     let fresh = true;
     let gathered = false;
@@ -1692,7 +1729,7 @@
       if (s.buy && !s.npc) {
         for (const item of s.buy.items) {
           const n = s.buy.counts?.[item] ?? 1;
-          if (i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
+          await buy(s, item, n);
         }
         m.at = k + 1;
         continue;
@@ -1700,9 +1737,9 @@
       const need = { ...(s.each ?? {}) };
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
-        if (s.buy?.items?.includes(item) && i.carried(item) < n) await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(item, s.buy.merchant, n - i.carried(item)), 240000);
+        if (s.buy?.items?.includes(item)) await buy(s, item, n);
         // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
-        while (i.carried(item) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, item, null, m.avoid ?? []), 45000);
+        while (i.carried(ref(item)) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
       }
       if (s.craft) {
         const c = s.craft;
@@ -1712,12 +1749,12 @@
         const tally = { attempted: 0, failures: 0, skill: null };
         while (tally.attempted < (c.quantity ?? 1)) {
           for (const item of c.inputs ?? []) {
-            if (i.carried(item) >= 1) continue;
-            await step(`pull ${item} for ${m.name}`, () => pullOne(i, item, null, m.avoid ?? []), 45000).catch((e) => {
+            if (i.carried(ref(item)) >= 1) continue;
+            await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000).catch((e) => {
               throw new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`);
             });
           }
-          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: c.output.id, settle: () => settleHeld(i) }), 120000);
+          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: m.ids?.[c.output.item] ?? c.output.id, settle: () => settleHeld(i) }), 120000);
           tally.attempted += r.attempted;
           tally.failures += r.failures;
           tally.skill = r.newSkillValue ?? tally.skill;
@@ -1800,19 +1837,25 @@
           const joined = await gatherParty(i);
           if (partyMissing(i).length) throw new TaskLater(`the leader's party did not gather to clear ${s.npc}'s spawn point (${joined})`, now() + 600000);
           const names = held.map((x) => x.name).join("|");
-          const r = await campPoints(i, { points: s.points, keep: names, startedAt: now(), minutes: 10 }, enemyPattern(names));
-          log(`quest: the leader camped ${s.npc}'s spawn point: ${r.result}, ${r.kills} kill(s)`);
+          const r = await campPoints(i, { points: s.points, keep: names, startedAt: now(), minutes: 10 }, enemyPattern(names), task);
+          log(`quest: the leader camped ${s.npc}'s spawn point: ${r.result ?? r.stopped}, ${r.kills} kill(s)`);
+          if (r.stopped) throw new TaskLater(`${s.npc}'s spawn point: ${r.stopped}`, now() + 600000);
           // A camp that ran out of time without a kill needs a stronger group, which a few hours may bring.
           if (!r.kills && !r.nextAt) throw Object.assign(new Error(`the leader could not clear ${s.npc}'s spawn point (${r.result})`), { retryAfterMs: 6 * 3600000 });
           throw new TaskLater(`${s.npc}'s spawn point: ${r.result}`, r.nextAt ? r.nextAt + 30000 : now() + 1800000);
         }, 1200000);
       }
       // A summoning spell the member casts itself, as the Magician's Summon Orb.
-      if (s.cast) await step(`cast ${s.cast.spell}`, () => i.castSummon(s.cast.spellId, { output: s.expect }), 180000);
+      if (s.cast) {
+        for (const item of s.cast.inputs ?? []) {
+          if (i.carried(ref(item)) < 1) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
+        }
+        await step(`cast ${s.cast.spell}`, () => i.castSummon(s.cast.spellId, { output: ref(s.expect) }), 180000);
+      }
       // A quest item that lies in the zone is picked up where it lies. One that another player
       // took is back after its respawn, when the task comes back.
       if (s.pick) {
-        await step(`pick up ${s.pick}`, () => i.pickupGround(s.pick).catch((e) => {
+        await step(`pick up ${s.pick}`, () => i.pickupGround(ref(s.pick)).catch((e) => {
           if (/^no .+ lies in/.test(e?.message ?? "")) throw new TaskLater(e.message, now() + (s.respawnSec ?? 1800) * 1000);
           throw e;
         }), 300000);
@@ -1824,7 +1867,7 @@
       if (s.coin) await step(`coin for ${m.name}`, () => coinFor(i, m, s.coin), 60000);
       if (s.say?.length || trades) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
-      const give = () => i.giveToNpc(s.give ?? [], s.coin ? { coin: s.coin } : undefined);
+      const give = () => i.giveToNpc((s.give ?? []).map(ref), s.coin ? { coin: s.coin } : undefined);
       if (trades) {
         const r = await step(`give to ${s.npc}`, () => give().catch(async (e) => {
           if (!/^the trade was refused/.test(e?.message ?? "")) throw e;
@@ -1837,16 +1880,17 @@
         log(`quest: ${m.name} gave ${[...(s.give ?? []), ...Object.entries(s.coin ?? {}).map(([t, n]) => `${n} ${t}`)].join(", ")} to ${s.npc}, which answered: ${String(r?.dialogues?.at(-1) ?? "nothing").slice(0, 140)}`);
       }
       if (s.each) {
-        const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each, { settle: () => settleHeld(i) }), 300000);
+        const r = await step(`hand in for ${m.name}`, () => i.handInEach(s.npc, s.each, { settle: () => settleHeld(i), ids: m.ids }), 300000);
         Object.assign(m, { trades: (m.trades ?? 0) + r.trades, items: (m.items ?? 0) + r.items, xp: (m.xp ?? 0) + r.xp });
       }
       if (s.expect) {
         // An NPC's SummonItem lands on the cursor, which the bags count leaves out. A container fits
         // only an empty general slot, so it may stay there, and it counts as received. A corpse's
         // loot comes within a second mostly and took 18 s at its longest.
-        const held = () => i.carried(s.expect) > 0 || i.bagSpace().cursor === s.expect;
+        const cursorHeld = () => m.ids?.[s.expect] != null ? i.bagSpace().cursorId === m.ids[s.expect] : i.bagSpace().cursor === s.expect;
+        const held = () => i.carried(ref(s.expect)) > 0 || cursorHeld();
         for (let w = 0; w < (s.kill ? 40 : 10) && !held(); w++) await sleep(500);
-        if (i.bagSpace().cursor === s.expect) await settleHeld(i);
+        if (cursorHeld()) await settleHeld(i);
         if (!held()) {
           // What the corpse gave instead, which tells a lost loot from a drop that is not there.
           const loot = s.kill ? (i.lootLog ?? []).filter((l) => l.t >= m.foughtAt).map((l) => l.items.join(", ") || "coin only") : null;
@@ -1966,22 +2010,28 @@
   // stops again ends with the client's reason (`stopped`).
   const CAMP_STOPPED_MS = 8000;
   const CAMP_STOP_LINE = /^Spawn Camp stopped: (.+)$/;
-  const campPoints = async (i, task, wanted) => {
+  const campPoints = async (i, task, wanted, owner = task) => {
     const rt = runtime(i);
+    const ownerRunner = owner.runner;
     const cb = () => i.stores.combat.getState();
     if (!rt?.startSpawnCamp) throw new Error("the client's Spawn Camp was not found");
     let kills = 0;
-    let scanned = now();
+    const scanned = new Set(i.events ?? []);
     let waitingSince = null;
     let stoppedSince = null;
     let starts = 1;
     rt.startSpawnCamp(task.points, 0, task.keep);
     try {
-      while (now() < task.startedAt + task.minutes * 60000) {
+      while (now() < task.startedAt + task.minutes * 60000 && state.task === owner && owner.status === "running" && owner.runner === ownerRunner) {
         await sleep(2000);
-        if (killedSince(i, wanted, scanned)) kills++;
-        scanned = now();
-        if (task.item && hasItem(i, task.item)) return { kills, result: `got ${task.item}` };
+        if (state.task !== owner || owner.status !== "running" || owner.runner !== ownerRunner) throw new TaskStopped();
+        for (const e of i.events ?? []) {
+          if (scanned.has(e)) continue;
+          scanned.add(e);
+          const m = KILL_LINE.exec(e.text ?? "");
+          if (m && wanted.test(m[1])) kills++;
+        }
+        if (task.item && hasItem(i, task.item, task.itemId)) return { kills, result: `got ${task.item}` };
         // A camp loots for up to half an hour under the task's pause, which keeps the tick's reserve
         // away, so the camp keeps the reserve itself between fights.
         if (!i.stores.skills.getState().inCombat) await keepReserve(i, true);
@@ -2012,7 +2062,7 @@
       }
       return { kills, result: "time is up" };
     } finally {
-      holdAutoLevel(cb(), "the camp's end"); // ends the camp as well
+      if (state.task === owner) holdAutoLevel(cb(), "the camp's end"); // ends the camp as well
     }
   };
   // Tries at a fight in a row that came to nothing before a hunt gives its enemies up.
@@ -2032,11 +2082,21 @@
       let empty = 0; // zones in a row without a wanted enemy
       let lost = 0; // tries in a row that came to no fight
       const skip = new Set(); // the kinds of enemy the client found no route to
+      // The wanted enemies that stand when a visit arrives in a zone, by name in lower case
+      // (`task.up`), from which the coordinator counts how often a visit finds each one up. A hunt
+      // that camped first has killed there, so it notes nothing.
+      const looked = new Set();
+      const noteUp = () => {
+        if (task.campStopped || looked.has(zones[at])) return;
+        looked.add(zones[at]);
+        const names = (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).map((t) => String(t.name ?? "")).filter((n) => wanted.test(n));
+        task.up = [...new Set([...(task.up ?? []), ...names.map((n) => n.replace(/#/g, "").replace(/_/g, " ").trim().toLowerCase())])];
+      };
       await step(`travel to ${zones[at]}`, () => i.changeZone(zones[at]), 90000);
-      task.kills = 0;
+      task.kills ??= 0;
       let seen = now();
       while (now() < task.startedAt + task.minutes * 60000) {
-        if (task.item && hasItem(i, task.item)) return void (task.result = `got ${task.item}`);
+        if (task.item && hasItem(i, task.item, task.itemId)) return void (task.result = `got ${task.item}`);
         if (task.points?.length) {
           const r = await step(`camp ${task.keep}`, () => campPoints(i, task, wanted), task.minutes * 60000);
           task.kills += r.kills;
@@ -2049,6 +2109,7 @@
           Object.assign(task, { campStopped: r.stopped, points: [] });
           continue;
         }
+        noteUp();
         const r = await step(`hunt ${task.keep}`, () => directedKill(i, wanted, skip), 200000);
         if (r === "killed") {
           task.kills++;
@@ -2086,7 +2147,7 @@
           }
         }
       }
-      task.result = task.item && hasItem(i, task.item) ? `got ${task.item}` : "time is up";
+      task.result = task.item && hasItem(i, task.item, task.itemId) ? `got ${task.item}` : "time is up";
     } finally {
       i.stores.combat.getState().setEnemyTargetAttackOnArrival?.(onArrival);
     }
@@ -2110,11 +2171,13 @@
   // is there when one comes back, and the collector sends the raid once it stands.
   const LOOK_EVERY_MS = 15000;
   const lookTask = async (i, task, step) => {
+    const runner = task.runner;
     await step("stop", () => calm(i), 75000);
     if (zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
     const wait = Math.max(0, (task.until ?? 0) - now());
     await step(`look for ${task.name}`, async () => {
       for (;;) {
+        if (state.task !== task || task.status !== "running" || task.runner !== runner) throw new TaskStopped();
         const at = (await readBosses(i, task, task.name)).filter((s) => bossKey(s.name) === bossKey(task.name));
         if (at.some((s) => s.state === "alive")) return void (task.result = `${task.name} stands`);
         if (now() >= (task.until ?? 0)) {
@@ -2127,7 +2190,10 @@
     // The party goes home at once, because the rotation's own move waits a minute, in which
     // AutoLevel pulls where the boss lives.
     const home = (config.rotation ?? [])[0];
-    if (home && home !== task.zone) await step(`travel to ${home}`, () => i.changeZone(home), 90000).catch((e) => log(`task look: the way home failed (${e?.message ?? e}), the rotation moves the party`));
+    if (home && home !== task.zone) await step(`travel to ${home}`, () => i.changeZone(home), 90000).catch((e) => {
+      if (e instanceof TaskStopped) throw e;
+      log(`task look: the way home failed (${e?.message ?? e}), the rotation moves the party`);
+    });
   };
   // How close Run To Target brings the leader before the attack, in the scene's distance units.
   const RAID_REACH = 30;
@@ -2224,7 +2290,8 @@
       // from the fight without one fled or reset: Lodizal left two fights at 40 s with an eighth of
       // his health, still stood at his spawn point, and the task had called the second a kill.
       const tEngage = now();
-      const killed = () => Boolean(killedSince(i, enemyPattern(boss.name), tEngage));
+      const bossName = { test: (name) => bossKey(name) === bossKey(boss.name) };
+      const killed = () => Boolean(killedSince(i, bossName, tEngage));
       // Run To Target first, so the leader stands at the boss before the fight: in the first raid
       // he stood 12 minutes under an attack order. A boss out of reach does not hold the fight. The
       // raid engages on arrival, and a weak or wounded boss can die before the attack order.
@@ -2269,7 +2336,6 @@
         const healers = new Set();
         let progress = null;
         let progressAt = now();
-        const bossName = enemyPattern(boss.name);
         const roster = (s) => s.roster.map((m) => ({ name: m.name, damage: m.damage, alive: m.alive, hp: m.hp, maxHp: m.maxHp, mana: m.mana, maxMana: m.maxMana }));
         task.fight.roster = roster(raid.state());
         // Past the task's minutes the fight goes on while the boss lost health in the last minute,
@@ -2281,18 +2347,23 @@
         const winning = () => now() - bossHpAt < 60000 && now() < raidEnds - 30000;
         // A stop ends the fight too: a stopped raid kept ordering revives, which held the client's
         // raid lifecycle pending, so raid mode could not end (Cazic-Thule, 2026-11-12).
-        while (!killed() && task.status === "running" && (now() < task.startedAt + task.minutes * 60000 || winning())) {
+        const beforeDeadline = async () => {
+          if (now() < t0 + task.minutes * 60000) return true;
+          if (!task.fight.overtime) {
+            task.fight.overtime = true;
+            raidEnds = (await raid.time().catch(() => null))?.expiresAt ?? raidEnds;
+            if (winning()) log(`task raid: ${task.minutes} min are up with ${boss.name} at ${bossHp} HP and still losing, so the fight goes on while raid time lasts`);
+          }
+          return winning();
+        };
+        while (!killed() && task.status === "running" && await beforeDeadline()) {
           await sleep(2000);
+          if (task.status !== "running") break;
           const s = raid.state();
           const hpNow = s.enemies.find((x) => x.id === boss.spawnInstanceId)?.hp ?? null;
           if (hpNow != null && (bossHp == null || hpNow < bossHp)) {
             bossHp = hpNow;
             bossHpAt = now();
-          }
-          if (now() >= task.startedAt + task.minutes * 60000 && !task.fight.overtime) {
-            task.fight.overtime = true;
-            raidEnds = (await raid.time().catch(() => null))?.expiresAt ?? raidEnds;
-            if (winning()) log(`task raid: ${task.minutes} min are up with ${boss.name} at ${hpNow} HP and still losing, so the fight goes on while raid time lasts`);
           }
           task.fight.roster = roster(s);
           task.fight.leaderDamage = s.leaderDamage;
@@ -2350,10 +2421,10 @@
           if (s.combat) continue;
           // The kill line can come a moment after the fight's end, as Lodizal's did.
           await sleep(3000);
-          if (killed()) break;
+          if (killed() || task.status !== "running") break;
           return s.leaderDead || !s.roster.some((m) => m.alive) ? "wiped" : "ended";
         }
-        return killed() ? "killed" : "time is up";
+        return killed() ? "killed" : task.status !== "running" ? "stopped" : "time is up";
       }, task.minutes * 60000 + 3600000);
       Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
       task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
@@ -2376,7 +2447,7 @@
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
     if (task.fight) {
       await keepReserve(i, true);
-      const loot = await step("collect the loot", () => collectRaidLoot(i), 120000);
+      const loot = task.status !== "running" ? await collectRaidLoot(i) : await step("collect the loot", () => collectRaidLoot(i), 120000);
       task.fight.loot = loot;
       task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
       log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
@@ -2423,7 +2494,8 @@
     const price = i.casino.dice().find((o) => o.dice === task.dice)?.pricePp;
     if (!price) throw new Error(`the casino offers no ${task.dice}-dice roll`);
     const coin = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
-    Object.assign(task, { rolls: 0, spentPp: 0 });
+    task.rolls ??= 0;
+    task.spentPp ??= 0;
     while (task.spentPp + price <= task.maxPp) {
       if (coin() < price) {
         const from = await step("pull coin", () => pullCoin(i, price), 30000);
@@ -2474,8 +2546,6 @@
     alert("task", `${task.kind} ${task.status}${task.error ? ` at "${task.step}": ${task.error}` : task.status === "waiting" ? `: ${task.result}` : ""}; ${taskSummary(task)}`, task.status === "failed" && !task.nextAt);
     endPause(`the ${task.kind} task`);
   };
-  // The body of the last task run, which the next task waits for (`runTask`).
-  let taskBody = null;
   const TASK_HANDOVER_MS = 30000;
   const runTask = (task) => {
     // A task takes the tab, so a running errand ends here, as finished and not failed.
@@ -2483,6 +2553,7 @@
     const runner = Math.random().toString(36).slice(2);
     Object.assign(task, { runner, status: "running", heartbeat: now() });
     const step = async (label, fn, timeoutMs) => {
+      let first = null;
       for (let attempt = 1; ; attempt++) {
         if (state.task !== task || task.runner !== runner || task.status !== "running") throw new TaskStopped();
         Object.assign(task, { step: label, heartbeat: now() });
@@ -2494,8 +2565,16 @@
           // An action that names when it can work again (`nextAt`, such as a quest NPC's respawn)
           // waits for then, and an error that says when to come back would only repeat now.
           if (Number.isFinite(e?.nextAt)) throw new TaskLater(e.message, e.nextAt + 30000);
-          if (e instanceof TaskStopped || e instanceof TaskLater || attempt >= 2 || e?.retryAfterMs) throw e;
-          log(`task ${task.kind}: ${label} failed, trying once more: ${e?.message ?? e}`);
+          if (e instanceof TaskStopped || e instanceof TaskLater || e?.retryAfterMs) throw e;
+          if (attempt >= 2) {
+            // The first try's error names the cause, and the second often only what the first
+            // left behind: a refused trade closes the dialogue, and the try after it reported
+            // "Give Items is not available" for a day of hand-ins.
+            if (first && e instanceof Error && e.message !== first) e.message = `${first}; and at the second try: ${e.message}`;
+            throw e;
+          }
+          first = String(e?.message ?? e);
+          log(`task ${task.kind}: ${label} failed, trying once more: ${first}`);
           await sleep(3000);
         }
       }
@@ -2504,8 +2583,8 @@
     // stopped task's body still finishes its step and its cleanup, so a new task waits for that,
     // up to `TASK_HANDOVER_MS`, before it acts.
     const mine = () => state.task === task && task.runner === runner;
-    const before = taskBody;
-    taskBody = (async () => {
+    const before = state.taskBody;
+    state.taskBody = (async () => {
       if (before) await Promise.race([before, sleep(TASK_HANDOVER_MS)]);
       try {
         if (!mine()) throw new TaskStopped();
@@ -2623,7 +2702,8 @@
   // in the bags, at its deadline, when the party is no longer in the zone, or after
   // `rotateEscapes` guard escapes there. Then AutoLevel's limits come back, and the rotation
   // rules take over: a party outside its rotation moves back into it.
-  const hasItem = (i, name) => (i.inventory?.() ?? []).some((r) => r.name === name);
+  // With an item id the id decides, because several items can share a name (three are called "Shovel").
+  const hasItem = (i, name, id = null) => (i.inventory?.() ?? []).some((r) => (id != null ? r.id === id : r.name === name));
   const enemyPattern = (s) => new RegExp(s.replace(/[ _]/g, "[ _]"), "i");
   // AutoLevel's level range at the leader's level, as the limits were before the errand.
   const normalRange = (i, e) => {
@@ -3044,9 +3124,9 @@
      * Note" }`. A missing item is pulled from another account character, never from one in `avoid`,
      * the other characters that need it. Returns a copy of the task, which `state.task` keeps up to date.
      */
-    quest({ members, steps, name = "quest", avoid = [] }) {
+    quest({ members, steps, name = "quest", avoid = [], ids = {} }) {
       if (!steps?.length) throw new Error("a quest needs steps");
-      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid })), name);
+      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids })), name);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;
     },
@@ -3055,18 +3135,18 @@
      * task in the page (`huntTask`), for drops from enemies AutoLevel does not pull, such as gray
      * ones. The leader loots, and a NO DROP piece moves to the character who needs it with
      * Inventory Search, as a hand-in does. The task ends when
-     * `item` is in the bags, when none of those enemies was up for `waitMin` minutes, or after
+     * `item` is in the bags (the item with `itemId`, when given), when none of those enemies was up for `waitMin` minutes, or after
      * `minutes`. With `points`, the wanted enemies' spawn points (spawn2 ids, `spawnPoints` in
      * tools/lib/content.mjs), the hunt camps them with the client's Spawn Camp instead, which kills
      * placeholders too, and ends once every point waits, with `nextAt` set to the first respawn
      * (`campPoints`). With `watch`, such points without the camp: a hunt that finds none of its
      * enemies up sets `nextAt` to the first respawn among them. Returns a copy of the task, which `state.task` keeps up to date.
      */
-    hunt({ zone, keep, item = null, minutes = 20, waitMin = 0, points = [], watch = [] }) {
+    hunt({ zone, keep, item = null, itemId = null, minutes = 20, waitMin = 0, points = [], watch = [] }) {
       takeTab();
       if (!zone || !keep) throw new Error("a hunt needs zone and keep");
       new RegExp(keep);
-      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, minutes, waitMin, points, watch, startedAt: now() };
+      state.task = { id: `hunt-${now().toString(36)}`, kind: "hunt", zone, keep, item, itemId, minutes, waitMin, points, watch, startedAt: now() };
       log(`task hunt: ${keep} in ${zone}${item ? ` for ${item}` : ""}, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
@@ -3219,7 +3299,6 @@
       state.pauseUntil = now() + minutes * 60000;
       state.pauseReason = reason || null;
       log(`pause for ${minutes} min${reason ? `: ${reason}` : ""}`);
-      setTimeout(tick, minutes * 60000 + 500);
       return new Date(state.pauseUntil).toISOString();
     },
 
@@ -3282,16 +3361,16 @@
   window.iqBot = bot;
   if (window.iq) window.iq.bot = bot;
   log(`installed (tick ${config.tickSec}s, restart after ${config.restartAfterSec}s, sell below ${config.minFreeSlots} free slots)`);
-  // A task that ran under the previous install goes on under this one from its recorded progress
-  // (docs/plans/controller.md, principle 6), because the old runner's bridge stopped with the
-  // reinstall. The old runner stops at its next step, since the task names a new runner. A raid
-  // ends instead: its steps from the start would recruit a running raid again.
+  // A task resumes from recorded progress after its previous body's in-flight step and cleanup.
+  // The old runner stops at its next step when the task names a new runner. A raid ends instead,
+  // because repeating its setup would recruit a running raid again.
   if (state.task?.status === "running") {
     const task = state.task;
     setTimeout(() => {
       if (state.task !== task || task.status !== "running") return;
       if (task.kind === "raid") {
-        Object.assign(task, { status: "stopped", endedAt: now() });
+        task.status = "stopped";
+        settleTask(task);
         iq()?.raid?.end().catch(() => {});
         alert("task", `raid stopped by a reinstall at "${task.step}"`, true);
         return;
