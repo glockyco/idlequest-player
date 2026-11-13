@@ -162,7 +162,23 @@
     "zone": "najena",
     "keep": "magician",
     "item": "Broom",
+    "itemId": 16544,
     "quest": "magician-epic-broom",
+    "minutes": 60,
+    "retryMin": 120
+  },
+  {
+    "id": "mag-shovel",
+    "kind": "errand",
+    "levels": [
+      17,
+      30
+    ],
+    "zone": "najena",
+    "keep": "magician",
+    "item": "Shovel",
+    "itemId": 16545,
+    "quest": "magician-epic-shovel",
     "minutes": 60,
     "retryMin": 120
   },

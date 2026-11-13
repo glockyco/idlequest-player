@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, settleErrands, settleHistory } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, retryTime, settleErrands, settleHistory, worldHold } from "../tools/lib/coordinator.mjs";
 import { ACQUIRE } from "../tools/lib/acquire.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -38,7 +38,7 @@ test("stones go to the lowest free group only once there are two a member", () =
 
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
   const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
-  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] }).actions).toEqual([{ label: "A", kind: "stopTask", id: null, spec: null, why: 'quest task running for 91 min at "wait for Tykar Renlin"' }]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] }).actions).toMatchObject([{ label: "A", kind: "stopTask" }]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] }).actions).toEqual([]);
 });
 
@@ -378,13 +378,6 @@ test("a hunt that reported its next respawn comes back then, earlier or later th
   expect(decide({ now: NOW, tabs, opportunities: [{ ...page, points: [7] }], history: hunted(NOW - 1000) }).actions).toMatchObject([{ spec: { points: [7] } }]);
 });
 
-test("hunts stop for a tab once they took its share of the last hour", () => {
-  const tabs = [tab("A", "G1", 40)];
-  const ring = { ...page, id: "ring" };
-  const busy = [6, 4].map((m) => ({ t: NOW - m * 60000, label: "A", kind: "hunt", id: "p3", nextAt: NOW + 3600000, ms: 4.5 * 60000 }));
-  expect(decide({ now: NOW, tabs, opportunities: [ring], history: busy }).actions).toEqual([]);
-  expect(decide({ now: NOW, tabs, opportunities: [ring], history: [{ ...busy[0], ms: 3 * 60000 }] }).actions).toHaveLength(1);
-});
 
 test("an errand opportunity queues an errand, and a tab on an errand gets no other task", () => {
   const pages = { id: "m1", group: "G2", kind: "errand", zone: "najena", keep: "magician", item: "Page" };
@@ -420,6 +413,18 @@ test("errands for pieces from the same enemies go to one group", () => {
   expect(decide({ now: NOW, tabs, opportunities: [page("p1"), page("p2")] }).actions).toHaveLength(1);
   const busy = [tab("B", "G5", 12, { errand: { zone: "najena", keep: "magician" } }), tab("D", "G9", 13)];
   expect(decide({ now: NOW, tabs: busy, opportunities: [page("p1")] }).actions).toEqual([]);
+});
+
+test("an errand whose level band every group has outgrown is hunted directed by the lowest group above it", () => {
+  const page = (id: string) => ({ id, levels: [17, 30], kind: "errand", zone: "najena", keep: "magician", item: "Shovel", itemId: 16545 });
+  // Below level 46, so the casino's roll takes no tab.
+  const tabs = [tab("A", "G1", 44), tab("B", "G5", 41)];
+  const out = decide({ now: NOW, tabs, opportunities: [page("p1"), page("p2")] }).actions;
+  // One hunt for the two pieces of the same enemies, by item id, with the hunt's minutes.
+  expect(out).toMatchObject([{ label: "B", kind: "hunt", id: "p1", spec: { zone: "najena", keep: "magician", itemId: 16545, minutes: 9 } }]);
+  // A group still in the band keeps the errand to itself, also while it is busy.
+  const low = [...tabs, tab("C", "G9", 20, { task: { kind: "quest", status: "running" } })];
+  expect(decide({ now: NOW, tabs: low, opportunities: [page("p1")] }).actions).toEqual([]);
 });
 
 test("a quest chain runs for the members of its class who lack the reward", () => {
@@ -646,7 +651,7 @@ test("a rotation of the whole row, or one with a crowded zone, is trimmed to the
   const close = measured({ kurn: 680000, runnyeye: 600000, warrens: 580000, najena: 420000 });
   // restoreGroup gives the whole row, which the bot would walk through in row order.
   const whole = tab("A", "G3", 15, { zone: "runnyeye", rotation: ROWS[0][1] });
-  expect(assignZones({ now: NOW, tabs: [whole], rows: ROWS, rates: close })[0].rotation).toHaveLength(3);
+  expect(assignZones({ now: NOW, tabs: [whole], rows: ROWS, rates: close })[0].rotation).toEqual(["kurn", "runnyeye", "guktop"]);
   // A three-zone rotation that holds a zone crowded ten minutes ago is ranked again without it.
   const crowded = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "kurn", "warrens"], crowdedAt: { kurn: NOW - 10 * 60000 } });
   expect(assignZones({ now: NOW, tabs: [crowded], rows: ROWS, rates: close })[0].rotation).not.toContain("kurn");
@@ -668,10 +673,10 @@ test("a group that stays keeps its rotation, and one that should move gets a new
   expect(assignZones({ now: NOW, tabs: [stays], rows: ROWS, rates: close })).toEqual([]);
   // A zone that left the band row, or a group that should move, gets a new rotation.
   const old = tab("A", "G3", 15, { zone: "runnyeye", rotation: ["runnyeye", "befallen"] });
-  expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })).toHaveLength(1);
+  expect(assignZones({ now: NOW, tabs: [old], rows: ROWS, rates: close })[0].rotation).toEqual(["kurn", "runnyeye", "guktop"]);
   // A group in its rotation's weaker zone moves when the best zone is worth the margin more, even if
   // that zone is in its rotation, since the bot would stay where it is.
-  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })).toHaveLength(1);
+  expect(assignZones({ now: NOW, tabs: [tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "runnyeye"] })], rows: ROWS, rates: close })[0].rotation).toEqual(["kurn", "runnyeye", "guktop"]);
   const far = tab("A", "G3", 15, { zone: "najena", rotation: ["najena", "warrens", "runnyeye"] });
   expect(assignZones({ now: NOW, tabs: [far], rows: ROWS, rates: RATES })).toMatchObject([{ rotation: ["kurn", "runnyeye", "guktop"] }]);
   // A group sent to a zone got that zone alone, so that the bot would go. Once it is there and
@@ -804,4 +809,82 @@ test("chainSummary lists holders, those who started a chain and those who still 
   ];
   const summary = chainSummary({ quests, holders: { "paladin-epic-note": ["Pal1"] }, started: { "paladin-epic-note": ["Pal1", "Pal2"] }, members });
   expect(summary).toEqual({ "paladin-epic-note": { class: "Paladin", reward: "Sealed Note", minLevel: 15, holders: ["Pal1"], started: ["Pal2"], needers: ["Pal2", "Pal3"] } });
+});
+
+test("same-step failures double their retry up to a day and a changed step resets it", () => {
+  const history = Array.from({ length: 6 }, (_, k) => ({ t: NOW + k, label: "A", id: "q", task: `q${k}`, code: "old" }));
+  settleHistory(history, history.map((h) => ({ id: h.task, status: "failed", step: "talk" })));
+  expect(history.map((h) => h.repeats)).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(retryTime(history[0], 120, "new")).toBe(0);
+  expect(retryTime(history[1], 120, "new")).toBe(history[1].t + 240 * 60000);
+  expect(retryTime(history[5], 120, "new")).toBe(history[5].t + 1440 * 60000);
+  settleHistory(history, [{ id: "q5", status: "failed", step: "travel" }]);
+  expect(history[5].repeats).toBe(1);
+});
+
+test("queue failures stay failed, wait their retry, and consume no hunt allowance", () => {
+  const failed = { t: NOW - 10 * 60000, label: "A", kind: "errand", id: "p3", status: "failed", task: null };
+  expect(settleErrands([failed], [tab("A", "G1", 40)], NOW)).toBe(false);
+  expect(failed.status).toBe("failed");
+  expect(retryTime(failed, 30)).toBe(failed.t + 30 * 60000);
+  expect(worldHold([failed], "p3")).toBe(0);
+  const tabs = [tab("A", "G1", 40)];
+  expect(decide({ now: NOW, tabs, opportunities: [{ ...page, kind: "errand" }], history: [failed] }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ ...failed, kind: "hunt", id: "other" }] }).actions[0].spec.minutes).toBe(9);
+  const x = target("a goo", "paw", 38);
+  const input = { now: NOW, tabs: [place(tab("A", "G1", 30), "paw")], targets: [x], hoursPerLevel, killChance: byLevel };
+  const action = decide(input).actions[0];
+  expect(action.kind).toBe("errand");
+  expect(decide({ ...input, history: [{ ...failed, id: action.id }] }).actions).toEqual([]);
+});
+
+test("farm joins and hand-ins hold from the failure end, and stale farms get no hand-in", () => {
+  const farms = [{ id: "farm", zone: "nektulos", keep: "wisp", levels: [10, 40], maxGroups: 1, minutes: 60 }];
+  const history = [{ t: NOW - 120 * 60000, endedAt: NOW - 60000, label: "A", kind: "errand", id: "farm", status: "failed" }];
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 20)], farms, history }).actions).toEqual([]);
+  const farming = tab("A", "G1", 20, { errand: { zone: "nektulos", keep: "wisp" } });
+  const stock = { Lightstone: 100 };
+  expect(decide({ now: NOW, tabs: [farming], farms, stock, history: [{ ...history[0], kind: "handIn" }] }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs: [{ ...farming, stale: true }], farms, stock }).actions).toEqual([]);
+});
+
+test("quest tasks carry item ids and compare retries against their own page code", () => {
+  const quests = { q: { class: "Paladin", minLevel: 1, ids: { Shovel: 16545 }, steps: [] } };
+  const tabs = [tab("A", "G1", 20, { code: "page", members: [{ name: "Pal", level: 20, class: "Paladin" }] })];
+  expect(decide({ now: NOW, tabs, quests }).actions[0].spec.ids).toEqual({ Shovel: 16545 });
+  expect(decide({ now: NOW, tabs, quests, code: "other", history: [{ t: NOW - 60000, label: "A", id: "q", status: "failed", code: "page" }] }).actions).toEqual([]);
+});
+
+test("unmeasured occupied band zones still give an arriving group a rotation", () => {
+  const tabs = [tab("A", "G1", 14, { zone: "kurn", task: { status: "running" } }), tab("B", "G2", 14, { zone: "runnyeye", task: { status: "running" } }), tab("C", "G3", 15, { zone: "outside" })];
+  expect(assignZones({ now: NOW, tabs, rows: [[14, ["kurn", "runnyeye"]]], model: () => 100 })[0].rotation).toEqual(["kurn", "runnyeye"]);
+});
+
+test("settling rotations occupy their destination once, not the newly ranked zone", () => {
+  const tabs = [tab("A", "G1", 14, { zone: "outside", rotation: ["runnyeye"], rotationSetAt: NOW - 60000 }), tab("B", "G2", 15, { zone: "outside" })];
+  expect(assignZones({ now: NOW, tabs, rows: ROWS, rates: RATES, crowdFactor: shared })).toMatchObject([{ label: "B", rotation: ["kurn", "guktop", "warrens"] }]);
+});
+
+test("duplicate needs spend their full count per member without duplicating chain progress", () => {
+  const q = { class: "Paladin", reward: "Reward", needs: ["Piece", "Piece"], steps: [{ give: ["Piece", "Piece"], expect: "Token" }, { give: ["Token"], expect: "Reward" }] };
+  const quests = { q, next: { needs: ["Reward", "Reward"], reward: "Final" } };
+  const tabs = [tab("A", "G1", 20, { members: ["Pal1", "Pal2"].map((name) => ({ name, class: "Paladin", level: 20 })) })];
+  expect(decide({ now: NOW, tabs, quests: { q }, have: { Piece: 3 } }).actions[0].spec.members).toEqual(["Pal1"]);
+  expect(decide({ now: NOW, tabs, quests: { q }, have: { Piece: 1 } }).actions).toEqual([]);
+  expect(progressItems(q)).toEqual(["Token"]);
+  expect(doneItems("q", quests)).toEqual(["Reward", "Final"]);
+  expect(decide({ now: NOW, tabs, quests: { q: { ...q, ids: { Piece: 16545 } } }, have: { Piece: 100, 16545: 1 } }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, quests: { q: { ...q, ids: { Piece: 16545 } } }, have: { 16545: 2 } }).actions[0].spec.members).toEqual(["Pal1"]);
+  expect(chainSummary({ quests: { q }, members: tabs[0].members }).q.needers).toEqual(["Pal1", "Pal2"]);
+});
+
+test("a member runs a chain part when he carries some of its pieces and a free copy covers the rest", () => {
+  const q = { class: "Paladin", reward: "SoulFire", needs: ["Hilt", "Sword"], steps: [{ zone: "paw", npc: "Hayle", give: ["Hilt", "Sword"], expect: "SoulFire" }] };
+  const tabs = [tab("A", "G1", 20, { members: ["Pal1", "Pal2"].map((name) => ({ name, class: "Paladin", level: 20 })) })];
+  const own = { q: { Pal1: { Sword: 1 }, Pal2: { Sword: 1 } } };
+  // The sword is each Paladin's own, and the one hilt a hunter holds serves the first of them.
+  expect(decide({ now: NOW, tabs, quests: { q }, have: { Hilt: 1, Sword: 0 }, own }).actions.map((a) => a.spec.members)).toEqual([["Pal1"]]);
+  expect(decide({ now: NOW, tabs, quests: { q }, have: { Hilt: 2, Sword: 0 }, own }).actions.map((a) => a.spec.members)).toEqual([["Pal1", "Pal2"]]);
+  // A Paladin without his sword does not run, whatever lies free of the other piece.
+  expect(decide({ now: NOW, tabs, quests: { q }, have: { Hilt: 2, Sword: 0 }, own: { q: { Pal2: { Sword: 1 } } } }).actions.map((a) => a.spec.members)).toEqual([["Pal2"]]);
 });

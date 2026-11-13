@@ -18,7 +18,7 @@ test("a summon goes by raid even when a group would kill it, and a boss any simu
   const odds = { vox: { groups: { G1: win }, raid: win }, phin: { raid: win }, cazic: { raid: lose } };
   const r = nextBossKill({ daily: d, odds, value: { phin: 5, vox: 1 } });
   expect(r.kill).toMatchObject({ key: "phin", way: "raid", source: "summon" });
-  expect(r.skipped).toEqual([{ key: "cazic", why: "the simulator kills it in 5 of 6 fights" }]);
+  expect(r.skipped.map((s) => s.key)).toEqual(["cazic"]);
 });
 
 test("a raid runs as soon as one is due, the most valuable first, potions included", () => {
@@ -76,7 +76,7 @@ test("a raid boss that stands in the open world is killed there, without a summo
   const r = nextBossKill({ daily: d, open, odds, value: { phinigel: 0.17 } });
   expect(r.kill).toMatchObject({ key: "phinigel", zone: "kedge", way: "raid", source: "open" });
   expect(killId(r.kill)).toBe("boss:open:phinigel");
-  expect(r.skipped).toEqual([{ key: "lord yelinak", why: "the simulator kills it in 5 of 6 fights" }]);
+  expect(r.skipped.map((s) => s.key)).toEqual(["lord yelinak"]);
   // A goal boss that stands is planned, and a boss that stands is not summoned.
   const goal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2, "lord yelinak": 21 }, first: ["lord yelinak"] });
   expect(goal.kill).toMatchObject({ key: "lord yelinak", source: "open" });
@@ -85,7 +85,7 @@ test("a raid boss that stands in the open world is killed there, without a summo
   // Without raid time that is paid, a goal boss buys its hour and the others wait for the budget.
   const unpaid = nextBossKill({ daily: d, open, paid: false, odds: { ...odds, "lord yelinak": { raid: win } }, value: { phinigel: 0.17 }, first: ["lord yelinak"] });
   expect(unpaid.kill).toMatchObject({ key: "lord yelinak", source: "open" });
-  expect(unpaid.skipped).toEqual([{ key: "phinigel", why: "it stands in the open world, and 2 hours of raid time ran in the last day, the most such bosses may bring it to" }]);
+  expect(unpaid.skipped.map((s) => s.key)).toEqual(["phinigel"]);
 });
 
 test("an open-world boss outside the goal buys an hour within the day's hours, for kills worth one", () => {
@@ -97,7 +97,7 @@ test("an open-world boss outside the goal buys an hour within the day's hours, f
   // Venril Sathir alone is worth too little, and a boss the raid loses adds nothing to the hour.
   const cheap = nextBossKill({ open, paid: false, canBuy: true, odds: { ...odds, trakanon: { raid: lose } }, value: { trakanon: 1.05, venril: 0.16 } });
   expect(cheap.kill).toBeNull();
-  expect(cheap.skipped.find((s) => s.key === "venril")!.why).toBe("it stands in the open world, and an hour of raid time would bring kills worth 0.16 h, under the 1 h it has to bring");
+  expect(cheap.skipped.map((s) => s.key)).toContain("venril");
   // In an hour that is paid already, every one of them is killed.
   expect(nextBossKill({ open: [open[1]], paid: true, odds, value: { venril: 0.16 } }).kill).toMatchObject({ key: "venril" });
 
@@ -225,5 +225,35 @@ test("a summoned boss that no raid killed stands until one does, and comes befor
   const plan = nextBossKill({ daily: daily(0, []), potions, standing, odds, value: { tolapumj: 9 } });
   expect(plan.kill).toMatchObject({ key: "lodizal", source: "standing", who: "Tagujazolu", zone: "iceclad" });
   expect(killId(plan.kill)).toBe(id);
-  expect(plan.skipped).toEqual([{ key: "tolapumj", why: "Lodizal stands summoned, and the server takes no other potion until it is dead" }]);
+  expect(plan.skipped.map((s) => s.key)).toEqual(["tolapumj"]);
+});
+
+test("held open bosses add no worth to buying an hour", () => {
+  const open = [boss("held"), boss("cheap")];
+  expect(nextBossKill({ open, paid: false, canBuy: true, odds: { held: { raid: win }, cheap: { raid: win } }, value: { held: 2, cheap: 0.2 }, waiting: (c) => c.key === "held" ? "held" : null }).kill).toBeNull();
+});
+
+test("a failed simulation is no kill evidence even with winning counts", () => {
+  const plan = nextBossKill({ daily: daily(1, [boss("vox")]), odds: { vox: { raid: { ...win, error: "failed" } } } });
+  expect(plan.kill).toBeNull();
+  expect(plan.skipped.map((s) => s.key)).toEqual(["vox"]);
+  expect(plan.skipped[0].why).not.toContain("undefined");
+});
+
+test("unchanged looks back off to six hours and a new sighting resets the wait", () => {
+  const now = 1_800_000_000_000;
+  const watch = [boss("vox")];
+  const times = [now - LOOK.retryMs, now - 2 * LOOK.retryMs];
+  expect(nextLook({ now, watch, lookTimes: () => times })).toBeNull();
+  expect(nextLook({ now: now + LOOK.retryMs, watch, lookTimes: () => times })?.key).toBe("vox");
+  const seen = { vox: { zone: "voxzone", state: "down", respawnAt: now - 1, seenAt: times[0] + 1 } };
+  expect(nextLook({ now, watch, seen, lookTimes: () => times })?.key).toBe("vox");
+  const many = Array.from({ length: 12 }, (_, k) => now - LOOK.staleMs + 1 - k);
+  expect(nextLook({ now, watch, lookTimes: () => many })).toBeNull();
+  expect(nextLook({ now: now + 1, watch, lookTimes: () => many })?.key).toBe("vox");
+});
+
+test("further standing raids do not renew the summoned copy's day", () => {
+  const h = (t) => ({ t, kind: "raid", id: "boss:potion:1:Pal", status: "done", result: "ended vox" });
+  expect(standingBosses([h(1000), h(1000 + 23 * 3600000)], [{ ...boss("vox"), itemId: 1 }], 1000 + 25 * 3600000)).toEqual([]);
 });

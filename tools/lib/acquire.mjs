@@ -36,6 +36,10 @@ export const ACQUIRE = {
   // An enemy is open to a further group while this share of what its points respawn is left by
   // the groups that hunt it. Less is a trickle the trip's time does not pay for.
   minSupply: 0.25,
+  // The spawn tables' chance that an enemy is up counts as this many visits beside the visits that
+  // looked (`upChanceOf`). On 2026-11-13 the tables expected 267 of 314 visits to find an enemy
+  // and 141 did, because other players hunt the same enemies and a point holds what stands on it.
+  upPrior: 2,
 };
 
 // What a death costs beyond a won fight, in seconds of the party's time: the fight and the wait
@@ -114,6 +118,16 @@ export const copyValue = (w, hoursPerLevel = {}, hours = 0) => {
 };
 
 /**
+ * The chance a visit finds enemy `x` up: the spawn tables' chance that one of its points holds it,
+ * 1 - (1 - spawn)^points, as `upPrior` visits beside the visits that looked for it (`seen`,
+ * `{ looks, up }`, from the coordinator's history).
+ */
+export const upChanceOf = (x, seen = null) => {
+  const model = 1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1);
+  return seen?.looks > 0 ? (ACQUIRE.upPrior * model + seen.up) / (ACQUIRE.upPrior + seen.looks) : model;
+};
+
+/**
  * The hunting hours for one copy of item `w` from enemy `x` for a group that kills `killsPerHour`:
  * the respawns bound it (`w.hours`, every point cleared as it respawns), and so does the kill rate,
  * since each kill is the enemy with the `spawn` chance and drops the item with the `drop` chance,
@@ -133,8 +147,9 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  *   (`copyHours` at the group's `killsPerHour`, stretched by the fights it loses), free;
  * - camp: outside it, the same hours, all of them a cost, since a camp holds the enemy's points with
  *   the client's Spawn Camp and earns no XP while it waits for their respawns;
- * - visit: outside it, `visitHours`, worth the chance the enemy is up on one of its points on
- *   arrival, 1 - (1 - spawn)^points, times the kill chance and each item's drop chance and value.
+ * - visit: outside it, `visitHours`, worth the chance the enemy is up on arrival (`upChanceOf`,
+ *   from `upSeen(x)`, what the visits so far found), times the kill chance and each item's drop
+ *   chance and value.
  * Every fight, won or lost, pays its expected deaths (`deathHours`): an errand or a camp as many as
  * one copy takes and a visit one when the enemy is up, and a copy at the end of a chain of deaths
  * every fight of its chain, each at its own enemy's kill chance (`fights` of the target, through
@@ -145,7 +160,7 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  * zone costs whatever the group hunts there, which a trip for several targets pays once (`trip`),
  * and `copies`, each item's hours of hunting per copy.
  */
-export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, killChance = null } = {}, k = SURE) {
+export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, killChance = null, upSeen = null } = {}, k = SURE) {
   const perFight = deathHours(t, k, hoursPerLevel);
   const copies = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, paceOf(killsPerHour[t.group], k)) / k.p);
   const values = x.items.map((w, j) => copyValue(w, hoursPerLevel, copies[j]));
@@ -160,7 +175,7 @@ export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, k
     const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost : 0;
     return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths }];
   }
-  const up = 1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1);
+  const up = upChanceOf(x, upSeen?.(x));
   const visitValue = k.p * up * x.items.reduce((s, w, j) => s + (w.drop ?? 1) * values[j], 0);
   return [
     { kind: "camp", ...base, zoneRate: 1, cost: hours + deaths },

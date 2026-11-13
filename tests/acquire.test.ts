@@ -66,6 +66,17 @@ test("outside the rotation a camp and a visit each cost their whole time", () =>
   expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, killChance: () => sure })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
 });
 
+test("a visit's chance to find its enemy follows what the visits so far found", () => {
+  const x = { npc: "Deathfang", zone: "chardok", npcLevel: 30, spawn: 0.2, points: 1, items: [item(1000, 1.39, 1)] };
+  const pace = { X1: 1 };
+  const visit = (seen: { looks: number; up: number } | null) => ways(tab(30, "paw"), x, { hoursPerLevel: pace, upSeen: () => seen })[1];
+  // The spawn tables' chance counts as two visits: eight looks that found nothing leave a fifth of it.
+  expect(visit(null).up).toBeCloseTo(0.2);
+  expect(visit({ looks: 8, up: 0 }).up).toBeCloseTo((2 * 0.2) / 10);
+  expect(visit({ looks: 8, up: 0 }).value).toBeCloseTo(visit(null).value / 5);
+  expect(visit({ looks: 8, up: 6 }).up).toBeCloseTo((2 * 0.2 + 6) / 10);
+});
+
 const sure = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
 
 test("a group's own fights replace the simulator's, and no evidence means no kill chance", () => {

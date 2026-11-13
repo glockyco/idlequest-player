@@ -129,9 +129,10 @@ export function chainSummary({ quests = {}, holders = {}, started = {}, members 
 /**
  * Write the outcome of each ended bot task into its history entry: when it ended, how long it took,
  * its status (done, failed or stopped), the result or error and the step it stopped at, when the
- * task said to come back, and a gear task's refused purchases (`refusedBuys`). A failure at the step
- * where the tab's run of the same task before it failed too is a `repeat` (`retryTime`). `tasks` are
- * the tabs' latest `bot.task` objects. Returns whether an entry changed.
+ * task said to come back, a gear task's refused purchases (`refusedBuys`) and the wanted enemies a
+ * hunt found standing when it arrived (`up`). A failure at the step where the tab's run of the same
+ * task before it failed too is a `repeat`. `repeats` counts the consecutive failures at that step
+ * for `retryTime`. `tasks` are the tabs' latest bot tasks.
  */
 export function settleHistory(history, tasks) {
   const byId = new Map(tasks.filter((t) => t?.id).map((t) => [t.id, t]));
@@ -143,6 +144,7 @@ export function settleHistory(history, tasks) {
     if (task.status === "failed") {
       const before = history.slice(0, k).filter((x) => x.id === h.id && x.label === h.label).at(-1);
       next.repeat = before?.status === "failed" && before.step === next.step;
+      next.repeats = next.repeat ? (before.repeats ?? (before.repeat ? 2 : 1)) + 1 : 1;
     }
     for (const [key, v] of Object.entries(next)) {
       if (v === undefined || h[key] === v) continue;
@@ -151,6 +153,10 @@ export function settleHistory(history, tasks) {
     }
     if (task.refusedBuys?.length && !h.refusedBuys) {
       h.refusedBuys = task.refusedBuys;
+      changed = true;
+    }
+    if (task.up && !h.up) {
+      h.up = task.up;
       changed = true;
     }
   }
@@ -194,12 +200,12 @@ export function refusedGoods(history, now, hours = 24) {
 /**
  * The items that show a carrier of them part way through quest chain `q` with the pieces it needs
  * (`needs`) behind it: the `expect` of every step from the first one that uses a needed piece up, by
- * a `give` or a craft input, or of every step when the chain needs nothing. A carrier of an earlier
+ * a `give`, a craft input or a cast input, or of every step when the chain needs nothing. A carrier of an earlier
  * step's item has begun the chain but still needs the pieces.
  */
 export function progressItems(q) {
   const needs = q.needs ?? [];
-  const at = needs.length ? q.steps.findIndex((s) => needs.some((n) => (s.give ?? []).includes(n) || (s.craft?.inputs ?? []).includes(n))) : 0;
+  const at = needs.length ? q.steps.findIndex((s) => needs.some((n) => (s.give ?? []).includes(n) || (s.craft?.inputs ?? []).includes(n) || (s.cast?.inputs ?? []).includes(n))) : 0;
   return [...new Set(q.steps.slice(Math.max(0, at)).map((s) => s.expect).filter((e) => e && e !== q.reward))];
 }
 
@@ -216,15 +222,16 @@ export function piecesNeeded(o, { quests = {}, holders = {}, members = [] }) {
  * When the coordinator may run a task again after `last`, its newest history entry on a tab, as a
  * time in ms (0 for at once): the time the run named (`nextAt`, a respawn) or `retryMin` after it.
  * A failure under older code than `code` may run at once, also one that named a time, because the
- * deploy since may have fixed its cause, and a repeat under the new code waits as usual. So does a
- * failure that repeated the run before it at the same step (`repeat`), because the deploys between
- * them did not change it. A run that ended as waiting named the world's time, such as a spawn
- * point's next roll, which no deploy changes.
+ * deploy since may have fixed its cause. Consecutive failures at the same step (`repeats`) double
+ * the retry wait each time, up to a day, because deploys between them did not change the cause.
+ * A run that ended as waiting named the world's time, such as a spawn point's next roll.
  */
 export function retryTime(last, retryMin, code = null) {
   if (!last) return 0;
-  if (last.status === "failed" && !last.repeat && code != null && last.code != null && last.code !== code) return 0;
-  return last.nextAt ?? last.t + retryMin * 60000;
+  const repeats = last.repeats ?? (last.repeat ? 2 : 1);
+  if (last.status === "failed" && repeats < 2 && code != null && last.code != null && last.code !== code) return 0;
+  const wait = last.status === "failed" ? Math.min(1440, retryMin * 2 ** Math.min(20, repeats - 1)) : retryMin;
+  return last.nextAt ?? last.t + wait * 60000;
 }
 
 /**
@@ -244,17 +251,21 @@ export function worldHold(history, id, code = null) {
  *   one per playing tab whose bot runs.
  * - `stock`: lightstones on the account, `{ "Greater Lightstone": n, Lightstone: m }`.
  * - `stoneXp`: the XP Smith Tv`ysa's script pays for one of each stone, by name (`handInDemand`).
- * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, count | quest, camp, when, retryMin, points }]`,
+ * - `opportunities`: data/opportunities.json, `[{ id, group | levels, kind, zone, keep, item, itemId, count | quest, camp, when, retryMin, points }]`,
  *   epic and quest pieces, where `kind` "errand" hunts the enemies inside normal hunting and the default is a directed hunt,
  *   which camps the enemies' spawn points unless `camp` is false, when it fights them through Enemy Targets wherever they stand.
+ *   An errand whose `levels` every group has outgrown runs as a directed hunt, and `itemId` names the item where its name is shared.
  * - `missing`: copies of each opportunity's item the account still needs, `{ [id]: n }` (tools/iqd.mjs counts them),
  *   and `carriedBy`, who carries each opportunity's item, `{ [id]: [name] }`.
  * - `farms`: data/farms.json, `[{ id, zone, keep, levels: [min, max], maxGroups, minutes }]`, errands
  *   that run for loot rather than one item, such as lightstones from Nektulos wisps.
- * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, needs, steps, retryMin } }`, `holders`,
+ * - `quests`: data/quests.json, `{ [id]: { class, minLevel, reward, needs, steps, retryMin, ids } }`, with
+ *   optional item-name-to-id `ids` passed to the page as `spec.ids`, and `holders`,
  *   the account characters that carry each quest's reward, `{ [id]: [name] }`, `started`, those that
- *   carry the reward of one of its earlier steps, `{ [id]: [name] }`, and `have`, the account's
- *   copies of each item a quest `needs`, `{ [item]: n }`.
+ *   carry the reward of one of its earlier steps, `{ [id]: [name] }`, `have`, the account's copies
+ *   of each item a quest `needs` outside the chain's needers, keyed by its `ids` entry when present
+ *   and its name otherwise, and `own`, the copies each needer carries itself,
+ *   `{ [id]: { [name]: { [key]: n } } }`.
  * - `gear`: the roster gear pass of this pass, `{ moves }` (tools/lib/gear-plan.mjs), or null.
  * - `held`: groups a running experiment holds (`experimentSettings`), which get no farms and no
  *   errands, because both change the AutoLevel limits the arms compare. Their hunts, quests and
@@ -274,7 +285,7 @@ export function worldHold(history, id, code = null) {
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -283,8 +294,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // A tab takes its next task as soon as its last one ended: each task comes back on its own clock
   // (`due`), and the two kinds without one, hand-ins and farm joins, wait `failHoldMin` after a failure.
   const free = (t) => !busy.has(t.label) && !out.some((o) => o.label === t.label);
-  const failedLately = (label, match) => history.some((h) => h.label === label && h.status === "failed" && match(h) && now - h.t < cfg.failHoldMin * 60000);
-  const due = (last, retryMin) => now >= retryTime(last, retryMin, code);
+  const failedLately = (label, match) => history.some((h) => h.label === label && h.status === "failed" && match(h) && now - (h.endedAt ?? h.t) < cfg.failHoldMin * 60000);
+  const due = (last, retryMin, t) => now >= retryTime(last, retryMin, t?.code ?? code);
   // An hour of hunting in an XP event is worth `xpFactor` normal hours, and a quest chain, a piece
   // hunt or a gear trip can run on any day. So the chains and the piece hunts, whose value no
   // model prices, wait for the event's end, and a gear trip goes only when it pays for its time at
@@ -296,7 +307,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
   // a hunt without one, still running or ended unseen, by the time since it started, at most the
   // 20 minutes a hunt may run.
-  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, 1200000)), 0);
+  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && !(h.status === "failed" && h.task === null) && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, 1200000)), 0);
 
   // A group an experiment holds plays only what its arm sets, so an errand it runs stops.
   for (const t of tabs) if (held.has(t.group) && t.errand) out.push({ label: t.label, kind: "stopErrand", id: null, spec: null, why: `an experiment holds ${t.group}` });
@@ -314,17 +325,25 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const lastRoll = history.filter((h) => h.kind === "casino").at(-1);
   const rollers = tabs.filter(free).flatMap((t) => t.members.filter((m) => (m.level ?? 0) >= cfg.casino.minLevel).map((m) => ({ t, name: m.name })));
   const roller = rollers.sort((a, b) => (rolled[a.name] ?? 0) - (rolled[b.name] ?? 0))[0];
-  if (roller && due(lastRoll, 60) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.t.label, kind: "casino", id: "casino", who: roller.name, spec: { who: roller.name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.name}` });
+  if (roller && due(lastRoll, 60, roller.t) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.t.label, kind: "casino", id: "casino", who: roller.name, spec: { who: roller.name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.name}` });
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
   for (const [id, q] of event ? [] : Object.entries(quests)) {
-    // A quest that uses up a dropped item runs for as many members as the account holds copies
-    // outside the chain's needers (`have`), and for every member already past the step that uses
-    // it up (`started`, from `progressItems`). A pull never takes another needer's copy (`avoid`).
-    let copies = Math.min(Infinity, ...(q.needs ?? []).map((n) => have[n] ?? 0));
+    // A quest that uses up items runs for a member when every piece it needs is at hand for him:
+    // carried by himself (`own`) or a copy outside the chain's needers (`have`), each free copy
+    // serving one member. A member already past the step that uses the pieces up (`started`,
+    // from `progressItems`) runs without them. A pull never takes another needer's copy
+    // (`avoid`). A part that takes a hunted piece and an item of an earlier part, as the
+    // Paladin's hand-in of the Glowing Sword Hilt with his sword, testimony and note, has the
+    // one with the hunters and the others with the member.
+    const needed = new Map();
+    for (const n of q.needs ?? []) needed.set(n, (needed.get(n) ?? 0) + 1);
+    const key = (n) => q.ids?.[n] ?? n;
+    const spare = new Map([...needed.keys()].map((n) => [n, have[key(n)] ?? 0]));
+    const lacks = (name) => [...needed].map(([n, count]) => [n, Math.max(0, count - (own[id]?.[name]?.[key(n)] ?? 0))]);
     const needers = chainNeeders(id, { quests, holders, members: tabs.flatMap((t) => t.members) });
     // A quest whose NPC was not up lately waits on a spawn point, which every needer's group would
     // reach at once when its hold ends, and all but the first would find the point held. So one
@@ -339,17 +358,23 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       if (!free(t)) continue;
       const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
       const begun = want.filter((n) => (started[id] ?? []).includes(n));
-      const fresh = want.filter((n) => !begun.includes(n)).slice(0, copies);
+      // The members the spare copies still serve, in the tab's order.
+      const left = new Map(spare);
+      const fresh = want.filter((n) => {
+        if (begun.includes(n) || !lacks(n).every(([p, l]) => left.get(p) >= l)) return false;
+        for (const [p, l] of lacks(n)) left.set(p, left.get(p) - l);
+        return true;
+      });
       const who = [...begun, ...fresh];
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
-      if (!due(last, q.retryMin ?? 120)) continue;
-      if (now < worldHold(history, id, code)) continue;
+      if (!due(last, q.retryMin ?? 120, t)) continue;
+      if (now < worldHold(history, id, t.code ?? code)) continue;
       if ((pointBound || fights) && runs()) continue;
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles.
       if (q.steps.some((s) => s.kill && s.level != null && (killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1) < cfg.questKillChance)) continue;
-      copies -= fresh.length;
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
+      for (const [p, n] of left) spare.set(p, n);
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
     }
   }
 
@@ -361,28 +386,38 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const rank = (o) => (o.quest ? (missing[o.id] ?? 0) : -1);
   for (const o of [...opportunities].sort((a, b) => rank(b) - rank(a))) {
     if (missing[o.id] === 0) continue;
-    // Pieces from the same enemies (the four Mastery pages) need one group on them, not four.
-    if (o.kind === "errand" && (tabs.some((t) => t.errand?.zone === o.zone && t.errand?.keep === o.keep) || out.some((a) => a.spec?.zone === o.zone && a.spec?.keep === o.keep))) continue;
     // The leader loots, and a lore piece it already carries stays on the corpse, so a group whose
     // leader carries the piece does not hunt it until a member has taken it.
     const looter = (t) => !(carriedBy[o.id] ?? []).includes(t.members[0]?.name);
-    const tab = o.levels
-      ? tabs.filter((t) => free(t) && t.members.length && looter(t) && (o.kind !== "errand" || !held.has(t.group)) && mean(t) >= o.levels[0] && mean(t) <= o.levels[1]).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0]
-      : tabs.find((t) => t.group === o.group);
+    const inBand = (t) => mean(t) >= o.levels[0] && mean(t) <= o.levels[1];
+    const pick = (ok, errand) => tabs.filter((t) => free(t) && t.members.length && looter(t) && (!errand || !held.has(t.group)) && ok(t)).sort((a, b) => (b.zone === o.zone) - (a.zone === o.zone) || mean(a) - mean(b))[0];
+    let kind = o.kind === "errand" ? "errand" : "hunt";
+    let tab = o.levels ? pick(inBand, kind === "errand") : tabs.find((t) => t.group === o.group);
+    // A band every group has outgrown holds gray enemies, which AutoLevel pulls for nobody. The
+    // lowest group above it then hunts them directed, as it hunts a rare spawn. Twelve of the
+    // twenty opportunities had no group left in their band once every group passed level 54.
+    if (o.levels && !tabs.some((t) => t.members.length && inBand(t))) {
+      kind = "hunt";
+      tab = pick((t) => mean(t) > o.levels[1], false);
+    }
+    // Pieces from the same enemies (the four Mastery pages) need one group on them, not four.
+    const same = (zone, keep) => zone === o.zone && keep === o.keep;
+    const sameHunt = (t) => t.task?.status === "running" && history.some((h) => h.label === t.label && h.task === t.task.id && opportunities.some((x) => x.id === h.id && same(x.zone, x.keep)));
+    if (tabs.some((t) => same(t.errand?.zone, t.errand?.keep) || sameHunt(t)) || out.some((a) => same(a.spec?.zone, a.spec?.keep))) continue;
     // An errand widens AutoLevel's range, which an experiment's arms compare, so a held group gets none.
-    if (!tab || !free(tab) || !looter(tab) || (o.kind === "errand" && held.has(tab.group))) continue;
+    if (!tab || !free(tab) || !looter(tab) || (kind === "errand" && held.has(tab.group))) continue;
     if (o.when === "night" && !isNight(tab.gameHour)) continue;
     if (o.when === "day" && (tab.gameHour == null || isNight(tab.gameHour))) continue;
     const last = history.filter((h) => h.id === o.id).at(-1);
-    if (!due(last, o.retryMin ?? 30)) continue;
+    if (!due(last, o.retryMin ?? 30, tab)) continue;
     // An errand puts the enemies first inside the group's normal hunting, for pieces from enemies in
     // its level range. A hunt fights them directed or camps their points, for gray ones or rare spawns.
     // A hunt runs at most for what is left of the tab's hunt share of the hour, and only when that
     // leaves `minHuntMin` for the trip and a clear of the points.
     const left = Math.floor((cfg.huntShare * 3600000 - huntMs(tab.label)) / 60000);
-    if (o.kind !== "errand" && (event || left < cfg.minHuntMin)) continue;
-    const spec = o.kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.min(o.minutes ?? 20, left) };
-    out.push({ label: tab.label, kind: o.kind === "errand" ? "errand" : "hunt", id: o.id, spec, why: `${o.item} for ${tab.group}` });
+    if (kind !== "errand" && (event || left < cfg.minHuntMin)) continue;
+    const spec = kind === "errand" ? { zone: o.zone, keep: o.keep, item: o.item, minutes: o.minutes ?? 60 } : { zone: o.zone, keep: o.keep, item: o.item, ...(o.itemId != null ? { itemId: o.itemId } : {}), ...(o.points?.length ? { points: o.points } : {}), waitMin: 0, minutes: Math.min(o.kind === "errand" ? 20 : (o.minutes ?? 20), left) };
+    out.push({ label: tab.label, kind, id: o.id, spec, why: `${o.item} for ${tab.group}` });
   }
 
   // Gear moves come before gear hunts: one gear task carries out every move of the plan, its
@@ -426,7 +461,22 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const lastHunts = new Map();
   for (const h of history) for (const id of h.ids ?? (h.id ? [h.id] : [])) lastHunts.set(id, h);
   const lastHunt = (id) => lastHunts.get(id);
-  const ctx = { tabs, hoursPerLevel, killsPerHour, killChance };
+  // How often a visit that looked for a target found it up: a hunt names the wanted enemies that
+  // stood when it arrived (`up`, names in lower case, set by the bot's hunt task), and each of its
+  // targets was looked for.
+  const upKey = (npc) => String(npc).replace(/#/g, "").replace(/_/g, " ").trim().toLowerCase();
+  const npcOfId = new Map(targets.map((x) => [targetId(x), upKey(x.npc)]));
+  const looks = new Map();
+  for (const h of history) {
+    if (h.kind !== "hunt" || !Array.isArray(h.up)) continue;
+    for (const id of h.ids ?? (h.id ? [h.id] : [])) {
+      if (!npcOfId.has(id)) continue;
+      const c = looks.get(id) ?? looks.set(id, { looks: 0, up: 0 }).get(id);
+      c.looks++;
+      if (h.up.includes(npcOfId.get(id))) c.up++;
+    }
+  }
+  const ctx = { tabs, hoursPerLevel, killsPerHour, killChance, upSeen: (x) => looks.get(targetId(x)) ?? null };
   const hunter = (t) => free(t) && t.members.length;
   // An errand changes the AutoLevel limits an experiment's arms compare, so a held group gets none.
   const allowed = (t, kind) => !(kind === "errand" && held.has(t.group));
@@ -535,7 +585,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         // An enemy a group hunts now is not waiting for its next hunt, so its retry time does not hold a further group.
         const open = xs.filter((x) => left(x) >= ACQUIRE.minSupply && inTime(x, t)).map((x) => withClaims(shared(x)));
         if (!open.length) continue;
-        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && !(kind === "camp" && noCamp.has(targetId(x))) && (taken.has(targetId(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind))));
+        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && !(kind === "camp" && noCamp.has(targetId(x))) && (taken.has(targetId(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind), t)));
         if (w && net(w) > 0 && (!best || net(w) > net(best.w))) best = { t, w };
       }
     }
@@ -593,7 +643,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     else if (net(best.w) <= 0) why = { state: "event", factor: xpFactor };
     else if (!allowed(best.t, best.w.kind)) why = { state: "experiment", group: best.t.group };
     else if (!hunter(best.t)) why = { state: "busy", group: best.t.group, only: reach.length === 1, on: holding(best.t) };
-    else if (!due(lastHunt(id), targetRetryMin(best.w.kind))) why = { state: "retry", at: retryTime(lastHunt(id), targetRetryMin(best.w.kind), code) };
+    else if (!due(lastHunt(id), targetRetryMin(best.w.kind), best.t)) why = { state: "retry", at: retryTime(lastHunt(id), targetRetryMin(best.w.kind), best.t.code ?? code) };
     else why = { state: "outbid" };
     targetEval[id] = { ...why, plan };
   }
@@ -616,7 +666,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // interrupts: the farm itself feeds the lowest groups, so it must not keep them from the stones.
   const total = STONES.reduce((a, s) => a + (stock[s] ?? 0), 0);
   const farming = (t) => farms.some((f) => t.errand?.zone === f.zone && t.errand?.keep === f.keep);
-  const ready = (t) => (free(t) || (farming(t) && t.task?.status !== "running" && !out.some((o) => o.label === t.label))) && !failedLately(t.label, (h) => h.kind === "handIn");
+  const ready = (t) => !t.stale && (free(t) || (farming(t) && t.task?.status !== "running" && !out.some((o) => o.label === t.label))) && !failedLately(t.label, (h) => h.kind === "handIn");
   const candidates = tabs.filter((t) => ready(t) && t.members.length).sort((a, b) => mean(a) - mean(b));
   const target = candidates[0];
   if (target && total >= cfg.minStonesPerMember * target.members.length) {
@@ -733,10 +783,10 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     // A zone worth under `deadShare` of the row's best fills no place, nor one held for another
     // group's trial: a rotation's later zones are where the bot goes when the first runs dry, and
     // it would idle there.
-    const worth = ranked.filter((m) => !guess(m) && m.xph >= cfg.deadShare * Math.max(...ranked.map((x) => x.xph)));
+    const eligible = ranked.filter((m) => !guess(m) && m.xph >= cfg.deadShare * Math.max(...ranked.map((x) => x.xph)));
+    const worth = eligible.length ? eligible : ranked;
     const top = worth.filter((m) => m.z !== t.zone || stay).slice(0, cfg.keep);
     const rotation = [...top, ...(stay && !top.includes(own) ? [own] : [])].map((m) => m.z);
-    occupy(stay ? t.zone : rotation[0]);
     // A group that stays keeps its rotation while it holds at most `keep` zones of the band row and
     // none found crowded: the other zones matter only once the bot leaves this one, and the pass
     // after that move ranks them anew, so shifting crowds do not rewrite the rotation every pass. A
@@ -750,13 +800,20 @@ export function assignZones({ now, tabs, rows = [], rates = {}, crowdFactor = ()
     // stood in Kedge Keep for 37 to 62% of an hour with no second zone (2026-11-12). Once the group
     // stays where it was sent, the rotation gets the ranking's next zones.
     const noWayOut = (t.rotation ?? []).length < 2 && rotation.length > 1;
-    if (stay && rotationInRow && !noWayOut && rotationBest * (1 + cfg.margin) >= ranked[0].value) continue;
+    if (stay && rotationInRow && !noWayOut && rotationBest * (1 + cfg.margin) >= ranked[0].value) {
+      occupy(t.zone);
+      continue;
+    }
     if (t.rotationSetAt && now - t.rotationSetAt < cfg.settleMin * 60000 && (t.rotation ?? []).every((z) => row.includes(z))) {
       occupy(t.rotation[0]);
       continue;
     }
     // Order alone moves no group, so a rotation with the same zones stays as it is.
-    if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) continue;
+    if (JSON.stringify([...rotation].sort()) === JSON.stringify([...(t.rotation ?? [])].sort())) {
+      occupy((t.rotation ?? []).includes(t.zone) ? t.zone : t.rotation[0]);
+      continue;
+    }
+    occupy(stay ? t.zone : rotation[0]);
     const shown = rotation.map((z) => ranked.find((m) => m.z === z)).map((m) => `${m.z} ${Math.round(m.xph / 1000)}k (${m.e ? `${m.e.hours.toFixed(1)} h` : "unmeasured"})`);
     out.push({ label: t.label, rotation, why: `level ${level}: ${shown.join(", ")}` });
   }

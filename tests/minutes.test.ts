@@ -1,6 +1,6 @@
 // Checks the minute totals (tools/lib/minutes.mjs) that the collector writes and the dashboard reads.
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../tools/iqd.mjs";
@@ -81,13 +81,21 @@ test("the folder pairs samples across drains and counts a sample drained twice o
 
 test("the backfill counts samples that two characters' files hold once", async () => {
   const runs = mkdtempSync(join(tmpdir(), "iqd-minutes-"));
-  const rows = [1, 2, 3, 4].map((s) => ({ ...at(s), seq: s }));
-  for (const name of ["Tank", "Healer"]) {
-    mkdirSync(join(runs, "live", name), { recursive: true });
-    writeFileSync(join(runs, "live", name, "samples.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  try {
+    const rows = [1, 2, 3, 4].map((s) => ({ ...at(s), seq: s }));
+    for (const name of ["Tank", "Healer"]) {
+      mkdirSync(join(runs, "live", name), { recursive: true });
+      writeFileSync(join(runs, "live", name, "samples.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    }
+    const db = openDb(":memory:");
+    try {
+      const n = await backfillMinutes(db, runs, new Map([["Tank", "G1"], ["Healer", "G1"]]), T0 - MIN);
+      expect(n).toBe(1);
+      expect(JSON.parse((db.query("SELECT sec FROM minutes").get() as { sec: string }).sec)).toEqual({ fight: 3 });
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(runs, { recursive: true, force: true });
   }
-  const db = openDb(":memory:");
-  const n = await backfillMinutes(db, runs, new Map([["Tank", "G1"], ["Healer", "G1"]]), T0 - MIN);
-  expect(n).toBe(1);
-  expect(JSON.parse((db.query("SELECT sec FROM minutes").get() as { sec: string }).sec)).toEqual({ fight: 3 });
 });

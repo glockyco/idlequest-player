@@ -27,7 +27,7 @@ export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
 }
 
 /** A candidate is killable when every simulated fight killed it (`{ kills, fights }`). */
-export const killable = (o) => Boolean(o && o.fights > 0 && o.kills === o.fights);
+export const killable = (o) => Boolean(o && !o.error && o.fights > 0 && o.kills === o.fights);
 
 /**
  * The daily list's bosses a summon or a resume can bring now: a boss the client shows as
@@ -80,10 +80,10 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
     const held = waiting(c, source);
     if (held) skipped.push({ key: c.key, why: held });
     else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
-    else skipped.push({ key: c.key, why: o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
+    else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
-  const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid)).reduce((s, o) => s + (value[o.key] ?? 0), 0);
+  const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
   for (const o of open) {
     if (first.includes(o.key) || paid) add(o, "open");
     else if (!canBuy) skipped.push({ key: o.key, why: `it stands in the open world, and ${OPEN_BUY.hoursADay} hours of raid time ran in the last day, the most such bosses may bring it to` });
@@ -193,16 +193,20 @@ const clock = (t) => new Date(t).toTimeString().slice(0, 5);
  * back.
  * - `watch`: `watchedBosses`. `seen`: what the tabs last saw, by name key (`bossesSeen`).
  * - `lastLook(key)`: when the last look for the boss was sent, 0 for none.
+ * - `lookTimes(key)`: look queue times, newest first, for backing off unchanged sightings.
  * - `wanted(w)`: whether the plan would kill the boss now if it stood. Only such a boss gets a
  *   look, since a look that leads to no kill costs a group its minutes and its risk for nothing.
  * A due respawn goes first, the earliest of them, then a boss that stood, whose kill needs a look
  * that is fresh (`OPEN_SEEN_MS`), then one no tab has seen, a goal boss before the others.
  */
-export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, wanted = () => true }) {
+export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], wanted = () => true }) {
   const due = [];
   for (const w of watch) {
-    if (now - lastLook(w.key) < LOOK.retryMs || !wanted(w)) continue;
     const s = seen[npcKey(w.name)]?.zone === w.zone ? seen[npcKey(w.name)] : null;
+    const times = lookTimes(w.key);
+    const unchanged = times.filter((t) => t > (s?.seenAt ?? 0)).length;
+    const retry = Math.min(LOOK.staleMs, LOOK.retryMs * 2 ** Math.min(20, Math.max(0, unchanged - 1)));
+    if (now - (times[0] ?? lastLook(w.key)) < retry || !wanted(w)) continue;
     if (!s) due.push({ rank: 2, at: 0, w, until: 0, why: "no tab has seen it yet" });
     else if (s.state === "alive") {
       if (now - s.seenAt > OPEN_SEEN_MS) due.push({ rank: 1, at: s.seenAt, w, until: 0, why: `it stood at ${clock(s.seenAt)}, and a raid needs a look that is fresh` });
@@ -263,7 +267,7 @@ export function potionSpent(history, p, surveyAt) {
   return history.some((h) => h.id === id && h.t >= surveyAt && !(h.status && h.status !== "done" && BEFORE_POTION.test(h.step ?? "")));
 }
 
-// A summoned casino boss is taken as gone a day after its last raid, when the next potion is due.
+// A summoned casino boss is taken as gone a day after its first sighting, when the next potion is due.
 const STANDING_MS = 24 * 3600000;
 
 /**
@@ -292,7 +296,7 @@ export function standingBosses(history, bosses, now) {
   const out = [];
   for (const s of state.values()) {
     const boss = bosses.find((b) => b.itemId === s.itemId);
-    if (boss && now - s.last < STANDING_MS) out.push({ key: boss.key, name: boss.name, zone: boss.zone, itemId: s.itemId, who: s.who, since: s.since, fights: s.fights });
+    if (boss && now - s.since < STANDING_MS) out.push({ key: boss.key, name: boss.name, zone: boss.zone, itemId: s.itemId, who: s.who, since: s.since, fights: s.fights });
   }
   return out;
 }
