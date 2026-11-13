@@ -213,6 +213,10 @@ test("the sightings keep each kill and respawn, and a boss that is down shows wh
   const wide = [{ ...watch[0], varianceMs: 12 * H }];
   expect(watchRows({ watch: wide, seen: down, log, now: T + 80 * H })[0]).toMatchObject({ state: "due", killed: { from: T + 60000, to: T + H }, lived: { from: 60000, to: H } });
   expect(watchRows({ watch: wide, seen: down, log: [], now: T })[0]).toMatchObject({ killed: { from: T + m25 - 12 * H, to: T + H }, lived: null });
+  // Seen down for an earlier kill, then down with another respawn time: it died after the first look.
+  const again = at("respawning", T + 20 * H, T + 75 * H);
+  const twice = noteSightings(noteSightings([], wide, at("respawning", T - 2 * H, T + 40 * H)), wide, again);
+  expect(watchRows({ watch: wide, seen: again, log: twice, now: T + 21 * H })[0]).toMatchObject({ killed: { from: T - 2 * H, to: T + 15 * H }, lived: null });
 });
 
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {

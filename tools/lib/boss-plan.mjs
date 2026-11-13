@@ -280,7 +280,8 @@ export function noteSightings(log = [], watch = [], seen = {}) {
 
 // When someone killed boss `w`, which sighting `s` shows down until `s.respawnAt`, and how long it
 // had stood. The respawn time dates the kill only to its variance, so the sightings narrow it:
-// after the boss was last seen alive or came back, and before it was first seen down.
+// after the sighting before, in which the boss stood or was down for an earlier kill, after it
+// came back, and before it was first seen down.
 function killWindow(w, s, log) {
   const rows = log.filter((r) => r.key === w.key);
   const i = rows.findLastIndex((r) => r.state !== "alive" && r.respawnAt === s.respawnAt);
@@ -289,8 +290,8 @@ function killWindow(w, s, log) {
   let from = nominal - (w.varianceMs ?? 0);
   let cameAt = null;
   const prev = i > 0 ? rows[i - 1] : null;
+  if (prev) from = Math.max(from, prev.lastAt ?? prev.seenAt);
   if (prev?.state === "alive") {
-    from = Math.max(from, prev.lastAt ?? prev.seenAt);
     // It came back at the respawn time on record unless the server put it up early (`spawnReset`).
     const before = rows[i - 2];
     if (before && before.state !== "alive" && before.respawnAt && before.respawnAt <= prev.seenAt + RESET_EARLY_MS) cameAt = before.respawnAt;
