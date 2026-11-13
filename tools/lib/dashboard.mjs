@@ -650,7 +650,7 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
       // The bosses the open world puts up (`watchRows` of tools/lib/boss-plan.mjs), the look the
       // plan sends next, the raid hours of the last day and what an hour for the open world needs.
       watch: (bosses?.watch ?? []).map((w) => ({ ...w, zone: zoneName(catalog, w.zone) })),
-      look: bosses?.look ? { ...bosses.look, zone: zoneName(catalog, bosses.look.zone) } : null,
+      look: bosses?.look ? { ...bosses.look, zone: zoneName(catalog, bosses.look.zone), others: Math.max(0, (bosses.looks ?? 1) - 1) } : null,
       hours: bosses?.hours ?? null,
       coinPp: bosses?.coinPp ?? null,
       price: bosses?.price ?? null,

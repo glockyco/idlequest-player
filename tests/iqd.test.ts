@@ -535,32 +535,40 @@ test("boss planning ignores stale raids and holds looks and retries with each ta
   const tabs = [{ targetId: "tab", label: "A", group: "g1", code: "canary", members: [{ name: "A", level: 50 }] }];
   const groupOf = new Map([["A", "g1"]]);
   const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
-  expect((await d.bossPass(T0, tabs, [], groupOf, odds))?.kind).toBe("raid");
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds)).map((a) => a.kind)).toEqual(["raid"]);
   const failed = { t: T0 - 600000, endedAt: T0 - 600000, label: "A", kind: "raid", id: "boss:summon:boss", status: "failed", code: "canary" };
-  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [failed])).toBeNull();
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [failed])).toEqual([]);
   expect(meta(d.db, "bossPlan").look).toBeNull();
-  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [{ ...failed, step: "fight Boss", result: "wiped in z" }])).toBeNull();
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, [{ ...failed, step: "fight Boss", result: "wiped in z" }])).toEqual([]);
   expect(meta(d.db, "bossPlan").look).toBeNull();
 });
 
-test("a boss whose respawn has passed gets a look while no hour of raid time can be bought", async () => {
-  // Lord Nagafen on 2026-11-13: off the goal, his respawn eight hours past, no raid time running.
+test("bosses whose respawn has passed get looks while no hour of raid time can be bought", async () => {
+  // Lord Nagafen and Talendor on 2026-11-13: off the goal, their respawns hours past, no raid time running.
+  const boss = (key: string) => ({ key, name: key, zone: `${key}zone`, status: "limit" });
   const d = collector({
     runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
-    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [{ key: "boss", name: "Boss", zone: "z", status: "limit" }] }, time: { active: false, pricePp: 10000 } }) },
-    bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [boss("naga"), boss("tal")] }, time: { active: false, pricePp: 10000 } }) },
+    bossSpawns: { key: "naga|tal", spawns: new Map([["naga", [{ zone: "nagazone", respawnMs: 3600000 }]], ["tal", [{ zone: "talzone", respawnMs: 3600000 }]]]) },
   });
   d.raidGoal = () => [];
-  meta(d.db, "bossesSeen", { boss: { name: "Boss", zone: "z", state: "respawning", respawnAt: T0 - 3600000, seenAt: T0 - 7200000 } });
-  const tabs = [{ targetId: "a", label: "A", group: "g1", members: [{ name: "A", level: 50 }] }, { targetId: "b", label: "B", group: "g2", members: [{ name: "B", level: 50 }] }];
-  const groupOf = new Map([["A", "g1"], ["B", "g2"]]);
-  const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
-  expect(await d.bossPass(T0, tabs, [], groupOf, odds)).toMatchObject({ label: "B", kind: "look", id: "look:boss", spec: { zone: "z", name: "Boss" } });
-  expect(meta(d.db, "bossPlan").watch[0]).toMatchObject({ key: "boss", state: "due" });
+  const down = (key: string, respawnAt: number) => ({ name: key, zone: `${key}zone`, state: "respawning", respawnAt, seenAt: T0 - 9 * 3600000 });
+  meta(d.db, "bossesSeen", { naga: down("naga", T0 - 8 * 3600000), tal: down("tal", T0 - 4 * 3600000) });
+  const tab = (label: string, group: string, rest: object = {}) => ({ targetId: label, label, group, members: [{ name: label, level: 50 }], ...rest });
+  const tabs = [tab("A", "g1"), tab("B", "g2"), tab("C", "g3", { zone: "talzone" })];
+  const groupOf = new Map([["A", "g1"], ["B", "g2"], ["C", "g3"]]);
+  const win = { raid: { kills: 1, fights: 1 } };
+  const odds = { strongest: "g1", odds: { naga: win, tal: win } };
+  // Each look has a tab of its own, the one in the boss's zone first, and the raid's leader stays.
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds)).toMatchObject([
+    { label: "B", kind: "look", id: "look:naga", spec: { zone: "nagazone", name: "naga" } },
+    { label: "C", kind: "look", id: "look:tal", spec: { zone: "talzone", name: "tal" } },
+  ]);
+  expect(meta(d.db, "bossPlan").watch.map((w: { state: string }) => w.state)).toEqual(["due", "due"]);
   // With every other tab on a task, the plan says what the look waits for.
-  const busy = [tabs[0], { ...tabs[1], task: { status: "running", kind: "hunt" } }];
-  expect(await d.bossPass(T0, busy, [], groupOf, odds)).toBeNull();
-  expect(meta(d.db, "bossPlan").look).toMatchObject({ key: "boss", waits: expect.any(String) });
+  const busy = [tabs[0], ...tabs.slice(1).map((t) => ({ ...t, task: { status: "running", kind: "hunt" } }))];
+  expect(await d.bossPass(T0, busy, [], groupOf, odds)).toEqual([]);
+  expect(meta(d.db, "bossPlan").look).toMatchObject({ key: "naga", waits: expect.any(String) });
 });
 
 test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
@@ -575,8 +583,8 @@ test("a standing casino boss gets three fights, then the twelve-hour loss hold",
   const groupOf = new Map([["A", "g1"]]);
   const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
   const history = [3, 2, 1].map((n) => ({ t: T0 - n * 60000, endedAt: T0 - n * 60000, label: "A", kind: "raid", id: "boss:potion:99:A", status: "failed", step: "fight Boss", result: "wiped in z" }));
-  expect((await d.bossPass(T0, tabs, [], groupOf, odds, {}, history.slice(0, 2)))?.kind).toBe("raid");
-  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, history)).toBeNull();
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds, {}, history.slice(0, 2))).map((a) => a.kind)).toEqual(["raid"]);
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds, {}, history)).toEqual([]);
 });
 
 test("queued tasks use queue time and tab code, failures persist, and only queued gear leaves the plan", async () => {
@@ -608,7 +616,7 @@ test("queued tasks use queue time and tab code, failures persist, and only queue
   d.experimentPass = async (_now: number, _tabs: unknown, state: { experiments?: unknown }) => { state.experiments = { running: { fixture: {} } }; return []; };
   d.loadRates = async () => ({});
   d.gearPass = async () => null;
-  d.bossPass = async () => null;
+  d.bossPass = async () => [];
   d.killOdds = async () => null;
   d.predictedRates = async () => { throw new Error("zone fixture failure"); };
   const decide = spyOn(coordinator, "decide").mockReturnValue({ actions: [

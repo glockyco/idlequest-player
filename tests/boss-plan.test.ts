@@ -1,6 +1,8 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+
+const nextLook = (o: Parameters<typeof nextLooks>[0]) => nextLooks(o)[0] ?? null;
 
 const boss = (key: string, status = "available") => ({ key, name: key, zone: `${key}zone`, status });
 const daily = (resetsRemaining: number, bosses: object[]) => ({ resetsRemaining, resetLimit: 2, bosses });

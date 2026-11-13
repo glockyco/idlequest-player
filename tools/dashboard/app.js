@@ -429,6 +429,7 @@ function renderBosses(s) {
   if (!rows.length) return void ($("bosses").innerHTML = `<p class="muted">The boss pass has not listed them yet.</p>`);
   const when = (t) => `${dayName(t)} ${hhmm(t)}`;
   const span = (a, b, f) => (b - a < 15 * 60000 ? f(b) : `${f(a)} to ${f(b)}`);
+  const between = (a, b) => (b - a >= 15 * 60000 && dayName(a) === dayName(b) ? `${when(a)} to ${hhmm(b)}` : span(a, b, when));
   const state = (w) =>
     w.state === "alive"
       ? `<span class="pill accent">up</span>${s.now - w.seenAt > 30 * 60000 ? ` <span class="muted">at the last look</span>` : ""}`
@@ -441,13 +442,13 @@ function renderBosses(s) {
             : w.respawnAt
               ? `down, back ${when(w.respawnAt)} <span class="muted">${inMs(w.respawnAt - s.now)}</span>`
               : "down";
-  const killed = (w) => (w.killed ? `${span(w.killed.from, w.killed.to, when)}${w.lived ? ` <span class="muted">${span(w.lived.from, w.lived.to, dur)} after it came back</span>` : ""}` : "");
+  const killed = (w) => (w.killed ? `${between(w.killed.from, w.killed.to)}${w.lived ? ` <span class="muted">${span(w.lived.from, w.lived.to, dur)} after it came back</span>` : ""}` : "");
   const order = { alive: 0, due: 1, stale: 1, down: 2, unknown: 3 };
   const sorted = rows.slice().sort((a, b) => order[a.state] - order[b.state] || (a.respawnAt ?? Infinity) - (b.respawnAt ?? Infinity));
   const pp = (n) => Math.round(n).toLocaleString("en-US");
   const note = [
     "These raid bosses also stand in the world, where other players kill them too. A group looks into a boss's zone when nobody has seen it and again when its respawn is due, and the raid goes there once it stands. They come on top of the two free summons a day.",
-    R.look ? `Next look: ${esc(R.look.name)} in ${esc(R.look.zone)}, because ${esc(R.look.why)}${R.look.waits ? `. It waits, because ${esc(R.look.waits)}` : ""}.` : "No look is due.",
+    R.look ? `Next look: ${esc(R.look.name)} in ${esc(R.look.zone)}, because ${esc(R.look.why)}${R.look.waits ? `. It waits, because ${esc(R.look.waits)}` : ""}.${R.look.others ? ` ${R.look.others} more ${R.look.others === 1 ? "is" : "are"} due.` : ""}` : "No look is due.",
     R.hours != null ? `Raid time ran for ${R.hours} hour${R.hours === 1 ? "" : "s"} in the last day.` : "",
     R.buy && R.price ? `A boss outside the goal is killed in an hour that runs, or buys one for ${pp(R.price)} pp when the kills it brings are worth ${R.buy.worth} h of a group's progress and the account holds ${pp(R.price * (1 + R.buy.reserveHours))} pp${R.coinPp != null ? `. It holds ${pp(R.coinPp)} pp` : ""}.` : "",
   ].filter(Boolean);

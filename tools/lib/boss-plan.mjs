@@ -217,11 +217,11 @@ export function spawnReset(log = []) {
 }
 
 /**
- * The next look into a boss's zone, `{ key, name, zone, until, why }`, or null. A look is a group
- * that travels there, reads the zone's spawn list and leaves (`lookTask` of src/bot.js), staying
- * until `until` when a respawn is due. Other players kill these bosses too: all five the tabs had
- * seen by 2026-11-12 were dead, so a boss is the account's only when a tab is there as it comes
- * back.
+ * The looks into bosses' zones that are due, the most urgent first, as `[{ key, name, zone,
+ * until, why }]`. A look is a group that travels there, reads the zone's spawn list and leaves
+ * (`lookTask` of src/bot.js), staying until `until` when a respawn is due. Other players kill
+ * these bosses too: all five the tabs had seen by 2026-11-12 were dead, so a boss is the account's
+ * only when a tab is there as it comes back.
  * - `watch`: `watchedBosses`. `seen`: what the tabs last saw, by name key (`bossesSeen`).
  * - `lastLook(key)`: when the last look for the boss was sent, 0 for none.
  * - `lookTimes(key)`: look queue times, newest first, for backing off unchanged sightings.
@@ -236,7 +236,7 @@ export function spawnReset(log = []) {
  * then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
  * has seen, a goal boss before the others, then a boss that stood and the plan would not raid.
  */
-export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0 }) {
+export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0 }) {
   const due = [];
   for (const w of watch) {
     const s = seen[npcKey(w.name)]?.zone === w.zone ? seen[npcKey(w.name)] : null;
@@ -254,8 +254,8 @@ export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookT
       if (now >= s.respawnAt - LOOK.leadMs) due.push({ rank: 0, at: s.respawnAt, w, until: Math.max(0, s.respawnAt + LOOK.waitMs), why: `its respawn ${now < s.respawnAt ? "is" : "was"} due at ${clock(s.respawnAt)}` });
     } else if (now - s.seenAt > LOOK.staleMs) due.push({ rank: 2, at: s.seenAt, w, until: 0, why: `it was down at ${clock(s.seenAt)} with no respawn time` });
   }
-  const first = due.sort((a, b) => a.rank - b.rank || Number(b.w.goal) - Number(a.w.goal) || a.at - b.at)[0];
-  return first ? { key: first.w.key, name: first.w.name, zone: first.w.zone, until: first.until > now ? first.until : 0, why: first.why } : null;
+  due.sort((a, b) => a.rank - b.rank || Number(b.w.goal) - Number(a.w.goal) || a.at - b.at);
+  return due.map((d) => ({ key: d.w.key, name: d.w.name, zone: d.w.zone, until: d.until > now ? d.until : 0, why: d.why }));
 }
 
 /**

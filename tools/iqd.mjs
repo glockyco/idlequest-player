@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -417,6 +417,8 @@ const GEAR_RETRY_MIN = 10;
 const RAID_RETRY_MIN = 30;
 // A potion the server refused is tried again this long after, whatever the code (`bossPass`).
 const REFUSED_RETRY_MIN = 360;
+// The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
+const LOOKS_A_PASS = 4;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
 // (`bossPlan` of the boss pass) and a casino boss potion a day, 3,366 pp at 9 dice by the casino
 // panel's own odds (docs/plans/systems-research.md, "Boss summons and daily allowance").
@@ -910,9 +912,9 @@ export class Daemon {
     // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
     // from any other action of this pass, since summons and potions are time gated and a hunt is not.
     this.doing = "boss plan";
-    const bossKill = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel, state.history).catch((e) => (this.log(`boss pass: ${e.message}`), null));
+    const bossActs = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel, state.history).catch((e) => (this.log(`boss pass: ${e.message}`), []));
     this.doing = "tasks and zones";
-    if (bossKill) actions.splice(0, actions.length, ...actions.filter((a) => a.label !== bossKill.label), bossKill);
+    if (bossActs.length) actions.splice(0, actions.length, ...actions.filter((a) => !bossActs.some((b) => b.label === a.label)), ...bossActs);
     for (const a of actions) {
       const tab = tabs.find((t) => t.label === a.label);
       try {
@@ -1195,16 +1197,17 @@ export class Daemon {
    * The boss-kill pass (docs/plans/raids.md): the kill chances (`killOdds`), the daily list and
    * raid time read in a tab whose leader is 46 or more, the casino potions of the survey, each
    * boss's worth from the gear pass's targets (`bossValues` at `hoursPerLevel`), and
-   * `nextBossKill`. Returns a raid action for the tab of the kill's leader, the potion's holder or
-   * the strongest group's leader, or, while no raid is due or its tab is busy, a look into the zone
-   * of a boss of the open world for a free tab (`nextLook`). The plan, its reasons and the watched
-   * bosses stay in the db meta key `bossPlan`, the sightings in `bossesSeen` and `bossLog`, the
-   * raid hours in `raidHours`, and the daily list in runs/state/daily-bosses.json.
+   * `nextBossKill`. Returns the pass's actions: a raid for the tab of the kill's leader, the
+   * potion's holder or the strongest group's leader, or, while no raid is due or its tab is busy,
+   * looks into the zones of bosses of the open world, each for a free tab of its own (`nextLooks`,
+   * `LOOKS_A_PASS`). The plan, its reasons and the watched bosses stay in the db meta key
+   * `bossPlan`, the sightings in `bossesSeen` and `bossLog`, the raid hours in `raidHours`, and the
+   * daily list in runs/state/daily-bosses.json.
    */
   async bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel = {}, history = []) {
-    if (!odds) return null;
+    if (!odds) return [];
     const reader = tabs.find((t) => (t.members[0]?.level ?? 0) >= 46);
-    if (!reader) return null;
+    if (!reader) return [];
     const st = await this.relay.evaluate(reader.targetId, call(bossStateInPage, {}), { timeout: 30000 });
     await writeFile(join(this.runs, "state/daily-bosses.json"), JSON.stringify({ readAt: now, by: reader.members[0].name, ...st.daily }, null, 1)).catch(() => {});
     const raiding = [...this.trackers.values()].some((tr) => tr.usable && !tr.state.unreachableSince && (tr.snap?.raid || (tr.snap?.bot?.task?.kind === "raid" && tr.snap.bot.task.status === "running")));
@@ -1284,10 +1287,11 @@ export class Daemon {
     const could = (w) => !waiting(w, "open") && killable(raidOdds(w));
     const wanted = (w) => (w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth);
     const spawnsResetAt = spawnReset(log);
-    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt });
+    const looks = nextLooks({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt });
+    const look = looks[0] ?? null;
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    const plan = { t: now, kill, skipped, value, first, next, open, look, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    const plan = { t: now, kill, skipped, value, first, next, open, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1306,7 +1310,7 @@ export class Daemon {
     // comes again with the next cycle to send the raid.
     if (due && kill.source === "open" && tab && !tab.stale && tab.task?.status === "running" && tab.task.kind === "hunt") {
       this.passAgain = true;
-      return { label: tab.label, kind: "stopTask", id: null, spec: null, why: `${kill.name} stands in ${kill.zone}, and the raid's leader is on a hunt` };
+      return [{ label: tab.label, kind: "stopTask", id: null, spec: null, why: `${kill.name} stands in ${kill.zone}, and the raid's leader is on a hunt` }];
     }
     if (due && free(tab)) {
       const members = [...groupOf.keys()].filter((n) => n !== leader);
@@ -1315,20 +1319,21 @@ export class Daemon {
       // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
       // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
       const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
-      return { label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` };
+      return [{ label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` }];
     }
-    // A look takes a free tab that leads no raid: one in the boss's zone already, else one without
-    // an errand, which a task ends (the first look, of 39 s, ended group 4's), else the one with
-    // the highest leader, which has the best chance in a zone a boss lives in.
-    if (!look) return null;
-    const lookers = tabs
-      .filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46)
-      .sort((a, b) => Number(b.zone === look.zone) - Number(a.zone === look.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0));
-    if (!lookers.length) {
-      metaSet(this.db, "bossPlan", { ...plan, look: { ...look, waits: "every group with a leader of 46 or more is on a task" } });
-      return null;
+    // Each look takes a free tab that leads no raid: one in the boss's zone already, else one
+    // without an errand, which a task ends (the first look, of 39 s, ended group 4's), else the
+    // one with the highest leader, which has the best chance in a zone a boss lives in. Several
+    // bosses are due together after the server put them up, and other players are on their way.
+    const lookers = tabs.filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46);
+    const out = [];
+    for (const l of looks.slice(0, LOOKS_A_PASS)) {
+      const t = lookers.filter((c) => !out.some((a) => a.label === c.label)).sort((a, b) => Number(b.zone === l.zone) - Number(a.zone === l.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0))[0];
+      if (!t) break;
+      out.push({ label: t.label, kind: "look", id: `look:${l.key}`, spec: { zone: l.zone, name: l.name, until: l.until }, why: `${l.name} in ${l.zone}: ${l.why}` });
     }
-    return { label: lookers[0].label, kind: "look", id: `look:${look.key}`, spec: { zone: look.zone, name: look.name, until: look.until }, why: `${look.name} in ${look.zone}: ${look.why}` };
+    if (look && !out.length) metaSet(this.db, "bossPlan", { ...plan, look: { ...look, waits: "every group with a leader of 46 or more is on a task" } });
+    return out;
   }
 
   /**
