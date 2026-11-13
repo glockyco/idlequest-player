@@ -158,6 +158,15 @@ export class Relay extends EventEmitter {
       }, timeoutMs);
       this.#pending.set(id, { resolve, reject, timer });
       this.#ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    }).catch((e) => {
+      // A session the relay dropped answers with an error, and the next call attaches anew.
+      // Chrome's relay says "Debugger is not attached to the tab with id: ...": group 10's tab,
+      // renewed at 00:05 on 2026-11-13, kept such a dead session for seven hours, because only
+      // an evaluate dropped one and only for "session", "not found" or "closed".
+      if (sessionId && /session|not found|closed|not attached|detached/i.test(e?.message ?? "")) {
+        for (const [targetId, s] of this.#sessions) if (s === sessionId) this.#sessions.delete(targetId);
+      }
+      throw e;
     });
   }
 
@@ -281,14 +290,7 @@ export class Relay extends EventEmitter {
     if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
     const sessionId = await this.#sessionFor(targetId);
     await this.#keepFocused(targetId, sessionId);
-    let res;
-    try {
-      res = await this.#send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true, timeout }, sessionId, timeout + 1000);
-    } catch (e) {
-      // A session the relay dropped answers with an error. Attach again on the next call.
-      if (/session|not found|closed/i.test(e.message)) this.#sessions.delete(targetId);
-      throw e;
-    }
+    const res = await this.#send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true, timeout }, sessionId, timeout + 1000);
     if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? "evaluate failed");
     return res.result?.value;
   }
