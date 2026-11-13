@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossValues, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
 
 const boss = (key: string, status = "available") => ({ key, name: key, zone: `${key}zone`, status });
 const daily = (resetsRemaining: number, bosses: object[]) => ({ resetsRemaining, resetLimit: 2, bosses });
@@ -88,7 +88,7 @@ test("a raid boss that stands in the open world is killed there, without a summo
   expect(unpaid.skipped.map((s) => s.key)).toEqual(["phinigel"]);
 });
 
-test("an open-world boss outside the goal buys an hour within the day's hours, for kills worth one", () => {
+test("an open-world boss outside the goal buys an hour the account's coin pays, for kills worth one", () => {
   // Cazic-Thule and Trakanon come back two minutes apart on 2026-11-13: one hour for both.
   const open = [{ key: "trakanon", name: "Trakanon", zone: "sebilis" }, { key: "venril", name: "Venril Sathir", zone: "karnor" }];
   const odds = { trakanon: { raid: win }, venril: { raid: win } };
@@ -101,6 +101,12 @@ test("an open-world boss outside the goal buys an hour within the day's hours, f
   // In an hour that is paid already, every one of them is killed.
   expect(nextBossKill({ open: [open[1]], paid: true, odds, value: { venril: 0.16 } }).kill).toMatchObject({ key: "venril" });
 
+  // The coin has to pay the hour and one more, which the next summon needs. An unread coin buys nothing.
+  expect(canBuyHour({ coinPp: 20000, pricePp: 10000 })).toBe(true);
+  expect(canBuyHour({ coinPp: 19999, pricePp: 10000 })).toBe(false);
+  expect(canBuyHour({ coinPp: null, pricePp: 10000 })).toBe(false);
+  expect(nextBossKill({ open, paid: false, canBuy: false, odds, value: { trakanon: 1.05, venril: 0.16 } }).kill).toBeNull();
+
   // The hours on record: a renewal is another hour, the same end read twice is one.
   const NOW = 1_800_000_000_000;
   const H = 3600000;
@@ -109,7 +115,7 @@ test("an open-world boss outside the goal buys an hour within the day's hours, f
   ledger = raidHours(ledger, { active: true, expiresAt: NOW + 2 * H }, NOW + 50 * 60000);
   ledger = raidHours(ledger, { active: false, expiresAt: NOW + 2 * H }, NOW + 3 * H);
   expect(ledger).toEqual([NOW + H, NOW + 2 * H]);
-  expect(hoursLastDay(ledger, NOW + 3 * H)).toBe(OPEN_BUY.hoursADay);
+  expect(hoursLastDay(ledger, NOW + 3 * H)).toBe(2);
   expect(hoursLastDay(ledger, NOW + 25.5 * H)).toBe(1);
 });
 
@@ -119,7 +125,7 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
   const d = daily(0, [{ key: "cazic", name: "Cazic-Thule", zone: "fearplane", status: "limit" }, { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", status: "limit" }, { key: "vox", name: "Lady Vox", zone: "permafrost", status: "limit" }]);
   const goal = ["Cazic-Thule", "Lord Yelinak", "Tunare"];
   const spawns = new Map([
-    ["Cazic-Thule", [{ zone: "fearplane", point: 13816, respawnMs: 72 * H }]],
+    ["Cazic-Thule", [{ zone: "fearplane", point: 13816, respawnMs: 72 * H, varianceMs: 7.2 * H }]],
     ["Phinigel Autropos", [{ zone: "kedge", point: 4685, respawnMs: 12 * H }]],
     // A point in another zone than the list's is not the list's boss, and Tunare has none.
     ["Lady Vox", [{ zone: "tutorial", point: 1, respawnMs: H }]],
@@ -128,9 +134,9 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
   ]);
   const watch = watchedBosses({ daily: d, goal, spawns });
   expect(watch).toEqual([
-    { key: "cazic", name: "Cazic-Thule", zone: "fearplane", respawnMs: 72 * H, goal: true },
-    { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", respawnMs: 12 * H, goal: false },
-    { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", respawnMs: 72 * H, goal: true },
+    { key: "cazic", name: "Cazic-Thule", zone: "fearplane", respawnMs: 72 * H, varianceMs: 7.2 * H, goal: true },
+    { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", respawnMs: 12 * H, varianceMs: 0, goal: false },
+    { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", respawnMs: 72 * H, varianceMs: 0, goal: true },
   ]);
 
   // Nobody has seen any of them: the goal's bosses first.
@@ -143,18 +149,46 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
   // A respawn inside the lead time goes first, and the look stays past it.
   const notPhinigel = (w: { key: string }) => w.key !== "phinigel";
   expect(nextLook({ watch, seen, now: NOW, wanted: notPhinigel })).toEqual({ key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", until: NOW + 4 * 60000 + LOOK.waitMs, why: expect.stringMatching(/^its respawn is due at \d\d:\d\d$/) });
-  // A look sent for him a quarter of an hour ago is not sent again, and nothing else is due,
-  // unless the plan would kill the boss that stood two hours ago.
+  // A look sent for him a quarter of an hour ago is not sent again. The boss that stood two hours
+  // ago gets a fresh look when the plan would raid it, and otherwise one every `standMs`, which
+  // tells how long it stands.
   const lastLook = (key: string) => (key === "lord yelinak" ? NOW - 15 * 60000 : 0);
   expect(nextLook({ watch, seen, now: NOW, lastLook, wanted: notPhinigel })).toBeNull();
-  expect(nextLook({ watch, seen, now: NOW, lastLook })).toMatchObject({ key: "phinigel", until: 0 });
-  // A respawn that passed with no tab there is looked at once, without a wait. A boss the plan
-  // would not kill gets no look at all.
-  expect(nextLook({ watch, seen, now: NOW + 2 * H, wanted: notPhinigel })).toMatchObject({ key: "lord yelinak", until: 0, why: expect.stringMatching(/^its respawn was due at/) });
-  expect(nextLook({ watch, seen, now: NOW + 2 * H, wanted: () => false })).toBeNull();
+  expect(nextLook({ watch, seen, now: NOW, lastLook })).toMatchObject({ key: "phinigel", until: 0, why: expect.stringMatching(/a raid needs a look that is fresh$/) });
+  expect(nextLook({ watch, seen, now: NOW + 60000, lastLook, wanted: notPhinigel })).toMatchObject({ key: "phinigel", until: 0, why: expect.stringMatching(/tells how long it stands$/) });
+  // A respawn that passed with no tab there is looked at once, without a wait, also when the plan
+  // would not raid the boss now: on 2026-11-13 Lord Nagafen's respawn was eight hours past with no
+  // look, because the day's raid hours were spent. A boss the account could not kill gets none.
+  expect(nextLook({ watch, seen, now: NOW + 2 * H, wanted: () => false })).toMatchObject({ key: "lord yelinak", until: 0, why: expect.stringMatching(/^its respawn was due at/) });
+  expect(nextLook({ watch, seen, now: NOW + 2 * H, could: () => false })).toBeNull();
 });
 
-test("the sightings keep each kill and respawn, and a boss that is down shows how long it stood", () => {
+test("a boss seen alive ahead of its timer voids the older sightings of bosses that were down", () => {
+  // The server's restart at 21:15 on 2026-11-12: Lady Vox stood a day and a half before her
+  // respawn time, and Lord Nagafen kept the respawn time of a look at noon.
+  const H = 3600000;
+  const T = 1_800_000_000_000;
+  const watch = [{ key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H, goal: false }, { key: "nagafen", name: "Lord Nagafen", zone: "soldungb", respawnMs: 72 * H, goal: false }];
+  const nagafen = { name: "Lord_Nagafen", zone: "soldungb", state: "respawning", seenAt: T, respawnAt: T + 22 * H };
+  const vox = (state: string, seenAt: number, respawnAt: number | null = null) => ({ name: "Lady_Vox", zone: "permafrost", state, seenAt, respawnAt });
+  const before = { "lady vox": vox("respawning", T, T + 43 * H), "lord nagafen": nagafen };
+  let log = noteSightings([], watch, before);
+  expect(spawnReset(log)).toBe(0);
+  expect(nextLook({ watch, seen: before, now: T + 9 * H, resetAt: spawnReset(log) })).toBeNull();
+  const seen = { "lady vox": vox("alive", T + 9 * H), "lord nagafen": nagafen };
+  log = noteSightings(log, watch, seen);
+  expect(spawnReset(log)).toBe(T + 9 * H);
+  expect(nextLook({ watch, seen, now: T + 9 * H, resetAt: spawnReset(log) })).toMatchObject({ key: "nagafen", until: 0, why: expect.stringMatching(/^the server put bosses up ahead of their timers/) });
+  expect(watchRows({ watch, seen, log, now: T + 9 * H, resetAt: spawnReset(log) }).map((w) => w.state)).toEqual(["alive", "stale"]);
+  // A look after it counts again, and a boss that comes back at its time is no reset.
+  const after = { ...seen, "lord nagafen": { ...nagafen, seenAt: T + 9 * H + 60000 } };
+  expect(nextLook({ watch, seen: after, now: T + 9 * H + 120000, resetAt: spawnReset(log) })).toBeNull();
+  let back = noteSightings([], watch, { "lady vox": vox("respawning", T, T + H) });
+  back = noteSightings(back, watch, { "lady vox": vox("alive", T + H - 2 * 60000) });
+  expect(spawnReset(back)).toBe(0);
+});
+
+test("the sightings keep each kill and respawn, and a boss that is down shows when it died and how long it stood", () => {
   const H = 3600000;
   const T = 1_800_000_000_000;
   const watch = [{ key: "trakanon", name: "Trakanon", zone: "sebilis", respawnMs: 72 * H, goal: false }, { key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H, goal: false }];
@@ -165,11 +199,18 @@ test("the sightings keep each kill and respawn, and a boss that is down shows ho
   log = noteSightings(log, watch, at("alive", T + 60000));
   const down = at("respawning", T + H, T + 25 * 60000 + 72 * H);
   log = noteSightings(log, watch, down);
-  expect(log.map((r) => [r.state, r.respawnAt])).toEqual([["respawning", T], ["alive", null], ["respawning", T + 25 * 60000 + 72 * H]]);
-  expect(watchRows({ watch, seen: down, log, value: { trakanon: 1.05 }, odds: { trakanon: { raid: win } } })).toEqual([
-    { key: "trakanon", name: "Trakanon", zone: "sebilis", goal: false, state: "down", seenAt: T + H, respawnAt: T + 25 * 60000 + 72 * H, killedAt: T + 25 * 60000, livedMs: 25 * 60000, value: 1.05, raid: win },
-    { key: "vox", name: "Lady Vox", zone: "permafrost", goal: false, state: "unknown", seenAt: null, respawnAt: null, killedAt: null, livedMs: null, value: null, raid: null },
+  expect(log.map((r) => [r.state, r.respawnAt, r.seenAt, r.lastAt])).toEqual([["respawning", T, T - 10 * H, T - 5 * H], ["alive", null, T + 60000, T + 60000], ["respawning", T + 25 * 60000 + 72 * H, T + H, T + H]]);
+  const m25 = 25 * 60000;
+  expect(watchRows({ watch, seen: down, log, value: { trakanon: 1.05 }, odds: { trakanon: { raid: win } }, now: T + 2 * H })).toEqual([
+    { key: "trakanon", name: "Trakanon", zone: "sebilis", goal: false, state: "down", seenAt: T + H, respawnAt: T + m25 + 72 * H, killed: { from: T + m25, to: T + m25 }, lived: { from: m25, to: m25 }, value: 1.05, raid: win },
+    { key: "vox", name: "Lady Vox", zone: "permafrost", goal: false, state: "unknown", seenAt: null, respawnAt: null, killed: null, lived: null, value: null, raid: null },
   ]);
+  // The server draws the respawn inside its variance, so the respawn time alone dates the kill to
+  // twice the variance, and the sightings narrow it: after the boss was last seen alive, and
+  // before it was first seen down. Past its respawn time with no look, it is due.
+  const wide = [{ ...watch[0], varianceMs: 12 * H }];
+  expect(watchRows({ watch: wide, seen: down, log, now: T + 80 * H })[0]).toMatchObject({ state: "due", killed: { from: T + 60000, to: T + H }, lived: { from: 60000, to: H } });
+  expect(watchRows({ watch: wide, seen: down, log: [], now: T })[0]).toMatchObject({ killed: { from: T + m25 - 12 * H, to: T + H }, lived: null });
 });
 
 test("a boss is worth its wanted drops at their chances, one copy per taker's slot", () => {

@@ -543,6 +543,26 @@ test("boss planning ignores stale raids and holds looks and retries with each ta
   expect(meta(d.db, "bossPlan").look).toBeNull();
 });
 
+test("a boss whose respawn has passed gets a look while no hour of raid time can be bought", async () => {
+  // Lord Nagafen on 2026-11-13: off the goal, his respawn eight hours past, no raid time running.
+  const d = collector({
+    runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [{ key: "boss", name: "Boss", zone: "z", status: "limit" }] }, time: { active: false, pricePp: 10000 } }) },
+    bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
+  });
+  d.raidGoal = () => [];
+  meta(d.db, "bossesSeen", { boss: { name: "Boss", zone: "z", state: "respawning", respawnAt: T0 - 3600000, seenAt: T0 - 7200000 } });
+  const tabs = [{ targetId: "a", label: "A", group: "g1", members: [{ name: "A", level: 50 }] }, { targetId: "b", label: "B", group: "g2", members: [{ name: "B", level: 50 }] }];
+  const groupOf = new Map([["A", "g1"], ["B", "g2"]]);
+  const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
+  expect(await d.bossPass(T0, tabs, [], groupOf, odds)).toMatchObject({ label: "B", kind: "look", id: "look:boss", spec: { zone: "z", name: "Boss" } });
+  expect(meta(d.db, "bossPlan").watch[0]).toMatchObject({ key: "boss", state: "due" });
+  // With every other tab on a task, the plan says what the look waits for.
+  const busy = [tabs[0], { ...tabs[1], task: { status: "running", kind: "hunt" } }];
+  expect(await d.bossPass(T0, busy, [], groupOf, odds)).toBeNull();
+  expect(meta(d.db, "bossPlan").look).toMatchObject({ key: "boss", waits: expect.any(String) });
+});
+
 test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
   const boss = { key: "boss", name: "Boss", zone: "z", itemId: 99 };
   const d = collector({

@@ -47,9 +47,9 @@ export function dailyCandidates(daily) {
  * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
  *   (`openBosses`). They need no summon and no potion.
  * - `paid`: whether raid time is running that a raid can use.
- * - `canBuy`: whether the day's raid hours leave one for the open world (`OPEN_BUY`). An open-world
- *   boss outside `first` is killed in paid time, or buys an hour when `canBuy` holds and the
- *   open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
+ * - `canBuy`: whether the account's coin pays an hour for the open world (`canBuyHour`). An
+ *   open-world boss outside `first` is killed in paid time, or buys an hour when `canBuy` holds and
+ *   the open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
  * - `first`: the raid goal's bosses that no raid has killed yet (data/raid-goal.json): the account
@@ -66,8 +66,8 @@ export function dailyCandidates(daily) {
  * Autropos, who beat it twice beside his seahorses (docs/plans/raids.md, Schedule). A raid on a
  * summon or a potion runs as soon as one is due, because a free summon comes back 24 hours after
  * its use. A boss that stands in the open world is killed there, which leaves its summon for
- * another boss, and outside `first` within the day's raid hours (`OPEN_BUY`). A potion's raid is
- * led by its holder.
+ * another boss, and outside `first` it buys its hour by `OPEN_BUY`. A potion's raid is led by its
+ * holder.
  */
 export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [], waiting = () => null }) {
   const skipped = [];
@@ -86,7 +86,7 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
   const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
   for (const o of open) {
     if (first.includes(o.key) || paid) add(o, "open");
-    else if (!canBuy) skipped.push({ key: o.key, why: `it stands in the open world, and ${OPEN_BUY.hoursADay} hours of raid time ran in the last day, the most such bosses may bring it to` });
+    else if (!canBuy) skipped.push({ key: o.key, why: `it stands in the open world, and the account's coin does not pay an hour of raid time and ${OPEN_BUY.reserveHours} more for the summons` });
     else if (worth < OPEN_BUY.worth) skipped.push({ key: o.key, why: `it stands in the open world, and an hour of raid time would bring kills worth ${worth.toFixed(2)} h, under the ${OPEN_BUY.worth} h it has to bring` });
     else add(o, "open");
   }
@@ -108,13 +108,17 @@ export const RAID_SETUP_MIN = 3;
 export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`);
 
 /**
- * What an open-world boss outside the raid goal may spend on raid time. An hour costs 10,000
- * platinum and the account's sales brought 30,241 on 2026-11-11, three hours a day, of which the
- * evening's summons take one. So such a boss buys an hour while fewer than `hoursADay` ran in the
- * last 24 hours, and only for kills worth `worth` hours of a group's progress together, which is
- * an assumed price: nothing measures yet what else the platinum would buy.
+ * What an open-world boss outside the raid goal may spend on raid time: an hour for kills worth
+ * `worth` hours of a group's progress together, while the account's coin pays that hour and
+ * `reserveHours` more, which the next summon needs. `worth` is an assumed price, since nothing
+ * measures yet what else the platinum would buy. The coin is the only limit on the hours: a count
+ * of two a day left Lord Nagafen and Talendor without a look for eight hours on 2026-11-13, with
+ * 123,000 platinum on the account.
  */
-export const OPEN_BUY = { hoursADay: 2, worth: 1 };
+export const OPEN_BUY = { worth: 1, reserveHours: 1 };
+
+/** Whether the account's coin (`coinPp`, null when unread) pays an open-world hour at `pricePp`. */
+export const canBuyHour = ({ coinPp = null, pricePp = null }) => coinPp != null && pricePp > 0 && coinPp >= pricePp * (1 + OPEN_BUY.reserveHours);
 
 /**
  * The raid hours on record with `time` added (`iq.raid.time()`: `{ active, expiresAt }`): the end
@@ -156,16 +160,19 @@ export function openBosses({ seen = {}, daily = null, goal = [], now }) {
 /**
  * The bosses the account watches in the open world: those of the daily list and of the raid goal
  * (`goal`, names) that a live spawn point puts up (`spawns`, `namedSpawns` of
- * tools/lib/content.mjs for their names), as `[{ key, name, zone, respawnMs, goal }]`. A boss of
- * the daily list goes by the list's key and counts at a point in the list's zone. The two free
- * summons a day bring two kills, and each of these is one more. Lord Yelinak and Vulak`Aerr are
- * on no list, so the open world is the only place the account kills them.
+ * tools/lib/content.mjs for their names), as `[{ key, name, zone, respawnMs, varianceMs, goal }]`.
+ * A boss of the daily list goes by the list's key and counts at a point in the list's zone. The
+ * server draws each respawn from `respawnMs` less `varianceMs` to `respawnMs` plus `varianceMs`:
+ * the raids of 2026-11-12 killed Lady Vox, Innoruuk and Trakanon 60.4, 66.3 and 78.6 hours before
+ * the respawn times the server then gave, with 72 hours and 12, 21.6 and 7.2 hours in the content.
+ * The two free summons a day bring two kills, and each of these is one more. Lord Yelinak and
+ * Vulak`Aerr are on no list, so the open world is the only place the account kills them.
  */
 export function watchedBosses({ daily = null, goal = [], spawns = new Map() }) {
   const out = [];
   const add = (name, key, zone, isGoal) => {
     const points = (spawns.get(name) ?? []).filter((p) => !zone || p.zone === zone);
-    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), goal: isGoal });
+    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), varianceMs: Math.max(...points.map((p) => p.varianceMs ?? 0)), goal: isGoal });
   };
   const isGoal = (name) => goal.some((g) => npcKey(g) === npcKey(name));
   for (const b of daily?.bosses ?? []) add(b.name, b.key, b.zone, isGoal(b.name));
@@ -179,11 +186,35 @@ export function watchedBosses({ daily = null, goal = [], spawns = new Map() }) {
  * 2026-11-12), and the trip takes under a minute. So a look for a due respawn is sent by the
  * first pass inside `leadMs` before it, which puts the group there two minutes ahead at the
  * latest, and it waits `waitMs` past the respawn. One boss is looked for again after `retryMs` at
- * the earliest, and a sighting that gave no respawn time is asked again after `staleMs`.
+ * the earliest, a sighting that gave no respawn time is asked again after `staleMs`, and a boss
+ * that stands while the plan would not raid it is looked at every `standMs`.
  */
-export const LOOK = { leadMs: 10 * 60000, waitMs: 5 * 60000, retryMs: 30 * 60000, staleMs: 6 * 3600000 };
+export const LOOK = { leadMs: 10 * 60000, waitMs: 5 * 60000, retryMs: 30 * 60000, staleMs: 6 * 3600000, standMs: 2 * 3600000 };
 
 const clock = (t) => new Date(t).toTimeString().slice(0, 5);
+
+// A boss seen alive this long before the respawn time the server had given did not come back by
+// its timer.
+const RESET_EARLY_MS = 10 * 60000;
+
+/**
+ * When the server last put bosses up ahead of their timers, from the sightings on record
+ * (`noteSightings`): the latest sighting of a boss alive before the respawn time its row before
+ * gave, 0 for none. After the server's restart at 21:15 on 2026-11-12 six bosses of seven the tabs
+ * saw stood one to two days early. A sighting of a boss down that is older than this says nothing
+ * about now: Lord Nagafen, Talendor, Gorenaire and Faydedar kept their respawn times of the
+ * morning, and nobody looked at them that evening.
+ */
+export function spawnReset(log = []) {
+  const last = new Map();
+  let at = 0;
+  for (const r of log) {
+    const p = last.get(r.key);
+    if (p && p.state !== "alive" && p.respawnAt && r.state === "alive" && r.seenAt < p.respawnAt - RESET_EARLY_MS) at = Math.max(at, r.seenAt);
+    last.set(r.key, r);
+  }
+  return at;
+}
 
 /**
  * The next look into a boss's zone, `{ key, name, zone, until, why }`, or null. A look is a group
@@ -194,23 +225,32 @@ const clock = (t) => new Date(t).toTimeString().slice(0, 5);
  * - `watch`: `watchedBosses`. `seen`: what the tabs last saw, by name key (`bossesSeen`).
  * - `lastLook(key)`: when the last look for the boss was sent, 0 for none.
  * - `lookTimes(key)`: look queue times, newest first, for backing off unchanged sightings.
- * - `wanted(w)`: whether the plan would kill the boss now if it stood. Only such a boss gets a
- *   look, since a look that leads to no kill costs a group its minutes and its risk for nothing.
- * A due respawn goes first, the earliest of them, then a boss that stood, whose kill needs a look
- * that is fresh (`OPEN_SEEN_MS`), then one no tab has seen, a goal boss before the others.
+ * - `could(w)`: whether the account could kill the boss: its raid wins in the simulator and no
+ *   lost raid holds it. Another boss gets no look.
+ * - `wanted(w)`: whether the plan would raid the boss now if it stood, which decides only how
+ *   fresh a sighting of a boss that stands is kept. Whether an hour of raid time can be bought
+ *   does not decide whether a look goes: the look takes a group about a minute, and without it
+ *   the plan knows neither that a boss is worth an hour nor how long it stands.
+ * - `resetAt`: `spawnReset`.
+ * A due respawn and a sighting from before the server's reset go first, the earliest of them,
+ * then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
+ * has seen, a goal boss before the others, then a boss that stood and the plan would not raid.
  */
-export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], wanted = () => true }) {
+export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0 }) {
   const due = [];
   for (const w of watch) {
     const s = seen[npcKey(w.name)]?.zone === w.zone ? seen[npcKey(w.name)] : null;
     const times = lookTimes(w.key);
     const unchanged = times.filter((t) => t > (s?.seenAt ?? 0)).length;
     const retry = Math.min(LOOK.staleMs, LOOK.retryMs * 2 ** Math.min(20, Math.max(0, unchanged - 1)));
-    if (now - (times[0] ?? lastLook(w.key)) < retry || !wanted(w)) continue;
+    if (now - (times[0] ?? lastLook(w.key)) < retry || !could(w)) continue;
     if (!s) due.push({ rank: 2, at: 0, w, until: 0, why: "no tab has seen it yet" });
     else if (s.state === "alive") {
-      if (now - s.seenAt > OPEN_SEEN_MS) due.push({ rank: 1, at: s.seenAt, w, until: 0, why: `it stood at ${clock(s.seenAt)}, and a raid needs a look that is fresh` });
-    } else if (s.respawnAt) {
+      if (!wanted(w)) {
+        if (now - s.seenAt > LOOK.standMs) due.push({ rank: 3, at: s.seenAt, w, until: 0, why: `it stood at ${clock(s.seenAt)}, and the next look tells how long it stands` });
+      } else if (now - s.seenAt > OPEN_SEEN_MS) due.push({ rank: 1, at: s.seenAt, w, until: 0, why: `it stood at ${clock(s.seenAt)}, and a raid needs a look that is fresh` });
+    } else if (s.seenAt < resetAt) due.push({ rank: 0, at: resetAt, w, until: 0, why: `the server put bosses up ahead of their timers by ${clock(resetAt)}, after it was seen down` });
+    else if (s.respawnAt) {
       if (now >= s.respawnAt - LOOK.leadMs) due.push({ rank: 0, at: s.respawnAt, w, until: Math.max(0, s.respawnAt + LOOK.waitMs), why: `its respawn ${now < s.respawnAt ? "is" : "was"} due at ${clock(s.respawnAt)}` });
     } else if (now - s.seenAt > LOOK.staleMs) due.push({ rank: 2, at: s.seenAt, w, until: 0, why: `it was down at ${clock(s.seenAt)} with no respawn time` });
   }
@@ -220,35 +260,64 @@ export function nextLook({ watch = [], seen = {}, now, lastLook = () => 0, lookT
 
 /**
  * The sightings on record with what the tabs see now of the watched bosses added (`log`, at most
- * 300 rows `{ key, state, respawnAt, seenAt }`): one row when a boss's state or respawn time is
- * another than at its last row, which is a kill by someone or a respawn.
+ * 300 rows `{ key, state, respawnAt, seenAt, lastAt }`): one row when a boss's state or respawn
+ * time is another than at its last row, which is a kill by someone or a respawn. `seenAt` is the
+ * first sighting in that state and `lastAt` the last one.
  */
 export function noteSightings(log = [], watch = [], seen = {}) {
   const out = [...log];
   for (const w of watch) {
     const s = seen[npcKey(w.name)];
     if (!s || s.zone !== w.zone) continue;
-    const last = out.findLast((r) => r.key === w.key);
-    if (last && last.state === s.state && (last.respawnAt ?? null) === (s.respawnAt ?? null)) continue;
-    out.push({ key: w.key, state: s.state, respawnAt: s.respawnAt ?? null, seenAt: s.seenAt });
+    const i = out.findLastIndex((r) => r.key === w.key);
+    const last = out[i];
+    if (last && last.state === s.state && (last.respawnAt ?? null) === (s.respawnAt ?? null)) {
+      if (s.seenAt > (last.lastAt ?? last.seenAt)) out[i] = { ...last, lastAt: s.seenAt };
+    } else out.push({ key: w.key, state: s.state, respawnAt: s.respawnAt ?? null, seenAt: s.seenAt, lastAt: s.seenAt });
   }
   return out.slice(-300);
 }
 
+// When someone killed boss `w`, which sighting `s` shows down until `s.respawnAt`, and how long it
+// had stood. The respawn time dates the kill only to its variance, so the sightings narrow it:
+// after the boss was last seen alive or came back, and before it was first seen down.
+function killWindow(w, s, log) {
+  const rows = log.filter((r) => r.key === w.key);
+  const i = rows.findLastIndex((r) => r.state !== "alive" && r.respawnAt === s.respawnAt);
+  const nominal = s.respawnAt - w.respawnMs;
+  const to = Math.min(nominal + (w.varianceMs ?? 0), rows[i]?.seenAt ?? s.seenAt);
+  let from = nominal - (w.varianceMs ?? 0);
+  let cameAt = null;
+  const prev = i > 0 ? rows[i - 1] : null;
+  if (prev?.state === "alive") {
+    from = Math.max(from, prev.lastAt ?? prev.seenAt);
+    // It came back at the respawn time on record unless the server put it up early (`spawnReset`).
+    const before = rows[i - 2];
+    if (before && before.state !== "alive" && before.respawnAt && before.respawnAt <= prev.seenAt + RESET_EARLY_MS) cameAt = before.respawnAt;
+  } else if (prev?.respawnAt && prev.respawnAt <= to) {
+    from = Math.max(from, prev.respawnAt);
+    cameAt = prev.respawnAt;
+  }
+  from = Math.min(from, to);
+  return { killed: { from, to }, lived: cameAt == null ? null : { from: Math.max(0, from - cameAt), to: Math.max(0, to - cameAt) } };
+}
+
 /**
  * The watched bosses as a reader sees them: `[{ key, name, zone, goal, state, seenAt, respawnAt,
- * killedAt, livedMs, value, raid }]`, `state` "alive", "down" or "unknown". A boss that is down
- * with a respawn time was killed one respawn before it (`killedAt`), and when the record holds
- * the respawn it had come back at, `livedMs` is how long it stood before someone killed it, which
- * is the time a look has to be there in.
+ * killed, lived, value, raid }]`. `state` is "alive", "down" until `respawnAt`, "due" when that
+ * time has passed with no look since, "stale" when the server has put bosses up ahead of their
+ * timers since the sighting (`resetAt`, `spawnReset`), or "unknown" for a boss no tab has seen. A
+ * boss that is down with a respawn time was killed between `killed.from` and `killed.to`, and when
+ * the record holds the respawn it had come back at, it had stood for `lived.from` to `lived.to`
+ * milliseconds, which is the time a look has to be there in.
  */
-export function watchRows({ watch = [], seen = {}, log = [], value = {}, odds = {} }) {
+export function watchRows({ watch = [], seen = {}, log = [], value = {}, odds = {}, now = Date.now(), resetAt = 0 }) {
   return watch.map((w) => {
     const s = seen[npcKey(w.name)]?.zone === w.zone ? seen[npcKey(w.name)] : null;
     const down = s && s.state !== "alive";
-    const killedAt = down && s.respawnAt ? s.respawnAt - w.respawnMs : null;
-    const cameAt = killedAt == null ? null : (log.findLast((r) => r.key === w.key && r.respawnAt && r.respawnAt <= killedAt && killedAt - r.respawnAt < w.respawnMs)?.respawnAt ?? null);
-    return { key: w.key, name: w.name, zone: w.zone, goal: w.goal, state: !s ? "unknown" : down ? "down" : "alive", seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killedAt, livedMs: cameAt == null ? null : killedAt - cameAt, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
+    const state = !s ? "unknown" : !down ? "alive" : s.seenAt < resetAt ? "stale" : s.respawnAt && s.respawnAt <= now ? "due" : "down";
+    const { killed, lived } = down && s.respawnAt ? killWindow(w, s, log) : { killed: null, lived: null };
+    return { key: w.key, name: w.name, zone: w.zone, goal: w.goal, state, seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killed, lived, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
   });
 }
 

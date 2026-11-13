@@ -10,6 +10,7 @@ import { retryTime, worldHold } from "./coordinator.mjs";
 import { factor, xpAt, xpStart } from "./xp.mjs";
 import { progressCounts } from "./progress.mjs";
 import { cardsFor } from "./cards.mjs";
+import { OPEN_BUY } from "./boss-plan.mjs";
 
 const DAY = 86400000;
 /** Actors whose interventions a person or an agent started by hand, as the SDK and `iqd note` log them. */
@@ -647,10 +648,14 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
     raids: {
       share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: [...firstKills.values()].filter((t) => t > now - DAY).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
       // The bosses the open world puts up (`watchRows` of tools/lib/boss-plan.mjs), the look the
-      // plan sends next and the raid hours of the last day.
+      // plan sends next, the raid hours of the last day and what an hour for the open world needs.
       watch: (bosses?.watch ?? []).map((w) => ({ ...w, zone: zoneName(catalog, w.zone) })),
       look: bosses?.look ? { ...bosses.look, zone: zoneName(catalog, bosses.look.zone) } : null,
       hours: bosses?.hours ?? null,
+      coinPp: bosses?.coinPp ?? null,
+      price: bosses?.price ?? null,
+      buy: OPEN_BUY,
+      spawnsResetAt: bosses?.spawnsResetAt || null,
     },
   };
 }

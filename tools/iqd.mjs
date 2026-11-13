@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, bossValues, hoursLastDay, killId, killable, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLook, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1249,7 +1249,12 @@ export class Daemon {
     const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
     const hours = raidHours(metaGet(this.db, "raidHours") ?? [], st.time, now);
     metaSet(this.db, "raidHours", hours);
-    const canBuy = hoursLastDay(hours, now) < OPEN_BUY.hoursADay;
+    // The account's coin decides whether an open-world boss outside the goal buys an hour, so it
+    // is read only while no hour runs and such a boss stood at its last sighting.
+    const stood = watch.some((w) => !first.includes(w.key) && seen[npcKey(w.name)]?.zone === w.zone && seen[npcKey(w.name)].state === "alive");
+    const money = !paid && stood ? await this.relay.evaluate(reader.targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`boss pass: the account's coin: ${e.message}`), null)) : null;
+    const coinPp = money?.totalPp ?? null;
+    const canBuy = canBuyHour({ coinPp, pricePp: st.time?.pricePp });
     const { retryTime } = await import("./lib/coordinator.mjs");
     // A boss whose last raid is not due again stands aside for the next one. A killed boss waits
     // six hours, since the daily list can still offer its summon ("Resume with Tagujazolu" after
@@ -1272,14 +1277,18 @@ export class Daemon {
       return now < at ? `its last raid ${killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
     };
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
-    // A look goes only to a boss the plan would kill if it stood: a goal boss the raid kills in
-    // the simulator, and another one inside paid raid time or the day's hours, for a kill worth an hour.
+    // A look goes to every watched boss the account could kill, whether or not an hour of raid
+    // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: a goal
+    // boss, and another one inside paid raid time or for a kill worth an hour the coin pays.
     const raidOdds = (w) => odds.odds[w.key]?.raid;
-    const wanted = (w) => !waiting(w, "open") && killable(raidOdds(w)) && ((w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth));
-    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), wanted });
+    const could = (w) => !waiting(w, "open") && killable(raidOdds(w));
+    const wanted = (w) => (w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth);
+    const spawnsResetAt = spawnReset(log);
+    const look = nextLook({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt });
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    metaSet(this.db, "bossPlan", { t: now, kill, skipped, value, first, next, open, look, watch: watchRows({ watch, seen, log, value, odds: odds.odds }), hours: hoursLastDay(hours, now), resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null });
+    const plan = { t: now, kill, skipped, value, first, next, open, look, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    metaSet(this.db, "bossPlan", plan);
     const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
     // A standing boss is fought again at the next pass, three times, before its raids wait like a
     // failure. A potion the server refused waits six hours, since the refusal names a summoned
@@ -1315,7 +1324,10 @@ export class Daemon {
     const lookers = tabs
       .filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46)
       .sort((a, b) => Number(b.zone === look.zone) - Number(a.zone === look.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0));
-    if (!lookers.length) return null;
+    if (!lookers.length) {
+      metaSet(this.db, "bossPlan", { ...plan, look: { ...look, waits: "every group with a leader of 46 or more is on a task" } });
+      return null;
+    }
     return { label: lookers[0].label, kind: "look", id: `look:${look.key}`, spec: { zone: look.zone, name: look.name, until: look.until }, why: `${look.name} in ${look.zone}: ${look.why}` };
   }
 
