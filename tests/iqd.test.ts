@@ -10,7 +10,7 @@ import * as gearPlan from "../tools/lib/gear-plan.mjs";
 import * as coordinator from "../tools/lib/coordinator.mjs";
 import * as content from "../tools/lib/content.mjs";
 import { settleHistory } from "../tools/lib/coordinator.mjs";
-import { Daemon, openDb, raiseItem, renderStatus, resolveItem, searchInPage, stepSession, sweepOrphans, syncAttention } from "../tools/iqd.mjs";
+import { Daemon, openDb, raiseItem, renderStatus, resolveItem, searchInPage, stepSession, sweepOrphans, syncAttention, tabWasBusy } from "../tools/iqd.mjs";
 
 const T0 = 1_800_000_000_000;
 const SEC = 1000;
@@ -635,4 +635,13 @@ test("cycles drop never-usable vanished tabs and clear the active part even on f
   } finally {
     clock.mockRestore();
   }
+});
+
+test("a tab that was busy does not count against the task it refused", () => {
+  // The bot's refusals (`takeTab` and `errand` in src/bot.js), as the relay hands them on.
+  expect(tabWasBusy("Error: the tab is paused for upkeep (level or spells changed)")).toBe(true);
+  expect(tabWasBusy("Error: the hunt task is still running")).toBe(true);
+  expect(tabWasBusy("Error: the errand in velketor is still running")).toBe(true);
+  expect(tabWasBusy("Error: could not move to velketor")).toBe(false);
+  expect(tabWasBusy("Error: Tagujazolu is not a character on this account")).toBe(false);
 });

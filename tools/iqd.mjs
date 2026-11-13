@@ -423,6 +423,13 @@ const REFUSED_RETRY_MIN = 360;
 const CASINO_PP_PER_DAY = 3366;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
+/**
+ * Whether a task was not queued because its tab was busy, by the bot's own refusals (`takeTab` and
+ * `errand` in src/bot.js) or a page the collector cannot use right now, and not for a reason of the
+ * task's own.
+ */
+export const tabWasBusy = (error) => /^(Error: )?(the tab is paused|the \w+ task is still running|the errand in \S+ is still running|tab is not usable|Cannot read properties of undefined)/.test(error);
+
 /** Inventory Search over every account character for `a.q`: `[{ item, itemId, who, n }]`. Read-only, through the bridge's `query`. */
 export async function searchInPage(a) {
   const p = window.iq.stores.character.getState().characterProfile;
@@ -920,9 +927,12 @@ export class Daemon {
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
-        // The page's error comes with its stack, of which the first line says what failed.
+        // The page's error comes with its stack, of which the first line says what failed. A tab
+        // that took no task because it was busy (a pause for its upkeep, a task or errand still
+        // running, a page just reloaded) says nothing about the task, which another pass or tab
+        // takes, so only what failed for a reason of its own waits its retry time.
         const error = String(e.message).split("\n")[0];
-        state.history.push({ t: Date.now(), endedAt: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: null, code: tab.code, status: "failed", error });
+        if (!tabWasBusy(error)) state.history.push({ t: Date.now(), endedAt: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: null, code: tab.code, status: "failed", error });
         this.log(`coordinator: ${a.label} ${a.kind} not queued: ${error}`);
       }
     }
