@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.." || exit 1
 # A relay that already listens keeps its port, and this one exits at once.
 omp browser-relay &
 relay=$!
+relayStarted=$(date +%s)
 collector=
 # A stop gives the collector 20 s to end its cycle, then ends it. On 2026-11-12 one went on for
 # 105 s after Ctrl-C, with the relay already gone, and the account stood meanwhile.
@@ -36,7 +37,13 @@ while :; do
   started=$(date +%s)
   while kill -0 "$collector" 2>/dev/null; do
     sleep 15
-    cycled=$(stat -f %m runs/status.md 2>/dev/null || stat -c %Y runs/status.md 2>/dev/null || echo 0)
+    # Another relay may own the port, so retry our exited relay at most once a minute.
+    if ! kill -0 "$relay" 2>/dev/null && [ "$(($(date +%s) - ${relayStarted:-0}))" -ge 60 ]; then
+      omp browser-relay &
+      relay=$!
+      relayStarted=$(date +%s)
+    fi
+    cycled=$(stat -f %m "${IQD_RUNS:-runs}/status.md" 2>/dev/null || stat -c %Y "${IQD_RUNS:-runs}/status.md" 2>/dev/null || echo 0)
     [ "$cycled" -lt "$started" ] && cycled=$started
     age=$(($(date +%s) - cycled))
     if [ "$age" -gt "$STALL" ]; then

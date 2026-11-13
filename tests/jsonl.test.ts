@@ -30,3 +30,15 @@ test("a short file, a file without a last newline and an empty one read as they 
   expect(readJsonlSince(file, 0)).toEqual([]);
   expect(lastJsonl(file)).toBeNull();
 });
+
+test("cut and glued lines do not hide valid rows", () => {
+  const file = join(dir, "damaged.jsonl");
+  writeFileSync(file, '{"t":1}\n{"t":2}{"t":3}\n{"t":4}\n{"t":');
+  expect(readJsonlSince(file, 2)).toEqual([{ t: 4 }]);
+  expect(lastJsonl(file)).toEqual({ t: 4 });
+  writeFileSync(file, '{"t":1}\n' + "x".repeat(300000));
+  expect(lastJsonl(file)).toEqual({ t: 1 });
+  writeFileSync(file, '{"t":');
+  expect(readJsonlSince(file, 0)).toEqual([]);
+  expect(lastJsonl(file)).toBeNull();
+});

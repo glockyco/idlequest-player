@@ -41,7 +41,20 @@ async function lastCursor(path) {
 export async function attach(tab, { commit } = {}) {
   if (commit === undefined) {
     const state = await readDeploy(repoPath("runs"));
-    commit = state ? commitFor(state, null) : null;
+    // During a canary a canary group's tab keeps the canary's commit, by its leader's group in
+    // data/roster.json. A tab whose leader is not known yet has no code to roll back and gets
+    // the fleet's commit.
+    let group = null;
+    if (state?.canary?.length) {
+      const leader = await tab.evaluate(() => {
+        const stores = window.iq?.stores;
+        const id = window.iqBot?.config?.leaderId;
+        return (stores?.roster?.getState?.().characters ?? []).find((c) => Number(c.id) === Number(id))?.name ?? stores?.character?.getState?.().characterProfile?.name ?? null;
+      });
+      const roster = JSON.parse(await readFile(new URL("../data/roster.json", here), "utf8"));
+      group = roster.groups.find((g) => g.members?.[0] === leader)?.id ?? null;
+    }
+    commit = state ? commitFor(state, group) : null;
   }
   // The same install the collector's tab recovery uses (src/install.mjs).
   for (const expression of await installExpressions(commit)) await tab.evaluate(expression);
@@ -630,12 +643,14 @@ export async function attach(tab, { commit } = {}) {
           (e) => (window.__iqErrand = { error: String(e?.message ?? e) }),
         );
       }, JSON.stringify(opts));
-      for (;;) {
+      for (const end = Date.now() + 300000; Date.now() < end; ) {
         await sleep(2000);
         const r = await tab.evaluate(() => window.__iqErrand);
-        if (r?.error) throw new Error(r.error);
-        if (r && !r.pending) return r.result;
+        if (!r) throw new Error("errand call is gone (was the page reloaded?)");
+        if (r.error) throw new Error(r.error);
+        if (!r.pending) return r.result;
       }
+      throw new Error("errand timed out after 300000 ms");
     },
 
     /**

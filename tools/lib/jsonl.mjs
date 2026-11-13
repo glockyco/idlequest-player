@@ -64,8 +64,12 @@ export function readJsonlSince(path, since) {
     const rows = [];
     for (const line of (lo > 0 ? text.slice(text.indexOf("\n") + 1) : text).split("\n")) {
       if (!line) continue;
-      const row = JSON.parse(line);
-      if (row.t >= since) rows.push(row);
+      try {
+        const row = JSON.parse(line);
+        if (row.t >= since) rows.push(row);
+      } catch {
+        /* an interrupted append can leave a cut or glued line */
+      }
     }
     return rows;
   } finally {
@@ -73,16 +77,23 @@ export function readJsonlSince(path, since) {
   }
 }
 
-/** The last row of the JSONL file `path`, or null for an empty file. */
+/** The last parseable row of the JSONL file `path`, or null when none exists. */
 export function lastJsonl(path) {
   const fd = openSync(path, "r");
   try {
     const size = fstatSync(fd).size;
     for (let len = CHUNK; ; len *= 4) {
       const pos = Math.max(0, size - len);
-      const lines = readFrom(fd, size, pos).split("\n").filter(Boolean);
-      // The first line of a chunk that starts inside the file is cut, so it needs a second one.
-      if (lines.length > (pos > 0 ? 1 : 0)) return JSON.parse(lines.at(-1));
+      const lines = readFrom(fd, size, pos).split("\n");
+      // The first line of a chunk that starts inside the file may be cut.
+      for (let k = lines.length - 1; k >= (pos > 0 ? 1 : 0); k--) {
+        if (!lines[k]) continue;
+        try {
+          return JSON.parse(lines[k]);
+        } catch {
+          /* keep looking before an interrupted append */
+        }
+      }
       if (pos === 0) return null;
     }
   } finally {

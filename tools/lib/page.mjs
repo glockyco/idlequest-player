@@ -25,6 +25,7 @@
 
 export const PAGE = {
   offlineSec: 60, // the client tries to resume a session by itself first
+  loadingMin: 3, // a reload can outlast a cycle, but should not leave a blank page indefinitely
   signInEveryMin: 2, // a sign-in takes the page through loading to the character select, which outlasts a cycle
   signInBurst: 6, // twelve sign-ins at once saw two or three refused, and nine at once none
   signInWindowSec: 30,
@@ -61,7 +62,10 @@ function restartReason(heap, snap, now, cfg) {
   const limit = snap.heap?.limit;
   const since = now - cfg.heapWindowMin * 60000;
   if (!limit || !heap.length || heap[0].t > since) return null;
-  const floor = Math.min(...heap.filter((r) => r.t >= since).map((r) => r.used));
+  const readings = heap.filter((r) => r.t >= since);
+  const halfWindow = cfg.heapWindowMin * 30000;
+  if (readings.length < 3 || readings[0].t - since > halfWindow || heap.some((r, k) => k > 0 && r.t > since && r.t - heap[k - 1].t > halfWindow)) return null;
+  const floor = Math.min(...readings.map((r) => r.used));
   return floor >= cfg.heapShare * limit ? { kind: "renew", why: `the page heap stayed above ${floor} of ${limit} MB for ${cfg.heapWindowMin} min` } : null;
 }
 
@@ -82,6 +86,7 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
   if (snap.heap) out.heap = [...(out.heap ?? []).filter((r) => now - r.t <= 2 * cfg.heapWindowMin * 60000), { t: now, used: snap.heap.used }];
   const fresh = !snap.hasBridge || !snap.hasBot;
   out.offlineSince = snap.screen === "login" || snap.conn?.connected === false ? (out.offlineSince ?? now) : null;
+  out.loadingSince = snap.screen === "loading" ? (out.loadingSince ?? now) : null;
   // The refusal stays on the form until the next attempt, so it holds the fleet once for each
   // sign-in it answers, not at every look.
   if (snap.signInRefused && out.refusedFor !== (out.signInAt ?? 0)) {
@@ -90,18 +95,21 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
   }
   // A sign-in or a reload that leads to one waits for the server's minute and the fleet's budget.
   const signInHeld = now < (next.signInHoldUntil ?? 0) || next.signIns.length >= cfg.signInBurst;
-  if (snap.screen === "loading") return result();
-  if (snap.screen === "select" && snap.conn?.connected === false && now - out.offlineSince >= cfg.offlineSec * 1000) {
+  const stuckLoading = snap.screen === "loading" && now - out.loadingSince >= cfg.loadingMin * 60000;
+  if (snap.screen === "loading" && !stuckLoading) return result();
+  if (stuckLoading || (snap.screen === "select" && snap.conn?.connected === false && now - out.offlineSince >= cfg.offlineSec * 1000)) {
     if (now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || signInHeld) return result();
     out.signInAt = now;
+    out.reloadSignIn = true;
     next.signIns = [...next.signIns, now];
-    return result({ kind: "reload", why: `the character select had no connection for ${Math.round((now - out.offlineSince) / 1000)} s` });
+    return result({ kind: "reload", why: stuckLoading ? `the page stayed loading for ${cfg.loadingMin} min` : `the character select had no connection for ${Math.round((now - out.offlineSince) / 1000)} s` });
   }
   if (snap.screen === "login") {
     // A fresh page signs in at once, and one that left the game gives the client its minute.
     const offlineMs = now - out.offlineSince;
-    if (!(fresh || offlineMs >= cfg.offlineSec * 1000) || now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || signInHeld) return result();
+    if (!(fresh || offlineMs >= cfg.offlineSec * 1000) || (!out.reloadSignIn && now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000) || signInHeld) return result();
     out.signInAt = now;
+    out.reloadSignIn = false;
     next.signIns = [...next.signIns, now];
     return result({ kind: "signIn", why: fresh ? "a fresh page" : `the login form for ${Math.round(offlineMs / 1000)} s` });
   }

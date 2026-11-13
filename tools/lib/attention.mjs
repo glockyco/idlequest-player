@@ -6,14 +6,15 @@
 // agree on what waits for someone.
 
 import { PAGE } from "./page.mjs";
+import { DEFAULTS } from "./coordinator.mjs";
 
 /** A trouble still open after this needs a person: the mechanisms run in its first minutes. */
 export const HANDLED_MS = 10 * 60000;
 /**
- * What the page supervisor's new process for a full page can take: the ten minutes of heap readings
- * it judges by, a running task it waits for and its turn among the pages.
+ * What renewal can take: the heap window, a task up to the coordinator's stop limit,
+ * the quarter hour after a raid and all twelve pages' turns in the fleet.
  */
-export const RELOAD_MS = (PAGE.heapWindowMin + PAGE.taskWaitMin + PAGE.reloadGapMin) * 60000;
+export const RELOAD_MS = (PAGE.heapWindowMin + DEFAULTS.taskStopMin + 15 + 12 * PAGE.reloadGapMin) * 60000;
 
 /**
  * What each open attention kind is called and the mechanism that handles it (`how`). A kind with

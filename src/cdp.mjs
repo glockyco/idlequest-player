@@ -96,6 +96,7 @@ export class Relay extends EventEmitter {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.url);
       let opened = false;
+      let ready = false;
       // Why this client closed the socket itself, for the "disconnected" event.
       let why = null;
       ws.onopen = async () => {
@@ -105,6 +106,7 @@ export class Relay extends EventEmitter {
           await this.#send("Target.setDiscoverTargets", { discover: true });
           await this.#refreshTabs();
           this.#listed = true;
+          ready = true;
           this.emit("connected");
           clearInterval(this.#pollTimer);
           // A relay that stopped answering without closing the socket looks like a dead tab list,
@@ -123,7 +125,8 @@ export class Relay extends EventEmitter {
               },
             );
           }, this.pollMs);
-        } catch {
+        } catch (e) {
+          why = `the relay initialization failed (${e.message})`;
           ws.close();
         }
       };
@@ -142,8 +145,8 @@ export class Relay extends EventEmitter {
         this.#sessions.clear();
         this.#attaching.clear();
         if (wasUp) this.emit("disconnected", why ?? "the relay closed the connection");
-        if (opened) resolve();
-        else reject(new Error("relay unreachable"));
+        if (ready) resolve();
+        else reject(new Error(why ?? "relay unreachable"));
       };
     });
   }
@@ -367,7 +370,10 @@ export class Relay extends EventEmitter {
         const stop = new Promise((resolve) => (paused = resolve));
         await this.#send("Debugger.pause", {}, sessionId);
         const p = await Promise.race([stop, sleep(3000).then(() => null)]);
-        if (!p) continue;
+        if (!p) {
+          await this.#send("Debugger.resume", {}, sessionId).catch(() => {});
+          continue;
+        }
         out.push(p.callFrames.map((f) => ({ fn: f.functionName || "(anonymous)", url: f.url, line: (f.functionLocation ?? f.location).lineNumber, col: (f.functionLocation ?? f.location).columnNumber })));
         await this.#send("Debugger.resume", {}, sessionId);
       }

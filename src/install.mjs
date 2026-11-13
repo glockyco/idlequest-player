@@ -29,7 +29,7 @@ export const PAGE_FILES = ["src/bridge.js", "data/opcodes.json", "data/class-spe
 
 /**
  * The expressions that install the bridge, give it the opcode names and the tables the bot reads
- * (the client's per-class spell table, the quest turn-in items, the band rotations), and install
+ * (the client's per-class spell table), and install
  * the bot, in that order, from the files of `commit` (a full hash), or from the working tree
  * without one. The bot keeps its settings in the tab's sessionStorage, so a reload in the same tab
  * gets its leader, party and rotation back. The last expression stamps the page with

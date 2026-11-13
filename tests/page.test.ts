@@ -36,13 +36,13 @@ test("twelve pages a server restart signed out sign in after the client's minute
 test("a reloaded page signs in at once and installs as soon as its sign-in left the login form", () => {
   const step = fleetOf(1);
   const fresh = { hasBridge: false, hasBot: false, pageSession: 2 };
-  expect(step(0, game(), T0)).toBeNull();
-  expect(step(0, login(fresh), T0 + 10 * SEC)).toBe("signIn");
+  expect(step(0, game({ code: "old" }), T0)).toBe("install");
+  expect(step(0, login(fresh), T0 + 30 * SEC)).toBe("signIn");
   expect(step(0, game({ ...fresh, screen: "loading" }), T0 + 40 * SEC)).toBeNull();
-  expect(step(0, game({ ...fresh, screen: "select" }), T0 + 70 * SEC)).toBe("install");
+  expect(step(0, game({ ...fresh, screen: "select" }), T0 + 60 * SEC)).toBe("install");
   // An install that did not take waits two minutes, and the bot's own Try Again answers a failed zone load.
   expect(step(0, game({ ...fresh, screen: "select" }), T0 + 100 * SEC)).toBeNull();
-  expect(step(0, game({ ...fresh, screen: "select" }), T0 + 190 * SEC)).toBe("install");
+  expect(step(0, game({ ...fresh, screen: "select" }), T0 + 180 * SEC)).toBe("install");
   expect(step(0, game({ pageSession: 2 }), T0 + 220 * SEC)).toBeNull();
 });
 
@@ -60,6 +60,7 @@ test("a full page gets a new process at a quiet moment with its rows on disk, on
   expect(step(0, full, now, { exported: true })).toBe("renew");
   expect(step(1, full, now + 30 * SEC, { exported: true })).toBeNull();
   expect(step(2, login({ hasBridge: false }), now + 30 * SEC)).toBe("signIn");
+  for (let k = 1; k < 20; k++) step(1, full, now + k * 30 * SEC);
   expect(step(1, full, now + 10 * MIN, { exported: true })).toBe("renew");
 });
 
@@ -68,7 +69,7 @@ test("a page reloads once 25 kills in a row brought no loot line, and one dip of
   expect(step(0, game({ faults: { lootless: 24 } }), T0, { exported: true })).toBeNull();
   expect(step(0, game({ faults: { lootless: 25 } }), T0 + 30 * SEC, { exported: true })).toBe("reload");
   // One collection down to 1100 MB within the window: the floor is below three tenths of the limit.
-  for (let k = 0; k <= 24; k++) step(1, game({ heap: { used: k === 8 ? 1100 : 2600, limit: 4000 } }), T0 + k * 30 * SEC, { exported: true });
+  for (let k = 0; k <= 24; k++) expect(step(1, game({ heap: { used: k === 8 ? 1100 : 2600, limit: 4000 } }), T0 + k * 30 * SEC, { exported: true })).toBeNull();
   expect(step(1, game({ heap: { used: 2600, limit: 4000 } }), T0 + 12 * MIN + 30 * SEC, { exported: true })).toBeNull();
 });
 
@@ -126,4 +127,40 @@ test("a refusal left on the form holds the fleet once, so the page signs in agai
   // The text still shows at every look, and the page signs in once the hold and its minute pass.
   expect(step(0, refused, T0 + 60 * SEC)).toBeNull();
   expect(step(0, refused, T0 + 75 * SEC)).toBe("signIn");
+});
+
+test("loading has a deadline and shares the fleet sign-in budget", () => {
+  const step = fleetOf(7);
+  const loading = game({ screen: "loading" });
+  for (let k = 0; k < 7; k++) expect(step(k, loading, T0)).toBeNull();
+  expect(step(0, loading, T0 + 179 * SEC)).toBeNull();
+  for (let k = 0; k < 6; k++) expect(step(k, loading, T0 + 3 * MIN)).toBe("reload");
+  expect(step(6, loading, T0 + 3 * MIN)).toBeNull();
+  expect(step(6, loading, T0 + 3 * MIN + 30 * SEC)).toBe("reload");
+});
+
+test("a gap in heap readings waits for a new sustained window", () => {
+  const step = fleetOf(1);
+  const full = game({ heap: { used: 2600, limit: 4000 } });
+  expect(step(0, full, T0, { exported: true })).toBeNull();
+  expect(step(0, full, T0 + 11 * MIN, { exported: true })).toBeNull();
+  expect(step(0, full, T0 + 12 * MIN, { exported: true })).toBeNull();
+  expect(step(0, full, T0 + 13 * MIN, { exported: true })).toBeNull();
+  for (let k = 14; k < 21; k++) expect(step(0, full, T0 + k * MIN, { exported: true })).toBeNull();
+  expect(step(0, full, T0 + 21 * MIN, { exported: true })).toBe("renew");
+});
+
+test("renewal waits fifteen minutes after a raid, but not sixteen", () => {
+  const step = fleetOf(1);
+  const full = (t: number) => game({ t, heap: { used: 2600, limit: 4000 }, bot: { task: { kind: "raid", status: "done", endedAt: T0 + 10 * MIN } } });
+  for (let k = 0; k <= 24; k++) expect(step(0, full(T0 + k * MIN), T0 + k * MIN, { exported: true })).toBeNull();
+  expect(step(0, full(T0 + 26 * MIN), T0 + 26 * MIN, { exported: true })).toBe("renew");
+});
+
+test("a select reload's fresh login does not wait the per-tab retry interval", () => {
+  const step = fleetOf(1);
+  const select = game({ screen: "select", conn: { connected: false } });
+  expect(step(0, select, T0)).toBeNull();
+  expect(step(0, select, T0 + MIN)).toBe("reload");
+  expect(step(0, login({ hasBridge: false, hasBot: false, pageSession: 2 }), T0 + 90 * SEC)).toBe("signIn");
 });
