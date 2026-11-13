@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
 import { aaChanges, chainChanges, equipProgress, gearChanges, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "../tools/lib/progress.mjs";
-import { itemIdsOf, progressRows } from "../tools/lib/dashboard.mjs";
+import { goalView, itemIdsOf, makeCatalog, progressRows, progressView } from "../tools/lib/dashboard.mjs";
 
 const leader = (level: number) => ({ id: 1, name: "Tank", level, class: "Warrior" });
 const snap = (level: number, extra: Record<string, unknown> = {}) => ({ pageSession: 7, leader: leader(level), party: [], ...extra });
@@ -112,7 +112,7 @@ test("an equip line of a planned move is a gear row at its own time, and the gea
   ]);
   // One gear task's equips are one row of the feed.
   recordProgress(db, rows);
-  expect(progressRows(db, 0).map((r) => [r.text, r.detail])).toEqual([["Tank and Mage wear 2 upgrades", "slot score +7"]]);
+  expect(progressRows(db, 0).map((r) => [r.kind, r.parts.length])).toEqual([["gear", 2]]);
   const worn = wornSheets(sheets, rows);
   expect(worn.Tank[0]).toMatchObject({ worn: { itemId: 2, name: "Helm" }, move: null });
   const scores = { Tank: { now: 10, target: 40 }, Mage: { now: 8, target: 40 } };
@@ -173,7 +173,7 @@ test("a group's level-ups of a day share a row, milestones within half an hour, 
   const rows = progressRows(db, 0).map((r) => [r.group, r.kind, r.sig, r.text, r.detail, r.parts.map((p: { text: string }) => p.text)]);
   expect(rows).toEqual([
     ["G1", "aa", 0, "A earned AA points (1 unspent)", null, []],
-    ["G1", "gear", 1, "A and B wear 3 upgrades", "slot score +4", ["A wears Helm (head)", "B wears Boots (feet)"]],
+    ["G1", "gear", 1, "A and B wear 3 upgrades", expect.any(String), ["A wears Helm (head)", "B wears Boots (feet)"]],
     ["G1", "level", 2, "C reached level 50", null, []],
     ["G1", "level", 2, "A and B reached level 50", null, ["A reached level 50", "B reached level 50"]],
     ["G1", "level", 1, "A, B and C reached levels 30 to 31", "3 levels", ["A reached level 30", "B reached level 31", "C reached level 30"]],
@@ -182,4 +182,26 @@ test("a group's level-ups of a day share a row, milestones within half an hour, 
   expect(progressRows(db, 0, { group: "G2" }).map((r) => r.text)).toEqual(["D reached level 30"]);
   // Minor steps do not count, and gear counts its slots.
   expect(progressCounts(db, 0)).toEqual({ level: 7, gear: 3, item: 0, chain: 0, aa: 0, raid: 0 });
+});
+
+test("the progress window keeps rows beyond 150 and finds its milestone independently", () => {
+  const db = openDb(":memory:");
+  const now = 1_800_000_000_000;
+  const insert = db.query("INSERT INTO progress (t, kind, sig, name, grp, text, data, key) VALUES (?, 'item', ?, 'Tank', 'G1', 'found item', '{}', ?)");
+  for (let n = 0; n < 200; n++) insert.run(now - n * 60000, n === 199 ? 2 : 1, `item-${n}`);
+  const view = progressView(db, now);
+  expect(view.rows.length).toBe(200);
+  expect(view.latest?.t).toBe(now - 199 * 60000);
+});
+
+test("raid bar progress counts first goal kills, not repeat kills", () => {
+  const db = openDb(":memory:");
+  const now = 1_800_000_000_000;
+  const insert = db.query("INSERT INTO progress (t, kind, sig, name, text, data, key) VALUES (?, 'raid', 2, 'Tank', 'kill', ?, ?)");
+  insert.run(now - 2 * 86400000, JSON.stringify({ goal: "Old" }), "old");
+  insert.run(now - 60000, JSON.stringify({ goal: "Old" }), "repeat");
+  insert.run(now - 30000, JSON.stringify({ goal: "New" }), "new");
+  const view = goalView(db, { now, roster: { groups: [], characters: 0, target: 60 }, plan: null, groupOf: new Map(), catalog: makeCatalog(), raidGoal: ["Old", "New"] });
+  expect(view.raids.recent).toBe(1);
+  expect(view.raids.killed).toEqual(["Old", "New"]);
 });

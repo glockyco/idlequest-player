@@ -115,25 +115,30 @@ export function historyView(resolved, groupOf = new Map()) {
 export function engineeringView(db, now, days = 14) {
   // The window starts at the first recorded session when that is later, so the chart has no empty days before the data.
   const firstSeen = db.query("SELECT MIN(first_seen) AS t FROM sessions").get()?.t ?? now;
-  const first = Math.max(dayStart(now) - (days - 1) * DAY, dayStart(firstSeen));
+  const start = new Date(dayStart(now));
+  start.setDate(start.getDate() - days + 1);
+  const first = Math.max(start.getTime(), dayStart(firstSeen));
+  const nextDay = (t) => { const d = new Date(t); d.setDate(d.getDate() + 1); return d.getTime(); };
   const out = [];
-  for (let d = first; d <= now; d += DAY) out.push({ day: d, groupHours: 0, interventions: 0, stalls: 0, stallMinutes: [], deaths: 0 });
-  const at = (t) => out[Math.floor((dayStart(t) - first) / DAY)];
+  for (let d = first; d <= now; d = nextDay(d)) out.push({ day: d, groupHours: 0, interventions: 0, stalls: 0, stallMinutes: [], deaths: 0 });
+  const byDay = new Map(out.map((r) => [r.day, r]));
+  const at = (t) => byDay.get(dayStart(t));
   for (const s of db.query("SELECT first_seen, last_seen FROM sessions WHERE parked = 0 AND last_seen >= ?").all(first)) {
-    for (let d = Math.max(first, dayStart(s.first_seen)); d <= s.last_seen; d += DAY) {
+    for (let d = Math.max(first, dayStart(s.first_seen)); d <= s.last_seen; d = nextDay(d)) {
       const row = at(d);
-      if (row) row.groupHours += Math.max(0, Math.min(s.last_seen, d + DAY) - Math.max(s.first_seen, d)) / 3600000;
+      if (row) row.groupHours += Math.max(0, Math.min(s.last_seen, nextDay(d)) - Math.max(s.first_seen, d)) / 3600000;
     }
   }
   const manual = MANUAL_ACTORS.map(() => "?").join(",");
-  for (const r of db.query(`SELECT t FROM interventions WHERE t >= ? AND actor IN (${manual})`).all(first, ...MANUAL_ACTORS)) at(r.t).interventions++;
+  for (const r of db.query(`SELECT t FROM interventions WHERE t >= ? AND actor IN (${manual})`).all(first, ...MANUAL_ACTORS)) { const row = at(r.t); if (row) row.interventions++; }
   const stalls = STALL_KINDS.map(() => "?").join(",");
   for (const r of db.query(`SELECT t, resolved FROM attention WHERE t >= ? AND kind IN (${stalls})`).all(first, ...STALL_KINDS)) {
     const row = at(r.t);
+    if (!row) continue;
     row.stalls++;
     if (r.resolved) row.stallMinutes.push((r.resolved - r.t) / 60000);
   }
-  for (const r of db.query("SELECT minute, deaths FROM minutes WHERE minute >= ? AND deaths > 0").all(Math.floor(first / 60000))) at(r.minute * 60000).deaths += r.deaths;
+  for (const r of db.query("SELECT minute, deaths FROM minutes WHERE minute >= ? AND deaths > 0").all(Math.floor(first / 60000))) { const row = at(r.minute * 60000); if (row) row.deaths += r.deaths; }
   return out.map((r) => ({
     day: r.day,
     groupHours: r.groupHours,
@@ -285,7 +290,7 @@ const taskLabel = (catalog, h) => (h.id ? `${taskName(catalog, h.id)}${h.ids?.le
 // ---- Attention -----------------------------------------------------------------------------------
 
 /** What one item of each kind is called on the page. */
-const TITLE = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing", "alert-task": "Task failed", "alert-cursor": "Item on the cursor", "alert-lootFull": "Loot left on a corpse", "alert-guard": "Guard escape", "alert-errand": "Errand ended", "alert-crowded": "Zone crowded", "alert-rotate": "Zone move failed", "alert-autoLevelRestarted": "AutoLevel restarted", "alert-raid": "Raid not ended", "alert-deaths": "Deaths", death: "Death", longtask: "Task ran long", "alert-clientUpdate": "Client update" };
+const TITLE = { "alert-bags": "Bags full of kept items", "alert-offline": "Signed out", "alert-idle": "Idle after every remedy", heap: "Page memory high", "alert-memory": "Page memory high", trigger: "Decision", "alert-xpStall": "No XP", client: "Client update breaks the bot", odds: "Kill chances not refreshed", "alert-switch": "Leader not in play", stall: "Stalled", nokill: "No kills", gone: "Tab gone", nobridge: "Bridge missing", "alert-task": "Task failed", "alert-cursor": "Item on the cursor", "alert-lootFull": "Loot left on a corpse", "alert-guard": "Guard escape", "alert-errand": "Errand ended", "alert-crowded": "Zone crowded", "alert-rotate": "Zone move failed", "alert-autoLevelRestarted": "AutoLevel restarted", "alert-raid": "Raid not ended", "alert-deaths": "Deaths", death: "Death", longtask: "Task ran long", "alert-clientUpdate": "Client update" };
 export const itemTitle = (kind) => TITLE[kind] ?? kind;
 
 /**
@@ -293,7 +298,7 @@ export const itemTitle = (kind) => TITLE[kind] ?? kind;
  * (`needsPerson`, tools/lib/attention.mjs). Needs of one kind with one text on several tabs share a
  * card that lists their groups. The handled items come back as counts per kind for one muted line.
  */
-export function needsYouView(open, now, groupOf = new Map()) {
+export function needsYouView(open, now, groupOf = new Map(), catalog = makeCatalog()) {
   const cards = new Map();
   const handled = new Map();
   for (const a of open) {
@@ -302,7 +307,8 @@ export function needsYouView(open, now, groupOf = new Map()) {
     const person = needsPerson(a, now);
     if (person) {
       const key = `${a.kind}|${a.text}`;
-      const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: itemTitle(a.kind), groups: [], text: a.text };
+      const text = a.kind === "nobridge" ? a.text.replace(/window\.iq is missing/g, "the game connection is missing").replace(/window\.iqBot is missing/g, "the bot connection is missing") : a.kind === "alert-idle" ? a.text.replace(/\bin ([a-z0-9]+)\b/g, (_, z) => `in ${zoneName(catalog, z)}`) : a.text;
+      const c = cards.get(key) ?? { id: a.id, t: a.t, severity: a.severity, kind: a.kind, label: itemTitle(a.kind), groups: [], text: text.replace(/travel to ([a-z0-9]+)/g, (_, z) => `travel to ${zoneName(catalog, z)}`) };
       const g = groupOf.get(a.session);
       if (g && !c.groups.includes(g)) c.groups.push(g);
       c.t = Math.min(c.t, a.t);
@@ -517,11 +523,11 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
     const idleShare = hour?.share ?? r?.idle ?? v?.idleShare ?? null;
     const task = taskView(catalog, v?.bot.task, history, now, v?.errand, code);
     const levels = (v?.party ?? []).map((m) => m.level).filter((l) => l != null);
-    const stuck = state.kind === "gone" || (state.kind === "activity" && (state.act === "idle" || state.act === "dead") && state.forMs > 120000) || (v != null && !v.parked && !v.raid && v.lastKillMs != null && v.lastKillMs > 300000);
+    const stuck = state.kind === "gone" || (!v?.pause && ((state.kind === "activity" && (state.act === "idle" || state.act === "dead") && state.forMs > 120000) || (v != null && !v.parked && !v.raid && v.lastKillMs != null && v.lastKillMs > 300000)));
     const mine = history.filter((h) => h.label === leader);
-    // Task spans: finished tasks from the coordinator's history (queued at `t`, took `ms`) and the task running now.
+    // Finished spans end when the task ended, not when the coordinator pass began.
     const spans = [
-      ...mine.filter((h) => h.ms).map((h) => ({ from: h.t, to: h.t + h.ms, name: taskLabel(catalog, h), status: h.status ?? "done" })),
+      ...mine.filter((h) => h.ms).map((h) => ({ from: h.endedAt != null ? h.endedAt - h.ms : h.t, to: h.endedAt ?? h.t + h.ms, name: taskLabel(catalog, h), status: h.status ?? "done" })),
       ...(task?.status === "running" && v?.bot?.task?.startedAt ? [{ from: v.bot.task.startedAt, to: now, name: task.name, status: "running" }] : []),
     ];
     const lines = [
@@ -544,7 +550,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
       partyMax: levels.length ? Math.max(...levels) : null,
       share: g.progress ?? null,
       zone: v?.zone ?? null,
-      xpPerHour: v?.xpPerHour ?? null,
+      xpPerHour: state.kind === "gone" ? null : v?.xpPerHour ?? null,
       idleShare,
       idleCause: hour ? hour.cause : r ? (r.idleCause ?? null) : idleCauseOf(v?.activitySec),
       idleWindow: hour || r ? "hour" : "10 minutes",
@@ -557,7 +563,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
         bags: v?.bags ?? null,
         heap: v?.heap ?? null,
         pause: v?.pause ?? null,
-        errand: v?.errand ?? null,
+        errand: v?.errand ? { ...v.errand, zone: zoneName(catalog, v.errand.zone) } : null,
         rotation: (v?.bot.rotation ?? []).map((z) => ({ zone: zoneName(catalog, z), crowdedMs: v.bot.crowdedAt[z] ? now - v.bot.crowdedAt[z] : null })),
         crowded: Object.entries(v?.bot.crowdedAt ?? {}).filter(([z]) => !(v.bot.rotation ?? []).includes(z)).map(([z, at]) => ({ zone: zoneName(catalog, z), crowdedMs: now - at })),
         lines,
@@ -587,8 +593,8 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
   const age = daemon?.last ? now - daemon.last : null;
   const alive = Boolean(daemon && age != null && age < (daemon.intervalSec * 3 + 10) * 1000);
   const playing = rows.filter((r) => r.playing).length;
-  const xpNow = rows.reduce((a, r) => a + (r.xpPerHour ?? 0), 0);
-  const idles = rows.map((r) => r.idleShare).filter((x) => x != null);
+  const xpNow = rows.filter((r) => r.playing).reduce((a, r) => a + (r.xpPerHour ?? 0), 0);
+  const idles = rows.filter((r) => r.playing).map((r) => r.idleShare).filter((x) => x != null);
   const idle = idles.length ? idles.reduce((a, b) => a + b, 0) / idles.length : null;
   const heapRow = rows.filter((r) => r.details.heap).sort((a, b) => b.details.heap.used / b.details.heap.limit - a.details.heap.used / a.details.heap.limit)[0];
   const heapShare = heapRow ? heapRow.details.heap.used / heapRow.details.heap.limit : null;
@@ -598,7 +604,7 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
     { id: "relay", label: "Relay", value: daemon?.relay ? "up" : "down", level: daemon?.relay ? "ok" : "bad" },
     { id: "playing", label: "Groups playing", value: `${playing} / ${rows.length}`, level: playing === rows.length ? "ok" : playing >= rows.length * 0.75 ? "warn" : "bad" },
     { id: "xp", label: "XP/h now", value: xpNow, level: "ok", title: "Sum of the groups' leaders' kill XP over the last 30 minutes" },
-    { id: "xp24", label: "XP/h, 24 h", value: xp24?.perHour ?? null, level: "ok", title: xp24 ? `Net XP per recorded hour of ${xp24.groups} groups over the last 24 hours, from the minute totals` : "Minute totals start when the collector runs the version that writes them" },
+    { id: "xp24", label: "XP/h, 24 h", value: xp24?.perHour ?? null, level: "ok", title: xp24 ? `Net XP per recorded hour of ${xp24.groups} groups over the last 24 hours, from the minute totals` : "Not enough recorded time. At least one group needs an hour of minute totals in the last 24 hours." },
     { id: "idle", label: "Idle, last hour", value: idle, level: idle == null ? "ok" : idle >= STATUS_LIMITS.idleBad ? "bad" : idle >= STATUS_LIMITS.idleWarn ? "warn" : "ok", title: "Mean idle share of the groups over the last hour, from the minute totals" },
     { id: "needs", label: "Needs you", value: need, level: need === 0 ? "ok" : need >= 3 || needs.needs.some((n) => n.severity === "decide") ? "bad" : "warn" },
     { id: "memory", label: "Max tab memory", value: heapRow ? heapRow.details.heap.used : null, share: heapShare, tab: heapRow?.id ?? null, level: heapShare == null ? "ok" : heapShare >= STATUS_LIMITS.heapBad ? "bad" : heapShare >= STATUS_LIMITS.heapWarn ? "warn" : "ok" },
@@ -630,14 +636,16 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
   const killed = [...new Set(kills.map((k) => k.goal).filter(Boolean))];
   const bosses = metaRow(db, "bossPlan");
   const lately = kills.filter((k) => k.t > now - DAY);
+  const firstKills = new Map();
+  for (const k of kills) if (k.goal && !firstKills.has(k.goal)) firstKills.set(k.goal, k.t);
   return {
     recent: progressCounts(db, now - DAY),
-    levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: plan?.idle ?? [], planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from } : null },
+    levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: (plan?.idle ?? []).map((leader) => groupOf.get(leader) ?? leader), planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from } : null },
     gear: { share: sheet.share, afterMoves: sheet.afterMoves, characters: sheet.characters, moves: gear?.moves ?? null, drops: gear?.drops?.length ?? null, passT: sheet.t ?? gear?.t ?? null },
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters, plan: metaRow(db, "aaPlan") }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, held: coordinator?.last?.epicHolders?.filter((n) => members.some((m) => m.name === n)).length ?? null, characters: roster.characters, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
     raids: {
-      share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: lately.filter((k) => k.goal).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
+      share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: [...firstKills.values()].filter((t) => t > now - DAY).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
       // The bosses the open world puts up (`watchRows` of tools/lib/boss-plan.mjs), the look the
       // plan sends next and the raid hours of the last day.
       watch: (bosses?.watch ?? []).map((w) => ({ ...w, zone: zoneName(catalog, w.zone) })),
@@ -755,19 +763,21 @@ function rowView({ key, events }) {
   }
   const slots = events.reduce((a, e) => a + (e.data.slots?.length ?? 1), 0);
   const gain = events.reduce((a, e) => a + (e.data.slots ?? []).reduce((b, s) => b + (s.gain > 0 ? s.gain : 0), 0), 0);
-  return { ...row, parts, text: `${who} ${names.length === 1 ? "wears" : "wear"} ${slots} upgrade${slots === 1 ? "" : "s"}`, detail: gain > 0 ? `slot score +${Math.round(10 * gain) / 10}` : null };
+  return { ...row, parts, text: `${who} ${names.length === 1 ? "wears" : "wear"} ${slots} upgrade${slots === 1 ? "" : "s"}`, detail: gain > 0 ? `group XP rate +${gainPercent(gain)}%` : null };
 }
 
+/** A gear plan gain, tenths of a percent of the group's XP rate, as a percent with two decimals at most. */
+const gainPercent = (gain) => Math.round(gain * 10) / 100;
+
 /**
- * The detail a row of one event shows beside its text: for gear, the slot score the planned items
- * add (`gain`, as the gear sheet gives it) and the set score before and after, and for a raid kill
- * whether the boss is one of the goal's.
+ * The detail a row of one event shows beside its text: for gear, the planned gain in the group's
+ * XP rate and the set score before and after, and for a raid kill whether the boss is one of the goal's.
  */
 function detailOf(kind, data) {
   if (kind === "gear") {
     const gain = (data.slots ?? []).reduce((a, s) => a + (s.gain > 0 ? s.gain : 0), 0);
     const score = data.score?.target > 0 ? `set ${Math.round((100 * data.score.before) / data.score.target)}% to ${Math.round((100 * data.score.after) / data.score.target)}% of target` : null;
-    return [gain > 0 ? `slot score +${Math.round(10 * gain) / 10}` : null, score].filter(Boolean).join(", ") || null;
+    return [gain > 0 ? `group XP rate +${gainPercent(gain)}%` : null, score].filter(Boolean).join(", ") || null;
   }
   if (kind === "raid") return data.goal ? "a boss of the goal" : null;
   return null;
@@ -775,8 +785,10 @@ function detailOf(kind, data) {
 
 /** The progress section: the last two days' rows, the 24-hour counts and the latest milestone. */
 export function progressView(db, now, { hours = 48 } = {}) {
-  const rows = progressRows(db, now - hours * 3600000);
-  return { hours, rows, counts: progressCounts(db, now - DAY), latest: rows.find((r) => r.sig >= 2) ?? null };
+  const since = now - hours * 3600000;
+  const rows = progressRows(db, since, { limit: Infinity });
+  const latest = db.query("SELECT t, kind, sig, name, grp, text, data, key FROM progress WHERE sig >= 2 ORDER BY t DESC, id DESC LIMIT 1").get();
+  return { hours, rows, counts: progressCounts(db, now - DAY), latest: latest ? rowView({ key: latest.key, events: [{ ...latest, data: JSON.parse(latest.data ?? "{}") }] }) : null };
 }
 
 // ---- Gear -----------------------------------------------------------------------------------------
@@ -826,7 +838,7 @@ export function gearSheetView(db, name, { roster, catalog }) {
   if (!slots || !member) return { name, found: false };
   const items = cardsFor(db, slots.flatMap((s) => [s.worn?.itemId, s.move?.itemId, s.drop?.itemId]));
   const out = slots.map((s) => {
-    const drop = s.drop ? { ...s.drop, zoneName: zoneName(catalog, s.drop.zone) } : null;
+    const drop = s.drop ? { ...s.drop, npc: npcName(s.drop.npc), zoneName: zoneName(catalog, s.drop.zone) } : null;
     const move = s.move ? { ...s.move, ...(s.move.buy ? { buy: { ...s.move.buy, zoneName: zoneName(catalog, s.move.buy.zone) } } : {}) } : null;
     // The wanted drop beats the moved item (it is scored against the set after the moves), so it is the optimal item.
     const optimal = drop ? { kind: "drop", itemId: drop.itemId, item: drop.item } : move ? { kind: move.buy ? "buy" : "move", itemId: move.itemId, item: move.item } : null;
@@ -844,6 +856,10 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   const state = metaRow(db, "coordinator");
   if (!state) return null;
   const history = state.history ?? [];
+  const code = metaRow(db, "daemon")?.code ?? null;
+  // The newest entry of each task on each tab says when it comes back, soonest first.
+  const newest = new Map(history.map((h) => [`${h.label}|${h.kind}|${h.id}`, h]));
+  const retries = [...newest.values()].map((h) => ({ group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h), retryAt: retryAt(catalog, h, { history, code }) })).filter((h) => h.retryAt != null && h.retryAt > now).sort((a, b) => a.retryAt - b.retryAt).slice(0, 8);
   const running = rows
     .filter((r) => r.task?.status === "running")
     .map((r) => ({ group: r.id, leader: r.leader, ...r.task }))
@@ -856,5 +872,5 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
     .map((h) => ({ group: groupOf.get(h.label) ?? null, kind: h.kind, subject: taskSubject(catalog, h.id) ?? TASK_KIND[h.kind] ?? h.kind, name: taskLabel(catalog, h), step: h.step ?? null, status: h.status, result: h.result ?? null, error: h.error ?? null, agoMs: now - outcomeOf(h).endedAt }));
   const ex = state.experiments ?? {};
   const experiments = Object.entries(ex.running ?? {}).map(([name, x]) => ({ name, sinceMs: ex.started?.[name] ? now - ex.started[name] : null, a: x.a ?? [], b: x.b ?? [] }));
-  return { running, experiments, outcomes };
+  return { running, experiments, outcomes, retries };
 }

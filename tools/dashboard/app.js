@@ -66,7 +66,7 @@ function renderNeeds(s) {
   const n = s.needs;
   $("needs-list").innerHTML = n.needs.length
     ? n.needs
-        .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.groups.map((g) => `<span class="grp">${esc(g)}</span>`).join("")}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text)}</div></div>`)
+        .map((x) => `<div class="need ${x.severity === "decide" ? "decide" : "act"}"><div class="line"><span class="tag">${esc(x.label)}</span>${x.groups.map((g) => `<span class="grp">${esc(g)}</span>`).join("")}<span class="when">${ago(s.now, x.t)}</span></div><div class="txt">${esc(x.text.replace(/idle \(([^)]+)\)/g, (_, cause) => `idle (${IDLE_WORDS[cause] ?? (cause === "stuckApproach" ? "cannot reach the target" : IDLE_WORDS.unknown)})`))}</div></div>`)
         .join("")
     : `<p class="calm">Nothing needs you.</p>`;
   $("needs-handled").innerHTML = n.handledTotal ? `Handled without you: ${n.handled.map((h) => `<span title="${esc(h.how)}">${h.n} ${esc(h.label)}</span>`).join(", ")}.` : "";
@@ -100,7 +100,8 @@ function renderGoal(s) {
   const r = g.recent ?? {};
   // An XP event multiplies kill XP for some hours, which the estimate leaves out, since it is for the levels after it.
   const event = L.event ? ` <span class="up" title="Found in the kill lines: each kill pays ${L.event.factor} times its normal XP. The estimate and the zone choice count that XP once, and trips that can run on any day wait.">XP event: kills pay ${L.event.factor} times their XP since ${new Date(L.event.since).toTimeString().slice(0, 5)}.</span>` : "";
-  const eta = L.slowest ? ` <span title="${esc(`${L.slowest.leader}'s group, ${hours(L.slowest.low)} to ${hours(L.slowest.high)}${L.event ? ", at normal XP" : ""}`)}">${esc(L.slowest.group ?? L.slowest.leader)} reaches ${L.target} in about ${hours(L.slowest.hours)}${L.event ? " at normal XP" : ""}.</span>${event}` : event;
+  const missing = L.noEstimate?.length ? ` No estimate for ${L.noEstimate.map((g) => esc(g.group ?? g.leader ?? g)).join(", ")}.` : "";
+  const eta = (L.slowest ? ` <span title="${esc(`${L.slowest.leader}'s group, ${hours(L.slowest.low)} to ${hours(L.slowest.high)}${L.event ? ", at normal XP" : ""}`)}">${esc(L.slowest.group ?? L.slowest.leader)} reaches ${L.target} in about ${hours(L.slowest.hours)}${L.event ? " at normal XP" : ""}.</span>${event}` : event) + missing;
   const none = () => `<span class="muted">not measured yet</span>`;
   const R = g.raids;
   const latest = s.progress?.latest;
@@ -177,7 +178,7 @@ function details(s, g) {
     ["Rotation", rotation],
     ...(d.crowded.length ? [["Crowded", d.crowded.map((z) => `${esc(z.zone)} ${dur(z.crowdedMs)} ago`).join(", ")]] : []),
     ["Last kill", g.lastKillMs != null ? `${dur(g.lastKillMs)} ago` : "-"],
-    ...(g.waitedFor ? [["Waited for", esc(g.waitedFor)]] : []),
+    ...(g.waitedFor ? [["Waited for", esc(g.waitedFor.replace(/([^,\s]+):(mana|hp)\s+(\d+)s/g, (_, who, bar, seconds) => `${who === "me" ? g.leader : who}'s ${bar === "hp" ? "health" : "mana"} for ${seconds}s`))]] : []),
     ...(d.pause ? [["Paused", `${dur(d.pause.untilMs)} more: ${esc(d.pause.reason ?? "")}`]] : []),
     ...(d.errand ? [["Errand", `${esc(d.errand.item ?? d.errand.keep ?? "")} in ${esc(d.errand.zone)}`]] : []),
   ];
@@ -290,7 +291,7 @@ function toggleGroup(row) {
 /** What the coordinator runs now and how its last tasks ended, each task by what it is after. */
 function renderCoordinator(s) {
   const c = s.coordinator;
-  if (!s.coordinatorOn) return void ($("coord").innerHTML = `<p class="muted">Off. Start the collector with <code>--coordinate</code> to let it queue hand-ins and hunts.</p>`);
+  if (!s.coordinatorOn) return void ($("coord").innerHTML = `<p class="muted">The coordinator is off. No tasks are being queued.</p>`);
   if (!c) return void ($("coord").innerHTML = `<p class="muted">No pass yet.</p>`);
   const list = (items, empty) => (items.length ? `<ul class="plainlist lines">${items.join("")}</ul>` : `<p class="muted small">${empty}</p>`);
   const running = c.running.map((t) => `<li title="${esc(`${t.name ?? ""}${t.step ? `: ${t.step}` : ""}`)}"><span class="grp">${esc(t.group)}</span> ${esc(TASK_WORD[t.kind] ?? t.kind ?? "task")} <span class="name">${esc(t.subject ?? t.name)}</span> <span class="muted">${dur(t.forMs)}</span></li>`);
@@ -313,15 +314,16 @@ function renderCoordinator(s) {
     return `<span class="muted" title="${esc(r)}">${esc(words)}</span>`;
   };
   const outcomes = c.outcomes.slice(0, 8).map((o) => `<li title="${esc(o.name)}"><span class="when">${dur(o.agoMs)} ago</span> <span class="grp">${esc(o.group ?? "-")}</span> <span class="name">${esc(o.subject)}</span>: ${ended(o)}</li>`);
+  const retries = (c.retries ?? []).map((t) => `<li><span class="when">${inMs(t.retryAt - s.now)}</span> <span class="grp">${esc(t.group ?? "-")}</span> <span class="name">${esc(t.name)}</span></li>`);
   const experiments = c.experiments.map((e) => `<p class="small">Experiment ${esc(e.name)} for ${dur(e.sinceMs)}: ${esc(e.a.join(", "))} against ${esc(e.b.join(", "))}.</p>`).join("");
-  $("coord").innerHTML = `${experiments}<div class="trio"><div><h4>Running</h4>${list(running, "No task runs.")}</div><div><h4>Ended</h4>${list(outcomes, "No task has ended yet.")}</div></div>`;
+  $("coord").innerHTML = `${experiments}<div class="trio"><div><h4>Running</h4>${list(running, "No task runs.")}</div><div><h4>Ended</h4>${list(outcomes, "No task has ended yet.")}</div><div><h4>Next retries</h4>${list(retries, "No retry is waiting.")}</div></div>`;
 }
 
 /** The hourly bars: height is the group-hours recorded in the hour, segments are the shares of each activity and idle cause. */
 function renderTime(s) {
   const bars = s.hourly;
   if (!bars.some((b) => b.groupHours > 0)) {
-    $("time-body").innerHTML = `<div class="note">No minute totals yet. The collector writes them while it runs, and <code>bun tools/iqd.mjs minutes</code> fills the past from the recorded samples.</div>`;
+    $("time-body").innerHTML = `<div class="note">No recorded activity time in the last 24 hours.</div>`;
     return;
   }
   const W = 560, H = 210, L = 34, B = 22, T = 10;

@@ -10,7 +10,8 @@ const H = 3600000;
 
 test("engineering rates divide by group-hours of unparked sessions, split at local midnight, and deaths come from the minute totals", () => {
   const db = openDb(":memory:");
-  const today = dayStart(Date.now());
+  process.env.TZ = "Europe/Vienna";
+  const today = dayStart(new Date("2026-10-26T12:00:00+01:00").getTime());
   const now = today + 12 * H;
   const session = db.query("INSERT INTO sessions (target_id, page_session, first_seen, last_seen, parked) VALUES (?, ?, ?, ?, ?)");
   session.run("a", 1, today - 2 * H, today + 2 * H, 0); // two hours each side of midnight
@@ -24,7 +25,8 @@ test("engineering rates divide by group-hours of unparked sessions, split at loc
   minute.run("G1", Math.floor((today - H) / 60000), 2);
   minute.run("G2", Math.floor((today + H) / 60000), 1);
   const days = engineeringView(db, now, 14);
-  expect(days.map((d) => d.day)).toEqual([today - 86400000, today]);
+  expect(days.map((d) => d.day)).toEqual([new Date("2026-10-25T00:00:00+02:00").getTime(), today]);
+  expect(days.every((d) => new Date(d.day).getHours() === 0)).toBe(true);
   const [yesterday, day] = days;
   expect(yesterday.groupHours).toBeCloseTo(2);
   expect(day.groupHours).toBeCloseTo(2);
@@ -185,7 +187,8 @@ test("the status line turns amber and red at its thresholds and stays calm other
   expect(level(worse, "collector")).toBe("bad");
   expect(level(worse, "relay")).toBe("bad");
   expect(level(worse, "playing")).toBe("bad");
-  expect(level(worse, "idle")).toBe("warn"); // the mean of 35% and 20%
+  expect(level(worse, "idle")).toBe("warn"); // only the playing group's 20% counts
+  expect(worse.find((i) => i.id === "xp")?.value).toBe(1000000);
   expect(level(worse, "needs")).toBe("bad");
   expect(level(worse, "memory")).toBe("bad");
   expect(worse.find((i) => i.id === "xp24")?.value).toBeNull();
@@ -355,4 +358,46 @@ test("a quest's retry time is the coordinator's: a failure under older code is d
   // Another tab's run that waits for the spawn point's roll holds the quest for every tab.
   const waiting = { t: now - 60000, label: "B", kind: "quest", id: "ink", status: "waiting", nextAt: now + 1200000 };
   expect(retryAt(catalog, failed, { history: [failed, waiting], code: "new" })).toBe(now + 1200000);
+});
+
+test("paused groups are not stuck and gone tabs have no XP rate", () => {
+  const db = openDb(":memory:");
+  const now = 1_800_000_000_000;
+  addSession(db, "Tank", now, { leader: { name: "Tank", level: 30 }, activity: { act: "idle", since: now - H }, kills: { last: now - H, xp30: 100, winMs: H / 2 }, bot: { pauseUntil: now + H, pauseReason: "task" }, t: now });
+  const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank"] }] });
+  const options = { roster, groupOf: new Map([["Tank", "G1"]]), catalog: makeCatalog() };
+  expect(groupRowsView(db, now, options)[0].stuck).toBe(false);
+  db.query("UPDATE sessions SET state = ?").run(JSON.stringify({ unreachableSince: now - H }));
+  expect(groupRowsView(db, now, options)[0].xpPerHour).toBeNull();
+});
+
+test("the coordinator lists future retries in time order and task spans use task end times", () => {
+  const db = openDb(":memory:");
+  const now = 1_800_000_000_000;
+  const history = [
+    { t: now - H, label: "Tank", kind: "hunt", id: "a", ms: 60000, endedAt: now - 600000, status: "done" },
+    { t: now - H / 2, label: "Tank", kind: "hunt", id: "b", ms: 60000, endedAt: now - 300000, status: "done" },
+  ];
+  db.query("INSERT INTO meta (k, v) VALUES ('coordinator', ?)").run(JSON.stringify({ history }));
+  const catalog = makeCatalog({ opportunities: [{ id: "a", item: "A", retryMin: 120 }, { id: "b", item: "B", retryMin: 60 }] });
+  const groupOf = new Map([["Tank", "G1"]]);
+  const roster = rosterView(db, { groups: [{ id: "G1", members: ["Tank"] }] });
+  const rows = groupRowsView(db, now, { roster, groupOf, catalog });
+  expect(rows[0].timeline.spans.map((s) => s.to - s.from)).toEqual([1, 1]);
+  expect(rows[0].timeline.spans[0].to).toBe(114);
+  expect(coordinatorView(db, now, { catalog, rows, groupOf })?.retries.map((r) => r.name)).toEqual(["B", "A"]);
+});
+
+test("engineering days contain the full 23-hour and 25-hour local days", () => {
+  process.env.TZ = "Europe/Vienna";
+  for (const [from, to, hours] of [["2026-03-29T00:00:00+01:00", "2026-03-30T00:00:00+02:00", 23], ["2026-10-25T00:00:00+02:00", "2026-10-26T00:00:00+01:00", 25]] as const) {
+    const db = openDb(":memory:");
+    const start = Date.parse(from), end = Date.parse(to);
+    db.query("INSERT INTO sessions (target_id, page_session, first_seen, last_seen) VALUES ('a', 1, ?, ?)").run(start, end);
+    db.query("INSERT INTO interventions (t, actor, text) VALUES (?, 'sdk', 'note')").run(start + H);
+    const rows = engineeringView(db, end + H);
+    expect(rows.map((r) => new Date(r.day).getHours())).toEqual([0, 0]);
+    expect(rows[0].groupHours).toBe(hours);
+    expect(rows[0].interventions).toBe(1);
+  }
 });

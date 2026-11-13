@@ -23,11 +23,13 @@ class Report {
     this.log = log;
     this.value = null;
     this.at = 0;
+    this.attemptAt = 0;
     this.running = null;
   }
 
   get() {
-    if (!this.running && Date.now() - this.at > this.everyMs) {
+    if (!this.running && Date.now() - this.attemptAt > this.everyMs) {
+      this.attemptAt = Date.now();
       this.running = (async () => {
         try {
           const proc = Bun.spawn(["bun", ...this.args], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
@@ -100,7 +102,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
         const minutes = minuteTotals(db, now);
         const rows = groupRowsView(db, now, { roster, groupOf, catalog, report: report.value, minutes });
         const attention = attentionView(db, now, { groupOf });
-        const needs = needsYouView(attention.open, now, groupOf);
+        const needs = needsYouView(attention.open, now, groupOf, catalog);
         const daemon = meta("daemon");
         const progress = progressView(db, now);
         const wanted = mostWantedView(meta("gear")?.targets ?? [], { catalog, groupOf, evaluations: meta("targetStatus")?.targets ?? {} });

@@ -49,12 +49,12 @@ function sourceTip(slot) {
   if (!o) return "";
   if (o.kind === "drop") {
     const d = slot.drop;
-    return `<div class="tsrc">Wanted drop: ${esc(d.zoneName ?? d.zone)}, ${esc(d.npc)}, about ${d.hours >= 10 ? Math.round(d.hours) : d.hours.toFixed(1)} h of hunting per copy. Raises the slot score by ${d.gain}.</div>${slot.move ? `<div class="tsrc muted">Until then the queued move gives ${esc(slot.move.item)} ${slot.move.buy ? "from a merchant" : `from ${esc(slot.move.from)}`}.</div>` : ""}`;
+    return `<div class="tsrc">Wanted drop: ${esc(d.zoneName ?? d.zone)}, ${esc(d.npc)}, about ${d.hours >= 10 ? Math.round(d.hours) : d.hours.toFixed(1)} h of hunting per copy. Raises the group's XP rate by ${Math.round(d.gain * 10) / 100}%.</div>${slot.move ? `<div class="tsrc muted">Until then the queued move gives ${esc(slot.move.item)} ${slot.move.buy ? "from a merchant" : `from ${esc(slot.move.from)}`}.</div>` : ""}`;
   }
   const m = slot.move;
   return o.kind === "buy"
-    ? `<div class="tsrc">Queued purchase: ${esc(m.buy.merchant)} in ${esc(m.buy.zoneName ?? m.buy.zone)} for ${m.buy.price} pp. Raises the slot score by ${m.gain}.</div>`
-    : `<div class="tsrc">Queued move from ${esc(m.from)}. Raises the slot score by ${m.gain}.</div>`;
+    ? `<div class="tsrc">Queued purchase: ${esc(m.buy.merchant)} in ${esc(m.buy.zoneName ?? m.buy.zone)} for ${m.buy.price} pp. Raises the group's XP rate by ${Math.round(m.gain * 10) / 100}%.</div>`
+    : `<div class="tsrc">Queued move from ${esc(m.from)}. Raises the group's XP rate by ${Math.round(m.gain * 10) / 100}%.</div>`;
 }
 
 /** A slot's best item's source in a word or two for the list beside the doll: the enemy, the price or the holder. */
