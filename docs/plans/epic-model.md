@@ -81,9 +81,20 @@ and so does a forage. A timer or a signal branch runs by itself once its starter
 as a kill step waits for a summoned enemy. A hand-in is made by the active character, so the task
 plays the character whose epic it is, as quest tasks do now. A step at an NPC names the NPC's type
 ids, because two NPCs of a zone can share a name and answer to different items, as the two Spirit
-Sentinels of the Emerald Jungle do. A model part that yields a hand-kept chain's reward of its
-class stays out (`uncovered`), because the hand-kept chains carry keywords the model does not
-read, and the parts beyond it start from what the hand-kept chain hands on.
+Sentinels of the Emerald Jungle do.
+
+The generated steps are split into parts, each a chain of its own (`epicChains` in
+`tools/lib/epic-chain.mjs`). A step stays in the current part if it consumes an item the part
+produced, or if the part spawned its NPC or ran a script branch it depends on. Any other step starts
+a new part, and so does a step that consumes a hunted piece, unless the part spawned its NPC. A part
+needs only the items it consumes and does not produce or buy. There is no other ordering between
+parts, so independent branches of an epic run as soon as their inputs exist. A character is done
+with a part if it carries the part's last item or something a later part made from it
+(`doneItems` in `tools/lib/coordinator.mjs`).
+
+Hand-kept chains in `data/quests.json` take precedence, because they hold keywords the model does
+not read. A generated part is cut after the last item a hand-kept chain of its class also
+produces, and the rest starts from that item (`uncovered`).
 
 A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
 its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
@@ -93,17 +104,18 @@ left out: a chain exists for every epic whose steps the bot can run, and its par
 fight, while the parts before it run. A part asks for level 60 at most.
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
-progress the epic adds to its character's group, shared by the pieces still missing, so trips and
-camps take it by expected value like any drop. Only an epic the account can finish has its pieces
-hunted: its steps are open and use the kinds the bot has (`missingKinds`). A piece that needs a raid joins the raid way and the
-boss kills of [raids.md](raids.md).
+progress the epic adds to its character's group, shared by the pieces still missing. Only an epic
+the account can finish has its pieces hunted: its steps are open and use the kinds the bot has
+(`missingKinds`). A piece that needs a raid joins the raid way and the boss kills of
+[raids.md](raids.md).
 
 ### Order
 
-An epic is worth what its finished item adds to the account: its stats and procs by `xpGain` like any
-gear, and its click by what the click does for the account, such as the Cleric's resurrection
-without mana in a raid. The chains run by value per hour of the whole chain, and a step's task comes
-before a gear trip, because each step is certain progress.
+The gear value of an epic piece is too small for a trip to pay, and the goal asks for every class
+epic regardless of its value. So an epic is a goal of its own with a time budget: the piece hunts
+of `data/opportunities.json` may take `huntShare` of each group's hour, counted apart from gear
+trips (`decide` in `tools/lib/coordinator.mjs`). A chain step runs before a gear trip, because each
+step is certain progress.
 
 ## Migration
 
@@ -131,7 +143,6 @@ before a gear trip, because each step is certain progress.
 - Data beside the scripts: allowed only for an idiom the analyzer cannot read yet, each entry citing
   its script and line, with a check that fails when that script changes. Recommended, because a few
   scripts run long timed scenes that cost more to analyze than to describe.
-- Epic value: `xpGain` for stats and procs plus a value per click effect. Recommended over the
-  ranking in `epics.md`, which is an inference.
+- Epic value: decided. An epic gets a time budget instead of a gear value (see Order).
 - Raid pieces: planned with the raid way, which needs the first raid hour's live check of the raid
   task and its loot. Recommended to build steps 1 to 4 first, which need no raid.

@@ -17,7 +17,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - `bun test` passes.
 - A change to how the account plays is checked in a game tab or in the collector's data, and taken back when the numbers get worse.
 - When the account gets stuck, repair the mechanism that should have handled it. [docs/runbook.md](docs/runbook.md) describes how to operate a tab by hand. Use it to find the fault and to get a group playing again, not in place of the repair.
-- Commit each verified unit and push `main` to `origin`. The repository on GitHub is private, because it holds data extracted from the game client and names the account's characters. Pushing here needs no further request.
+- Commit each verified unit and push `main` to `origin`. The repository on GitHub is public, which is intended. Pushing here needs no further request.
 - Write one diary entry per session in `diary/`: what changed, what was measured, and under "Decisions to review" the choices a reader may want to undo. Screenshots go to `diary/media/`, one for each milestone and raid kill.
 
 ## Limits

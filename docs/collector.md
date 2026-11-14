@@ -63,19 +63,19 @@ by the worth of its loot per raid minute, one at a time, and buys raid time at t
 same pass watches the raid bosses that stand in the open world, sends a free group to look into a
 boss's zone when its respawn is due (`iqBot.look`) and raids one a tab sees standing. A
 batch of at least two stones per member goes to the group with the lowest levels as a hand-in,
-also when it farms: the hand-in ends its farm errand, which the next pass gives back. Each opportunity (an epic or quest piece with its group, zone, enemies, the number of
+also when it farms: the hand-in ends its farm errand, which the next pass gives back. Each opportunity (an epic or quest piece with its group or level band, zone, enemies, the number of
 copies the roster needs or the `quest` chain the piece is for, `when` of `night` or `day`, and `kind`)
-runs for its group until the account holds those copies, which for a `quest` is one for each member
-of the chain's class and level who has not done it: an
+runs until the account holds those copies, which for a `quest` is one for each member
+of the chain's class and level who has not done it. An opportunity with `levels` goes to the lowest free group in that band. An
 `errand` puts the enemies first inside the group's normal hunting, and the default directed hunt
 camps the enemies' spawn points with the client's Spawn Camp, placeholders included. A hunt comes
 back when the camp says its points respawn, a held camp after 15 minutes, and otherwise after
-`retryMin` minutes. A piece hunt starts only while the group's hunts took less than `huntShare` of
-its last hour, because the gear model does not price pieces. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
+`retryMin` minutes. A piece hunt starts only while the group's piece hunts took less than `huntShare` of
+its last hour. Gear trips do not count, because the gear model prices them and does not price pieces. Each farm in `data/farms.json` (an errand for loot, such as lightstones from
 Nektulos wisps) runs for at most `maxGroups` free groups, the lowest inside its `levels`, and a
 group beyond the cap or outside the levels stops farming. Each quest chain in `data/quests.json` runs as a quest task for the
 members of its class and level who carry neither its reward, nor an item of `doneIf` (what a later hand-in outside the file
-spends the reward on), nor the done items of a chain in the file that `needs` the reward. One task per tab. A member who carries progress from a later step can resume it. Otherwise, every needed copy must be carried by that member or covered by a free account copy outside the chain's needers (`own` and `have` in `tools/lib/coordinator.mjs`). Chains may carry an `ids` map to distinguish items sharing a name. A chain that stopped part way goes on after the last step `expect` the member
+spends the reward on), nor an item that a chain which `needs` the reward produces from the step that consumes it (`doneItems`). The epic model's generated chains run beside the file's, cut where a chain of the file already covers them (`uncovered` in `tools/lib/epic-chain.mjs`, [plans/epic-model.md](plans/epic-model.md)). One task per tab. A member who carries progress from a later step can resume it. Otherwise, every needed copy must be carried by that member or covered by a free account copy outside the chain's needers (`own` and `have` in `tools/lib/coordinator.mjs`). Chains may carry an `ids` map to distinguish items sharing a name. A chain that stopped part way goes on after the last step `expect` the member
 carries, so an item that counts only inside a timed encounter is no `expect`: the Damaged Goblin
 Crown goes to Natasha Whitewater, whom Shmendrik Lavawalker's hand-in spawns for five minutes, and a
 chain that stopped inside the encounter starts it again. A step talks to its `npc` with `say` keywords once the NPC stands on one of its spawn points:
@@ -150,7 +150,7 @@ still short of, the items each class epic's chosen steps take (the epic model,
 `tools/lib/epic-model.mjs`), the items of the runnable chains in
 `data/quests.json`, the copies of what the coordinator's hunts and errands are for that the roster
 still needs, and one of each casino boss potion. It also keeps the copies the plan's moves take
-(`gearKeepInstances`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`). After a
+(`gearKeepInstances`). Everything else is surplus to the bag reserve (`docs/plans/inventory.md`), which runs for the leader only. A gear move leaves the replaced item in its receiver's bags, so the gear pass also lists each character's carried gear that nothing needs (`spareGear` in `tools/lib/gear-plan.mjs`), and a gear or quest task pulls such items to its leader when a character's bags are full (`makeRoom` in `src/bot.js`). After a
 content update, `bun tools/epic-model.mjs` lists each class epic's steps, gaps and blockers
 (`--steps`, `--class <Class>`), with `--hand` the hand-kept chain items the model's steps do not
 take, and fails while a chosen step uses a script idiom the analyzer cannot read. iqd saves
