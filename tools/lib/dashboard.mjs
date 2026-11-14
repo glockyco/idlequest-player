@@ -547,6 +547,7 @@ export function groupRowsView(db, now, { roster, groupOf, catalog, report = null
       stuck,
       level: v?.level ?? null,
       xpPct: v?.xpPct ?? null,
+      aaPct: v?.aaPct ?? null,
       partyMin: levels.length ? Math.min(...levels) : null,
       partyMax: levels.length ? Math.max(...levels) : null,
       share: g.progress ?? null,

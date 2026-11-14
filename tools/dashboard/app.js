@@ -270,7 +270,7 @@ function renderGroups(s) {
       const idleCls = g.idleShare != null && g.idleShare >= 0.3 ? "bad" : g.idleShare != null && g.idleShare >= 0.15 ? "warn" : "";
       return `<tr class="grow${g.stuck ? " stuck" : ""}${open ? " open" : ""}" data-g="${esc(g.id)}" tabindex="0" role="button" aria-expanded="${open}">
         <td class="gid"><span class="caret"></span><b>${esc(g.id)}</b> <span class="muted">${esc(g.leader)}</span></td>
-        <td class="lvl" title="${g.partyMin != null ? `party levels ${g.partyMin} to ${g.partyMax}, ` : ""}${pct(g.share)} of the XP to level 60"><b>${g.level ?? "?"}</b>${g.xpPct != null ? `<span class="muted"> ${Math.round(g.xpPct)}%</span>` : ""}${meter(g.share)}</td>
+        <td class="lvl" title="${g.partyMin != null ? `party levels ${g.partyMin} to ${g.partyMax}, ` : ""}${pct(g.share)} of the XP to level 60"><b>${g.level ?? "?"}</b>${g.level >= 60 && g.aaPct != null ? `<span class="muted" title="progress toward the next AA point"> AA ${Math.round(g.aaPct)}%</span>` : g.xpPct != null ? `<span class="muted"> ${Math.round(g.xpPct)}%</span>` : ""}${meter(g.share)}</td>
         <td class="zone">${esc(g.zone ?? "-")}${inZone[g.zone] > 1 ? ` <span class="muted small" title="groups of the account in this zone, which share its enemies">${inZone[g.zone]} groups</span>` : ""}</td>
         <td class="state">${stateCell(g)}<div class="zone2 muted small">${esc(g.zone ?? "-")}</div></td>
         <td class="n">${big(g.xpPerHour)}</td>

@@ -338,7 +338,7 @@ export function snapshotInPage(a) {
     // `supportManaRegen`: the mana regeneration the party's supply gives every member, which sets how
     // fast the slowest bar refills between fights (docs/client-internals.md, Readiness wait).
     out.leader = p?.id
-      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
+      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, aaPct: p.aaExp != null ? p.aaExp / 750000 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
       : null;
     // The party's supplied run speed and the Bard's run song in it with its instrument modifier,
     // which the gear plan weighs a Bard's percussion instrument by (`walkShares`).
@@ -2241,6 +2241,7 @@ export function sessionSummary(s, now, groupOf = rosterGroups()) {
     leader: s.leader ?? null,
     level: l?.level ?? null,
     xpPct: l?.xpPct ?? null,
+    aaPct: l?.aaPct ?? null,
     zone: sn?.zone ?? null,
     goneMs: st.unreachableSince ? now - st.unreachableSince : null,
     parked: Boolean(s.parked),
@@ -2262,6 +2263,9 @@ export function sessionSummary(s, now, groupOf = rosterGroups()) {
   };
 }
 
+/** A leader's progress after its level: toward the next level, or at 60 toward the next AA point. */
+const levelProgress = (v) => (v.level >= 60 && v.aaPct != null ? ` AA ${v.aaPct.toFixed(0)}%` : v.xpPct != null ? ` ${v.xpPct.toFixed(0)}%` : "");
+
 /** Plain-text status, at most 40 lines. Reads the database only. */
 export function renderStatus(db, now, groupOf = rosterGroups()) {
   const out = [];
@@ -2281,7 +2285,7 @@ export function renderStatus(db, now, groupOf = rosterGroups()) {
   if (!sessions.length) out.push("  none");
   for (const s of sessions) {
     const v = sessionSummary(s, now, groupOf);
-    const head = `${v.group ?? "--"} ${v.leader ?? "?"} L${v.level ?? "?"}${v.xpPct != null ? ` ${v.xpPct.toFixed(0)}%` : ""} ${v.zone ?? "?"}`;
+    const head = `${v.group ?? "--"} ${v.leader ?? "?"} L${v.level ?? "?"}${levelProgress(v)} ${v.zone ?? "?"}`;
     let tail;
     if (v.goneMs != null) tail = `GONE ${dur(v.goneMs)}`;
     else if (v.parked) tail = "PARKED (bot disabled)";
