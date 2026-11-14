@@ -795,6 +795,23 @@ test("settleHistory writes an ended task's outcome into its entry once, and leav
   expect(history.slice(3).map((h) => h.repeat)).toEqual([true, false]);
 });
 
+test("a repeated wait without a clock time in its result backs off, and one with a time does not", () => {
+  const gone = "Jaeil the Wretched's spawn points (15848) are not among the zone's 462 listed spawns";
+  const history = Array.from({ length: 7 }, (_, k) => ({ t: k * 10_000_000, label: k % 2 ? "A" : "B", kind: "quest", id: "hammer", task: `q${k}` }));
+  const half = 1_800_000;
+  settleHistory(history, history.map((h) => ({ id: h.task, status: "waiting", result: gone, startedAt: h.t, endedAt: h.t + 1000, nextAt: h.t + 1000 + half })));
+  // 30 minutes doubles per repeat up to the 8-hour cap.
+  expect(history.map((h) => (h.nextAt - h.endedAt) / half)).toEqual([1, 2, 4, 8, 16, 16, 16]);
+  // A result that names a respawn time keeps the task's own `nextAt`.
+  const camp = [0, 1, 2].map((k) => ({ t: k * 1000, label: "A", kind: "quest", id: "lich", task: `c${k}` }));
+  settleHistory(camp, camp.map((h) => ({ id: h.task, status: "waiting", result: "Lich of Miragul's spawn point: camp cleared, next spawn at 14:59:11", startedAt: h.t, endedAt: h.t + 100, nextAt: h.t + 700_000 })));
+  expect(camp.map((h) => h.nextAt - h.endedAt)).toEqual([699_900, 699_900, 699_900]);
+  // A different result resets the back-off.
+  history.push({ t: 80_000_000, label: "A", kind: "quest", id: "hammer", task: "q7" });
+  settleHistory(history, [{ id: "q7", status: "waiting", result: "Jaeil the Wretched came up while the leader came", startedAt: 80_000_000, endedAt: 80_001_000, nextAt: 80_061_000 }]);
+  expect(history.at(-1)).toMatchObject({ repeats: 1, nextAt: 80_061_000 });
+});
+
 test("an errand's history entry gets its length once its tab shows no errand, or a later one", () => {
   const MIN = 60000;
   const entry = (label: string, ago: number) => ({ t: NOW - ago * MIN, label, kind: "errand", id: "e1" });

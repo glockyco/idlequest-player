@@ -131,13 +131,21 @@ export function chainSummary({ quests = {}, holders = {}, started = {}, members 
   );
 }
 
+// Upper bound for the back-off of repeated waits in `settleHistory`.
+const WAIT_MAX_MS = 8 * 3600000;
+
 /**
- * Write the outcome of each ended bot task into its history entry: when it ended, how long it took,
- * its status (done, failed or stopped), the result or error and the step it stopped at, when the
- * task said to come back, a gear task's refused purchases (`refusedBuys`) and the wanted enemies a
- * hunt found standing when it arrived (`up`). A failure at the step where the tab's run of the same
- * task before it failed too is a `repeat`. `repeats` counts the consecutive failures at that step
- * for `retryTime`. `tasks` are the tabs' latest bot tasks.
+ * Copies the outcome of each ended bot task (`tasks`, the tabs' latest tasks) into its history
+ * entry: end time, duration, status, result or error, the step it stopped at, `nextAt`, a gear
+ * task's refused purchases (`refusedBuys`) and the wanted enemies a hunt found up (`up`).
+ * Returns whether any entry changed.
+ *
+ * Failures: `repeat` is set if the same tab's previous run of this task failed at the same step,
+ * and `repeats` counts such failures in a row for `retryTime`.
+ *
+ * Waits: a task that ends as "waiting" sets `nextAt` itself. If its result text equals the
+ * previous run's (on any tab) and contains no clock time, the task did not know when to come
+ * back and used a default delay. That delay is doubled for each repeat, up to `WAIT_MAX_MS`.
  */
 export function settleHistory(history, tasks) {
   const byId = new Map(tasks.filter((t) => t?.id).map((t) => [t.id, t]));
@@ -150,6 +158,12 @@ export function settleHistory(history, tasks) {
       const before = history.slice(0, k).filter((x) => x.id === h.id && x.label === h.label).at(-1);
       next.repeat = before?.status === "failed" && before.step === next.step;
       next.repeats = next.repeat ? (before.repeats ?? (before.repeat ? 2 : 1)) + 1 : 1;
+    }
+    if (task.status === "waiting" && task.nextAt && task.endedAt) {
+      const before = history.slice(0, k).filter((x) => x.id === h.id).at(-1);
+      const same = before?.status === "waiting" && before.result === next.result && !/\d\d:\d\d/.test(next.result ?? "");
+      next.repeats = same ? (before.repeats ?? 1) + 1 : 1;
+      if (same) next.nextAt = task.endedAt + Math.min(WAIT_MAX_MS, (task.nextAt - task.endedAt) * 2 ** (next.repeats - 1));
     }
     for (const [key, v] of Object.entries(next)) {
       if (v === undefined || h[key] === v) continue;
