@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "id": "heal-min-300",
+    "a": ["G2", "G4", "G6", "G8", "G10", "G12"],
+    "b": ["G3", "G5", "G7", "G9", "G11"],
+    "blockMin": 20,
+    "blocks": 6,
+    "setting": { "healMinHp": 300 },
+    "without": { "healMinHp": 0 }
+  },
+  {
+    "id": "heal-pets-off",
+    "after": "heal-min-300",
+    "a": ["G2", "G4", "G6", "G8", "G10", "G12"],
+    "b": ["G3", "G5", "G7", "G9", "G11"],
+    "blockMin": 20,
+    "blocks": 6,
+    "setting": { "companionTactics": { "cure": false, "healPets": false } },
+    "without": { "companionTactics": { "cure": false, "healPets": true } }
+  }
+]
