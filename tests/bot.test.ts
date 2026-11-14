@@ -3046,6 +3046,32 @@ test("a move that has to be placed goes into the member's bags and into its slot
   }
 });
 
+test("a placed move waits out a fight that began after the task's stop", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const worn: string[] = [];
+    Object.assign(f.iq, {
+      carried: () => 0,
+      pullItem: async (_item: string, { from }: { from: string }) => ({ got: true, from, reply: "Transferred." }),
+      // A wanderer attacks the standing party during the give, and the fight lasts 20 s.
+      giveItem: async () => {
+        f.skills.inCombat = true;
+        setTimeout(() => (f.skills.inCombat = false), 20000);
+        return { ok: true, lines: [] };
+      },
+      equipOwn: async (item: string) => (worn.push(`${f.sheet.characterProfile.name} wears ${item}`), { ok: true }),
+    });
+    f.bot.gear({ moves: [{ item: "Revultant Whip", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true }] });
+    await runToEnd(f);
+    expect(worn).toEqual(["Tagujazolu wears Revultant Whip"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", result: "1 of 1 moves" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a craft step rolls until its first success, pulling one input per attempt, and reports running out", async () => {
   vi.useFakeTimers();
   try {

@@ -1590,6 +1590,9 @@
     // A switch already under way for someone else finishes first.
     for (let k = 0; k < 2 && activeName(i) !== name; k++) {
       await untilSwitchable(i);
+      // A switch does not start in combat (`switchTo`), and a standing party is attacked again
+      // between a task's first stop and its switch.
+      if (i.stores.skills.getState().inCombat) await calm(i);
       const job = switchTo(i, name);
       while (!job.done) await sleep(1000);
       if (!job.ok) throw new Error(job.message);
