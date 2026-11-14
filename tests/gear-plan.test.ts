@@ -410,12 +410,13 @@ test("spareGear lists carried gear that is not kept, needed, reserved for a move
   const withPrice = new Map([...more].map(([id, i]) => [id, id === 2 ? { ...i, price: 50 } : id === 4 ? { ...i, price: 5 } : i]));
   const survey = [
     held("Pal", 2, 1), held("Pal", 4, 2), held("Pal", 4, 3), held("Pal", 1, 4), held("Pal", 3, 5), held("Pal", 3, 6), held("Pal", 21, 7), held("Pal", 22, 8), held("Pal", 23, 9), held("Pal", 24, 10), held("Pal", 6, 11, "Not in Inventory Search."), held("Pal", 7, 12),
-    held("Song", 20, 13), held("Song", 4, 14), held("Stranger", 4, 15),
+    held("Song", 20, 13), held("Song", 20, 16), held("Song", 4, 14), held("Stranger", 4, 15),
   ];
   const spare = spareGear({ survey, items: withPrice, people, keep: { counts: { 1: 1 }, instances: [5] }, need: { 22: 4 }, unworn: new Set([7]) });
-  // Listed: the Rusty Sword (two copies, one entry) and the dearer Plain Cloak.
+  // Listed: both copies of the Rusty Sword and the dearer Plain Cloak, and the Bard's second Hand Drum.
   // Not listed: Fine Cloak (plan is short of it), Long Sword (a copy is reserved for a move),
   // Quest Robe (in demand), Twin Dagger (quest hand-in), Buckler (Inventory Search cannot move it),
-  // Backpack, Bread and the NO RENT blade (not gear), the Bard's Hand Drum, and a non-roster holder.
-  expect(spare).toEqual({ Pal: [{ id: 4, name: "Rusty Sword" }, { id: 2, name: "Plain Cloak" }], Song: [{ id: 4, name: "Rusty Sword" }] });
+  // Backpack, Bread and the NO RENT blade (not gear), the Hand Drum the Bard plays, and a non-roster holder.
+  const sword = { id: 4, name: "Rusty Sword" };
+  expect(spare).toEqual({ Pal: [sword, sword, { id: 2, name: "Plain Cloak" }], Song: [{ id: 20, name: "Hand Drum" }, sword] });
 });

@@ -549,7 +549,9 @@ const SPARE_LISTED = 12;
  * - no copy of it on that character is reserved for a planned move (`keep.instances`)
  * - the plan is not short of it (`keep.counts`)
  * - it is not in the account's demand (`need`, by item id) and not a quest hand-in (`unworn`)
- * - it is not an instrument in a Bard's bags, which the Bard uses from there
+ * - it is not the one copy of the best instrument of its kind in a Bard's bags, which the Bard
+ *   plays from there
+ * Each spare copy is listed, so a pull per entry empties a slot per entry.
  */
 export function spareGear({ survey, items, people, keep, need = {}, unworn = new Set() }) {
   const kept = new Set(keep.instances);
@@ -560,15 +562,25 @@ export function spareGear({ survey, items, people, keep, need = {}, unworn = new
   const out = {};
   for (const [who, rows] of held) {
     const moving = new Set(rows.filter((r) => kept.has(r.itemInstanceId)).map((r) => r.itemId));
-    const spare = new Map();
+    // The instrument a Bard plays of each kind (`bardtype`), the one of the highest modifier.
+    const best = new Map();
+    for (const r of bards.has(who) ? rows : []) {
+      const item = items.get(r.itemId);
+      if (item && bagInstrument(item) && (best.get(item.bardtype)?.bardvalue ?? -1) < item.bardvalue) best.set(item.bardtype, item);
+    }
+    const played = new Set();
+    const spare = [];
     for (const r of rows) {
       const item = items.get(r.itemId);
       if (!item || !(item.slots > 0) || item.bagslots > 0 || item.norent === 0 || r.blockReason) continue;
       if (moving.has(r.itemId) || keep.counts[r.itemId] > 0 || need[r.itemId] > 0 || unworn.has(r.itemId)) continue;
-      if (bards.has(who) && bagInstrument(item)) continue;
-      spare.set(r.itemId, { id: r.itemId, name: r.itemName, price: item.price ?? 0 });
+      if (best.get(item.bardtype) === item && !played.has(item.id)) {
+        played.add(item.id);
+        continue;
+      }
+      spare.push({ id: r.itemId, name: r.itemName, price: item.price ?? 0 });
     }
-    if (spare.size) out[who] = [...spare.values()].sort((a, b) => a.price - b.price).slice(0, SPARE_LISTED).map(({ id, name }) => ({ id, name }));
+    if (spare.length) out[who] = spare.sort((a, b) => a.price - b.price).slice(0, SPARE_LISTED).map(({ id, name }) => ({ id, name }));
   }
   return out;
 }
