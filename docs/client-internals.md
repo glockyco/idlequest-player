@@ -891,9 +891,10 @@ run once.
   spell has CAST ONCE and KEEP SLOWED or KEEP MEZZED buttons, and KEEP starts a maintained effect
   that the raid recasts when it wears off (`CVE` 11523-11577). Debuffs and snares have one button.
   Each button starts a target pick, and the target's row in the engaged enemies (`data-raid-target`,
-  "Target <name>", `CVE` 399791-399811) ends it. `iq.raid.effect(kind)` takes these steps with the
-  group's first spell a living member can cast, so a Bard's song can be the slow: group 1's first
-  slow was Ugfeu's Selo's Consonant Chain and its first resist debuff Qigaa's Malaisement.
+  "Target <name>", `CVE` 399791-399811) ends it. Each entry prints its strength: "N% slow", "N%
+  snare" or the mez's seconds in its text, and a resist debuff's lowered resists in its title
+  ("Magic / Fire resist −20", `m0e` and `_S` in the combat bundle of release 20261112T194956).
+  `iq.raid.effect(kind)` takes these steps with the strongest entry a living member can cast.
 - Daily bosses: `DailyRaidBossesRequest` (1222) with `{ characterId, zoneId }` lists them, and the
   same request with `bossKey` summons one (`CVE` 415155). The reply holds `resetsRemaining`,
   `nextResetAtMs` and `bosses[{ key, name, zoneName, status, availableAtMs, expiresAtMs,

@@ -922,12 +922,17 @@
     if (!panel) throw new Error(`the raid window shows no ${id} panel`);
     return panel;
   };
-  // The panel groups of each raid effect and the button that keeps it up, where the window has one.
+  // The panel groups of each raid effect, the button that keeps it up where the window has one, and
+  // how strong an entry is from what the window prints for it: the slow and the snare in percent,
+  // the mez in seconds, and a resist debuff by the resists its title lowers ("Magic / Fire resist
+  // −20"), each lowered resist counted once.
+  const resistDrop = (title = "") =>
+    [...title.matchAll(/^(.+) resist [−-](\d+)/gm)].reduce((s, m) => s + m[1].split(" / ").length * Number(m[2]), 0);
   const RAID_EFFECTS = {
-    slow: { panel: "slow", group: "Single-Target Slows", keep: "KEEP SLOWED" },
-    mez: { panel: "mez", group: "Single-Target Mez", keep: "KEEP MEZZED" },
-    debuff: { panel: "debuff", group: "Resistance Debuffs" },
-    snare: { panel: "debuff", group: "Snares" },
+    slow: { panel: "slow", group: "Single-Target Slows", keep: "KEEP SLOWED", strength: (e) => Number(/(\d+)% slow/.exec(e.textContent)?.[1] ?? 0) },
+    mez: { panel: "mez", group: "Single-Target Mez", keep: "KEEP MEZZED", strength: (e) => Number(/(\d+)s\b/.exec(e.textContent)?.[1] ?? 0) },
+    debuff: { panel: "debuff", group: "Resistance Debuffs", strength: (e) => resistDrop(e.title) },
+    snare: { panel: "debuff", group: "Snares", strength: (e) => Number(/(\d+)% snare/.exec(e.textContent)?.[1] ?? 0) },
   };
   // The combat store's `engagedMobs` holds every enemy in a fight in the zone, those of other
   // parties too, and keeps the dead. An enemy of this party's fight targets, chases or hates
@@ -2200,10 +2205,11 @@
       },
       /**
        * A Slow, Mez, Debuff or Snare order against the running fight's target, as in the raid
-       * window: the first spell of the panel's group for `kind` that a living member can cast,
-       * kept up for "slow" and "mez" (KEEP SLOWED and KEEP MEZZED recast it when it wears off) and
-       * cast once for "debuff" (resist debuffs such as Tash and Malo) and "snare", then the target
-       * in the engaged enemies. Resolves with the spell and whether it is kept up.
+       * window: the strongest spell of the panel's group for `kind` that a living member can cast
+       * (`strength` of RAID_EFFECTS), the first of equals, kept up for "slow" and "mez" (KEEP SLOWED
+       * and KEEP MEZZED recast it when it wears off) and cast once for "debuff" (resist debuffs such
+       * as Tash and Malo) and "snare", then the target in the engaged enemies. Resolves with the
+       * spell and whether it is kept up.
        */
       async effect(kind) {
         const wait = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -2215,10 +2221,15 @@
         const panel = await raidPanel(spec.panel);
         const group = panel.querySelector(`[aria-label="${spec.group}"]`);
         if (!group) throw new Error(`no raid member has ${spec.group.toLowerCase()}`);
-        const buttons = [...group.querySelectorAll("button:not([disabled])")];
-        const button = spec.keep ? buttons.find((b) => b.textContent.trim().toUpperCase() === spec.keep) : buttons[0];
-        if (!button) throw new Error(`no ${spec.group.toLowerCase()} can be cast now`);
-        const spell = (spec.keep ? button.closest("[aria-label]")?.getAttribute("aria-label") : null) ?? button.textContent.trim().replace(/\s+/g, " ").slice(0, 40);
+        // A kept effect's entry is the element named after its spell that holds the keep button. A
+        // cast-once effect's entry is its button.
+        const entries = spec.keep
+          ? [...group.querySelectorAll("[aria-label]")].map((e) => ({ e, button: [...e.querySelectorAll("button:not([disabled])")].find((b) => b.textContent.trim().toUpperCase() === spec.keep) })).filter((x) => x.button)
+          : [...group.querySelectorAll("button:not([disabled])")].map((b) => ({ e: b, button: b }));
+        if (!entries.length) throw new Error(`no ${spec.group.toLowerCase()} can be cast now`);
+        const best = entries.reduce((a, b) => (spec.strength(b.e) > spec.strength(a.e) ? b : a));
+        const button = best.button;
+        const spell = (spec.keep ? best.e.getAttribute("aria-label") : null) ?? button.textContent.trim().replace(/\s+/g, " ").slice(0, 40);
         const before = { kept: (stores.raid.getState().ongoingActions ?? []).length, queued: (stores.raid.getState().pendingActions ?? []).length };
         button.click();
         await wait(300);
