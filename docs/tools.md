@@ -197,7 +197,9 @@ bun tools/crossover.mjs --start 1794140961654 --block 20 --blocks 6 --a G2,G4,G6
 `tools/fights.mjs` splits every recorded run into fights and reports what the guard's escapes and
 the deaths cost, which danger signals predicted deaths (the level gap of mobs that hit someone,
 incoming damage against the victim's HP, the number of mobs) and a replay of candidate escape
-rules on the fights the guard did not leave. `--dump` prints one JSON object per fight.
+rules on the fights the guard did not leave. `--dump` prints one JSON object per fight. Use
+`--last <minutes>` or `--since <ms>` (epoch milliseconds) to read only a recent window. Without
+either option it reads the whole history, streaming one party at a time.
 
 ```sh
 bun tools/fights.mjs

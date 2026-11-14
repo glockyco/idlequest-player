@@ -1,6 +1,6 @@
 // Per-fight dataset from the recorded event logs, and what predicts deaths in it.
 //
-//   bun tools/fights.mjs [--dump] [--gap 10] [dir ...]
+//   bun tools/fights.mjs [--dump] [--gap 10] [--last <minutes> | --since <ms>] [dir ...]
 //
 // Without `dir` it reads every party under runs/live/<leader>/ (events.jsonl + samples.jsonl) and the
 // first party's older runs (2026-11-06-tox-ab, 2026-11-07-live, 2026-11-08-lead), whose overlapping
@@ -14,6 +14,9 @@
 //              guard today against the recommended rule
 //   --dump     one JSON object per fight on stdout instead of the report
 //   --gap N    seconds without a combat line that end a fight (default 10)
+//   --last N   read the last N minutes instead of the whole history
+//   --since T  read from epoch milliseconds T, overriding --last
+// Logs may arrive up to 60 seconds out of timestamp order.
 //
 // A fight runs from the first combat line after a quiet gap, or from "You engage", to the last combat
 // line before a quiet gap, a kill followed by the next "You engage", or the guard's "[guard] leaving".
@@ -23,55 +26,99 @@
 // idlequest-content), the median of the NPCs sharing the name, and unknown when neither has the name.
 // Members are the characters of data/roster.json and runs/iq.db: every other name is a pet. Member
 // max HP, the leader's level and the zone come from the one-second samples.
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Database } from "bun:sqlite";
 import { liveSpawnRows, rows as contentRows } from "./lib/content.mjs";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
+import { streamJsonlSince } from "./lib/jsonl.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(`--${n}`);
 const opt = (n, d) => (flag(n) ? args[args.indexOf(`--${n}`) + 1] : d);
 const QUIET = Number(opt("gap", 10)) * 1000;
-const dirArgs = args.filter((a, i) => !a.startsWith("--") && !(args[i - 1] ?? "").startsWith("--gap"));
+const since = flag("since") ? Number(opt("since")) : flag("last") ? Date.now() - Number(opt("last")) * 60000 : -Infinity;
+const dirArgs = args.filter((a, i) => !a.startsWith("--") && !["--gap", "--last", "--since"].includes(args[i - 1]));
 const content = process.env.IQ_CONTENT ?? `${homedir()}/src/github.com/brynnb/idlequest-content`;
 const root = new URL("../runs/", import.meta.url).pathname;
 
 // ---------------------------------------------------------------- input
-const readJsonl = async (p) => (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
-async function loadParty(name, dirs) {
-  const seen = new Set();
-  const merge = async (file) => {
-    const out = [];
-    for (const d of dirs) {
-      if (!existsSync(`${d}/${file}`)) continue;
-      for (const r of await readJsonl(`${d}/${file}`)) {
-        const k = `${r.ses}:${r.seq}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push(r);
-      }
-    }
-    return out.sort((a, b) => a.t - b.t);
-  };
-  const events = await merge("events.jsonl");
-  seen.clear();
-  const samples = await merge("samples.jsonl");
-  return { name, events, samples };
+// Returns whether `(ses, seq)` of `row` was seen before, and records it. Seen sequence numbers
+// are stored as ranges per session, so memory grows with sessions and gaps, not with rows.
+function markSeen(seen, row) {
+  const ranges = seen.get(row.ses) ?? [];
+  if (!seen.has(row.ses)) seen.set(row.ses, ranges);
+  const n = row.seq;
+  let i = 0;
+  while (i < ranges.length && ranges[i][1] < n - 1) i++;
+  if (i < ranges.length && ranges[i][0] <= n && ranges[i][1] >= n) return true;
+  if (i < ranges.length && ranges[i][0] <= n + 1) {
+    ranges[i][0] = Math.min(ranges[i][0], n);
+    ranges[i][1] = Math.max(ranges[i][1], n);
+  } else ranges.splice(i, 0, [n, n]);
+  if (i + 1 < ranges.length && ranges[i][1] + 1 >= ranges[i + 1][0]) {
+    ranges[i][1] = ranges[i + 1][1];
+    ranges.splice(i + 1, 1);
+  }
+  return false;
 }
+
+// Yields the rows of one log file in time order. Rows may be up to 60 s out of order in the
+// file, so they pass through a sorted buffer of that length.
+function* orderedRows(path) {
+  const pending = [];
+  let latest = -Infinity;
+  for (const row of streamJsonlSince(path, since)) {
+    latest = Math.max(latest, row.t);
+    let lo = 0;
+    let hi = pending.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (pending[mid].t <= row.t) lo = mid + 1;
+      else hi = mid;
+    }
+    pending.splice(lo, 0, row);
+    while (pending.length && pending[0].t < latest - 60000) yield pending.shift();
+  }
+  yield* pending;
+}
+
+// Yields one party's rows of `file` from all its directories, merged by time and without the
+// rows that overlapping directories repeat.
+function* partyRows(party, file) {
+  const streams = party.dirs.filter((d) => existsSync(`${d}/${file}`)).map((d) => orderedRows(`${d}/${file}`));
+  const heads = streams.map((s) => s.next());
+  const seen = new Map();
+  try {
+    while (true) {
+      let first = -1;
+      for (let i = 0; i < heads.length; i++) {
+        if (!heads[i].done && (first < 0 || heads[i].value.t < heads[first].value.t)) first = i;
+      }
+      if (first < 0) break;
+      const row = heads[first].value;
+      if (!markSeen(seen, row)) yield row;
+      heads[first] = streams[first].next();
+    }
+  } finally {
+    for (const stream of streams) stream.return();
+  }
+}
+
 async function loadAll() {
-  if (dirArgs.length) return Promise.all(dirArgs.map((d) => loadParty(d.replace(/\/$/, "").split("/").pop(), [d])));
+  if (dirArgs.length) return dirArgs.map((d) => ({ name: d.replace(/\/$/, "").split("/").pop(), dirs: [d] }));
   const parties = [];
   const live = existsSync(`${root}live`) ? await readdir(`${root}live`) : [];
   for (const l of live.sort()) {
-    if (existsSync(`${root}live/${l}/events.jsonl`) && existsSync(`${root}live/${l}/samples.jsonl`)) {
-      const p = await loadParty(l, [`${root}live/${l}`]);
-      if (p.events.length > 1000) parties.push(p); // runs that ended after a minute carry no fights
-    }
+    if (!existsSync(`${root}live/${l}/events.jsonl`) || !existsSync(`${root}live/${l}/samples.jsonl`)) continue;
+    const party = { name: l, dirs: [`${root}live/${l}`] };
+    let count = 0;
+    for (const row of partyRows(party, "events.jsonl")) if (++count > 1000) break;
+    if (count > 1000) parties.push(party);
   }
   const old = ["2026-11-06-tox-ab", "2026-11-07-live", "2026-11-08-lead"].map((d) => `${root}${d}`).filter((d) => existsSync(`${d}/events.jsonl`));
-  if (old.length) parties.push(await loadParty("first", old));
+  if (old.length) parties.push({ name: "first", dirs: old });
   return parties;
 }
 
@@ -140,33 +187,52 @@ const KILL = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
 const bandOf = (l) => (l <= 4 ? "1-4" : l <= 8 ? "5-8" : l <= 14 ? "9-14" : "15+");
 const BANDS = ["1-4", "5-8", "9-14", "15+"];
 
-function sampleIndex(samples) {
-  const ts = samples.map((s) => s.t);
-  return (t) => {
-    let lo = 0;
-    let hi = ts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (ts[mid] <= t) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
+// Reads a party's samples in step with its events. `advance(t)` returns the last sample at or
+// before `t` and keeps the samples of the open fights for `window`.
+function sampleCursor(party) {
+  const stream = partyRows(party, "samples.jsonl");
+  let next = stream.next();
+  let current = next.value;
+  let samples = [];
+  return {
+    advance(t, keepFrom = t - 2000, keepUntil = t) {
+      samples = samples.filter((s) => s.t >= keepFrom);
+      while (!next.done && next.value.t <= t) {
+        current = next.value;
+        if (current.t >= keepFrom && (current.t <= keepUntil || current.t >= t - 2000)) samples.push(current);
+        next = stream.next();
+      }
+      return current;
+    },
+    window(start, end) { return samples.filter((s) => s.t >= start && s.t <= end); },
+    close() { stream.return(); },
   };
 }
 
+
 // ---------------------------------------------------------------- fights of one party
-function fightsOf(party, zonesById) {
-  const { events, samples } = party;
-  const at = sampleIndex(samples);
+// The log is read twice: once to collect the levels the guard printed (`collecting`), which a
+// fight may need before the guard's line, and once to build the fights.
+function fightsOf(party, zonesById, levels = null, collecting = false) {
+  const samples = sampleCursor(party);
+  let sample;
   const memberNames = realNames();
   const fights = [];
+  const closed = [];
+  const flush = (t) => {
+    while (closed.length && t > closed[0].end + 4000) {
+      const f = closed.shift();
+      f.window = samples.window(f.start - 2000, f.end + 1000);
+      fights.push(...finish(party, [f], zonesById, guardLevels, memberNames));
+    }
+  };
   let cur = null;
   let lastClosed = null;
   let pendingEscape = null;
-  const guardLevels = new Map(); // `${zone}|${name}` -> level the guard printed
+  const guardLevels = levels ?? fightsOf(party, zonesById, new Map(), true);
 
   const open = (t) => {
-    const s = samples[at(t)];
+    const s = sample;
     cur = { start: t, last: t, zone: s?.zone ?? null, leaderLevel: s?.lvl ?? null, hits: [], spell: [], kills: [], joins: [], engages: [], deaths: [], escape: null };
     return cur;
   };
@@ -174,13 +240,17 @@ function fightsOf(party, zonesById) {
     if (!cur) return;
     cur.end = cur.last;
     cur.closedBy = why;
-    fights.push(cur);
+    if (!collecting) closed.push(cur);
     lastClosed = cur;
     cur = null;
   };
 
-  for (const e of events) {
+  try {
+  for (const e of partyRows(party, "events.jsonl")) {
     if (cur && e.t - cur.last > QUIET) close("quiet");
+    const keepFrom = collecting ? e.t - 2000 : Math.min(cur?.start ?? e.t, closed[0]?.start ?? e.t) - 2000;
+    sample = samples.advance(e.t, keepFrom, cur ? e.t : Math.max(e.t - 2000, ...closed.map((f) => f.end + 1000)));
+    flush(e.t);
     const text = e.text;
     if (e.type === "guard") {
       const m = ESCAPE_START.exec(text);
@@ -191,7 +261,7 @@ function fightsOf(party, zonesById) {
         }
         const lm = /^(.+?) L(\d+) against leader L(\d+)/.exec(m[2]);
         cur.escape = { t: e.t, trigger: m[1], detail: m[2], mob: lm ? normName(lm[1]) : null, mobLevel: lm ? Number(lm[2]) : null };
-        if (lm) guardLevels.set(`${cur.zone}|${normName(lm[1])}`, Number(lm[2]));
+        if (collecting && lm) guardLevels.set(`${cur.zone}|${normName(lm[1])}`, Number(lm[2]));
         cur.last = Math.max(cur.last, e.t);
         pendingEscape = cur;
         close("escape");
@@ -263,17 +333,25 @@ function fightsOf(party, zonesById) {
     }
   }
   close("end");
-  return finish(party, fights, zonesById, guardLevels, at, memberNames);
+  if (collecting) return guardLevels;
+  const lastEnd = Math.max(-Infinity, ...closed.map((f) => f.end + 1000));
+  samples.advance(lastEnd, Math.min(Infinity, ...closed.map((f) => f.start)) - 2000);
+  flush(Infinity);
+  } finally {
+    samples.close();
+  }
+  for (let i = 0; i < fights.length; i++) {
+    const n = fights[i + 1];
+    fights[i].cycle = n && n.start - fights[i].start < 20 * 60000 ? (n.start - fights[i].start) / 1000 : null;
+    fights[i].toNext = n && n.start - fights[i].end < 20 * 60000 ? (n.start - fights[i].end) / 1000 : null;
+  }
+  return fights;
 }
 
-// A fight that starts with only a kill line, a spell tick or a death is a tail of the previous fight.
-function finish(party, fights, zonesById, guardLevels, at, memberNames) {
-  const { samples } = party;
+function finish(party, fights, zonesById, guardLevels, memberNames) {
   const out = [];
   for (const f of fights) {
-    const i0 = at(f.start - 2000);
-    const i1 = at(f.end + 1000);
-    const window = samples.slice(i0, i1 + 1).filter((s) => s.t >= f.start - 2000 && s.t <= f.end + 1000);
+    const window = f.window;
     const maxHp = new Map();
     const minFrac = new Map();
     const levels = new Map();
@@ -314,7 +392,7 @@ function finish(party, fights, zonesById, guardLevels, at, memberNames) {
     // Every mob the log shows in the fight, hit or not: the guard's level rule looks at all of them.
     const engagedNames = [...new Set([...f.engages, ...f.joins, ...f.kills].map((x) => x.mob).concat([...hitters.keys()]))];
     const engaged = engagedNames.map((name) => ({ name, ...levelOf(name), npc: undefined }));
-    const L = f.leaderLevel ?? samples[at(f.start)]?.lvl ?? null;
+    const L = f.leaderLevel;
     // Damage per victim
     const victims = new Map();
     const addDmg = (v, t, d, kind) => {
@@ -381,13 +459,17 @@ function finish(party, fights, zonesById, guardLevels, at, memberNames) {
         tl: window.map((s) => [s.t, s.party.filter(([n, , mx]) => (n === "me" || memberNames.has(n)) && mx > 0).map(([n, hp, mx]) => [n, hp, mx])]),
       },
     });
+    const summary = out.at(-1);
+    summary.end = f.end;
+    summary.survivorsSafe = survivorsSafe(summary);
+    const rows = timeline(summary);
+    const firstRows = new Set(rules.map(([, pred]) => rows.find(pred)).filter(Boolean));
+    summary.replayRows = rows.filter((row) => firstRows.has(row));
+    delete summary.raw;
   }
-  // Time to the next fight: what each outcome costs in cycle time.
-  out.sort((a, b) => a.start - b.start);
-  for (let i = 0; i < out.length; i++) {
-    const n = out[i + 1];
-    out[i].cycle = n && n.start - out[i].start < 20 * 60000 ? (n.start - out[i].start) / 1000 : null;
-    out[i].toNext = n && n.start - out[i].raw.end < 20 * 60000 ? (n.start - out[i].raw.end) / 1000 : null;
+  for (const summary of out) {
+    summary.cycle = null;
+    summary.toNext = null;
   }
   return out;
 }
@@ -395,30 +477,38 @@ function finish(party, fights, zonesById, guardLevels, at, memberNames) {
 // ---------------------------------------------------------------- coverage (hours of play per band)
 function coverage(party) {
   const hours = Object.fromEntries(BANDS.map((b) => [b, 0]));
-  const s = party.samples;
-  for (let i = 1; i < s.length; i++) {
-    const dt = s[i].t - s[i - 1].t;
-    if (dt > 5000 || s[i - 1].lvl == null) continue;
-    hours[bandOf(s[i - 1].lvl)] += dt / 3600000;
+  let previous;
+  for (const sample of partyRows(party, "samples.jsonl")) {
+    if (sample.zone != null) party.zoneIds.add(sample.zone);
+    if (previous) {
+      const dt = sample.t - previous.t;
+      if (dt <= 5000 && previous.lvl != null) hours[bandOf(previous.lvl)] += dt / 3600000;
+    }
+    previous = sample;
   }
   return hours;
 }
 
 // ---------------------------------------------------------------- main
+const rules = createRules();
 const parties = await loadAll();
-const zoneIds = new Set(parties.flatMap((p) => p.samples.map((s) => s.zone)).filter((z) => z != null));
+const zoneIds = new Set();
+for (const party of parties) {
+  party.zoneIds = zoneIds;
+  party.hours = coverage(party);
+}
 const zonesById = await loadNpcs(zoneIds);
 const all = [];
 const hours = Object.fromEntries(BANDS.map((b) => [b, 0]));
 for (const p of parties) {
   const fs = fightsOf(p, zonesById);
   all.push(...fs);
-  const c = coverage(p);
+  const c = p.hours;
   for (const b of BANDS) hours[b] += c[b];
 }
 
 if (flag("dump")) {
-  for (const f of all) console.log(JSON.stringify({ ...f, raw: undefined }));
+  for (const f of all) console.log(JSON.stringify({ ...f, end: undefined, survivorsSafe: undefined, replayRows: undefined }));
   process.exit(0);
 }
 
@@ -554,20 +644,23 @@ out("\n4. Level escapes against comparable fights that were not escaped (same zo
   const ds = fights.filter((f) => f.escape?.trigger === "down" && f.memberDeaths && !leaderDied(f) && f.leaderLevel <= 14);
   let safe = 0;
   for (const f of ds) {
-    const t = f.firstDeath;
-    const row = f.raw.tl.filter(([st]) => st <= t).at(-1);
-    if (!row) continue;
-    const dead = new Set(f.deaths.map((d) => d.who));
-    const surv = row[1].filter(([n, hp]) => !dead.has(n) && hp > 0);
-    const rate = (n) => sum([...f.raw.hits, ...f.raw.spell].filter((h) => h.victim === n && h.t <= t && h.t > t - 6000).map((h) => h.dmg)) / 6;
-    const minFrac = Math.min(...surv.map(([, hp, mx]) => hp / mx));
-    const ttd = Math.min(...surv.map(([n, hp]) => (rate(n) > 0 ? hp / rate(n) : Infinity)));
-    if (minFrac >= 0.5 && ttd >= 10) safe++;
+    if (f.survivorsSafe) safe++;
   }
   out(`  ${ds.length} fights (leader level <= 14): survivors all >= 50% HP and >= 10 s from death at the member's death in ${safe} (${f1((100 * safe) / Math.max(1, ds.length))}%); fight so far ${f1(mean(ds.map((f) => f.secs)))} s, kills so far ${f1(mean(ds.map((f) => f.kills)))}, mobs ${f1(mean(ds.map((f) => f.nMobs)))}`);
   const stay = fights.filter((f) => !f.escape && f.memberDeaths && !leaderDied(f));
   out(`  Fights where a member died and the guard did not leave: ${stay.length}, ${stay.filter((f) => f.kills).length} ended in a kill; leader deaths without an escape ${fights.filter((f) => !f.escape && leaderDied(f)).length}`);
 }
+function survivorsSafe(f) {
+  const t = f.firstDeath;
+  const row = f.raw.tl.filter(([st]) => st <= t).at(-1);
+  if (!row) return false;
+  const dead = new Set(f.deaths.map((d) => d.who));
+  const surv = row[1].filter(([n, hp]) => !dead.has(n) && hp > 0);
+  const rate = (n) => [...f.raw.hits, ...f.raw.spell].filter((h) => h.victim === n && h.t <= t && h.t > t - 6000).reduce((s, h) => s + h.dmg, 0) / 6;
+  return Math.min(...surv.map(([, hp, mx]) => hp / mx)) >= 0.5 &&
+    Math.min(...surv.map(([n, hp]) => rate(n) > 0 ? hp / rate(n) : Infinity)) >= 10;
+}
+
 
 // ---------------------------------------------------------------- replay of danger rules
 // Rules see what the guard can see once a second: each member's HP and max HP (samples), the damage
@@ -585,7 +678,7 @@ function timeline(f) {
     const row = { t, el: Math.max(0, (t - f.start) / 1000), ttd: Infinity, fracHit: 1, frac: 1, leaderTtd: Infinity, leaderFrac: 1, gap: -99, thr: 0 };
     let hurtMx = Infinity;
     for (const [n, hp, mx] of mem) {
-      const taken6 = sum((dmg.get(n) ?? []).filter(([ht]) => ht <= t && ht > t - 6000).map(([, d]) => d));
+      const taken6 = (dmg.get(n) ?? []).filter(([ht]) => ht <= t && ht > t - 6000).reduce((s, [, d]) => s + d, 0);
       const fr = hp / mx;
       row.frac = Math.min(row.frac, fr);
       if ((dmg.get(n) ?? []).some(([ht]) => ht <= t)) hurtMx = Math.min(hurtMx, mx);
@@ -610,7 +703,7 @@ function timeline(f) {
   }
   return rows;
 }
-const rules = [
+function createRules() { return [
   ["hitter gap >= 3", (r) => r.gap >= 3],
   ["hitter gap >= 4", (r) => r.gap >= 4],
   ["hitter gap >= 5", (r) => r.gap >= 5],
@@ -629,7 +722,7 @@ const rules = [
   ["gap >= 6 or leader <= 50% HP, dead in <= 4 s", (r) => r.gap >= 6 || (r.leaderTtd <= 4 && r.leaderFrac <= 0.5)],
   ["gap >= 6 or any member <= 35% HP, dead in <= 4 s", (r) => r.gap >= 6 || (r.ttd <= 4 && r.fracHit <= 0.35)],
   ["gap >= 5 or any member <= 35% HP, dead in <= 4 s", (r) => r.gap >= 5 || (r.ttd <= 4 && r.fracHit <= 0.35)],
-];
+]; }
 // Time lost with an escape at a row: the fight so far plus the way back. The way back is short when
 // nobody is hurt (what level escapes cost) and as long as the healer escapes' when the party is.
 const backHurt = nextOf("escape healer");
@@ -639,7 +732,7 @@ const escCost = (row) => row.el + (row.frac < 0.7 ? backHurt : backClean);
 out("\n5. Replay of escape rules on fights with an observed outcome (not left for level, hit or healer)");
 out("   saved = fights with a death where the rule fires >= 0.5 s before it, extra = fights without a death where it fires,");
 out("   gain = seconds per party-hour: (what the death fight cost - what the escape costs) for saved, minus the escape's cost for extra");
-const replayed = taken.map((f) => ({ f, rows: timeline(f) }));
+const replayed = taken.map((f) => ({ f, rows: f.replayRows }));
 for (const [lo, hi, label, bands] of [[1, 8, "leader level 1-8", ["1-4", "5-8"]], [9, 99, "leader level 9+", ["9-14", "15+"]]]) {
   const h = sum(bands.map((b) => hours[b]));
   const rs = replayed.filter(({ f }) => f.leaderLevel >= lo && f.leaderLevel <= hi);

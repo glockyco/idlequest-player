@@ -5,6 +5,7 @@
 // reports at a time, on a machine whose swap was nearly full that day. So a reader finds where
 // its window starts and reads from there.
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 
 const CHUNK = 1 << 16;
 // Lines of different sources can lie a little out of order, so the search stops this far ahead of
@@ -43,6 +44,63 @@ const readFrom = (fd, size, pos) => {
   return buf.toString("utf8");
 };
 
+function windowStart(fd, size, since) {
+  let lo = 0;
+  let hi = size;
+  while (hi - lo > CHUNK) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    const t = timeAfter(fd, size, mid);
+    if (t == null || t >= since - SLACK_MS) hi = mid;
+    else lo = mid;
+  }
+  return lo;
+}
+
+/** Stream parseable rows from a snapshot of a log, seeking before the requested time window. */
+export function* streamJsonlSince(path, since = -Infinity) {
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    let pos = windowStart(fd, size, since);
+    let skip = pos > 0;
+    let pending = "";
+    const decoder = new StringDecoder("utf8");
+    const buf = Buffer.alloc(CHUNK);
+    const parse = (line) => {
+      try {
+        const row = JSON.parse(line);
+        return row.t >= since ? row : null;
+      } catch {
+        return null;
+      }
+    };
+    while (pos < size) {
+      const n = readSync(fd, buf, 0, Math.min(buf.length, size - pos), pos);
+      if (!n) break;
+      pos += n;
+      pending += decoder.write(buf.subarray(0, n));
+      let from = 0;
+      let end;
+      while ((end = pending.indexOf("\n", from)) >= 0) {
+        if (skip) skip = false;
+        else {
+          const row = parse(pending.slice(from, end));
+          if (row) yield row;
+        }
+        from = end + 1;
+      }
+      pending = pending.slice(from);
+    }
+    pending += decoder.end();
+    if (!skip && pending) {
+      const row = parse(pending);
+      if (row) yield row;
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /**
  * The rows of the JSONL file `path` with `t >= since`, in the file's order, found by a search over
  * the file's bytes and read from there to the end, not from the start. A file that does not exist
@@ -52,14 +110,7 @@ export function readJsonlSince(path, since) {
   const fd = openSync(path, "r");
   try {
     const size = fstatSync(fd).size;
-    let lo = 0;
-    let hi = size;
-    while (hi - lo > CHUNK) {
-      const mid = lo + Math.floor((hi - lo) / 2);
-      const t = timeAfter(fd, size, mid);
-      if (t == null || t >= since - SLACK_MS) hi = mid;
-      else lo = mid;
-    }
+    const lo = windowStart(fd, size, since);
     const text = readFrom(fd, size, lo);
     const rows = [];
     for (const line of (lo > 0 ? text.slice(text.indexOf("\n") + 1) : text).split("\n")) {

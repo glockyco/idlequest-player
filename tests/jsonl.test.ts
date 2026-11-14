@@ -3,7 +3,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lastJsonl, readJsonlSince } from "../tools/lib/jsonl.mjs";
+import { lastJsonl, readJsonlSince, streamJsonlSince } from "../tools/lib/jsonl.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "iq-jsonl-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -17,6 +17,7 @@ test("a window's rows come from where the window starts, the same as from a whol
   writeFileSync(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
   for (const since of [T0 - 5000, T0 + 1, T0 + 1_400_500, T0 + 3_990_000, T0 + 30_000_000]) {
     expect(readJsonlSince(file, since)).toEqual(rows.filter((r) => r.t >= since));
+    expect([...streamJsonlSince(file, since)]).toEqual(rows.filter((r) => r.t >= since));
   }
   expect(lastJsonl(file)).toEqual(rows.at(-1));
 });
@@ -41,4 +42,18 @@ test("cut and glued lines do not hide valid rows", () => {
   writeFileSync(file, '{"t":');
   expect(readJsonlSince(file, 0)).toEqual([]);
   expect(lastJsonl(file)).toBeNull();
+});
+
+test("streaming handles chunk boundaries, missing newlines and interrupted rows", () => {
+  const file = join(dir, "stream.jsonl");
+  const rows = [{ t: 1, text: "ä".repeat(40000) }, { t: 2, text: "z".repeat(150000) }, { t: 3 }];
+  writeFileSync(file, rows.map(JSON.stringify).join("\n"));
+  expect([...streamJsonlSince(file)]).toEqual(rows);
+  writeFileSync(file, '{"t":1}\ninvalid\n{"t":2}\n{"t":');
+  expect([...streamJsonlSince(file)]).toEqual([{ t: 1 }, { t: 2 }]);
+  const stream = streamJsonlSince(file);
+  expect(stream.next().value).toEqual({ t: 1 });
+  expect(stream.return().done).toBe(true);
+  writeFileSync(file, "");
+  expect([...streamJsonlSince(file)]).toEqual([]);
 });
