@@ -121,11 +121,13 @@ test("a hunt is valued at its kill chance, and every fight pays its deaths", () 
   const half = at({ ...sure, p: 0.5 })!;
   expect(half.hours).toBeCloseTo(at(sure)!.hours * 2);
   // A leader death per fight costs its time and its XP at the leader's pace, for each of the four
-  // fights a copy takes at a 50% drop and a 50% chance.
+  // fights a copy takes at a 50% drop and a 50% chance, and each of the two fights lost costs 125 s
+  // without XP.
   const dying = { ...sure, p: 0.5, deaths: 1, leaderDeaths: 1 };
   const perFight = 85 / 3600 + (30 * 30 * 666.67) / ((xpStart(31) - xpStart(30)) / 2);
   expect(deathHours(tab(30, "paw"), dying, pace)).toBeCloseTo(perFight);
-  expect(at(dying)!.cost).toBeCloseTo(4 * perFight);
+  expect(at(dying)!.cost).toBeCloseTo(4 * perFight + (2 * 125) / 3600);
+  expect(at({ ...sure, p: 0.5 })!.cost).toBeCloseTo((2 * 125) / 3600);
 });
 
 test("a trip pays its zone's cost once and adds each enemy's drops", () => {

@@ -48,6 +48,10 @@ export const ACQUIRE = {
 // after it (`bun tools/fights.mjs`, "What escapes and deaths cost"), as the bot's `DEATH_EXTRA_SEC`.
 // A leader's death also costs level squared times 666.67 XP, and a companion's costs no XP.
 const DEATH_SEC = { member: 38, leader: 85 };
+// What a lost fight costs, in seconds of the party's time without XP: the fight and the wait after
+// it, about 125 s for the guard's healer and dying escapes against 64 s for a won fight (`bun
+// tools/fights.mjs`, "What escapes and deaths cost").
+const LOST_SEC = 125;
 
 // A sure kill without deaths, for a way valued apart from any group's chance.
 const SURE = { p: 1, fights: 0, deaths: 0, leaderDeaths: 0 };
@@ -146,7 +150,8 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  * `{ kind, hours, value, cost }` for one copy or one visit, in hours of the group's progress, on
  * expected value at the group's kill chance `k` (`killChanceOf`, a sure kill by default):
  * - errand: inside the group's rotation, `hours` the expected hunting until the first wanted copy
- *   (`copyHours` at the group's `killsPerHour`, stretched by the fights it loses), free;
+ *   (`copyHours` at the group's `killsPerHour`, stretched by the fights it loses), free but for
+ *   the fights it loses to the target, each `LOST_SEC` without XP;
  * - camp: outside it, the same hours, all of them a cost, since a camp holds the enemy's points with
  *   the client's Spawn Camp and earns no XP while it waits for their respawns;
  * - visit: outside it, `visitHours`, worth the chance the enemy is up on arrival (`upChanceOf`,
@@ -175,7 +180,8 @@ export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, k
   const base = { hours, value: perHour * hours, copies, values, killChance: k.p };
   if ((t.rotation ?? []).includes(x.zone)) {
     const shared = tabs.some((o) => o !== t && o.zone === x.zone) ? ACQUIRE.sharedCost : 0;
-    return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths }];
+    const lost = ((1 - k.p) / (k.p * Math.max(anyDrop, 1e-6))) * (LOST_SEC / 3600);
+    return [{ kind: "errand", ...base, zoneRate: shared, cost: shared * hours + deaths + lost }];
   }
   const up = upChanceOf(x, upSeen?.(x));
   const visitValue = k.p * up * x.items.reduce((s, w, j) => s + (w.drop ?? 1) * values[j], 0);

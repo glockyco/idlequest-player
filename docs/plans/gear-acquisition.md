@@ -61,7 +61,7 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | --- | --- | --- | --- |
 | Move | none | none | the account holds a free copy (the gear plan's moves) |
 | Purchase | none | platinum | a merchant in a city sells it, within the pass's platinum budget |
-| Errand | hours per copy | 0, or `sharedCost` when another group plays the zone | the enemy's zone is in the group's rotation |
+| Errand | hours per copy | 0, or `sharedCost` when another group plays the zone, plus 125 s without XP for each fight lost to the enemy (`LOST_SEC`) | the enemy's zone is in the group's rotation |
 | Camp | hours per copy | 1, since the client's Spawn Camp holds the enemy's points and earns no XP while it waits for their respawns | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival (`upChanceOf`: the spawn tables' `1 - (1 - spawn)^points` as two visits beside what the visits so far found), times the kill chance and each drop chance and copy value |
 
