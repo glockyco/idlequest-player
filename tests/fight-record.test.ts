@@ -14,6 +14,8 @@ test("a defeat line is a kill, a guard escape naming its enemy is an escape, and
     { t: T0 + 3, type: "EXPERIENCE_GAIN", text: "You gain experience!! (1107392)" },
     // An escape counts against every enemy of the fight, each name once.
     { t: T0 + 4, type: "guard", text: "[guard] escape done", escape: "down", npc: "Korucust`s_Courier", leaderLevel: 57, mobs: [{ id: 1, name: "Korucust`s_Courier" }, { id: 2, name: "Arch_Inspector_Nibi`zi" }, { id: 3, name: "an imperial construct" }, { id: 4, name: "an imperial construct" }] },
+    // A fight a task left was not lost.
+    { t: T0 + 5, type: "guard", text: "[guard] escape done", escape: "a task waited 45 s for the fight to end", npc: null, leaderLevel: 57, mobs: [{ id: 5, name: "a rock golem" }] },
   ];
   expect(fightOutcomes(events, 52)).toEqual([
     { t: T0, npc: "lady vox", level: 52, outcome: "kill", rule: null },

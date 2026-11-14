@@ -17,6 +17,10 @@ const KILL = /^You have defeated (.+?) and gained/;
  */
 export const npcKey = (name) => String(name).replace(/[#_-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 
+// The guard's rules that leave a fight for what its enemies do (`guardDanger` in src/bridge.js).
+// A fight a task or the slow-fight rule left was not lost.
+const LOST = new Set(["level", "hit", "dying", "down", "healer"]);
+
 /**
  * The kills and escapes among one tab's `events`, whose leader is at `level`: rows
  * `{ t, npc, level, outcome, rule }`. An escape counts once against every enemy of the fight it
@@ -29,7 +33,7 @@ export function fightOutcomes(events, level) {
   for (const e of events) {
     const kill = e.type === "EXPERIENCE_GAIN" && KILL.exec(e.text ?? "");
     if (kill) out.push({ t: e.t, npc: npcKey(kill[1]), level, outcome: "kill", rule: null });
-    else if (e.type === "guard" && e.escape) {
+    else if (e.type === "guard" && LOST.has(e.escape)) {
       const names = new Set([e.npc, ...(e.mobs ?? []).map((m) => m.name)].filter(Boolean).map(npcKey));
       for (const npc of names) out.push({ t: e.t, npc, level: e.leaderLevel ?? level, outcome: "escape", rule: e.escape });
     }
