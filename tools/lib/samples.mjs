@@ -8,5 +8,8 @@
  */
 export const activeOf = (s) => s.cid ?? `${s.lv?.length ?? ""}/${s.party?.[1]?.[0] ?? ""}`;
 
-/** The XP the active character gained from sample `a` to `b`: null without XP or across a switch. */
-export const xpStep = (a, b) => (a.xp != null && b.xp != null && activeOf(a) === activeOf(b) ? b.xp - a.xp : null);
+/**
+ * The XP the active character gained from sample `a` to `b`, its AA experience (`aaXp`) included,
+ * which is all a character at level 60 gains: null without XP or across a switch.
+ */
+export const xpStep = (a, b) => (a.xp != null && b.xp != null && activeOf(a) === activeOf(b) ? b.xp - a.xp + (a.aaXp != null && b.aaXp != null ? b.aaXp - a.aaXp : 0) : null);

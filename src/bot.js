@@ -3511,9 +3511,13 @@
       const first = lastHalfHour[0];
       const last = lastHalfHour.at(-1);
       // Steps between samples of one character, since a switch puts another character's XP into
-      // the next sample (tools/lib/samples.mjs).
+      // the next sample, with its AA experience, which is all a character at 60 gains
+      // (tools/lib/samples.mjs).
       let gained = 0;
-      for (let k = 1; k < lastHalfHour.length; k++) if (lastHalfHour[k].cid === lastHalfHour[k - 1].cid) gained += lastHalfHour[k].xp - lastHalfHour[k - 1].xp;
+      for (let k = 1; k < lastHalfHour.length; k++) {
+        const [a, b] = [lastHalfHour[k - 1], lastHalfHour[k]];
+        if (a.cid === b.cid) gained += b.xp - a.xp + (a.aaXp != null && b.aaXp != null ? b.aaXp - a.aaXp : 0);
+      }
       const xpPerHour = first && last && last.t - first.t > 300000 ? Math.round((gained / (last.t - first.t)) * 3600000) : null;
       const withVis = lastHalfHour.filter((s) => s.vis != null);
       const newer = state.alerts.filter((a) => a.seq > sinceSeq);

@@ -111,7 +111,7 @@ export async function backfillMinutes(db, runs, groupOf, since) {
       if (!line) continue;
       try {
         const s = JSON.parse(line);
-        if (s.t >= since - MINUTE_MS) rows.set(`${s.ses}:${s.seq}`, { ses: s.ses, t: s.t, act: s.act, why: s.why, xp: s.xp, cid: activeOf(s) });
+        if (s.t >= since - MINUTE_MS) rows.set(`${s.ses}:${s.seq}`, { ses: s.ses, t: s.t, act: s.act, why: s.why, xp: s.xp, aaXp: s.aaXp, cid: activeOf(s) });
       } catch {
         /* a line cut short by a crash */
       }

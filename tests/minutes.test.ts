@@ -8,7 +8,7 @@ import { MinuteFolder, RETENTION_MS, backfillMinutes, foldMinutes, pruneMinutes,
 
 const MIN = 60000;
 const T0 = 1000 * MIN; // a minute boundary
-type Sample = { ses: number; seq?: number; t: number; act: string; why?: string; xp?: number | null; lv?: number[]; party?: unknown[] };
+type Sample = { ses: number; seq?: number; t: number; act: string; why?: string; xp?: number | null; aaXp?: number | null; cid?: number; lv?: number[]; party?: unknown[] };
 const at = (sec: number, over: Partial<Sample> = {}): Sample => ({ ses: 1, t: T0 + sec * 1000, act: "fight", xp: 1000, ...over });
 
 test("seconds count by activity and cause in the minute of the later sample, and gaps are not play time", () => {
@@ -48,6 +48,13 @@ test("a switch between characters whose parties look alike is not XP gained, bec
   const alone = { lv: [51], party: [["me"]] };
   const totals = foldMinutes(null, [at(0, { xp: 40_000_000, cid: 1, ...alone }), at(1, { xp: 18_000_000, cid: 2, ...alone }), at(2, { xp: 18_000_400, cid: 2, ...alone })]);
   expect(totals.get(T0 / MIN).xp).toBe(400);
+});
+
+test("a character at 60 gains only AA experience, which counts as XP, also across a point earned", () => {
+  const cap = { lv: [60], party: [["me"]], cid: 1, xp: 554_593_366 };
+  // `aaXp` is the points held and spent times 75M plus the progress toward the next point.
+  const totals = foldMinutes(null, [at(0, { ...cap, aaXp: 74_900_000 }), at(1, { ...cap, aaXp: 75_000_000 + 8_000 }), at(2, { ...cap, aaXp: null })]);
+  expect(totals.get(T0 / MIN).xp).toBe(108_000);
 });
 
 test("a recorder session change pairs with nothing", () => {

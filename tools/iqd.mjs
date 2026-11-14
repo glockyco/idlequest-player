@@ -1094,7 +1094,7 @@ export class Daemon {
         if (!line) continue;
         try {
           const s = JSON.parse(line);
-          out.push({ ses: s.ses, t: s.t, act: s.act, why: s.why, busy: s.busy, lvl: s.lvl, xp: s.xp, zone: s.zone, cid: s.cid });
+          out.push({ ses: s.ses, t: s.t, act: s.act, why: s.why, busy: s.busy, lvl: s.lvl, xp: s.xp, aaXp: s.aaXp, zone: s.zone, cid: s.cid });
         } catch {
           /* a line cut short by a crash */
         }

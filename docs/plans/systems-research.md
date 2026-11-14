@@ -42,6 +42,8 @@ So ranks come last in the account's coin and in an order (`aaPlan` and `AA_POLIC
 
 Open until the first character holds a point at 60: the purchase has run only against the tests' stand-in for the server, the price of 2,000 platinum is the client's and no rank has been paid yet, the order does not skip a stat at its cap, and a group whose leader is poor trains nothing while another's is rich.
 
+A character at 60 gains AA experience instead of XP: kills keep their XP lines and the profile's `aaExp` grows, while `experienceProgress` stands still. `aaExp` is the progress toward the next point, the window's bar is `aaExp / 75,000,000` (`Kze` in the combat bundle), and its points held and spent count the rest. Each sample records the sum as `aaXp`, and every XP rate counts it (`xpStep` in `tools/lib/samples.mjs`). The members' shares of a kill do not change when a character reaches 60.
+
 ## 2. Tradeskills
 
 ### Availability and mechanics

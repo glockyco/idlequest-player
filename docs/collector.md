@@ -220,7 +220,7 @@ At the first look after a raid kill, the collector saves a screenshot to the rep
 
 The bridge labels every recorded second with what the party does (`act`, and `why` for idle and travel time): fight, approach, recover, travel, task, dead or idle. The labels and their order are in the "Activity" section of `src/bridge.js`, `iq.activity()` returns the current one and `iq.activitySeconds(ms)` sums them.
 
-Limits of what the page offers: only the leader has an XP value (`experienceProgress`), so party members are stored with level, HP and mana only. The kill log carries the enemy's raw name with underscores and nothing else. Per-hour rates come from the kills of the last 30 minutes.
+Limits of what the page offers: only the leader has an XP value (`experienceProgress`, and `aaExp` for its AA experience), so party members are stored with level, HP and mana only. The kill log carries the enemy's raw name with underscores and nothing else. Per-hour rates come from the kills of the last 30 minutes.
 
 ## Attention items
 

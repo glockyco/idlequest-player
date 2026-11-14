@@ -567,6 +567,9 @@
       cid: p.id,
       lvl: p.level,
       xp: p.experienceProgress?.current ?? null, // absolute XP, continuous across levels
+      // All AA experience earned: a point is 75,000,000 (`Kze` in the client's AA window), and
+      // `aaExp` is the progress toward the next one. A character at 60 earns only this.
+      aaXp: p.aaExp != null ? ((p.aaPoints ?? 0) + (p.aaPointsSpent ?? 0)) * 75e6 + p.aaExp : null,
       zone: cb.currentZone,
       // The profile's x/y is only set on zone entry. The client's own position packets are the truth.
       x: lastPos?.x ?? null,
