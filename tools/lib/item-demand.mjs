@@ -57,9 +57,10 @@ export function chainDemand({ epicNeeds, epics, members, epicHolders = new Map()
 
 /**
  * Copies of the items the runnable chains of `data/quests.json` use, which can go another way than
- * the epic model's chosen steps: one copy of each step's items for every class member, at any
- * level, that does not hold the chain (`holders`), and one copy of each item that shows a chain done
- * (`doneItems`) for every class member. `ids` maps an item name to its ids.
+ * the epic model's chosen steps, and of the gear quests' chains: one copy of each step's items for
+ * every runner, at any level, that does not hold the chain (`holders`), and one copy of each item
+ * that shows a chain done (`doneItems`) for every runner. A chain's runners are those it names in
+ * `for`, else the members of its class. `ids` maps an item name to its ids.
  */
 export function stepDemand({ quests, holders = {}, members, ids }) {
   const out = {};
@@ -67,7 +68,7 @@ export function stepDemand({ quests, holders = {}, members, ids }) {
     for (const id of exact[name] != null ? [exact[name]] : ids.get(name) ?? []) out[id] = (out[id] ?? 0) + n;
   };
   for (const [id, q] of Object.entries(quests)) {
-    const ofClass = members.filter((m) => m.class === q.class);
+    const ofClass = members.filter((m) => (q.for ? q.for.includes(m.name) : m.class === q.class));
     for (const name of doneItems(id, quests)) add(name, ofClass.length, q.ids);
     const open = ofClass.filter((m) => !(holders[id] ?? []).includes(m.name)).length;
     if (!open) continue;

@@ -137,6 +137,8 @@ bun tools/raid-kit.mjs --boss 72003 --seeds 6   # Cazic-Thule
 
 Kill odds uses the newest saved client release that has a table in `tools/raidsim/clients.mjs`. It prints a notice when a newer saved release lacks a table. A failed group or raid simulation is saved as an error for that variant, while the remaining variants and targets proceed. Errors are not treated as fresh successful results on the next run.
 
+`tools/gear-quests.mjs` writes the quest rewards the gear plan can take to `runs/state/gear-quests.json`: every wearable item a quest script in a live zone gives, with the classes that can get it, the epic model's cost, its hunted pieces and its chains. It runs only when the content's source commit changed since the last file, or with `--force`, and takes about half a minute.
+
 ## Measuring play
 
 The bridge records one sample per second (level, XP, position, combat state, every party member's

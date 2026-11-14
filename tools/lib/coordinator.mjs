@@ -96,10 +96,14 @@ export function aaPlan({ characters, totalPp, policy = AA_POLICY }) {
 /** Game hours count as night from 20 to 5, as the client's spell time rules do. */
 export const isNight = (hour) => hour != null && (hour >= 20 || hour < 5);
 
-/** The `members` of quest chain `id`'s class and level who do not hold the chain (`holders`). */
+/**
+ * The `members` who still run quest chain `id`: those it names in `for`, as a gear quest names the
+ * characters its reward improves, else those of its class, at its level and without the chain
+ * (`holders`).
+ */
 export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
   const q = quests[id];
-  return members.filter((m) => m.class === q.class && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
+  return members.filter((m) => (q.for ? q.for.includes(m.name) : m.class === q.class) && (m.level ?? 0) >= (q.minLevel ?? 1) && !(holders[id] ?? []).includes(m.name)).map((m) => m.name);
 }
 
 /**
@@ -122,7 +126,8 @@ export function doneItems(id, quests, seen = new Set()) {
 }
 
 /**
- * Where each quest chain stands, for the dashboard: its class, reward and level, `holders` (carry
+ * Where each quest chain stands, for the dashboard: its class, the runners a gear quest names in
+ * `for`, its reward and level, `holders` (carry
  * the reward or an item that stands for it), `started` (carry an item of the chain, not holders)
  * and `needers` (`chainNeeders`: members of the class and level who do not hold it yet).
  */
@@ -130,7 +135,7 @@ export function chainSummary({ quests = {}, holders = {}, started = {}, members 
   return Object.fromEntries(
     Object.entries(quests).map(([id, q]) => [
       id,
-      { class: q.class, reward: q.reward, minLevel: q.minLevel ?? 1, holders: holders[id] ?? [], started: (started[id] ?? []).filter((n) => !(holders[id] ?? []).includes(n)), needers: chainNeeders(id, { quests, holders, members }) },
+      { class: q.class, ...(q.for ? { for: q.for } : {}), reward: q.reward, minLevel: q.minLevel ?? 1, holders: holders[id] ?? [], started: (started[id] ?? []).filter((n) => !(holders[id] ?? []).includes(n)), needers: chainNeeders(id, { quests, holders, members }) },
     ]),
   );
 }

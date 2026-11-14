@@ -173,7 +173,10 @@ to the boss plan's raids, and Most wanted shows it as "by raid". `docs/plans/gea
 model and its assumptions. The dashboard lists every enemy a group hunts or has queued and the top
 other targets as Most wanted, each with which group would hunt it for whom, what a copy takes, adds
 and costs, and why it is or is not hunted. The wants stay in the db meta key `gear`, so a restart
-keeps them.
+keeps them. Quest rewards are a source too: the plan wants a reward a quest script gives when its
+value exceeds its chain's hours, the coordinator runs the reward's chains (`gear-...`) for the
+characters it improves, and its pieces join the targets (`runs/state/gear-quests.json`, which
+`bun tools/gear-quests.mjs` writes once per content version after the collector starts).
 
 ## Page supervisor
 

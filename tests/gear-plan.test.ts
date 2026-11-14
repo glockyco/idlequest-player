@@ -346,6 +346,24 @@ test("the off hand keeps a plain blade over one whose proc hits a kind of enemy 
   expect(moves({ 24: 1 })).toEqual([["Koshigatana", "secondary"]]);
 });
 
+test("a quest reward goes to the characters of its classes it improves, once each, as the gate allows, with its pieces as targets", () => {
+  const people = [
+    { name: "War", cls: "warrior", level: 30, race: "" },
+    { name: "Pal", cls: "paladin", level: 30, race: "" },
+    { name: "Cloaked", cls: "warrior", level: 30, race: "" },
+  ];
+  // War wears the plain cloak and Cloaked the fine one, and no Paladin can get the reward.
+  const survey = [row("War", 2, "Equipped", 8, 1), row("Cloaked", 1, "Equipped", 8, 2)];
+  const piece = { itemId: 900, name: "Scale", sources: [{ zone: "z", npc: "a drake", npcLevel: 28, hours: 1, drop: 1, spawn: 1 }] };
+  const quests = [{ rewardId: 1, classes: ["warrior"], pieces: [piece] }];
+  const plan = planGear({ survey, items, people, quests });
+  expect(plan.quests.map((q) => [q.item, q.to, q.slot])).toEqual([["Fine Cloak", "War", "back"]]);
+  expect(plan.targets.map((t) => [t.npc, t.items.map((i) => [i.to, i.slot])])).toEqual([["a drake", [["War", "quest"]]]]);
+  // A reward the gate finds not worth its chain asks for nothing and makes no hunt.
+  const gated = planGear({ survey, items, people, quests, questWorth: () => false });
+  expect([gated.quests, gated.targets]).toEqual([[], []]);
+});
+
 test("two-handed epic targets pay for removing either a shield or an off-hand weapon", () => {
   for (const cls of ["warrior", "paladin", "shadowknight"]) for (const off of [6, 7]) {
     const people = [{ name: "P", cls, level: 30, race: "" }];

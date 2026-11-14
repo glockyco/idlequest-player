@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { arrayLiteral } from "../tools/lib/client-tables.mjs";
 import { ALL_COPIES, addDemand, chainDemand, handInDemand, potionDemand, stepDemand, tabShares } from "../tools/lib/item-demand.mjs";
+import { chainNeeders } from "../tools/lib/coordinator.mjs";
 
 test("chain demand counts each reward's step items once per member that still needs the epic, and one reward per member", () => {
   const epicNeeds = new Map([[10, { 20: 1, 21: 2 }]]);
@@ -30,6 +31,16 @@ test("step demand keeps an open chain's items for its class and a done chain's p
   expect(stepDemand({ quests, members, ids })).toEqual({ 1: 2, 2: 4 });
   // Both Paladins done: the input goes, the note that proves it stays.
   expect(stepDemand({ quests, holders: { note: ["P", "Q"] }, members, ids })).toEqual({ 2: 2 });
+});
+
+test("a gear quest's chain counts its items and its runners for the characters it names, whatever their class", () => {
+  const members = [{ name: "P", class: "Paladin", level: 50 }, { name: "Q", class: "Paladin", level: 50 }, { name: "W", class: "Warrior", level: 50 }];
+  const quests = { "gear-paladin-7-7": { class: "Paladin", for: ["Q", "W"], reward: "Bracer", steps: [{ zone: "z", npc: "n", give: ["Scale"], expect: "Bracer" }] } };
+  const ids = new Map([["Bracer", [7]], ["Scale", [8]]]);
+  // Q and W run it, P is not named. W already holds the bracer: each runner keeps one as proof and Q
+  // needs a scale and one more bracer for its open step.
+  expect(stepDemand({ quests, holders: { "gear-paladin-7-7": ["W"] }, members, ids })).toEqual({ 7: 3, 8: 1 });
+  expect(chainNeeders("gear-paladin-7-7", { quests, holders: { "gear-paladin-7-7": ["W"] }, members })).toEqual(["Q"]);
 });
 
 test("boss potions are one copy each, and demand maps add up", () => {

@@ -65,8 +65,19 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | Errand | hours per copy | 0, or `sharedCost` when another group plays the zone, plus 125 s without XP for each fight lost to the enemy (`LOST_SEC`) | the enemy's zone is in the group's rotation |
 | Camp | hours per copy | 1, since the client's Spawn Camp holds the enemy's points and earns no XP while it waits for their respawns | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival (`upChanceOf`: the spawn tables' `1 - (1 - spawn)^points` as two visits beside what the visits so far found), times the kill chance and each drop chance and copy value |
+| Quest | the chain's steps, about 6 minutes each with the walk, and the model's cost of its pieces | 1 | a quest script in a live zone gives the item, and its value to the taker exceeds those hours |
 
 A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. It notes which of its enemies stood when it arrived (`up` of the hunt task), and the coordinator counts for each target how many of the visits that looked for it found it. When none is up, it names the first respawn of the enemy's spawn points (`watch` of `iqBot.hunt`), and the coordinator sends the next visit then instead of after an hour. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
+
+### Quest rewards
+
+A wearable item that a quest script gives is a source like a drop. The epic model reads every script, so a quest reward gets what an epic gets: a tree of the cheapest way per class (`epicTree`), its hunted pieces (`huntPieces`) and its chains (`epicChains`). Only a reward whose tree has a finite cost and no step kind the bot lacks counts, and one whose cheapest way is to loot it stays a drop.
+
+- The gear plan values a quest reward for each character of a class that can get it, like a drop: the best one per slot that beats what the character wears after the moves by `2 * minGain` (`quests` of `planGear`).
+- A reward is worth its chain when its value to the taker, in hours of its group's progress (`copyValue`), exceeds the chain's hours: its steps at 0.1 hours each and the model's cost of its pieces. The plan drops the others before they make piece hunts.
+- Its pieces join the hunt targets with slot "quest", each worth the reward's gain shared by its pieces, as an epic's pieces are.
+- The coordinator runs the reward's chains (ids `gear-...`) for its takers only (`for` of the chain), not for every character of the class, and keeps their pieces from being sold.
+- A gear chain's holders come from the gear pass's survey, not from a search each pass, because a search per item is a request to the server.
 
 ## Where the copies are
 

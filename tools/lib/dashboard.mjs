@@ -218,7 +218,7 @@ export function taskName(catalog, id) {
   const o = catalog.opportunities.get(id);
   if (o) return o.item;
   const q = catalog.quests[id];
-  if (q) return `${q.class} quest for ${q.reward}`;
+  if (q) return q.for ? `quest for ${q.reward}` : `${q.class} quest for ${q.reward}`;
   const f = catalog.farms.get(id);
   if (f) return `${f.keep} farm in ${zoneName(catalog, f.zone)}`;
   const target = catalog.targets.get(id);

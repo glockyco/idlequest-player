@@ -732,9 +732,14 @@ export class Daemon {
       /* no quests file */
     }
     // The chains the epic model generates run beside the hand-kept ones (docs/plans/epic-model.md,
-    // step 2), apart from the parts a hand-kept chain covers (`uncovered`).
+    // step 2), apart from the parts a hand-kept chain covers (`uncovered`), and so do the chains of
+    // the quest rewards the last gear pass wanted, each run by the characters it improves
+    // (docs/plans/gear-acquisition.md, "Quest rewards").
     this.itemModel ??= await loadItemModel();
-    const quests = { ...handQuests, ...uncovered(this.itemModel.chains, handQuests) };
+    const takersOf = new Map();
+    for (const w of metaGet(this.db, "gear")?.quests ?? []) takersOf.set(w.rewardId, [...(takersOf.get(w.rewardId) ?? []), w.to]);
+    const gearChains = Object.fromEntries(((await this.gearQuests())?.rewards ?? []).filter((q) => takersOf.has(q.rewardId)).flatMap((q) => q.chains.map(({ id, chain }) => [id, { ...chain, for: takersOf.get(q.rewardId) }])));
+    const quests = { ...handQuests, ...uncovered(this.itemModel.chains, handQuests), ...gearChains };
     // One search per item and pass, since chains share items. The page's `query` asks a slow
     // server up to three times, in at most 30 s.
     const searched = new Map();
@@ -766,25 +771,30 @@ export class Daemon {
     const members = tabs.flatMap((t) => t.members);
     // `ids` maps an item name to its id where the chain has one. Generated chains may suffix a
     // name with ` [id]`, so searches use `plainName`. Done items can come from later chains of
-    // the same class, so their `ids` are merged in for the holder lookup.
+    // the same class, so their `ids` are merged in for the holder lookup. A gear chain keeps its
+    // own `ids`, and its holders and pieces come from the last gear pass's survey, which costs no
+    // request to the server.
     const matches = (row, item, ids) => ids?.[item] != null ? row.itemId === ids[item] : row.item === item;
-    const carriers = async (item, ids) => (await search(plainName(item))).filter((m) => matches(m, item, ids)).map((m) => m.who);
+    const surveyed = Object.keys(gearChains).length ? JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]")).map((r) => ({ who: r.characterName, item: r.itemName, itemId: r.itemId, n: r.quantity ?? 1 })) : [];
+    const inSurvey = async (name) => surveyed.filter((m) => m.item === name);
+    const carriers = async (item, ids, find = search) => (await find(plainName(item))).filter((m) => matches(m, item, ids)).map((m) => m.who);
     const classIds = {};
-    for (const q of Object.values(quests)) Object.assign((classIds[q.class] ??= {}), q.ids ?? {});
+    for (const q of Object.values(quests)) if (!q.for) Object.assign((classIds[q.class] ??= {}), q.ids ?? {});
     for (const [id, q] of Object.entries(quests)) {
-      const ids = { ...classIds[q.class], ...q.ids };
+      const find = q.for ? inSurvey : search;
+      const ids = q.for ? q.ids : { ...classIds[q.class], ...q.ids };
       // A character is done with a chain while it carries an item that shows it (`doneItems`): the
       // reward, or what the reward was spent on, so a spent reward does not restart the chain.
-      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map((n) => carriers(n, ids)))).flat())];
+      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map((n) => carriers(n, ids, find)))).flat())];
       // A step's item shows progress only once the chain's needed pieces lie behind it
       // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
-      started[id] = [...new Set((await Promise.all(progressItems(q).map((n) => carriers(n, q.ids)))).flat())];
+      started[id] = [...new Set((await Promise.all(progressItems(q).map((n) => carriers(n, q.ids, find)))).flat())];
       if (!q.needs?.length) continue;
       // A copy a needer of the chain carries is its own: it is not free for others (`have`), it
       // counts for that needer (`own`), and a needer that carries every piece runs like one part
       // way through.
       const needers = chainNeeders(id, { quests, holders, members });
-      const rows = await Promise.all(q.needs.map(async (n) => (await search(plainName(n))).filter((m) => matches(m, n, q.ids))));
+      const rows = await Promise.all(q.needs.map(async (n) => (await find(plainName(n))).filter((m) => matches(m, n, q.ids))));
       q.needs.forEach((n, k) => { const key = q.ids?.[n] ?? n; have[key] = Math.min(have[key] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0)); });
       q.needs.forEach((n, k) => {
         const free = rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0);
@@ -880,7 +890,7 @@ export class Daemon {
     await loadPoints(this.targetWants.map((x) => ({ key: targetId(x), zone: x.zone, pattern: `^${x.npc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$` })));
     // The account's demand (docs/plans/items.md, "Demand"): total copies for the items the class
     // epics' chosen steps take (the epic model), the items of the runnable chains in
-    // data/quests.json, the copies the hunts and errands are for and the casino's boss potions, and
+    // data/quests.json and of the wanted gear quests' chains, the copies the hunts and errands are for and the casino's boss potions, and
     // the last gear pass's copies still to acquire. The model is read once, and the gear counts stay
     // in the db meta key `gearKeep`, so a restart keeps them.
     this.itemModel ??= await loadItemModel();
@@ -891,8 +901,8 @@ export class Daemon {
     const stoneXp = Object.fromEntries(Object.entries(stones.xp).map(([id, xp]) => [this.itemModel.names.get(Number(id)), xp]));
     const need = addDemand(
       chainDemand({ ...this.itemModel, members, epicHolders }),
-      // A generated chain's items are its epic's steps, which `chainDemand` counts already.
-      stepDemand({ quests: handQuests, holders, members, ids: this.itemModel.ids }),
+      // A generated epic chain's items are its epic's steps, which `chainDemand` counts already.
+      stepDemand({ quests: { ...handQuests, ...gearChains }, holders, members, ids: this.itemModel.ids }),
       opportunityDemand({ opportunities, need: (o) => piecesNeeded(o, { quests, holders, members }), ids: this.itemModel.ids }),
       potionDemand(this.itemModel.bosses),
       stones.demand,
@@ -1046,7 +1056,7 @@ export class Daemon {
    */
   recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore, chains, aaBefore, aa }) {
     recordProgress(this.db, [...chainChanges(chainsBefore, chains, now), ...aaChanges(aaBefore, aa, now)], this.groups());
-    const label = (q) => `the ${q.class} chain for ${q.reward}`;
+    const label = (q) => (q.for ? `the quest for ${q.reward}` : `the ${q.class} chain for ${q.reward}`);
     const pieceFor = new Map();
     for (const q of Object.values(quests)) for (const n of q.needs ?? []) if (lacking[q.ids?.[n] ?? n] > 0 && !pieceFor.has(n)) pieceFor.set(n, { for: label(q), copies: lacking[q.ids?.[n] ?? n], t: now });
     for (const o of opportunities) if (missing[o.id] > 0 && !pieceFor.has(o.item)) pieceFor.set(o.item, { for: quests[o.quest] ? label(quests[o.quest]) : null, copies: missing[o.id], t: now });
@@ -1227,6 +1237,28 @@ export class Daemon {
       });
     }
     return odds;
+  }
+
+  /**
+   * The quest rewards the gear plan can take (runs/state/gear-quests.json, docs/plans/
+   * gear-acquisition.md, "Quest rewards"), read again whenever the file changes. The collector
+   * runs tools/gear-quests.mjs once after it starts, which writes the file only when the content's
+   * commit changed. Null before the first file.
+   */
+  async gearQuests() {
+    const file = join(this.runs, "state/gear-quests.json");
+    const t = existsSync(file) ? statSync(file).mtimeMs : null;
+    if (t != null && t !== this.gearQuestsAt) {
+      this.gearQuestData = JSON.parse(await readFile(file, "utf8"));
+      this.gearQuestsAt = t;
+    }
+    if (!this.gearQuestsJob) {
+      const job = (this.gearQuestsJob = Bun.spawn(["bun", "tools/gear-quests.mjs"], { cwd: REPO, stdout: "ignore", stderr: "pipe" }));
+      void Promise.all([job.exited, new Response(job.stderr).text()]).then(([code, error]) => {
+        if (code !== 0) this.log(`gear quests: tools/gear-quests.mjs failed with exit code ${code}\n${error.trim().split("\n").slice(-10).join("\n")}`);
+      });
+    }
+    return this.gearQuestData ?? null;
   }
 
   /**
@@ -1454,10 +1486,13 @@ export class Daemon {
       this.drops = dropped.drops;
       for (const [id, i] of dropped.items) this.items.set(id, i);
     }
-    // The class epics' rewards, which the plan values for the characters still lacking them.
+    // The class epics' rewards, which the plan values for the characters still lacking them, and
+    // the quest rewards (`gearQuests`).
     this.itemModel ??= await loadItemModel();
     const rewards = Object.values(this.itemModel.epics).flat();
-    const missing = new Set([...survey.map((r) => r.itemId), ...rewards].filter((i) => !this.items.has(i)));
+    const questData = await this.gearQuests();
+    const questRewards = questData?.rewards ?? [];
+    const missing = new Set([...survey.map((r) => r.itemId), ...rewards, ...questRewards.map((q) => q.rewardId)].filter((i) => !this.items.has(i)));
     if (missing.size) for await (const i of rows("items", contentRoot())) if (missing.has(i.id)) this.items.set(i.id, i);
     // An item's proc, worn and focus effects count in its worth, so their spells come along, read again
     // only when an item new to the pass has one.
@@ -1520,10 +1555,17 @@ export class Daemon {
       }).map((x) => ({ ...x, name: this.itemModel.names.get(x.itemId) }));
       return { rewardId, to: p.name, pieces };
     }).filter((e) => e.pieces.length));
-    // The pieces the epics' steps hand in stay in the bags, where a hand-in takes them.
-    const unworn = new Set([...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)));
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
-    const { keep, drops, targets } = plan;
+    // The pieces the epics' steps and the wanted gear quests' chains hand in stay in the bags, where a
+    // hand-in takes them.
+    const wantedBefore = new Set((metaGet(this.db, "gear")?.quests ?? []).map((q) => q.rewardId));
+    const questNeeds = questRewards.filter((q) => wantedBefore.has(q.rewardId)).flatMap((q) => q.chains.flatMap((c) => (c.chain.needs ?? []).map((n) => c.chain.ids?.[n])));
+    const unworn = new Set([...[...this.itemModel.epicNeeds.values()].flatMap((n) => Object.keys(n).map(Number)), ...questNeeds.filter((id) => id != null)]);
+    // A quest reward is worth its chain when its value to the taker, in hours of its group's
+    // progress, exceeds the chain's hours (`STEP_HOURS` a step and the model's cost of its pieces).
+    const { STEP_HOURS } = await import("./lib/gear-quests.mjs");
+    const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
     // reach and rate, and the dashboard lists the best of them.
@@ -1550,8 +1592,8 @@ export class Daemon {
     // The pass sends the counts to every tab inside the account's demand (`demand` in src/bot.js).
     this.gearKeep = keep;
     metaSet(this.db, "gearKeep", keep);
-    metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
-    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
+    metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, quests: questWants, targets: this.targetWants, killsPerHour: this.killsPerHour });
+    this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${questWants.length} quest rewards, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
     // Spare gear per character, for gear tasks whose receiver has full bags. Requires the demand
     // of an earlier coordinator pass. Without it nothing counts as spare.
     const spare = this.need ? spareGear({ survey: survey.filter((r) => !unseen.has(r.characterName)), items: this.items, people, keep, need: this.need, unworn }) : {};
