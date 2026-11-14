@@ -24,8 +24,7 @@ const LOST = new Set(["level", "hit", "dying", "down", "healer"]);
 /**
  * The kills and escapes among one tab's `events`, whose leader is at `level`: rows
  * `{ t, npc, level, outcome, rule }`. An escape counts once against every enemy of the fight it
- * left (`mobs`), because a named enemy fights with its company: group 6 lost nine fights to
- * Arch Inspector Nibi`zi and the four around him, and each escape named only one of the five.
+ * left (`mobs`), because a named enemy fights with its company and the guard names one of them.
  * An escape without an enemy, such as a member's death in no fight, counts against nobody.
  */
 export function fightOutcomes(events, level) {
