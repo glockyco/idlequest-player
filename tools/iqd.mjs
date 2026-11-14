@@ -1316,6 +1316,14 @@ export class Daemon {
     // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
     // bosses the watch holds, since a gear target without a live spawn point stays a group's target.
     this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
+    // A raid that killed an open-world boss is a sighting of it down at the raid's end, until a look
+    // or the raid's own read of the spawn list after the kill says when it comes back.
+    for (const w of watch) {
+      const k = history.findLast((h) => h.id === killId({ ...w, source: "open" }) && /^killed /.test(h.result ?? "") && h.endedAt);
+      const key = npcKey(w.name);
+      if (k && seen[key]?.zone === w.zone && !(seen[key].seenAt >= k.endedAt)) seen[key] = { ...seen[key], state: "killed", respawnAt: null, seenAt: k.endedAt };
+    }
+    metaSet(this.db, "bossesSeen", seen);
     const log = noteSightings(metaGet(this.db, "bossLog") ?? [], watch, seen);
     metaSet(this.db, "bossLog", log);
     const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;

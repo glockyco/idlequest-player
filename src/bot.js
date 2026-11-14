@@ -2587,6 +2587,10 @@
       task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
       log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
     }
+    // An open-world boss is down after the kill, with the respawn time the zone's spawn list gives.
+    // The task keeps that sighting (`task.seen`), and the collector takes it as from a look, so the
+    // boss no longer shows as up from the sighting before the fight.
+    if (task.open && task.fight?.outcome === "killed") await readBosses(i, task, task.target).catch((e) => log(`task raid: the spawn list after the kill: ${e?.message ?? e}`));
   };
   // A summon can bring several bosses, as the daily "Fear Golems" brings Dread, Fright and Terror
   // (`also`, their names). The first fight kills the one the summon names. Each of the others
