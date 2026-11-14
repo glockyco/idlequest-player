@@ -1976,7 +1976,16 @@
         // loot comes within a second mostly and took 18 s at its longest.
         const cursorHeld = () => m.ids?.[s.expect] != null ? i.bagSpace().cursorId === m.ids[s.expect] : i.bagSpace().cursor === s.expect;
         const held = () => i.carried(ref(s.expect)) > 0 || cursorHeld();
-        for (let w = 0; w < (s.kill ? 40 : 10) && !held(); w++) await sleep(500);
+        // The client asks for auto loot only in the fights it begins for AutoLevel or from Enemy
+        // Targets (`isAutomatedCombatMode`). The corpse of another fight keeps its loot for the
+        // loot window, and its loot packet says `autoLoot` false.
+        const plain = s.expect.replace(/ \[\d+\]$/, "");
+        const onCorpse = () => Boolean(s.kill) && (i.lootLog ?? []).some((l) => l.t >= m.foughtAt && l.auto === false && l.items.includes(plain));
+        for (let w = 0; w < (s.kill ? 40 : 10) && !held() && !onCorpse(); w++) await sleep(500);
+        if (s.kill && !held()) {
+          const r = await step(`loot ${plain} from the corpse`, () => collectCorpseLoot(i, plain), 60000).catch((e) => ({ looted: [], error: String(e?.message ?? e) }));
+          log(`quest: ${m.name} looked into the corpses for ${plain}: ${r.error ?? (r.looted.length ? `took ${r.looted.join(", ")}` : "not there")}`);
+        }
         if (cursorHeld()) await settleHeld(i);
         if (!held()) {
           // What the corpse gave instead, which tells a lost loot from a drop that is not there.
@@ -2547,7 +2556,7 @@
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
     if (task.fight) {
       await keepReserve(i, true);
-      const collect = () => (task.status !== "running" ? collectRaidLoot(i) : step("collect the loot", () => collectRaidLoot(i), 120000));
+      const collect = () => (task.status !== "running" ? collectCorpseLoot(i) : step("collect the loot", () => collectCorpseLoot(i), 120000));
       let loot = await collect();
       // An item the leader could not put away is mostly a lore item it holds already, which only a
       // party member can take, and the raid's end left the leader alone: a second Torn, Burnt Book
@@ -2564,13 +2573,14 @@
     }
   };
   /**
-   * Loot a raid kill's corpses from the RAID LOOT tab (`raid.loot` of src/bridge.js), which raid
-   * kills leave for the leader instead of Auto Loot: the coins, then each item onto the cursor and
-   * where `settleHeld` puts it. An item the routine cannot settle goes back to its corpse, because a
-   * held item blocks every click. An item counts as looted once its cell is gone. Resolves with
-   * `{ looted, left }`, item names.
+   * Loot the zone's corpses from the party panel's RAID LOOT tab (`raid.loot` of src/bridge.js),
+   * which lists every corpse the client did not loot by itself: a raid's kills, and a kill of a
+   * fight the client did not begin. The coins, then each item onto the cursor and where
+   * `settleHeld` puts it, or with `only` just the items of that name. An item the routine cannot
+   * settle goes back to its corpse, because a held item blocks every click. An item counts as
+   * looted once its cell is gone. Resolves with `{ looted, left }`, item names.
    */
-  const collectRaidLoot = async (i) => {
+  const collectCorpseLoot = async (i, only = null) => {
     const loot = i.raid.loot;
     if (!(await settleHeld(i))) throw new Error(`${i.bagSpace().cursor} is on the cursor`);
     if (!(await loot.open(true))) throw new Error("the RAID LOOT tab did not open");
@@ -2580,7 +2590,7 @@
       const left = [];
       const tried = new Set();
       for (let k = 0; k < 40; k++) {
-        const cell = loot.cells().find((c) => !tried.has(c.id));
+        const cell = loot.cells().find((c) => !tried.has(c.id) && (only == null || c.name === only));
         if (!cell) break;
         tried.add(cell.id);
         if ((await loot.take(cell.id)) && !(await settleHeld(i))) await loot.giveBack();

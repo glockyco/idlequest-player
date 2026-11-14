@@ -284,8 +284,9 @@
   const faults = window.iq?.faults ?? { lootless: 0 };
   const KILL_RE = /^You have (?:defeated|slain) (.+?) and gained (\d+) experience/;
   const lootIds = new Map();
-  // The last loot packets, `{ t, items }` with the items' names, so a task that expects an item
-  // from a kill can say what the corpse gave when the item did not come.
+  // The last loot packets, `{ t, items, auto }` with the items' names, so a task that expects an
+  // item from a kill can say what the corpse gave when the item did not come. `auto` false marks a
+  // corpse the client leaves for the loot window.
   const lootLog = window.iq?.lootLog ?? [];
   // Discovery succeeded. Restore the originals immediately before replacing the traffic hooks.
   for (const fn of socketMethods) if (window.iq?.socket) delete window.iq.socket[fn];
@@ -301,7 +302,7 @@
       }
       if (opName[op] === "LootGenerated") {
         for (const it of data.items ?? []) lootIds.set(it.name, it.itemId);
-        lootLog.push({ t: Date.now(), items: (data.items ?? []).map((it) => it.name) });
+        lootLog.push({ t: Date.now(), items: (data.items ?? []).map((it) => it.name), auto: data.autoLoot !== false });
         if (lootLog.length > 40) lootLog.shift();
       }
     } catch {

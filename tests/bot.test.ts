@@ -1866,6 +1866,55 @@ test("a quest's fight that outlasts the step's wait and the client's target goes
   }
 });
 
+test("a quest kill whose corpse keeps its loot is looted through the loot tab", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const jaeil = { spawnInstanceId: 9, npcId: 39154, name: "Jaeil_the_Insane", level: 55 };
+    let dead = false;
+    let hammer = 0;
+    const lootLog: { t: number; items: string[]; auto: boolean }[] = [];
+    // The corpse holds a hammer and a bone. Taking a cell puts its item into the bags.
+    let cells = [{ id: "loot-item-9-0", name: "Soulbound Hammer" }, { id: "loot-item-9-1", name: "Bone Chips" }];
+    const taken: string[] = [];
+    const loot = {
+      open: async () => true,
+      coin: async () => false,
+      cells: () => cells,
+      take: async (id: string) => {
+        taken.push(cells.find((c) => c.id === id)!.name);
+        cells = cells.filter((c) => c.id !== id);
+        hammer = 1;
+        return null;
+      },
+      giveBack: async () => true,
+    };
+    Object.assign(f.iq, { carried: (item: string) => (item === "Soulbound Hammer" ? hammer : 0), talkToNpc: async () => {}, giveToNpc: async () => {}, lootLog, raid: { loot } });
+    Object.assign(f.party, { requestAccountCharacterAvailability: () => {}, availableAccountCharacterIds: [] });
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => (dead ? [] : [jaeil]);
+    Object.assign(f.runtime, {
+      selectEnemyTarget: () => {
+        f.skills.inCombat = true;
+        setTimeout(() => {
+          dead = true;
+          f.skills.inCombat = false;
+          lootLog.push({ t: Date.now(), items: ["Soulbound Hammer", "Bone Chips"], auto: false });
+          f.say("You have defeated Jaeil the Insane and gained 77680 experience!");
+        }, 20000);
+      },
+    });
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "hole", kill: "Jaeil the Insane", expect: "Soulbound Hammer", waitSec: 60 }] });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done" });
+    expect(taken).toEqual(["Soulbound Hammer"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest item that lies in the zone is picked up, and one another player took ends the task as waiting until its respawn", async () => {
   vi.useFakeTimers();
   try {
