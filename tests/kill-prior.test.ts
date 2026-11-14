@@ -38,6 +38,14 @@ test("deaths per fight follow the enemy's level and hit points, so an easy enemy
   expect(priorOf(prior, -3, 10000).deaths).toBeLessThan(priorOf(prior, 3, 10000).deaths / 5);
 });
 
+test("a won fight's seconds follow the enemy's hit points and level, and a fit without fight times has none", () => {
+  // Seconds at a known power of the hit points, a little longer for a stronger enemy.
+  const secs = (gap: number, hp: number) => 30 * (hp / 10000) ** 0.85 * Math.exp(0.05 * gap);
+  const prior = fitPrior(fights().map((o) => ({ ...o, sec: secs(o.gap, o.hp) })))!;
+  for (const [gap, hp] of [[-3, 5000], [0, 20000], [6, 80000]]) expect(priorOf(prior, gap, hp).sec! / secs(gap, hp)).toBeCloseTo(1, 1);
+  expect(priorOf(fitPrior(fights())!, 0, 20000).sec).toBeNull();
+});
+
 test("no fit without enough fights, or without both wins and losses", () => {
   expect(fitPrior([])).toBeNull();
   expect(fitPrior([{ gap: 0, hp: 1000, kills: 40, fights: 40, deaths: 0, leaderDeaths: 0 }])).toBeNull();

@@ -66,8 +66,8 @@ const SURE = { p: 1, fights: 0, deaths: 0, leaderDeaths: 0 };
  * pairs the simulator won four of four without a death (2026-11-12), 19 had 37 live kills and no
  * escape, and six, all group 1's in dungeons, had 1 kill and 8 escapes: a wanderer in The Hole
  * brought three templebound spirits. Deaths per fight come from the simulator where it fought the
- * pair, else from the prior. `{ p, fights, deaths, leaderDeaths }`, with `sec`, the simulator's
- * seconds per won fight, where it won one, or null with none of the three.
+ * pair, else from the prior. `{ p, fights, deaths, leaderDeaths }`, with `sec`, the seconds per won
+ * fight, the simulator's where it won one, else the prior's, and none without either.
  */
 export function killChanceOf({ record = null, sim = null, prior = null, priorWeight = 1 }) {
   const live = (record?.kills ?? 0) + (record?.escapes ?? 0);
@@ -78,7 +78,8 @@ export function killChanceOf({ record = null, sim = null, prior = null, priorWei
   const p = (w * (prior?.p ?? 0) + (record?.kills ?? 0) + (counted ? sim.kills : 0)) / (w + live + counted);
   const deaths = simulated ? sim.deathsPerFight : (prior?.deaths ?? 0);
   const leaderDeaths = simulated ? (sim.leaderDeathsPerFight ?? 0) : (prior?.leaderDeaths ?? 0);
-  return { p, fights: live + simulated, deaths, leaderDeaths, ...(simulated && sim.meanSec > 0 ? { sec: sim.meanSec } : {}) };
+  const sec = simulated && sim.meanSec > 0 ? sim.meanSec : prior?.sec > 0 ? prior.sec : null;
+  return { p, fights: live + simulated, deaths, leaderDeaths, ...(sec ? { sec } : {}) };
 }
 
 /**

@@ -37,7 +37,8 @@ each enemy adds its drops less its deaths, and the enemies share the group's kil
 at its full rate takes the share of the group's kills its points give as they respawn, and when the
 shares pass all of the group's kills, the enemies that pay most per share keep theirs. The group
 kills an enemy at the pace of that enemy's fights: its usual kills per hour, slowed by the
-simulator's seconds per fight against its usual fight (`paceOf`). The
+seconds per won fight against its usual fight (`paceOf`), the simulator's where it fought the
+pair, else the model's. The
 assignment is greedy with re-evaluation: the pair of free group and zone whose trip earns the most
 per hour goes first, then every other pair is valued again with that trip's taker slots claimed,
 its zone occupied, so a second group there pays the shared cost, and its kills taken from its
@@ -91,7 +92,7 @@ live fight says how a group of this level fares, and from then on the live fight
 - a model fitted to every simulated fight of every group (`tools/lib/kill-prior.mjs`), counted as
   one fight: the chance falls with the enemy's level above the group's leader and with its hit
   points, so a doable target is hunted before anyone has simulated it, and the deaths and the
-  leader's death a fight costs follow the same two;
+  leader's death a fight costs and the seconds a won fight takes follow the same two;
 - the raid simulator's fights of the group's six as surveyed (`tools/kill-odds.mjs`), for the pairs
   of group and target with the highest expected value under the model and for the boss kills,
   refreshed hourly and kept for a day at the group's level. The simulator fights in the client's
