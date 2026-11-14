@@ -19,6 +19,7 @@
 import { Database } from "bun:sqlite";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { bossParts } from "./lib/boss-plan.mjs";
 import { casinoBosses } from "./lib/client-tables.mjs";
 import { liveSpawnRows, rows } from "./lib/content.mjs";
 import { npcKey } from "./lib/fight-record.mjs";
@@ -69,7 +70,7 @@ const openGoal = watch.filter((w) => w.goal && !(daily.bosses ?? []).some((b) =>
 // An enemy is the NPC of its name that spawns in its zone, since a name alone is ambiguous in the
 // content (Talendor has a level-90 `#Talendor` beside the level-60 boss). Read once for every
 // enemy this run may fight and every one on file.
-const wanted = new Set([...(daily.bosses ?? []).map((b) => b.name), ...openGoal.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
+const wanted = new Set([...(daily.bosses ?? []).flatMap((b) => bossParts(b.name)), ...openGoal.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
 const named = new Map();
 for await (const n of rows("npc_types")) if (wanted.has(npcKey(n.name))) named.set(n.id, n);
 const groupsOf = new Map();
@@ -124,9 +125,41 @@ if (opt.refit) {
   await save();
   process.exit(0);
 }
+// One raid fight of every roster character against NPC `npc`, as `result` gives it.
+const raidFight = async (npc) => {
+  const boss = await bossSpec(await findBoss(String(npc)));
+  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: "dps-all-out", healMode: "all-balanced" });
+  return result(r.summary);
+};
 for (const e of enemies.values()) {
-  const npc = npcOf(e);
   const old = odds[e.key] ?? {};
+  // A daily boss that is several NPCs (`bossParts`) is killed when the raid kills each of them,
+  // one after the other: the kills of the weakest fight, and the times and deaths added up.
+  const parts = e.raid ? bossParts(e.name) : [e.name];
+  if (parts.length > 1) {
+    const ids = parts.map((name) => npcOf({ name, zone: e.zone }));
+    const missing = parts[ids.indexOf(null)];
+    if (missing) {
+      odds[e.key] = { name: e.name, zone: e.zone, error: `no NPC ${missing} spawns in ${e.zone}` };
+      continue;
+    }
+    const entry = { npc: ids[0], parts: ids, name: e.name, zone: e.zone, level: Math.max(...ids.map((id) => named.get(id)?.level ?? 0)), hp: ids.reduce((s, id) => s + (Number(named.get(id)?.hp) || 0), 0), raid: old.raid, groups: {} };
+    if (!fresh(old.raid)) {
+      try {
+        const fights = [];
+        for (const id of ids) fights.push(await raidFight(id));
+        const sum = (k) => fights.reduce((s, f) => s + (f[k] ?? 0), 0);
+        entry.raid = { t: Date.now(), sim: SIM_VERSION, kills: Math.min(...fights.map((f) => f.kills)), fights: Math.min(...fights.map((f) => f.fights)), meanSec: sum("meanSec"), deathsPerFight: sum("deathsPerFight"), leaderDeathsPerFight: sum("leaderDeathsPerFight"), hpLeft: Math.max(...fights.map((f) => f.hpLeft ?? 0)) };
+      } catch (error) {
+        entry.raid = { t: Date.now(), sim: SIM_VERSION, error: error.message };
+      }
+    }
+    odds[e.key] = entry;
+    await save();
+    console.log(`${e.key} (${ids.join(", ")}, level ${entry.level}): raid ${entry.raid.error ?? `${entry.raid.kills}/${entry.raid.fights}`}`);
+    continue;
+  }
+  const npc = npcOf(e);
   if (npc == null) {
     odds[e.key] = { name: e.name, zone: e.zone, error: `no NPC ${e.name} spawns in ${e.zone}` };
     continue;

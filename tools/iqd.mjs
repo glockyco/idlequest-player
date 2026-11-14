@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, bossParts, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1338,7 +1338,8 @@ export class Daemon {
     }
     if (due && free(tab)) {
       const members = [...groupOf.keys()].filter((n) => n !== leader);
-      const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name, open: true } : { bossKey: kill.key };
+      const also = bossParts(kill.name);
+      const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name, open: true } : { bossKey: kill.key, ...(also.length > 1 ? { also } : {}) };
       const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
       // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
       // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.

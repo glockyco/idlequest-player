@@ -2055,6 +2055,37 @@ test("a raid that deals no damage gets its attack order again", async () => {
   }
 });
 
+test("a summon of several bosses fights each one that stands, in one task", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true });
+    const page = f.iq as unknown as { events: { t: number; seq: number; type?: string; text: string }[]; raid: Record<string, unknown> };
+    const golems = ["Dread", "Fright", "Terror"].map((name, k) => ({ spawnInstanceId: 20 + k, npcId: 72000 + k, name, level: 55, distance: 12 }));
+    f.targets.splice(0, f.targets.length, ...(golems as never[]));
+    Object.assign(f.runtime, { selectEnemyTarget: (ids: number[]) => (f.combat.targetNPC = golems.find((g) => g.npcId === ids[0])) });
+    let seq = 9100;
+    Object.assign(page.raid, {
+      // The summon names Fright, and each golem dies a second after its attack order.
+      bosses: async () => ({ spawnInstanceId: 21 }),
+      attack: async () => {
+        const t = f.combat.targetNPC as { spawnInstanceId: number; name: string };
+        calls.push(`attack ${t.name}`);
+        setTimeout(() => {
+          f.targets.splice(f.targets.findIndex((x) => x.spawnInstanceId === t.spawnInstanceId), 1);
+          page.events = [...(page.events ?? []), { t: Date.now(), seq: seq++, type: "EXPERIENCE_GAIN", text: `You have defeated ${t.name} and gained 1000 experience!` }];
+        }, 1000);
+      },
+    });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], bossKey: "fear-golems", also: ["Dread", "Fright", "Terror"], effects: [] });
+    for (let k = 0; k < 4 && f.bot.state.task?.status === "running"; k++) await runToEnd(f);
+    expect(calls.filter((c) => c.startsWith("attack"))).toEqual(["attack Fright", "attack Dread", "attack Terror"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", result: expect.stringMatching(/^killed Fright .*; killed Dread .*; killed Terror /) });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid targets the boss by its whole name, not an enemy whose name holds it", async () => {
   vi.useFakeTimers();
   try {

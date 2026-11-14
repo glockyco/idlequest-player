@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
 
 const nextLook = (o: Parameters<typeof nextLooks>[0]) => nextLooks(o)[0] ?? null;
 
@@ -236,6 +236,15 @@ test("a boss is worth its wanted drops at their chances, one copy per taker's sl
   expect(values.vox).toBe(0);
   // The daily list's "Cazic-Thule" is the content's "Cazic_Thule".
   expect(values.cazic).toBeCloseTo(1);
+});
+
+test("a daily boss that names several NPCs is worth what they drop together", () => {
+  expect(bossParts("Fear Golems (Dread, Fright & Terror)")).toEqual(["Dread", "Fright", "Terror"]);
+  expect(bossParts("Lord Nagafen")).toEqual(["Lord Nagafen"]);
+  const item = (to: string, slot: string, gain: number) => ({ item: "x", to, slot, gain, drop: 1 });
+  const targets = [{ npc: "Dread", items: [item("X1", "primary", 100)] }, { npc: "Fright", items: [item("X1", "primary", 40), item("X2", "head", 50)] }, { npc: "Terror", items: [] }];
+  // X1's primary counts once, at the better copy.
+  expect(bossValues({ bosses: [{ key: "fear-golems", name: "Fear Golems (Dread, Fright & Terror)" }], targets, hoursPerLevel: { X1: 2, X2: 2 } })["fear-golems"]).toBeCloseTo(2 + 1);
 });
 
 test("a potion a raid task used is spent until the next survey, and one a task never reached is not", () => {

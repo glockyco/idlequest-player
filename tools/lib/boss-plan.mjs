@@ -6,10 +6,20 @@ import { copyValue } from "./acquire.mjs";
 import { npcKey } from "./fight-record.mjs";
 
 /**
+ * The NPCs a boss of the daily list stands for, by name: "Fear Golems (Dread, Fright & Terror)" is
+ * three, and any other boss is itself.
+ */
+export function bossParts(name) {
+  const list = /\(([^)]+)\)\s*$/.exec(name ?? "")?.[1].split(/\s*(?:,|&)\s*/).filter(Boolean) ?? [];
+  return list.length > 1 ? list : [name];
+}
+
+/**
  * The worth of one kill of each boss in `bosses` (`[{ key, name }]`), in hours of a group's
- * progress: the gear pass's target for the boss by name (`targets`, tools/lib/gear-plan.mjs), each
- * wanted copy at its drop chance times its worth to its taker (`copyValue` at `hoursPerLevel`), the
- * best copy for each taker's slot, since one copy fills it. A boss no target names is worth 0.
+ * progress: the gear pass's targets for the boss's NPCs by name (`targets`, tools/lib/gear-plan.mjs,
+ * `bossParts`), each wanted copy at its drop chance times its worth to its taker (`copyValue` at
+ * `hoursPerLevel`), the best copy for each taker's slot, since one copy fills it. A boss no target
+ * names is worth 0.
  */
 export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
   // The daily list says "Cazic-Thule" for the content's "Cazic_Thule", so both go by the record's key.
@@ -17,7 +27,7 @@ export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
   const out = {};
   for (const b of bosses) {
     const best = new Map();
-    for (const w of byName.get(npcKey(b.name))?.items ?? []) {
+    for (const w of bossParts(b.name).flatMap((n) => byName.get(npcKey(n))?.items ?? [])) {
       const key = `${w.to}:${w.slot}`;
       best.set(key, Math.max(best.get(key) ?? 0, (w.drop ?? 1) * copyValue(w, hoursPerLevel)));
     }

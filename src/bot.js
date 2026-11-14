@@ -2313,7 +2313,7 @@
   // attack, casting and navigation, his distance to the boss and the boss's HP.
   // Balances a raid's leader pulls at most for an hour of raid time.
   const RAID_COIN_PULLS = 8;
-  const raidTask = async (i, task, step) => {
+  const raidFight = async (i, task, step) => {
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
     const rt = runtime(i);
@@ -2571,6 +2571,22 @@
       task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
       log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
     }
+  };
+  // A summon can bring several bosses, as the daily "Fear Golems" brings Dread, Fright and Terror
+  // (`also`, their names). The first fight kills the one the summon names. Each of the others
+  // that still stands then gets a fight of its own, targeted by its name, in the same task and
+  // the same hour of raid time.
+  const raidTask = async (i, task, step) => {
+    await raidFight(i, task, step);
+    const results = [task.result];
+    for (const name of task.also ?? []) {
+      if (task.status !== "running" || !/^killed /.test(task.result ?? "")) break;
+      if (!(runtime(i)?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => bossKey(x.name ?? "") === bossKey(name))) continue;
+      Object.assign(task, { bossKey: null, spawnInstanceId: null, target: name });
+      await raidFight(i, task, step);
+      results.push(task.result);
+    }
+    task.result = results.filter(Boolean).join("; ");
   };
   /**
    * Loot the zone's corpses from the party panel's RAID LOOT tab (`raid.loot` of src/bridge.js),
@@ -3316,17 +3332,18 @@
      * the server's messages the second the orders began and reconnected 31 to 49 s later, which
      * ended the fight with the boss alive, and the three fights without the orders were kills. The
      * task ends when the boss dies, the raid wipes
-     * or `minutes` pass, and `task.fight` records the fight. Returns a copy of the task, which
-     * `state.task` keeps up to date.
+     * or `minutes` pass, and `task.fight` records the fight. A summon can bring several bosses:
+     * `also` names them, and each that still stands after a kill gets a fight of its own. Returns a
+     * copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, potion = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
+    raid({ members, target = null, bossKey = null, also = [], potion = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if (potion && !target) throw new Error("a potion raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, potion, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
       log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
