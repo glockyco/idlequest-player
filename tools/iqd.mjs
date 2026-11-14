@@ -576,14 +576,28 @@ export async function aaInPage(a) {
     }
     return s;
   };
-  const view = (s) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null });
+  // The stat abilities whose stat stands at its cap, which a rank does not raise: the window warns
+  // on the same `statBreakdowns`, the profile's for the active character and the companion store's
+  // `botComputedStats` for a member.
+  const STAT = { 50001: "STR", 50002: "STA", 50003: "AGI", 50004: "DEX", 50005: "INT", 50006: "WIS", 50007: "CHA" };
+  const cappedOf = (characterId) => {
+    let b = null;
+    if (characterId === host) b = window.iq.stores.character.getState().characterProfile?.statBreakdowns;
+    else {
+      const cs = window.iq.stores.companions?.getState?.() ?? {};
+      const c = (cs.companions ?? []).find((x) => x.characterId === characterId);
+      b = c ? cs.botComputedStats?.[c.id]?.statBreakdowns : null;
+    }
+    return Object.entries(STAT).filter(([, k]) => Number.isFinite(b?.[k]?.total) && Number.isFinite(b?.[k]?.cap) && b[k].total >= b[k].cap).map(([id]) => Number(id));
+  };
+  const view = (s, characterId) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null, capped: cappedOf(characterId) });
   const party = r.state.party ?? [];
-  const state = view(await train(r.state, null));
+  const state = view(await train(r.state, null), host);
   const members = [];
   for (const m of party.filter((x) => x.characterId !== host && x.level >= unlock && x.leaseId)) {
     const target = { characterId: m.characterId, leaseId: m.leaseId };
     const rm = await window.iq.query(1237, { action: "get", hostCharacterId: host, target }).catch(() => null);
-    if (rm?.success) members.push(view(await train(rm.state, target)));
+    if (rm?.success) members.push(view(await train(rm.state, target), m.characterId));
   }
   return { done, refused, short, state, members };
 }

@@ -65,15 +65,19 @@ const aaRanks = (id) => (id >= AA.run ? 3 : 5);
  * The ranks the account trains in a pass: `{ orders, wanted, budget }`, where `orders` gives each
  * character the abilities to train, in order, `wanted` counts the ranks its points could buy and
  * `budget` the ranks the coin allows, `totalPp` above the reserve. `characters` are
- * `{ name, class, points, spent, ranks }`, at most a level's worth of points each a pass. A rank
- * goes before another by its place in its class's order, so every character's first stat comes
- * before anyone's second, and among equals to the character with fewer ranks.
+ * `{ name, class, points, spent, ranks, capped }`, at most a level's worth of points each a pass,
+ * with `capped` the stat abilities whose stat stands at its cap, which come after every other
+ * ability, because their ranks raise nothing until gear or buffs change. A rank goes before
+ * another by its place in its class's order, so every character's first stat comes before
+ * anyone's second, and among equals to the character with fewer ranks.
  */
 export function aaPlan({ characters, totalPp, policy = AA_POLICY }) {
   const budget = Math.max(0, Math.floor((totalPp - policy.reservePp) / policy.rankPp));
   const wanted = [];
   for (const c of characters) {
-    const order = aaOrder(c.class);
+    const capped = new Set(c.capped ?? []);
+    const full = aaOrder(c.class);
+    const order = [...full.filter((id) => !capped.has(id)), ...full.filter((id) => capped.has(id))];
     const ranks = { ...(c.ranks ?? {}) };
     let spent = c.spent ?? 0;
     for (let k = 0; k < Math.min(c.points ?? 0, 12); k++) {

@@ -67,6 +67,9 @@ test("the account's coin above its reserve buys ranks, every character's first s
   // With coin for all, the warrior goes on to strength once its stamina is full.
   expect(aaPlan({ characters, totalPp: 100000 }).orders).toEqual({ Cle: [WIS, WIS], War: [STA, 50001, 50001] });
   expect(aaPlan({ characters, totalPp: 21000 })).toMatchObject({ orders: {}, budget: 0 });
+  // A warrior whose strength stands at its cap trains dexterity after stamina, and strength last.
+  const capped = aaPlan({ characters: [{ ...characters[0], capped: [50001] }], totalPp: 100000 }).orders.War;
+  expect(capped).toEqual([STA, 50004, 50004]);
 });
 
 test("the planned ranks are trained a rank a request, for the leader and the members, from the leader's coin", async () => {
