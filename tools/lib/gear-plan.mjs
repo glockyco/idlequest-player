@@ -236,15 +236,21 @@ function characterReport(p, { wornRows, worn, scoreNow, moves, wants, items, val
   };
 }
 
+// A proc spell's target types that hit one kind of enemy only, as the tooltip names them.
+const PROC_ONLY = { 9: "animals", 10: "the undead", 24: "the undead", 11: "the summoned", 25: "the summoned", 16: "plants", 17: "giants", 18: "dragons" };
+
 /**
  * The facts of an item row that the dashboard's tooltip shows, without the zeros: name, icon file
  * number, the slots, classes and races as bit masks, AC, HP, mana, stats, resists, damage and delay,
  * and the flags the client prints (NO DROP is `nodrop` 0, LORE any `loregroup`, MAGIC `magic` 1).
+ * A weapon whose proc spell is attached (`attachEffects`) has `proc`: `{ name, level, damage,
+ * only }`, with `damage` whether the spell deals any and `only` the kind of enemy it is limited to.
  */
 export function itemCard(i) {
   const out = { id: i.id, name: i.Name, icon: i.icon ?? 0, slots: slotName(i.slots ?? 0), classes: i.classes ?? 0, races: i.races ?? 0, reqlevel: i.reqlevel ?? 0, type: i.itemtype ?? 0 };
   const put = (k, v) => v && (out[k] = v);
   for (const k of ["ac", "hp", "mana", "endur", "astr", "asta", "aagi", "adex", "awis", "aint", "acha", "mr", "fr", "cr", "dr", "pr", "attack", "haste", "regen", "manaregen", "damage", "delay", "weight", "bardtype", "bardvalue", "damageshield", "avoidance", "accuracy"]) put(k, i[k]);
+  if (i.procSpell) out.proc = { name: i.procSpell.name, level: i.proclevel2 || i.proclevel || 0, damage: i.procSpell.effects.length > 0, only: PROC_ONLY[i.procSpell.targetType] ?? null };
   const flags = [];
   if (i.nodrop === 0) flags.push("NO DROP");
   if (isLore(i)) flags.push("LORE");
@@ -261,9 +267,10 @@ export const fits = (item, p, slot) =>
 /**
  * `survey`: rows of `iq.searchAccount()` (`characterName`, `itemId`, `itemName`, `itemInstanceId`,
  * `location` "Equipped" with its `slot`, or "Carried", and `blockReason`). `items`: item id to its
- * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk?, shares? }]`
- * with `cls` a gear-data class key, `walk` a Bard's (`walkShares`) and `shares` its damage shares
- * (`damageShares`). `minGain`: the smallest gain
+ * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk?, shares?, bodies? }]`
+ * with `cls` a gear-data class key, `walk` a Bard's (`walkShares`), `shares` its damage shares
+ * (`damageShares`) and `bodies` the body types of its group's kills by share (`killBodies` of
+ * tools/lib/fight-record.mjs), by which a proc for one kind of enemy counts. `minGain`: the smallest gain
  * worth a move. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
  * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
  * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
@@ -343,8 +350,9 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     const fist = fists(p.cls, p.level, p.race);
     // A Monk's empty off hand swings a fist beside any main hand but a two-hander, with the
     // off-hand chance, and a weapon in the off hand or a two-hander ends it.
-    const off = { primary: false };
-    const offSwing = (main, offItem) => (offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(main?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0);
+    const off = { primary: false, bodies: p.bodies };
+    const main = { bodies: p.bodies };
+    const offSwing = (first, offItem) => (offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(first?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0);
     // Beside a two-hander the off hand stays empty.
     if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY)) {
       // A shield counts for its stats and replaces no weapon.
@@ -355,7 +363,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       // A one-hander counts for its stats and its swings, with the chance that they happen, and
       // replaces only a weapon or nothing.
       if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
-        const gain = gainIn(SECONDARY) + meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+        const gain = gainIn(SECONDARY) + meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p);
         if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
       }
     }
@@ -365,7 +373,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       const after = new Map([...mine, [PRIMARY, item]]);
       const newOff = TWO_HANDED.has(item.itemtype) ? null : offHeld;
       if (!newOff) after.delete(SECONDARY);
-      const gain = value(p, after) - value(p, mine) + meleeGain(weaponRatio(item, p.cls, p.level) + offSwing(item, newOff) - weaponRatio(held ?? fist, p.cls, p.level) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level) + offSwing(held, offHeld), p);
+      const gain = value(p, after) - value(p, mine) + meleeGain(weaponRatio(item, p.cls, p.level, main) + offSwing(item, newOff) - weaponRatio(held ?? fist, p.cls, p.level, main) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p);
       if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;

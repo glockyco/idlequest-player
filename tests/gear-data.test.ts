@@ -60,6 +60,15 @@ test("a proc adds its damage at the wearer's level, (0.5 + DEX/170) times a minu
   expect(weaponRatio(blade, "wizard", 30, { dex: 85 })).toBeCloseTo(10 / 30 + 50 / 60 / (10 * expectedMult(30)));
 });
 
+test("a proc for one kind of enemy counts for the share of the wearer's kills of that kind", () => {
+  // Target type 11 hits the summoned: body types 24, 27 and 28.
+  const blade = { damage: 10, delay: 30, procrate: 0, procSpell: { effects: [{ formula: 100, base: -50, max: 0 }], ticks: 0, targetType: 11 } };
+  expect(procDamagePerMinute(blade, 30, 85, { 24: 0.1, 28: 0.05, 3: 0.5 })).toBeCloseTo(0.15 * 50);
+  // Without a record of the kills it counts nothing, and a proc for any enemy is not reduced.
+  expect(weaponRatio(blade, "wizard", 30, { dex: 85 })).toBeCloseTo(10 / 30);
+  expect(procDamagePerMinute({ ...blade, procSpell: { ...blade.procSpell, targetType: 5 } }, 30, 85, { 3: 1 })).toBeCloseTo(50);
+});
+
 test("a worn effect counts like the stats it gives, from its required level, and a focus by its best item", () => {
   // Worn STR (SPA 4) adds offense for a Warrior like the same STR on the item.
   expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 40).melee).toBeCloseTo(outputValue([{ astr: 15 }], "warrior", 40).melee);

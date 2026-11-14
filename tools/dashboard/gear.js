@@ -28,6 +28,7 @@ function itemTip(c) {
     flags.length ? `<div class="tflags">${flags.map(esc).join(" &nbsp; ")}</div>` : "",
     c.slots?.length ? `<div>Slot: ${esc(c.slots.join(" ").toUpperCase())}</div>` : "",
     c.damage ? `<div>${esc(ITEM_TYPE[c.type] ?? "Weapon")} &nbsp; Atk Delay: ${c.delay ?? "-"}</div><div>DMG: ${c.damage}${c.delay ? ` &nbsp; <span class="muted">(${(c.damage / c.delay).toFixed(3)} per delay)</span>` : ""}</div>` : c.type === 8 ? "<div>Shield</div>" : "",
+    c.proc ? `<div>Proc: ${esc(c.proc.name)} <span class="muted">(${[c.proc.damage ? "damage" : "no damage", c.proc.only ? `${esc(c.proc.only)} only` : "", c.proc.level ? `from level ${c.proc.level}` : ""].filter(Boolean).join(", ")})</span></div>` : "",
     row(c.ac ? `AC: ${c.ac}` : "", stat("HP", c.hp), stat("MANA", c.mana), stat("END", c.endur)),
     row(stat("STR", c.astr), stat("STA", c.asta), stat("AGI", c.aagi), stat("DEX", c.adex)),
     row(stat("WIS", c.awis), stat("INT", c.aint), stat("CHA", c.acha), stat("ATK", c.attack)),

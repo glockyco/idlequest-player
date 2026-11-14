@@ -23,7 +23,7 @@ import { OPEN_BUY, bossParts, bossValues, canBuyHour, hoursLastDay, killId, kill
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
-import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
+import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { PAGE, pageStep } from "./lib/page.mjs";
@@ -1471,7 +1471,20 @@ export class Daemon {
     const members = new Map();
     for (const [name, g] of groupOfName) members.set(g, [...(members.get(g) ?? []), name]);
     const shareOf = damageShares(groupRows, members);
-    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name), shares: shareOf.get(p.name) }));
+    // The body types of each group's kills, by which a weapon proc for one kind of enemy counts
+    // (`killBodies`). A name that enemies of several body types share takes the most common one.
+    this.npcBodies ??= new Map();
+    const killed = this.db.query("SELECT DISTINCT npc FROM fights WHERE outcome = 'kill' AND t >= ?").all(now - 2 * 86400000).map((r) => r.npc);
+    if (killed.some((k) => !this.npcBodies.has(k))) {
+      const seen = new Map();
+      for await (const n of rows("npc_types", contentRoot())) {
+        const types = seen.get(npcKey(n.name)) ?? seen.set(npcKey(n.name), new Map()).get(npcKey(n.name));
+        types.set(n.bodytype ?? 0, (types.get(n.bodytype ?? 0) ?? 0) + 1);
+      }
+      for (const k of killed) this.npcBodies.set(k, seen.has(k) ? [...seen.get(k)].sort((a, b) => b[1] - a[1])[0][0] : null);
+    }
+    const bodiesOf = killBodies(this.db, (npc) => this.npcBodies.get(npc) ?? null, { now });
+    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
     const { copyValue } = await import("./lib/acquire.mjs");
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));
@@ -2047,10 +2060,14 @@ export class Daemon {
         const unread = new Set(want.filter((id) => !found.has(id)));
         if (unread.size) {
           const { contentRoot, rows } = await import("./lib/content.mjs");
+          const { attachEffects } = await import("./lib/gear-data.mjs");
+          const read = new Map();
           for await (const i of rows("items", contentRoot())) {
-            if (unread.delete(i.id)) found.set(i.id, i);
+            if (unread.delete(i.id)) read.set(i.id, i);
             if (!unread.size) break;
           }
+          // A card names its weapon's proc, which comes from the proc's spell row.
+          for (const [id, i] of await attachEffects(read, contentRoot())) found.set(id, i);
         }
         putCards(this.db, Object.fromEntries([...found].map(([id, i]) => [id, itemCard(i)])));
       })

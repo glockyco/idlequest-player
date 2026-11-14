@@ -325,6 +325,25 @@ test("the character report gives each person's scores now, after the moves and w
 test("an item card keeps the facts a tooltip prints and leaves out the zeros", () => {
   const card = itemCard({ id: 3213, Name: "Kylong War Helm", icon: 625, slots: 4, classes: 33695, races: 65535, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, astr: 0, nodrop: 0, loregroup: -1, magic: 1, itemtype: 10 });
   expect(card).toEqual({ id: 3213, name: "Kylong War Helm", icon: 625, slots: ["head"], classes: 33695, races: 65535, reqlevel: 0, type: 10, ac: 12, hp: 20, mana: 20, mr: 7, pr: 4, flags: ["NO DROP", "LORE", "MAGIC"] });
+  // A weapon's card names its proc, whether it deals damage and the kind of enemy it is limited to.
+  const procOf = (procSpell: object) => itemCard({ id: 1, Name: "Blade", damage: 9, delay: 25, proclevel2: 30, procSpell }).proc;
+  expect(procOf({ name: "Dismiss Summoned", effects: [{ formula: 103, base: -92, max: 162 }], ticks: 0, targetType: 11 })).toEqual({ name: "Dismiss Summoned", level: 30, damage: true, only: "the summoned" });
+  expect(procOf({ name: "Symphonic Harmony", effects: [], ticks: 0, targetType: 5 })).toEqual({ name: "Symphonic Harmony", level: 30, damage: false, only: null });
+});
+
+test("the off hand keeps a plain blade over one whose proc hits a kind of enemy the group seldom kills", () => {
+  const hands = (1 << 13) | (1 << 14);
+  const blades = new Map([
+    ...items,
+    item(60, "Long Blade", { slots: 1 << 13, itemtype: 0, damage: 15, delay: 20 }),
+    item(61, "Saber", { slots: hands, itemtype: 0, damage: 11, delay: 23 }),
+    item(62, "Koshigatana", { slots: hands, itemtype: 2, damage: 9, delay: 25, proclevel2: 30, procSpell: { name: "Dismiss Summoned", effects: [{ formula: 103, base: -92, max: 162 }], ticks: 0, targetType: 11 } }),
+  ]);
+  const held = (itemId: number, location: string, slot: number, inst: number) => ({ ...row("Me", 3, location, slot, inst), itemId, itemName: blades.get(itemId)!.Name });
+  const survey = [held(60, "Equipped", 13, 1), held(61, "Equipped", 14, 2), held(62, "Carried", 25, 3)];
+  const moves = (bodies: Record<number, number>) => planGear({ survey, items: blades, people: [{ name: "Me", cls: "bard", level: 57, race: "", bodies }] }).moves.map((m) => [m.item, m.slot]);
+  expect(moves({ 24: 0.15, 5: 0.85 })).toEqual([]);
+  expect(moves({ 24: 1 })).toEqual([["Koshigatana", "secondary"]]);
 });
 
 test("two-handed epic targets pay for removing either a shield or an off-hand weapon", () => {

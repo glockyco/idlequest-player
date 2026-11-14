@@ -439,7 +439,11 @@ at 255 (`a4`), item haste takes the highest item at most 50 (buff haste adds up 
 - DEX gives weapon procs, `(0.5 + DEX/170) (1 + procrate/100)` procs a minute per hand, rolled on the
   first swing of each hand in a round (`Oo` R 8466-8473), and the Warrior's melee crit
   `(DEX + 45) / 89` percent from level 12 (O 62242-62253). An item proc casts at the wearer's
-  level and needs the wearer at `proclevel`.
+  level and needs the wearer at `proclevel`. A proc whose spell is for one kind of enemy does
+  nothing to another: the gate `Sa(targetType, bodyType)` of the main bundle lets target types 10
+  and 24 hit the undead (body types 3, 8, 12), 11 and 25 the summoned (24, 27, 28), 9 animals (21),
+  16 plants (25), 17 giants (4, 9) and 18 dragons (26, 30). The gear plan counts such a proc for
+  the share of the wearer's group's kills of that kind (`procShare`).
 - STA gives HP, `STA × level × f / 3000` with a class factor `f` (`kD` O 20565): 6 HP a point for a
   level 60 Warrior, 3 for a Cleric. AGI lowers the chance to be hit through avoidance (`xt` O 16679)
   and adds `AGI/20` AC above 70. AC counts at 4/3, capped at `25 + 6 × level` below 50 and then

@@ -1,7 +1,7 @@
 // Checks the fight record (tools/lib/fight-record.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { FIGHTS_SCHEMA, fightOutcomes, npcKey, recordCounts, recordFights } from "../tools/lib/fight-record.mjs";
+import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "../tools/lib/fight-record.mjs";
 
 const T0 = 1_800_000_000_000;
 
@@ -46,4 +46,15 @@ test("the record counts the kills of leaders at a group's level or below, the es
   expect(recordCounts(db, { npc: "Lady_Vox", level: 51, now: T0 + 10 })).toEqual({ kills: 1, escapes: 2 });
   // An escape counts half for each level its leader stood below: one at 54 and one at 52.
   expect(recordCounts(db, { npc: "Lady_Vox", level: 55, now: T0 + 10 })).toEqual({ kills: 4, escapes: 0.5 + 0.125 });
+});
+
+test("the body types of a group's kills are shares of all its kills of the last days", () => {
+  const db = new Database(":memory:");
+  db.run(FIGHTS_SCHEMA);
+  const fight = (t: number, npc: string, outcome = "kill") => ({ t, npc, level: 57, outcome, rule: outcome === "escape" ? "dying" : null });
+  // An escape and a kill three days old do not count, and an enemy of unknown body type counts in the total only.
+  recordFights(db, "G1", [fight(T0, "an elemental"), fight(T0 + 1, "a golem"), fight(T0 + 2, "a golem"), fight(T0 + 3, "a stranger"), fight(T0 + 4, "an elemental", "escape"), fight(T0 - 3 * 86400000, "an elemental")]);
+  recordFights(db, "G2", [fight(T0, "an elemental")]);
+  const bodyOf = (npc: string) => ({ "an elemental": 24, "a golem": 5 })[npc] ?? null;
+  expect(killBodies(db, bodyOf, { now: T0 + 10 })).toEqual({ G1: { 24: 0.25, 5: 0.5 }, G2: { 24: 1 } });
 });

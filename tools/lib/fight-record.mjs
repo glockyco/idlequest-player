@@ -72,3 +72,20 @@ export function recordCounts(db, { npc, level, now = Date.now(), days = 14 }) {
   }
   return { kills, escapes };
 }
+
+/**
+ * The body types of each group's kills of the last `days`, by share: `{ [group]: { [body type]:
+ * share } }`. `bodyOf(npc)` gives the body type of an enemy by its record key, or null for one it
+ * does not know, whose kills count in the total and for no type. A weapon proc that hits one kind
+ * of enemy is worth this share of its damage (`procShare` in tools/lib/gear-data.mjs).
+ */
+export function killBodies(db, bodyOf, { now = Date.now(), days = 2 } = {}) {
+  const counts = {};
+  const totals = {};
+  for (const r of db.query("SELECT grp, npc, COUNT(*) AS n FROM fights WHERE outcome = 'kill' AND t >= ? GROUP BY grp, npc").all(now - days * 86400000)) {
+    totals[r.grp] = (totals[r.grp] ?? 0) + r.n;
+    const body = bodyOf(r.npc);
+    if (body != null) (counts[r.grp] ??= {})[body] = (counts[r.grp][body] ?? 0) + r.n;
+  }
+  return Object.fromEntries(Object.entries(totals).map(([grp, total]) => [grp, Object.fromEntries(Object.entries(counts[grp] ?? {}).map(([body, n]) => [body, n / total]))]));
+}

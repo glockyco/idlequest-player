@@ -133,6 +133,8 @@ export const outputValue = (items, c, level, { pool, recovery } = {}) => {
 // multiplier, and its procs, `(0.5 + DEX/170) (1 + procrate/100)` a minute at the wearer's level,
 // converted to the same unit. Hit chance, double attack and haste scale every weapon alike and are
 // left out. Procs count their damage only, and an item's proc spell comes from `attachEffects`.
+// A proc whose spell hits one kind of enemy counts for the share of the wearer's kills of that
+// kind (`procShare`).
 const MELEE_BONUS = new Set(["warrior", "paladin", "ranger", "shadowknight", "monk", "bard", "rogue"]);
 const TWO_HANDED = new Set([1, 4, 35]);
 const TWO_HAND_BONUS = JSON.parse(readFileSync(new URL("../../data/two-hand-bonus.json", import.meta.url), "utf8")).rows;
@@ -159,22 +161,36 @@ export const expectedMult = (level, extra = 0) => {
 };
 /** Percent more melee damage per point of offense at `level`, the slope of the damage roll over 30 points. */
 export const damagePctPerOffense = (level) => (100 * (expectedMult(level, 30) / expectedMult(level) - 1)) / 30;
-/** Proc damage a minute of a weapon at the wearer's `level` and `dex`, 0 without a damage proc or below the proc's level. */
-export const procDamagePerMinute = (i, level, dex = 75) => {
+// The body types a spell's target type admits, as the client's gate has them (`Sa` in its main
+// bundle): a spell for the undead, the summoned, animals, plants, giants or dragons does nothing
+// to another enemy. Any other target type hits every enemy.
+const PROC_BODIES = { 9: [21], 10: [3, 8, 12], 24: [3, 8, 12], 11: [24, 27, 28], 25: [24, 27, 28], 16: [25], 17: [4, 9], 18: [26, 30] };
+/**
+ * The share of a wearer's kills its weapon's proc can hit: 1 for a proc that hits every enemy, else
+ * the share of the kills in `bodies` (`{ [body type]: share }`, `killBodies` of
+ * tools/lib/fight-record.mjs) that are of the proc's kind, and 0 without that record.
+ */
+export const procShare = (procSpell, bodies = null) => {
+  const kinds = PROC_BODIES[procSpell?.targetType];
+  return kinds ? kinds.reduce((s, b) => s + (bodies?.[b] ?? 0), 0) : 1;
+};
+/** Proc damage a minute of a weapon at the wearer's `level` and `dex` against the enemies in `bodies`, 0 without a damage proc or below the proc's level. */
+export const procDamagePerMinute = (i, level, dex = 75, bodies = null) => {
   if (!i.procSpell || level < (i.proclevel2 || i.proclevel || 0)) return 0;
   const hit = i.procSpell.effects.reduce((a, e) => a + Math.max(0, -effectValue(e.formula, e.base, e.max, level)), 0);
-  return (0.5 + Math.min(255, dex) / 170) * Math.max(0, 1 + (i.procrate ?? 0) / 100) * hit * Math.max(1, i.procSpell.ticks);
+  return (0.5 + Math.min(255, dex) / 170) * Math.max(0, 1 + (i.procrate ?? 0) / 100) * hit * Math.max(1, i.procSpell.ticks) * procShare(i.procSpell, bodies);
 };
-export const weaponRatio = (i, c, level, { primary = true, dex = 75 } = {}) => {
+export const weaponRatio = (i, c, level, { primary = true, dex = 75, bodies = null } = {}) => {
   if (!(i.damage && i.delay)) return 0;
   const m = expectedMult(level);
   const bonus = primary ? damageBonus(i, c, level) : 0;
-  return (Math.min(i.damage, capFor(c, level)) + bonus / m) / i.delay + procDamagePerMinute(i, level, dex) / 60 / (10 * m);
+  return (Math.min(i.damage, capFor(c, level)) + bonus / m) / i.delay + procDamagePerMinute(i, level, dex, bodies) / 60 / (10 * m);
 };
 
 /**
  * Adds the item effects the gear value counts to the rows of `items` (a Map of item rows), read
- * from spells_new: `procSpell` (a weapon proc's hit point damage effects and duration in ticks),
+ * from spells_new: `procSpell` (a weapon proc's hit point damage effects, its duration in ticks and
+ * its target type),
  * `wornEffects` (a worn effect, `worntype` 2, at `wornlevel`) and `focusEffects` (a spell focus,
  * `focustype` 6, at `focuslevel`), both `[{ spa, value }]` (docs/client-internals.md, "What item
  * stats and effects do"). Each field is set on every item that has the effect, null when its spell is missing.
@@ -194,7 +210,7 @@ export async function attachEffects(items, root) {
       const s = spells.get(i.proceffect);
       const effects = [];
       if (s) for (let k = 1; k <= 12; k++) if (s[`effectid${k}`] === 0 && s[`effect_base_value${k}`] < 0) effects.push({ formula: s[`formula${k}`], base: s[`effect_base_value${k}`], max: s[`max${k}`] });
-      i.procSpell = s ? { name: s.name, effects, ticks: s.buffduration > 0 ? s.buffduration : 0 } : null;
+      i.procSpell = s ? { name: s.name, effects, ticks: s.buffduration > 0 ? s.buffduration : 0, targetType: s.targettype ?? 0 } : null;
     }
     if (i.worneffect > 0 && i.worntype === 2) i.wornEffects = spells.has(i.worneffect) ? spellEffects(spells.get(i.worneffect), i.wornlevel ?? 0) : null;
     if (i.focuseffect > 0 && i.focustype === 6) i.focusEffects = spells.has(i.focuseffect) ? spellEffects(spells.get(i.focuseffect), i.focuslevel ?? 0) : null;
