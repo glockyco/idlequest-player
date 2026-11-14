@@ -884,10 +884,11 @@ export class Daemon {
     );
     // Kept for the next gear pass, which needs the demand for `spareGear`.
     this.need = need;
-    // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey.
+    // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey, and is
+    // titled after its group, so the twelve game tabs can be told apart.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances } }), { timeout: 10000 }).catch(() => {});
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
     // prior fitted to every fight on file, the simulator's fights of its six and the live fights
     // that count at its level, once per pair for the pass. A chain's enemies share the target's name

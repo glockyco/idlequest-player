@@ -83,6 +83,7 @@
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
     leaderId: null, // the character this tab plays as when no pause holds it; null leaves the active character alone
+    tabTitle: "", // the tab's title, which the collector sets to the group and its leader; "" leaves the client's title
     // Regular expression of enemy names AutoLevel should not pick, e.g. "shaman|idealist" for the
     // Root casters in Guk; empty to pick everything. Such enemies can still join a fight.
     avoidNames: "",
@@ -3157,6 +3158,7 @@
     try {
       const i = iq();
       if (!i?.stores || typeof i.bagSpace !== "function") return;
+      if (config.tabTitle && typeof document !== "undefined" && document.title !== config.tabTitle) document.title = config.tabTitle;
       watchConnection(i);
       await watchRelease(i);
       if (state.pauseUntil && now() >= state.pauseUntil) endPause(pauseName());

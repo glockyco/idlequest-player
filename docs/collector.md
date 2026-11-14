@@ -8,7 +8,7 @@ Every cycle iqd evaluates one read-only expression in each game tab through the 
 
 The relay can lose a tab: every call answers "Debugger is not attached" although the relay lists the tab as attached, and only a relay restart clears that. When a tab gives this answer for two minutes, iqd writes `runs/state/relay-restart`, and `tools/play.sh` replaces the relay it started (`relayStuck` in `tools/iqd.mjs`). A relay that another process started is left alone, and the tab's `gone` item then needs a person.
 
-A plain `run` only reads. `--recover` adds the page supervisor, which signs tabs in and installs the page code, and `--coordinate` adds the coordinator, which gives the bots tasks. `tools/play.sh` runs with both and restarts the relay if it exits.
+A plain `run` only reads. `--recover` adds the page supervisor, which signs tabs in and installs the page code, and `--coordinate` adds the coordinator, which gives the bots tasks. `tools/play.sh` runs with both and restarts the relay if it exits. The coordinator also titles each game tab after its group and leader, such as "G7 Gygekrian | IdleQuest".
 
 ## Commands
 
