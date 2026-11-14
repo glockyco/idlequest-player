@@ -483,19 +483,20 @@ in a row without one, which the bridge counts (`faults.lootless`, tools/lib/page
 ## Guard
 
 `iq.guard` (`src/bridge.js`, `guardDanger` and `guardLeave`) runs once a second inside the page, so
-it works while no script is attached. While a mob is engaged it checks five things: while the
-leader is at most level `lowLevelMax`, a mob fighting the party from `levelGapLow` levels above
-the leader, a mob whose biggest hit times `hitsToKill` reaches the
+it works while no script is attached. While an enemy fights the party it checks five things: while the
+leader is at most level `lowLevelMax`, an enemy from `levelGapLow` levels above
+the leader, an enemy whose biggest hit times `hitsToKill` reaches the
 lowest max HP in the party, a leader at `dyingHpPct` HP or less who would be dead within
 `dyingSec` at the HP lost over the last `dyingWindowSec`, a party member newly dead, and a Cleric
 under `healerManaPct` mana while someone
-is under `healerHpPct` HP. With `fightingOnly` the level and hit checks count only mobs whose
-`hateTargetId`, `currentTargetId` or `chaseTargetId` names the party: `player`,
-`character-<id>` or a pet. The engaged list also holds idle mobs of the encounter with no target
-and guards fighting other NPCs (`npc:<id>`). On a trigger it stops AutoLevel, re-enters the current
+is under `healerHpPct` HP. The combat store's `engagedMobs` holds every enemy in a fight in the
+zone, those of other parties too, and keeps the dead. The party's own are those whose
+`hateTargetId`, `currentTargetId`, `chaseTargetId` or hate list names the party: `player`,
+`character-<id>` or a pet (`fightMobs` in `src/bridge.js`). Another party's enemy comes without a
+target, and a guard fighting another NPC names `npc:<id>`. On a trigger it stops AutoLevel, re-enters the current
 zone (or changes to `retreatZone` if set) with the same limits and notes "escape done". The escape
 is one of the bot's holds, so the bot starts AutoLevel again once it ends, unless a script or a task
-holds the party. Before it leaves it defers every mob of that fight, the target and the pull
+holds the party. Before it leaves it defers every living enemy of that fight, the target and the pull
 target with `deferAutoLevelSpawn` for `avoidMin` minutes (see the deferral list above), because
 AutoLevel picks the nearest target and would otherwise pull the same camp again right after
 re-entering. After `escalateAfter` escapes in an hour, an escape caused by a mob inside AutoLevel's

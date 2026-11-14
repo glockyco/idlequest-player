@@ -732,11 +732,6 @@
     retreatZone: null, // short name to leave to, or null to re-enter the current zone
     loopSec: 30, // a second escape this soon in the same zone leaves for another rotation zone
     avoidMin: 10, // after an escape, AutoLevel skips the mobs of that fight this long (0 = never)
-    // The engaged list also holds mobs of the encounter that stand idle without a target, and
-    // city guards and sentinels that fight other NPCs ("npc:<id>"). Both set off most level
-    // escapes at low levels. With this on, the level and hit triggers only count mobs that
-    // target, chase or hate the leader, a companion or a pet.
-    fightingOnly: true,
     // At leader levels 1 to 8 most fights against mobs that hit someone from 6 or 7 levels up
     // ended in a death (tools/fights.mjs), so there a mob fighting the party counts from
     // `levelGapLow`.
@@ -929,10 +924,17 @@
     debuff: { panel: "debuff", group: "Resistance Debuffs" },
     snare: { panel: "debuff", group: "Snares" },
   };
+  // The combat store's `engagedMobs` holds every enemy in a fight in the zone, those of other
+  // parties too, and keeps the dead. An enemy of this party's fight targets, chases or hates
+  // "player", "character-<id>" or a pet ("pet_<...>"). Other parties' enemies come without a
+  // target, and ids of the form "npc:<id>" are other NPCs, such as a guard fighting a kobold.
+  const atParty = (id) => id != null && !String(id).startsWith("npc:");
+  const fightsParty = (m) => atParty(m.hateTargetId) || atParty(m.currentTargetId) || atParty(m.chaseTargetId) || (m.hateEntries ?? []).some((h) => atParty(h.entityId));
+  const fightMobs = (cb = stores.combat.getState()) => Object.values(cb.engagedMobs ?? {}).filter((m) => m.state === "alive" && fightsParty(m));
   const guardDanger = () => {
     const cfg = guard.config;
     const cb = stores.combat.getState();
-    const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state === "alive");
+    const mobs = fightMobs(cb);
     const wasDown = new Set(guard.knownDown);
     const p = stores.character.getState().characterProfile ?? {};
     const cs = stores.companions.getState();
@@ -945,12 +947,8 @@
     guard.knownDown = new Set(members.filter((m) => !(m.hp > 0)).map((m) => m.name));
     if (!mobs.length) return null;
     const weakest = Math.min(...members.map((m) => m.maxHp || Infinity));
-    // A mob fights the party when it targets, chases or hates "player", "character-<id>" or a pet
-    // ("pet_<...>"). Ids of the form "npc:<id>" are other NPCs, such as a guard fighting a kobold.
-    const atParty = (id) => id != null && !String(id).startsWith("npc:");
-    const fighting = (m) => atParty(m.hateTargetId) || atParty(m.currentTargetId) || atParty(m.chaseTargetId);
-    for (const mob of cfg.fightingOnly ? mobs.filter(fighting) : mobs) {
-      if (p.level <= cfg.lowLevelMax && fighting(mob) && mob.level >= p.level + cfg.levelGapLow) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
+    for (const mob of mobs) {
+      if (p.level <= cfg.lowLevelMax && mob.level >= p.level + cfg.levelGapLow) return { reason: `level: ${mob.name} L${mob.level} against leader L${p.level}`, mob };
       const maxHit = Number((cb.currentZoneNPCs ?? []).find((n) => n.id === mob.npcId)?.maxdmg) || 0;
       if (p.level >= (cfg.hitFromLevel ?? 0) && maxHit * cfg.hitsToKill >= weakest) return { reason: `hit: ${mob.name} hits up to ${maxHit}, ${cfg.hitsToKill} hits kill a ${weakest} HP member`, mob };
     }
@@ -1027,17 +1025,17 @@
     try {
       // The fight's living enemies with their spawn points, by which the bot learns which enemies
       // and camps it keeps losing to.
-      const mobs = Object.values(cb.engagedMobs ?? {}).filter((m) => m.state !== "dead" && Number.isInteger(m.spawnInstanceId)).map((m) => ({ id: m.spawnInstanceId, name: m.name }));
+      const mobs = fightMobs(cb).filter((m) => Number.isInteger(m.spawnInstanceId)).map((m) => ({ id: m.spawnInstanceId, name: m.name }));
       guardNote(`leaving: ${reason}${target ? ` (to ${target}${looping && !cfg.retreatZone ? ", the last escape here was moments ago" : ""})` : ""}`);
       // AutoLevel picks the nearest target, so after re-entering it would pull the same camp and
       // the same dangerous mob would join again, every few seconds. The client skips spawns it has
       // deferred (its own use is spawns it cannot reach), and spawn ids are spawn points, so they
-      // survive the zone change. Defer every mob of this fight.
+      // survive the zone change. Defer every living mob of this fight.
       const rt = runtime();
       const skip = [
         ...new Set(
           [
-            ...Object.values(cb.engagedMobs ?? {}).map((m) => m.spawnInstanceId),
+            ...mobs.map((m) => m.id),
             cb.activeCombatTargetSpawnInstanceId,
             cb.targetNPC?.spawnInstanceId,
             rt?.combatApproach?.attempt?.spawnInstanceId,
@@ -1097,7 +1095,7 @@
     }
     // A quiet hour after the limits were tightened: go back to the limits that were in use before.
     guard.trips = guard.trips.filter((t) => t.t > Date.now() - 3600000);
-    if (guard.preferred && guard.trips.length === 0 && !Object.keys(cbNow.engagedMobs ?? {}).length) {
+    if (guard.preferred && guard.trips.length === 0 && !fightMobs(cbNow).length) {
       applyLimits(cbNow, guard.preferred);
       guardNote(`no escapes for an hour, AutoLevel back to con ${guard.preferred.minCon}..${guard.preferred.maxCon}, cap ${guard.preferred.maxLevelDiff}`);
       guard.preferred = null;
@@ -1852,6 +1850,8 @@
     get lastPos() { return lastPos; },
     kills,
     lootLog,
+    /** The living enemies that fight this party now, as the combat store holds them (`engagedMobs`). */
+    fightMobs: () => fightMobs(),
     faults,
     shimCounts,
     samples,

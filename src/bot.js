@@ -643,7 +643,7 @@
     }
     const e = state.errand;
     if (e?.arrived && enemyPattern(e.keep).test(f.name)) return; // an errand's enemy is worth its time
-    const mob = Object.values(cb.engagedMobs ?? {}).find((x) => foeKey(x.name) === f.name && x.state === "alive");
+    const mob = i.fightMobs().find((x) => foeKey(x.name) === f.name);
     if (!mob || typeof i.leaveFight !== "function" || !i.guard?.config?.enabled || i.guard.phase !== "watching" || now() < (i.guard.retryAt ?? 0) || !i.socket?.isConnected || cb.isZoneLoading || inRaid(i)) return;
     const t = state.task;
     if (t?.status === "running" && t.kind === "quest" && t.members.some((m) => m.steps[m.at ?? 0]?.kill && enemyPattern(m.steps[m.at ?? 0].kill).test(f.name))) return;
@@ -2047,7 +2047,7 @@
     // enemies it can attack: group 9's fight with Jaeil the Insane showed no target and counted
     // as lost while the pets hit him.
     const wantedUp = () => (rt.combatScene.getAliveCombatTargetList?.() ?? []).some((t) => wanted.test(t.name ?? ""));
-    const engaged = () => i.stores.skills.getState().inCombat && (wanted.test(cb().targetNPC?.name ?? "") || Object.values(cb().engagedMobs ?? {}).some((m) => m.state === "alive" && wanted.test(m.name ?? "")) || wantedUp());
+    const engaged = () => i.stores.skills.getState().inCombat && (wanted.test(cb().targetNPC?.name ?? "") || i.fightMobs().some((m) => wanted.test(m.name ?? "")) || wantedUp());
     const alive = (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => wanted.test(t.name ?? "") && !skip.has(t.npcId));
     // The server can take a spawn out of automated combat (`automatedCombatExcluded`), as it does
     // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it

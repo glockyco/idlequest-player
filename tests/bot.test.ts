@@ -188,6 +188,8 @@ async function install(partyIds: number[] = []) {
     samples: [],
     kills,
     activitySeconds: () => ({ ...played }),
+    // Like the bridge, the living enemies of the party's fight. The tests engage only their own.
+    fightMobs: () => Object.values((combat as { engagedMobs?: Record<string, { state?: string }> }).engagedMobs ?? {}).filter((m) => m.state === "alive"),
     // Zone changes the bot asked for, by short name; the fake moves the party at once.
     changeZone: async (shortName: string) => {
       moves.push(shortName);
