@@ -193,6 +193,36 @@ test("a part with a craft that trivials above 50 is left out, and a no-fail craf
   expect(build(40, false)[0].chain.steps.find((s: { craft?: unknown }) => s.craft)).toMatchObject({ craft: { recipeId: 492, skillId: 57, quantity: 10 } });
 });
 
+test("each craft in a container it uses up gets the container from its say first, and the say's NPC sees the seal held", () => {
+  const nadia = `function event_say(e)
+  if e.message:findi("seal") then
+    e.other:SummonItem(5)
+  elseif e.message:findi("i need a sack") and e.other:HasItem(5) then
+    e.other:SummonItem(90)
+  end
+end`;
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 71, item2 = 72}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Nadia.lua", nadia), script("z/Taker.lua", taker)],
+    npcs: [{ id: 1, name: "Nadia", level: 30, loottable: 0 }, { id: 2, name: "Taker", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 1, zone: "z" }, { npcId: 2, zone: "z" }],
+    edges: [71, 72].map((out, k) => ({ kind: "combine", recipe: 900 + k, skill: 75, trivial: 0, nofail: false, container: 90, inputs: { [80 + k]: 1, 90: 1 }, outputs: [out] })),
+    sources: [80, 81].map((item) => ({ item, way: { kind: "buy", npc: "Vintner", zone: "z" } })),
+  });
+  const names = new Map([[5, "Seal"], [30, "Staff"], [71, "Sack A"], [72, "Sack B"], [80, "Gem"], [81, "Dust"], [90, "Sack"]]);
+  const chains = epicChains(model, epicTree(model, "Enchanter", 30), { cls: "Enchanter", reward: 30, names });
+  const steps = chains.flatMap((c: { chain: { steps: object[] } }) => c.chain.steps);
+  const sackSay = { zone: "z", npc: "Nadia", say: ["i need a sack"], hold: ["Seal"], expect: "Sack" };
+  const crafts = steps.flatMap((s: { craft?: unknown }, k: number) => (s.craft ? [k] : []));
+  expect(crafts).toHaveLength(2);
+  for (const [j, k] of crafts.entries()) {
+    expect(steps.slice(j ? crafts[j - 1] + 1 : 0, k)).toContainEqual(expect.objectContaining(sackSay));
+    expect(steps[k]).toMatchObject({ craft: { quantity: 1, container: { item: "Sack", id: 90 } } });
+  }
+  // No sack is fetched where no craft follows.
+  expect(steps.filter((s: { say?: string[] }) => s.say?.[0] === "i need a sack")).toHaveLength(2);
+});
+
 test("a summoning spell the epic's class casts is a cast step at the spell's level, and one of another class keeps the chain out", () => {
   const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70}) then\n    e.other:SummonItem(30)\n  end\nend`;
   const build = (cls: string) => {

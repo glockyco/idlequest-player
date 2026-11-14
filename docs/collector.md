@@ -94,7 +94,10 @@ it repeated the failure before it at its step (`worldHold` in
 `kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or
 crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
 catalog ingredients one set lacks, with one of each of its `inputs` (the components the catalog does
-not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). Each experiment in
+not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). A
+recipe of an item container, such as the Enchanter's sack combines, is combined once in the carried
+container instead (`combineInContainer`), and a step whose NPC wants an item carried (`hold`, such as
+Jeb's Seal for Nadia's sack) pulls it like the items it hands over. Each experiment in
 `data/experiments.json` is such a crossover: arm A plays with `setting` and arm B with `without`
 for `blockMin` minutes, then the other way round, for `blocks` blocks (two by default), and afterwards both keep `without` until
 the entry leaves the file. Its groups get no farms and no errands meanwhile, since both change the

@@ -1715,8 +1715,10 @@
   // hands over from whoever on the account holds them, then talks to its NPC with
   // `say` keywords, gives `give` (one trade of up to four items), or hands in `each` per item as
   // `handInEach` does, or fights the enemy `kill` names once it is up (within `waitSec`), or crafts
-  // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id } }`, rolling until one
-  // success with one of each of `inputs` pulled per attempt; the server crafts without a held container), and checks that the
+  // `craft` (`{ recipeId, skillId, quantity, inputs, output: { item, id }, container }`, rolling until one
+  // success with one of each of `inputs` pulled per attempt; the server crafts without a held
+  // container, and a recipe of an item `container` such as the Enchanters Sack is combined once in
+  // the carried one, `combineInContainer`), and checks that the
   // member then carries `expect`. A hand-in is a quest of one `each` step per
   // member. Entering the world puts a character where it last stood, and the zone store can lag
   // the switch, so the first step after a switch always travels, and later steps only to another
@@ -1836,6 +1838,8 @@
       }
       const need = { ...(s.each ?? {}) };
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
+      // An item the NPC wants carried (`hold`, such as Jeb's Seal for Nadia's sack) stays with the member.
+      for (const item of s.hold ?? []) need[item] = (need[item] ?? 0) + 1;
       for (const [item, n] of Object.entries(need)) {
         if (s.buy?.items?.includes(item)) await buy(s, item, n);
         // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
@@ -1854,7 +1858,14 @@
               throw new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`);
             });
           }
-          const r = await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: m.ids?.[c.output.item] ?? c.output.id, settle: () => settleHeld(i) }), 120000);
+          const r = c.container
+            ? await step(`combine ${c.output.item} in the ${c.container.item}`, async () => {
+                const items = (c.inputs ?? []).filter((x) => x !== c.container.item).map(ref);
+                const out = await i.combineInContainer(c.container.id, items);
+                if (!out.success) throw new Error(out.message ?? `the ${c.container.item} combine failed`);
+                return { attempted: 1, successes: 1, failures: 0, newSkillValue: null };
+              }, 60000)
+            : await step(`craft ${c.output.item}`, () => i.craftItem(c.recipeId, { quantity: 1, until: 1, skillId: c.skillId, output: m.ids?.[c.output.item] ?? c.output.id, settle: () => settleHeld(i) }), 120000);
           tally.attempted += r.attempted;
           tally.failures += r.failures;
           tally.skill = r.newSkillValue ?? tally.skill;

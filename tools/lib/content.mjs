@@ -37,23 +37,39 @@ export async function* liveSpawnRows(table, root) {
 }
 
 /**
- * The recipes a character can craft, `Map<id, { id, name, skill, trivial, nofail, parts, yields }>`
- * with `parts` and `yields` as `[{ item, n }]`: enabled, shown in the Advanced recipe window, whose
- * requests `craftItem` (src/bridge.js) sends, and inside the live expansion. A recipe's container
- * is no part: `craftItem` crafts world-container recipes without one, and a recipe whose only
- * container is an item, such as the Enchanters Sack, still fails there. A part the recipe hands
- * back, such as a tool, is no yield.
+ * The recipes a character can craft, `Map<id, { id, name, skill, trivial, nofail, parts, yields,
+ * container }>` with `parts` and `yields` as `[{ item, n }]`: enabled, shown in the Advanced recipe
+ * window, and inside the live expansion. A recipe of a world container such as the forge crafts
+ * with container 0 (`craftItem` in src/bridge.js), and its container is no part. A recipe whose
+ * only containers are items, such as the Enchanters Sack, is combined in a carried one
+ * (`combineInContainer`): `container` names it, `{ item, replace }`, `replace` when the craft uses
+ * it up (`replace_container`). It is a part either way, since the craft needs it at hand. A part
+ * the recipe hands back, such as a tool, is no yield.
  */
 export async function craftableRecipes(root) {
   const recipes = new Map();
+  const replaces = new Set();
   for await (const r of rows("tradeskill_recipe", root)) {
-    if (r.enabled && r.show_in_advanced && inLiveExpansion(r)) recipes.set(r.id, { id: r.id, name: r.name, skill: r.tradeskill, trivial: r.trivial, nofail: Boolean(r.nofail), parts: [], yields: [] });
+    if (r.enabled && r.show_in_advanced && inLiveExpansion(r)) recipes.set(r.id, { id: r.id, name: r.name, skill: r.tradeskill, trivial: r.trivial, nofail: Boolean(r.nofail), parts: [], yields: [], container: null });
+    if (r.replace_container) replaces.add(r.id);
   }
+  const containers = new Map();
   for await (const e of rows("tradeskill_recipe_entries", root)) {
     const r = recipes.get(e.recipe_id);
-    if (!r || e.iscontainer) continue;
+    if (!r) continue;
+    if (e.iscontainer) {
+      (containers.get(r.id) ?? containers.set(r.id, []).get(r.id)).push(e.item_id);
+      continue;
+    }
     if (e.componentcount > 0) r.parts.push({ item: e.item_id, n: e.componentcount });
     if (e.successcount > 0) r.yields.push({ item: e.item_id, n: e.successcount });
+  }
+  // World container types have small ids, item containers item ids.
+  for (const [id, list] of containers) {
+    const r = recipes.get(id);
+    if (!list.every((c) => c >= 1000)) continue;
+    r.container = { item: list[0], replace: replaces.has(id) };
+    r.parts.push({ item: list[0], n: 1 });
   }
   for (const r of recipes.values()) r.yields = r.yields.filter((y) => !r.parts.some((p) => p.item === y.item));
   return recipes;

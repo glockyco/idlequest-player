@@ -26,7 +26,7 @@ export const plainName = (name) => String(name).replace(/ \[\d+\]$/, "");
  * tree or one that needs a step kind the bot lacks (`missingKinds`).
  *
  * Step kinds: say or hand-in at an NPC (`expect` is the item it gives, `buy` a purchase in the
- * same zone), buy-only step for a merchant in another zone, kill of an NPC a hand-in spawns, craft,
+ * same zone, `hold` the items its NPC wants carried, which the member keeps), buy-only step for a merchant in another zone, kill of an NPC a hand-in spawns, craft,
  * cast, ground pickup. Hunted pieces (`huntPieces`) and the kills that drop them are not steps.
  *
  * Splitting into parts: a step stays in the current part if it consumes an item the part produced,
@@ -122,6 +122,14 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     available.set(id, (available.get(id) ?? 0) + 1);
     part.flow[at]?.outs.push(name(id));
   };
+  // Items a branch wants carried and keeps (`held`): the member holds one when the step runs, and
+  // a part that makes none needs one.
+  const holdNeeds = (held) => {
+    for (const id of held) if (!((available.get(id) ?? 0) > 0) && !part.needs.includes(name(id))) part.needs.push(name(id));
+  };
+  // The item containers the tree's crafts combine in, and the say steps that give them, by item id.
+  const boxes = new Set(tree.steps.filter((s) => s.item && s.way.kind === "combine" && s.way.container).map((s) => s.way.container));
+  const givers = new Map();
   const buyInputs = (inputs, zone) => {
     for (const [raw, n] of Object.entries(inputs)) {
       const id = Number(raw);
@@ -151,10 +159,23 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       } else if (s.way.kind === "combine") {
         const carried = Object.fromEntries(Object.entries(s.way.inputs).filter(([id]) => !model.catalog.has(Number(id))));
         begin({ inputs: carried });
+        // A container the part has none of comes from the say that gives it: each of the
+        // Enchanter's five sack combines takes a new sack from Nadia.
+        const box = s.way.container;
+        if (box && !((available.get(box) ?? 0) > 0) && givers.has(box)) {
+          const g = givers.get(box);
+          holdNeeds(g.held);
+          const again = push({ ...g.step }, g.held);
+          part.flow[again].outs.push(...g.held.map(name));
+          yieldItem(box, again);
+        }
         const inputs = take(carried).map(name);
         const zone = part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone;
         buyInputs(carried, zone);
-        const at = push({ zone, craft: { recipeId: s.way.recipe, skillId: s.way.skill, quantity: s.way.nofail ? 1 : CRAFT_TRIES, inputs, output: { item: name(s.item), id: s.item } }, expect: name(s.item) }, copies(carried));
+        // A recipe of an item container is combined in a carried one (`container`), once.
+        const container = s.way.container ? { item: name(s.way.container), id: s.way.container } : undefined;
+        const tries = s.way.nofail || container ? 1 : CRAFT_TRIES;
+        const at = push({ zone, craft: { recipeId: s.way.recipe, skillId: s.way.skill, quantity: tries, inputs, output: { item: name(s.item), id: s.item }, container }, expect: name(s.item) }, copies(carried));
         if (!s.way.nofail) part.trivial = Math.max(part.trivial ?? 0, s.way.trivial ?? 0);
         yieldItem(s.item, at);
       } else if (s.way.kind === "ground") {
@@ -196,11 +217,20 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       part.level = Math.max(part.level, ...npcIds.map((id) => model.npcs.get(id)?.level ?? 0));
       continue;
     }
-    begin({ inputs: b.inputs, after, npcIds, zone: b.zone });
-    const takes = take(b.inputs);
+    const held = (s.held ?? []).filter((id) => !(String(id) in b.inputs));
     const say = b.when.find((c) => c.say)?.say;
     const coin = b.when.find((c) => c.trade?.coin)?.trade.coin;
     const gives = b.actions.flatMap((a) => a.give ?? []).filter((id) => !(String(id) in b.inputs));
+    // A say that only gives a container the tree's crafts combine in runs before each craft that
+    // lacks one, since a craft that uses its container up needs a new one each time.
+    if (say && !Object.keys(b.inputs).length && !coin && gives.length && gives.every((id) => boxes.has(id))) {
+      const step = { zone: b.zone, npc: b.npc, ...(npcIds.length ? { npcIds } : {}), say: [say[0]], ...(held.length ? { hold: held.map(name) } : {}), expect: name(gives[0]) };
+      for (const id of gives) givers.set(id, { step, held });
+      continue;
+    }
+    begin({ inputs: { ...b.inputs, ...Object.fromEntries(held.map((id) => [id, 1])) }, after, npcIds, zone: b.zone });
+    holdNeeds(held);
+    const takes = take(b.inputs);
     const buys = [...new Set(takes.filter((id) => bought.has(id)))];
     const near = buys.filter((id) => sellerOf(id, b.zone).zone === b.zone);
     // A merchant of another zone sells in a step of its own, before the hand-in.
@@ -217,10 +247,12 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       ...(takes.length ? { give: takes.map(name) } : {}),
       ...(coin ? { coin } : {}),
       ...(near.length ? { buy: { merchant: sellerOf(near[0], b.zone).npc, items: near.map(name) } } : {}),
+      ...(held.length ? { hold: held.map(name) } : {}),
       ...(gives.length ? { expect: name(gives[0]) } : {}),
       // Set if a step of this part spawned the NPC. The bot repeats that step when it resumes.
       ...calledBy(npcIds, b.zone),
-    }, takes);
+    }, [...takes, ...held]);
+    part.flow[at].outs.push(...held.map(name));
     ran(b, at);
     for (const id of b.actions.flatMap((a) => a.give ?? [])) yieldItem(id, at);
   }
@@ -245,7 +277,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       return {
         id: `epic-${key}-${reward}-${made}`,
         trivial: p.trivial ?? 0,
-        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.castLevel ?? 0, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ids: Object.fromEntries([...new Set([last, ...p.needs, ...p.steps.flatMap((s) => [s.expect, s.pick, ...(s.give ?? []), ...(s.buy?.items ?? []), ...(s.craft?.inputs ?? []), s.craft?.output?.item, ...(s.cast?.inputs ?? [])])].filter(Boolean))].map((n) => [n, ids[n]])), ...(p.needs.length ? { needs: p.needs } : {}), steps: p.steps, flow: p.flow },
+        chain: { class: cls, minLevel: Math.min(LEVEL_CAP, Math.max(1, p.castLevel ?? 0, p.level - KILL_MARGIN, ...p.steps.map((x) => zoneLevel(x.zone) - KILL_MARGIN))), reward: last, ids: Object.fromEntries([...new Set([last, ...p.needs, ...p.steps.flatMap((s) => [s.expect, s.pick, ...(s.give ?? []), ...(s.hold ?? []), ...(s.buy?.items ?? []), ...(s.craft?.inputs ?? []), s.craft?.output?.item, ...(s.cast?.inputs ?? [])])].filter(Boolean))].map((n) => [n, ids[n]])), ...(p.needs.length ? { needs: p.needs } : {}), steps: p.steps, flow: p.flow },
       };
     })
     // A part with a craft that trivials above `CRAFT_TRIVIAL_MAX` waits until the account trains

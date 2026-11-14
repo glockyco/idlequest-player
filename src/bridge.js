@@ -78,6 +78,9 @@
       zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
       raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
       consume: ["The item could not be consumed"], // an item's use from the bags, ({ bag, slot }), which also uses a casino boss potion
+      // The container window's Combine button, ContainerCombineRequest (1177) through the client's
+      // inventory runner, which applies the inventory the server answers with: ({ source, containerItemId, containerBag, containerSlot }).
+      combine: ["Combine confirmation interrupted"],
       // What a click on an NPC sends, (npcId, name), a function that passes its three parameters on.
       // Releases rename the parameters, and Bun reformats the sources it loads, so the pattern allows both.
       hail: /^function [\w$]+\(\s*([\w$]+),\s*([\w$]+),\s*([\w$]+)\s*=\s*\{\}\s*\)\s*\{\s*return [\w$]+\(\s*\1,\s*\2,\s*\3\s*\);?\s*\}$/,
@@ -1682,11 +1685,54 @@
     return { bought, platinum: stores.character.getState().characterProfile?.platinum ?? null };
   };
   /**
+   * Combine `items` in carried container `containerItemId`, as the container window's Combine
+   * button does (the client function `combine`), for a recipe whose only container is an item, such as the
+   * Enchanters Sack: the container goes to an empty general slot when it lies elsewhere, since only
+   * a bag in a general slot holds items, each item moves into one of its slots (the bag numbered
+   * one above the general slot, slots from 0), and the client's own request combines them.
+   * Resolves with the server's answer, `{ success, message }`.
+   */
+  const combineInContainer = async (containerItemId, items) => {
+    const combine = clientFn("combine");
+    const ch = () => stores.character.getState();
+    const inv = () => ch().characterProfile?.inventory ?? [];
+    const isBox = (x) => (x.itemid ?? x.itemDetails?.id) === containerItemId;
+    let box = inv().find((x) => x.bag === 0 && x.slot >= 22 && x.slot <= 29 && isBox(x));
+    if (!box) {
+      const row = inv().find((x) => inBags(x) && isBox(x));
+      if (!row) throw new Error(`no container ${containerItemId} in the bags`);
+      const empty = [22, 23, 24, 25, 26, 27, 28, 29].find((s) => !inv().some((x) => x.bag === 0 && x.slot === s));
+      if (empty == null) throw new Error("no free general slot for the container");
+      ch().moveItemToSlot({ bag: row.bag, slot: row.slot }, { bag: 0, slot: empty });
+      await pause(900);
+      box = inv().find((x) => x.bag === 0 && x.slot === empty && isBox(x));
+      if (!box) throw new Error("the container did not move to a general slot");
+    }
+    const inside = box.slot + 1;
+    const size = box.itemDetails?.bagslots ?? 0;
+    if (items.length > size) throw new Error(`${items.length} items do not fit the container's ${size} slots`);
+    // Items a try before this one left in their slots stay, and anything else is in the way.
+    const at = (k) => inv().find((x) => x.bag === inside && x.slot === k);
+    if (inv().some((x) => x.bag === inside && !(x.slot < items.length && matchesItem(x, items[x.slot])))) throw new Error("the container holds other items");
+    for (const [k, item] of items.entries()) {
+      if (at(k)) continue;
+      const row = inv().find((x) => inBags(x) && x.bag !== inside && matchesItem(x, item));
+      if (!row) throw new Error(`no ${refName(item)} in the bags`);
+      ch().moveItemToSlot({ bag: row.bag, slot: row.slot }, { bag: inside, slot: k });
+      await pause(900);
+      if (!matchesItem(at(k), item)) throw new Error(`${refName(item)} did not go into the container`);
+    }
+    const r = await combine({ source: "portable", containerItemId, containerBag: 0, containerSlot: box.slot });
+    await pause(900);
+    return { success: Boolean(r?.success), message: r?.message ?? r?.error ?? null };
+  };
+  /**
    * Craft tradeskill recipe `recipeId` with the Advanced recipe window's own requests
    * (docs/plans/systems-research.md, section 2), up to `quantity` attempts and until `until`
    * successes: each attempt buys the catalog ingredients the Tradeskill Bank lacks for one set and
    * crafts once. Container 0 serves a recipe of a world container such as the forge, and a recipe
- * whose only container is an item, such as the Enchanters Sack, is refused with it. Then `output` is withdrawn from the bank onto
+   * whose only container is an item, such as the Enchanters Sack, is refused with it and takes
+   * `combineInContainer`. Then `output` is withdrawn from the bank onto
    * the cursor and goes where `settle` puts it (`settled`). The catalog answers for one set only, so
    * a batch would run out after the first attempt whenever the bank held exactly one set. Resolves
    * with the attempts' counts and the number withdrawn.
@@ -1828,7 +1874,7 @@
   // job: `job(name, ...args)` starts one of JOBS and returns its id at once, and `jobs[id]` holds
   // its progress and result. The last 20 jobs are kept.
   const jobs = window.iq?.jobs ?? {};
-  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, buyItem, craftItem, searchItems, closeWindows, sellCursor };
+  const JOBS = { talkToNpc, giveToNpc, handInEach, pullItem, giveItem, buyItem, craftItem, combineInContainer, searchItems, closeWindows, sellCursor };
   const job = (name, ...args) => {
     const fn = JOBS[name];
     if (!fn) throw new Error(`no job named ${name}`);
@@ -1931,6 +1977,7 @@
     worldPort,
     walkTo,
     craftItem,
+    combineInContainer,
     sellCursor,
     placeCursor,
     useItem,

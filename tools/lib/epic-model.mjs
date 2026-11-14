@@ -134,7 +134,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   // The loot of the NPCs scripts spawn.
   for (const npcId of spawners.keys()) for (const { item, p } of loot.get(npcs.get(npcId)?.loottable) ?? []) addWay(ways, item, { kind: "scene", npcId, drop: p });
   for (const e of edges) {
-    if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, skill: e.skill, trivial: e.trivial, nofail: e.nofail, inputs: e.inputs });
+    if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, skill: e.skill, trivial: e.trivial, nofail: e.nofail, container: e.container, inputs: e.inputs });
     if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, name: e.name, classes: e.classes ?? {}, inputs: e.inputs });
   }
   for (const { item, way } of sources) addWay(ways, item, way);
@@ -147,7 +147,8 @@ const SUMMON_ITEM = 32;
 /**
  * The craftable recipes (`craftableRecipes`) and the summoning spells of the content snapshot as
  * edges `{ kind, inputs: { id: count }, outputs: [id] }`: a `combine` (with its recipe's `recipe`,
- * `skill`, `trivial` and `nofail`) takes its components and makes its products, and a
+ * `skill`, `trivial`, `nofail` and the item `container` it is combined in, or null) takes its
+ * components and makes its products, and a
  * `spell` (with its `name` and the `classes` that cast it, by name with their level) takes the
  * scroll that teaches it and the components a cast consumes, and gives the item it summons.
  */
@@ -169,7 +170,7 @@ async function craftEdges(root) {
     if (!r.yields.length) continue;
     const inputs = {};
     for (const p of r.parts) inputs[p.item] = (inputs[p.item] ?? 0) + p.n;
-    edges.push({ kind: "combine", recipe: r.id, skill: r.skill, trivial: r.trivial, nofail: r.nofail, inputs, outputs: r.yields.map((y) => y.item) });
+    edges.push({ kind: "combine", recipe: r.id, skill: r.skill, trivial: r.trivial, nofail: r.nofail, container: r.container?.item ?? null, inputs, outputs: r.yields.map((y) => y.item) });
   }
   return edges;
 }
@@ -531,8 +532,8 @@ export function epicTree(model, cls, reward) {
 
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
- * steps"): a summoning cast by another class than the epic's, a hand-in of more than four items,
- * or an item a branch wants held. A timer or a signal branch runs by itself, and dropped pieces
+ * steps"): a summoning cast by another class than the epic's, or a hand-in of more than four
+ * items. A timer or a signal branch runs by itself, and dropped pieces
  * come from hunts. A kill above level 60 is no missing kind: a chain's fight waits for the group's
  * kill chance, and so does a trip for a piece that drops, so the steps before it run meanwhile.
  */
@@ -545,7 +546,6 @@ export function missingKinds(model, tree) {
     }
     const b = s.branch;
     if (Object.values(b.inputs).reduce((a, n) => a + n, 0) > 4) out.add("hand-in of more than four items");
-    if (s.held.length) out.add("held item");
   }
   return [...out];
 }
