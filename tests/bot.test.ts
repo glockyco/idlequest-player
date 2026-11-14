@@ -3490,3 +3490,27 @@ test("the reserve leaves the bags of an active character other than the leader a
     vi.useRealTimers();
   }
 });
+
+test("a companion's low pet is replaced once, and again only when its owner's class gets a new summon", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    f.iq.classSpells = generated;
+    // Edroun plays a Necromancer here, whose summons come at 44, 49 and 53.
+    Object.assign(f.roster.characters.find((c) => c.id === 20)!, { class: 11 });
+    const owner = f.party.companions.find((c) => (c as { characterId?: number }).characterId === 20) as { level: number };
+    owner.level = 50;
+    const pet = { id: "pet-9", name: "Gebeker", companionType: 1, petOwnerCharacterId: 20, level: 41 };
+    f.party.companions.push(pet);
+    const run = async () => (await settle(f.bot.upkeep("test")), f.dismissed.splice(0));
+    expect(await run()).toEqual(["pet-9"]);
+    // Two levels later the best summon is the same, so the new pet of the same level stays.
+    owner.level = 52;
+    expect(await run()).toEqual([]);
+    // At 53 the class has a new summon.
+    owner.level = 53;
+    expect(await run()).toEqual(["pet-9"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});

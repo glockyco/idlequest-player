@@ -79,7 +79,7 @@
     // same in melee at every tier (npc_types), and Water adds a damage spell and more HP than Fire
     // or Air. Earth has the most HP and no damage spell.
     petPreference: "Water",
-    petGap: 6, // a companion's pet this many levels below its owner is replaced once per owner level
+    petGap: 6, // a companion's pet this many levels below its owner is replaced when the owner has a new summon
     memoryAlertShare: 0.8, // alert when the page's JS heap passes this share of its limit
     partyIds: [], // account characters to keep in the party; a login starts with none of them
     leaderId: null, // the character this tab plays as when no pause holds it; null leaves the active character alone
@@ -174,13 +174,27 @@
     upkeepDue: false, // set by level-ups, spell purchases and every install
     upkeepAfter: 0, // not before this time, so purchases after a level-up are scribed first
     upkeepRunning: false,
-    petChecked: {}, // owner character id -> owner level at which its pet was last replaced or kept
+    petChecked: {}, // owner character id -> owner level at which its pet was last replaced, kept in the tab's storage
     memory: [], // [t, used MB] every five minutes
     memoryAlertAt: 0,
     errand: null, // { zone, keep, item, minutes, minCon, limits, arrived, queuedAt, since, until } while an errand runs
   };
   const state = prev?.state ?? fresh;
   for (const [k, v] of Object.entries(fresh)) if (!(k in state)) state[k] = v;
+  // The pet levels outlast the page, because a new page would replace every low pet once more.
+  const PETS_KEY = `${KEY}:pets`;
+  try {
+    state.petChecked = { ...JSON.parse(sessionStorage.getItem(PETS_KEY) ?? "{}"), ...state.petChecked };
+  } catch {
+    /* storage unavailable */
+  }
+  const savePets = () => {
+    try {
+      sessionStorage.setItem(PETS_KEY, JSON.stringify(state.petChecked));
+    } catch {
+      /* storage unavailable */
+    }
+  };
   // A new install may bring new spell rules, so look at gems and pets once.
   state.upkeepDue = true;
 
@@ -2997,13 +3011,22 @@
       const pets = (i.stores.companions.getState().companions ?? []).filter((c) => c.companionType === 1);
       const comps = i.stores.companions.getState().companions ?? [];
       const ownerLevel = (ownerId) => (ownerId === me.id ? me.level : comps.find((c) => c.characterId === ownerId)?.level);
+      // Whether the owner's class got a pet summon after level `checked`, up to level `lvl`. Without
+      // a spell table for the class, every new level counts.
+      const newSummon = (ownerId, checked, lvl) => {
+        const owner = (i.stores.roster?.getState?.().characters ?? []).find((c) => c.id === ownerId);
+        const levels = (i.classSpells?.[classOf(owner)]?.spells ?? []).filter(ROLES.pet.rows).map((r) => r.minLevel);
+        return levels.length ? levels.some((l) => l > checked && l <= lvl) : checked !== lvl;
+      };
       // Our own pet goes when a new summon is planned. A companion's pet goes when it is far below
-      // its owner, once per owner level, so a pet with no better tier is not replaced in a loop.
+      // its owner and the owner has a summon it did not have at the last replacement. A pet of the
+      // owner's best summon stays, however many levels the owner gains.
       const replace = pets.filter((pet) => {
         const owner = pet.petOwnerCharacterId;
         if (owner === me.id) return Boolean(summon) && !summonMemorized;
         const lvl = ownerLevel(owner);
-        return lvl && lvl - pet.level >= config.petGap && state.petChecked[owner] !== lvl;
+        const checked = state.petChecked[owner];
+        return lvl && lvl - pet.level >= config.petGap && (checked == null || newSummon(owner, checked, lvl));
       });
       if (!changes.length && !replace.length) return "nothing to change";
 
@@ -3051,7 +3074,10 @@
           }
         }
         i.stores.companions.getState().dismissPet(pet.id);
-        if (pet.petOwnerCharacterId !== me.id) state.petChecked[pet.petOwnerCharacterId] = ownerLevel(pet.petOwnerCharacterId);
+        if (pet.petOwnerCharacterId !== me.id) {
+          state.petChecked[pet.petOwnerCharacterId] = ownerLevel(pet.petOwnerCharacterId);
+          savePets();
+        }
         done.push(`replaced pet ${pet.name} L${pet.level}`);
         await sleep(1000);
       }
