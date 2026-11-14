@@ -12,10 +12,15 @@ test("a defeat line is a kill, a guard escape naming its enemy is an escape, and
     // A member's death in no fight names no enemy.
     { t: T0 + 2, type: "guard", text: "[guard] leaving: down: Felowynna died", escape: "down", npc: null },
     { t: T0 + 3, type: "EXPERIENCE_GAIN", text: "You gain experience!! (1107392)" },
+    // An escape counts against every enemy of the fight, each name once.
+    { t: T0 + 4, type: "guard", text: "[guard] escape done", escape: "down", npc: "Korucust`s_Courier", leaderLevel: 57, mobs: [{ id: 1, name: "Korucust`s_Courier" }, { id: 2, name: "Arch_Inspector_Nibi`zi" }, { id: 3, name: "an imperial construct" }, { id: 4, name: "an imperial construct" }] },
   ];
   expect(fightOutcomes(events, 52)).toEqual([
     { t: T0, npc: "lady vox", level: 52, outcome: "kill", rule: null },
     { t: T0 + 1, npc: "tilania shadowwalker", level: 52, outcome: "escape", rule: "level" },
+    { t: T0 + 4, npc: "korucust`s courier", level: 57, outcome: "escape", rule: "down" },
+    { t: T0 + 4, npc: "arch inspector nibi`zi", level: 57, outcome: "escape", rule: "down" },
+    { t: T0 + 4, npc: "an imperial construct", level: 57, outcome: "escape", rule: "down" },
   ]);
 });
 

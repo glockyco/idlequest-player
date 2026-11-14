@@ -97,8 +97,8 @@ live fight says how a group of this level fares, and from then on the live fight
   refreshed hourly and kept for a day at the group's level. The simulator fights in the client's
   raid mode, which takes only enemies above level 50;
 - the live fights against the enemy (`tools/lib/fight-record.mjs`): each kill by a leader at the
-  group's level or below, and each escape of the guard that names the enemy by a leader at its
-  level or above, whichever group fought. An escape of a leader below the group's level counts
+  group's level or below, and each escape of the guard from a fight the enemy was in by a leader
+  at its level or above, whichever group fought. An escape of a leader below the group's level counts
   half for each level between. An escape by the level rule does not count, because it refused a
   fight and lost none. The simulator fights an enemy alone, so the enemies that join show only
   here: it gave group 1 four wins of four against Phinigel Autropos, who beat eleven groups 46

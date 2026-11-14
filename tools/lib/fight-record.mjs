@@ -19,15 +19,20 @@ export const npcKey = (name) => String(name).replace(/[#_-]/g, " ").replace(/\s+
 
 /**
  * The kills and escapes among one tab's `events`, whose leader is at `level`: rows
- * `{ t, npc, level, outcome, rule }`. An escape without a named enemy, such as a member's death in
- * no fight, counts against nobody.
+ * `{ t, npc, level, outcome, rule }`. An escape counts once against every enemy of the fight it
+ * left (`mobs`), because a named enemy fights with its company: group 6 lost nine fights to
+ * Arch Inspector Nibi`zi and the four around him, and each escape named only one of the five.
+ * An escape without an enemy, such as a member's death in no fight, counts against nobody.
  */
 export function fightOutcomes(events, level) {
   const out = [];
   for (const e of events) {
     const kill = e.type === "EXPERIENCE_GAIN" && KILL.exec(e.text ?? "");
     if (kill) out.push({ t: e.t, npc: npcKey(kill[1]), level, outcome: "kill", rule: null });
-    else if (e.type === "guard" && e.escape && e.npc) out.push({ t: e.t, npc: npcKey(e.npc), level: e.leaderLevel ?? level, outcome: "escape", rule: e.escape });
+    else if (e.type === "guard" && e.escape) {
+      const names = new Set([e.npc, ...(e.mobs ?? []).map((m) => m.name)].filter(Boolean).map(npcKey));
+      for (const npc of names) out.push({ t: e.t, npc, level: e.leaderLevel ?? level, outcome: "escape", rule: e.escape });
+    }
   }
   return out;
 }
