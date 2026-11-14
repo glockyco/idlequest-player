@@ -13,6 +13,7 @@ interface View {
   inCombat: boolean;
   fightQuietMs: number;
   stillMs?: number;
+  approachMs?: number;
   raid: boolean;
   hidden: boolean;
   pause: string | null;
@@ -76,11 +77,12 @@ test("a failed load, a missing runtime and the waits after a kill get their own 
   expect(rules.label(view())).toEqual(["idle", "noTarget"]);
 });
 
-test("an approach that has not moved the party for a minute is stuck", () => {
-  // Group 1 stood 30 min at one spot in Karnor's Castle on 2026-11-13, approaching a drolvarg sentry.
+test("an approach that has not moved the party for 20 s is stuck, counted from the approach's start", () => {
   const walking = { runtime: { ...rest, attempt: "approaching" } };
-  expect(rules.label(view({ ...walking, stillMs: 20000 }))).toEqual(["approach"]);
-  expect(rules.label(view({ ...walking, stillMs: 61000 }))).toEqual(["idle", "stuckApproach"]);
+  expect(rules.label(view({ ...walking, stillMs: 19000, approachMs: 19000 }))).toEqual(["approach"]);
+  expect(rules.label(view({ ...walking, stillMs: 21000, approachMs: 21000 }))).toEqual(["idle", "stuckApproach"]);
+  // The party stood still through the fight before, so a new approach is not stuck yet.
+  expect(rules.label(view({ ...walking, stillMs: 90000, approachMs: 2000 }))).toEqual(["approach"]);
   // At the target with Auto Attack off is a cause of its own, however long it stands.
   expect(rules.label(view({ runtime: { ...rest, attempt: "waiting-to-attack" }, stillMs: 61000 }))).toEqual(["idle", "waitAttack"]);
 });

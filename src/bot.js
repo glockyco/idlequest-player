@@ -888,7 +888,7 @@
     },
     noEnemies: { afterSec: 0, rungs: ["widen", "move", "start"], untilKill: true },
     waitAttack: { afterSec: 20, rungs: ["restart"], untilKill: true },
-    // An approach that has not moved the party for a minute (src/bridge.js) skips its target, then moves on.
+    // An approach that stopped moving the party (`stuckApproach` in src/bridge.js) skips its target, then moves on.
     stuckApproach: { afterSec: 0, rungs: ["skipTarget", "restart", "move"], untilKill: true },
     readyWait: { afterSec: 30, rungs: ["restart"], untilKill: true },
     noTarget: { afterSec: 20, rungs: ["restart", "widen", "move"], untilKill: true },
