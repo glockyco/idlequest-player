@@ -557,6 +557,7 @@ event lines. Spells that need research, quests or drops are not bought
   `cure` off removes cures, `rez` allows resurrections, `manaRecovery` allows the Shaman's
   Cannibalize-type spells (self-targeted, instant, HP into mana: `M7`, `OST` 58884-58891),
   and `heal`, `nuke`, `dot`, `debuff`, `cc`, `root` and `fear` remove their categories.
+  `healPets` off takes the pets out of a healer's targets.
 - Defaults for a recruit come from what its class can do (`BQ.pretty.js:9983-10050`).
   Resurrection is off for everyone until the `rez` tactic is set (`BQ.pretty.js:10037`,
   `13683`). The leader's defaults are all on except `rez`, `fear` and `range`
@@ -568,6 +569,26 @@ event lines. Spells that need research, quests or drops are not bought
   between fights only the support pass above casts. In a fight, members choose spells from the
   filtered list on their own. Unverified: the order in which the fight AI ranks spells
   (`BQ.pretty.js:36031-36120`).
+
+### How a healer picks its heal
+
+The chooser (`Lq` in the main bundle of release 20261112T194956) scores every heal the caster has
+the mana for against every target, and the best pair is cast.
+
+- Each heal is judged by the target's HP when the heal lands: its HP now less the damage it took
+  per second lately times the heal's cast time (`Eq`).
+- A routine heal goes to a target that would land below the heal threshold (50% by default), and
+  scores by how far below it is, the HP healed per mana and per second, less the overheal.
+- An emergency heal is one for a target that would land below 30%. Only heals with an immediate
+  part count. It scores by the HP the target has after the heal lands, so a slow heal is charged
+  for the damage taken while it casts and a fast one is not charged for the casts that follow.
+- For a target that would be dead at landing, the score is the cast time alone, shortest first.
+  A Cleric's shortest heal is Minor Healing, 10 HP in a second, so a tank that takes more than its
+  remaining HP in a second gets Minor Healing again and again. The bot setting `healMinHp` leaves
+  such heals out through `excludedSpellIds`.
+- For a pet the largest heal wins.
+- The default tank order is the party's Warrior, Paladin and Shadow Knight, then the rest
+  (`tankPriorityByCharacter` overrides it).
 
 ### Supplied party buffs
 

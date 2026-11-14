@@ -3262,6 +3262,28 @@ test("long DoTs are left out per class except snares, and 0 clears the list", as
   expect(ps.castingPreferences["character:20"].excludedSpellIds).toEqual([]);
 });
 
+test("small heals are left out for a caster with a larger one, and for nobody else", async () => {
+  const f = await install();
+  const ps = f.iq.stores.partySpells.getState() as unknown as { castingPreferences: Record<string, { excludedSpellIds?: number[] }>; setCastingPreferences: (k: string, p: object) => void };
+  Object.assign(ps, { castingPreferences: {}, setCastingPreferences: (k: string, p: object) => (ps.castingPreferences[k] = { ...ps.castingPreferences[k], ...p }) });
+  const cs = f.iq.stores.companions.getState() as unknown as { botCombatDataMap: Record<string, { class?: number; level?: number }> };
+  const excluded = async (cls: number, level: number) => {
+    Object.assign(cs.botCombatDataMap["character-20"], { class: cls, level });
+    await f.bot.tick();
+    return [...(ps.castingPreferences["character:20"]?.excludedSpellIds ?? [])].sort((a, b) => a - b);
+  };
+  f.iq.classSpells = generated;
+  f.bot.config.healMinHp = 300;
+  // A Cleric at 57 loses Healing (12), Light Healing (17) and Minor Healing (200) and keeps Remedy and Greater Healing (300).
+  expect(await excluded(2, 57)).toEqual([12, 17, 200]);
+  // At 14 Healing is its largest heal, so it keeps all three.
+  expect(await excluded(2, 14)).toEqual([]);
+  // A Necromancer's only heals are small, so it keeps them.
+  expect(await excluded(11, 57)).toEqual([]);
+  f.bot.config.healMinHp = 0;
+  expect(await excluded(2, 57)).toEqual([]);
+});
+
 test("missing members only hold the first thirty seconds despite repeated requests", async () => {
   vi.useFakeTimers();
   try {

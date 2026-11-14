@@ -56,6 +56,7 @@
     // (docs/plans/leveling-plan.md, lever 5), so the bot holds it off. Null would leave it alone.
     charm: false,
     dotMaxTicks: 0, // DoTs longer than this many ticks are left out for every caster (`keepExclusions`); 0 leaves none out
+    healMinHp: 0, // single-target heals that heal less than this are left out for a caster that has a larger one (`keepExclusions`); 0 leaves none out
     // Item id to the copies the account needs (docs/plans/items.md, "Demand"), set by the coordinator
     // from the gear plan, the class epics' chosen steps, the quest chains and the casino's boss
     // potions: up to that many copies are kept.
@@ -1054,7 +1055,12 @@
   // - with `dotMaxTicks` above 0, the DoTs of its class that run longer than that many 6-second
   //   ticks, except snares, which keep fleeing enemies in reach. A companion casts each DoT the target
   //   lacks whenever its mana is above its class reserve, with no look at how long the fight lasts
-  //   (docs/client-internals.md), and our fights last 14 to 29 s.
+  //   (docs/client-internals.md), and our fights last 14 to 29 s;
+  // - with `healMinHp` above 0, the single-target heals of its class that heal less than that,
+  //   for a character that has a larger one at its level. For a target that the damage of the
+  //   last seconds projects dead before a heal lands, the client picks the heal with the
+  //   shortest cast (docs/client-internals.md, "How a healer picks its heal"), which at 57 is
+  //   Minor Healing: 10 HP in a second.
   const weakerDispels = (scribed = []) => {
     const known = scribed.filter((s) => DISPELS[s]);
     const mod = Math.max(0, ...known.map((s) => DISPELS[s][1]));
@@ -1064,13 +1070,17 @@
     const ps = i.stores.partySpells?.getState?.();
     if (typeof ps?.setCastingPreferences !== "function" || !i.classSpells) return;
     const long = (cls) => (config.dotMaxTicks > 0 ? (i.classSpells[cls]?.spells ?? []).filter((s) => s.category === 4 && s.durationTicks > config.dotMaxTicks && !s.tags.includes("snare")).map((s) => s.spellId) : []);
+    const small = (cls, level) => {
+      const heals = config.healMinHp > 0 ? (i.classSpells[cls]?.spells ?? []).filter((s) => s.category === CAT.heal && s.targetType === 5 && s.hp > 0 && s.minLevel <= (level ?? 0)) : [];
+      return heals.some((s) => s.hp >= config.healMinHp) ? heals.filter((s) => s.hp < config.healMinHp).map((s) => s.spellId) : [];
+    };
     const me = i.stores.character.getState().characterProfile;
-    const who = [{ name: me?.name, id: me?.id, cls: classOf(me), scribed: [] }];
-    for (const c of cs.companions ?? []) if (c.companionType === 2) who.push({ name: c.name, id: c.characterId, cls: cs.botCombatDataMap?.[c.id]?.class, scribed: cs.botCombatDataMap?.[c.id]?.scribedSpellIds ?? [] });
+    const who = [{ name: me?.name, id: me?.id, cls: classOf(me), level: me?.level, scribed: [] }];
+    for (const c of cs.companions ?? []) if (c.companionType === 2) who.push({ name: c.name, id: c.characterId, cls: cs.botCombatDataMap?.[c.id]?.class, level: cs.botCombatDataMap?.[c.id]?.level ?? c.level, scribed: cs.botCombatDataMap?.[c.id]?.scribedSpellIds ?? [] });
     for (const w of who) {
       if (!w.id || w.cls == null) continue;
       const key = `character:${w.id}`;
-      const want = [...new Set([...weakerDispels(w.scribed), ...long(w.cls)])];
+      const want = [...new Set([...weakerDispels(w.scribed), ...long(w.cls), ...small(w.cls, w.level)])];
       const have = ps.castingPreferences?.[key]?.excludedSpellIds ?? [];
       if (have.length === want.length && want.every((id) => have.includes(id))) continue;
       ps.setCastingPreferences(key, { excludedSpellIds: want });
