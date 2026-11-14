@@ -6,6 +6,8 @@
 
 Every cycle iqd evaluates one read-only expression in each game tab through the relay's browser-level CDP endpoint (`src/cdp.mjs`), stores what it returns and raises attention items from it, so an agent sleeps in one `wait` call instead of polling the tabs. It attaches only to pages whose URL starts with `https://idlequest.net/play`, and every attach is logged in the `attach_log` table. It also asks the browser to treat each game tab as focused, because the browser throttles the timers of a hidden tab and its fights stop ending. The tabs therefore need not be in front while iqd runs.
 
+The relay can lose a tab: every call answers "Debugger is not attached" although the relay lists the tab as attached, and only a relay restart clears that. When a tab gives this answer for two minutes, iqd writes `runs/state/relay-restart`, and `tools/play.sh` replaces the relay it started (`relayStuck` in `tools/iqd.mjs`). A relay that another process started is left alone, and the tab's `gone` item then needs a person.
+
 A plain `run` only reads. `--recover` adds the page supervisor, which signs tabs in and installs the page code, and `--coordinate` adds the coordinator, which gives the bots tasks. `tools/play.sh` runs with both and restarts the relay if it exits.
 
 ## Commands
