@@ -479,6 +479,19 @@ test("a move that has to be placed runs in its receiver's own tab, with the rece
   expect(decide({ now: NOW, tabs: busy, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak, knife] } }]);
 });
 
+test("gear and quest task specs include the spare gear lists of their own characters", () => {
+  const tabs = [tab("A", "G1", 41), tab("C", "G9", 13)];
+  const cloak = { item: "Cloak", from: "X", to: "A4", slot: "back" };
+  const spare = { A4: [{ id: 4, name: "Rusty Sword" }], A5: [{ id: 2, name: "Plain Cloak" }], C2: [] };
+  // Only the receiver's list is included, and the key is omitted without one.
+  expect(decide({ now: NOW, tabs, gear: { moves: [cloak], spare } }).actions[0].spec).toEqual({ moves: [cloak], spare: { A4: spare.A4 } });
+  expect(decide({ now: NOW, tabs, gear: { moves: [cloak] } }).actions[0].spec).toEqual({ moves: [cloak] });
+  // A quest spec gets the lists of its members.
+  const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
+  const bard = [{ ...tab("A", "G1", 40), members: [{ name: "A5", level: 40, class: "Bard" }] }];
+  expect(decide({ now: NOW, tabs: bard, quests, gear: { moves: [], spare } }).actions[0].spec.spare).toEqual({ A5: spare.A5 });
+});
+
 test("a quest chain takes a tab before a camp would", () => {
   const quests = { b1: { class: "Bard", minLevel: 20, reward: "Page", steps: [{ zone: "qey2hh1", npc: "Konia" }] } };
   const tabs = [{ ...tab("A", "G1", 40), members: [{ name: "Ugfeu", level: 40, class: "Bard" }] }];

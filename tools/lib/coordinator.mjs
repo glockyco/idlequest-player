@@ -388,7 +388,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles.
       if (q.steps.some((s) => s.kill && s.level != null && (killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1) < cfg.questKillChance)) continue;
       for (const [p, n] of left) spare.set(p, n);
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}) }, why: `${id} for ${who.join(", ")}` });
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${id} for ${who.join(", ")}` });
     }
   }
 
@@ -450,12 +450,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const anywhere = gear.moves.filter((m) => !placed.has(m.to) && !m.exact);
     for (const x of tabs.filter((x) => x.members.some((m) => placed.has(m.name)))) {
       const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && !blocks(x, m));
-      if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, placed in their hands` });
+      if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own, ...spareOf(own.map((m) => m.to)) }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, placed in their hands` });
     }
     const blocked = (t) => anywhere.filter((m) => blocks(t, m)).length;
     const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => blocked(a) - blocked(b) || mean(a) - mean(b))[0];
     const moves = t ? anywhere.filter((m) => !blocks(t, m)) : [];
-    if (moves.length) out.push({ label: t.label, kind: "gear", spec: { moves }, why: `${moves.length} gear moves for ${new Set(moves.map((m) => m.to)).size} characters` });
+    if (moves.length) out.push({ label: t.label, kind: "gear", spec: { moves, ...spareOf(moves.map((m) => m.to)) }, why: `${moves.length} gear moves for ${new Set(moves.map((m) => m.to)).size} characters` });
   }
 
   // Gear targets (docs/plans/gear-acquisition.md): any group may hunt for any character, because a

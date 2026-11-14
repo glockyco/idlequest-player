@@ -3382,3 +3382,110 @@ test("a quest buy with no added item fails at the merchant without pulling a sub
     vi.useRealTimers();
   }
 });
+
+test("a give refused because the receiver's bags are full pulls spare gear out of them and gives again", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const log: string[] = [];
+    let room = 0;
+    Object.assign(f.iq, {
+      carried: () => 1,
+      pullItem: async (item: { name: string }, { from }: { from: string }) => {
+        log.push(`pull ${item.name} from ${from}`);
+        room++;
+        return { got: true, from, reply: "Transferred." };
+      },
+      giveItem: async (item: string, id: number) => {
+        if (!room) return (log.push(`refused ${item}`), { ok: false, lines: ["That character has no inventory space for the replaced item."] });
+        room--;
+        log.push(`give ${item} to ${id}`);
+        return { ok: true, lines: [] };
+      },
+    });
+    const spare = { Edroun: ["Rusty Sword", "Plain Cloak", "Old Helm", "Old Boots", "Old Belt"].map((name, id) => ({ id, name })) };
+    const moves = [{ item: "Fine Cloak", from: "Me", to: "Edroun", slot: "back" }, { item: "Jagged Band", from: "Me", to: "Edroun", slot: "finger" }];
+    f.bot.gear({ moves, spare });
+    await runToEnd(f);
+    // Two moves are left for Edroun, so the task pulls two more items than that, once.
+    expect(log).toEqual(["refused Fine Cloak", "pull Rusty Sword from Edroun", "pull Plain Cloak from Edroun", "pull Old Helm from Edroun", "pull Old Boots from Edroun", "give Fine Cloak to 20", "give Jagged Band to 20"]);
+    expect(f.bot.state.task.result).toBe("2 of 2 moves");
+    // Without a spare list the move fails with the server's reason.
+    log.length = 0;
+    room = 0;
+    f.bot.gear({ moves: moves.slice(0, 1) });
+    await runToEnd(f);
+    expect(log).toEqual(["refused Fine Cloak"]);
+    expect(f.bot.state.task.moves[0].error).toContain("no inventory space");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a quest that resumes part way repeats the steps that spawn the NPCs its remaining steps need", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    handInPage(f, {}, { ok: true });
+    const bag: Record<string, number> = { "First Blessing": 1, Ghoulbane: 1 };
+    const talks: string[] = [];
+    Object.assign(f.iq, {
+      carried: (item: string) => bag[item] ?? 0,
+      talkToNpc: async (npc: string, say: string[]) => void talks.push(`${npc} ${say.join(",")}`.trim()),
+      giveToNpc: async (items: string[]) => {
+        for (const x of items) bag[x] -= 1;
+        bag["Second Blessing"] = 1;
+      },
+    });
+    // Dason spawns Dirkog, who spawns Inte. The member already holds Inte's first blessing.
+    const steps = [
+      { zone: "airplane", npc: "Dason", say: ["Dirkog"] },
+      { zone: "airplane", npc: "Dirkog", say: ["Inte"], calledBy: 0 },
+      { zone: "airplane", npc: "Inte", give: ["SoulFire"], expect: "First Blessing", calledBy: 1 },
+      { zone: "airplane", npc: "Inte", give: ["Ghoulbane"], expect: "Second Blessing", calledBy: 1 },
+    ];
+    f.bot.quest({ members: ["Tagujazolu"], steps });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", members: [{ done: true, at: 4 }] });
+    // The SoulFire hand-in is skipped, and both spawning steps run again before the Ghoulbane one.
+    expect(talks).toEqual(["Dason Dirkog", "Dirkog Inte", "Inte"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("the reserve leaves the bags of an active character other than the leader alone", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const inv = [{ bag: 23, slot: 0, itemid: 1, itemInstanceId: 100, quantity: 1, itemDetails: { Name: "Rusty Mace", price: 100, nodrop: 1, norent: 1, bagslots: 0, itemtype: 0 } }];
+    (f.me as unknown as { inventory: unknown[] }).inventory = inv;
+    const sold: string[] = [];
+    Object.assign(f.iq, {
+      bagSpace: () => ({ free: inv.length ? 0 : 8, capacity: 8, cursor: null }),
+      clientFn: (name: string) => () => {
+        if (name !== "sell") return;
+        sold.push(inv[0].itemDetails.Name);
+        inv.length = 0;
+        return { success: true, data: { copperTotal: 1 } };
+      },
+    });
+    const clean = async () => {
+      const run = f.bot.cleanup();
+      for (let k = 0; k < 30; k++) {
+        vi.advanceTimersByTime(500);
+        await flush();
+      }
+      await run;
+    };
+    Object.assign(f.bot.config, { autoBank: false, leaderId: 99 });
+    await clean();
+    expect(sold).toEqual([]);
+    f.bot.config.leaderId = (f.me as unknown as { id: number }).id;
+    await clean();
+    expect(sold).toEqual(["Rusty Mace"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -282,6 +282,9 @@
    * client refuses a destroy and would leave the discard on the cursor.
    */
   const keepReserve = async (i, force = false, withCursor = false) => {
+    // The demand and the kept copies are the leader's share, so the reserve must not judge
+    // another character's bags by them. A member's bags are emptied by `makeRoom`.
+    if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
     if (i.stores.inventory?.getState?.().busy) return;
     let space = i.bagSpace();
     if (space.cursor && state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) {
@@ -367,6 +370,42 @@
       else state.storeRefused[k.instanceId] = now();
     }
     if (stored.length) log(`stored ${stored.length} kept item(s) with party members (${stored.join(", ")}); ${i.bagSpace().free} slots free`);
+  };
+  // The server's refusals of a give when the receiver's bags are full.
+  const BAGS_FULL = /no inventory space|inventory is full/i;
+  /**
+   * Free bag slots of party member `id`, computed like `bagSpace` from the inventory the client
+   * holds for it. Null if the client has no inventory for that character.
+   */
+  const memberRoom = (i, id) => {
+    const inv = i.stores.companions.getState().botInventories?.[`character-${id}`];
+    if (!inv?.length) return null;
+    let free = 0;
+    for (let slot = 22; slot <= 29; slot++) {
+      const r = inv.find((x) => x.bag === 0 && x.slot === slot);
+      free += r ? (r.itemDetails?.bagslots || 0) - inv.filter((x) => x.bag === slot + 1).length : 1;
+    }
+    return free;
+  };
+  /**
+   * Pulls up to `count` items of `spare` (`[{ id, name }]`, the gear plan's `spareGear`) out of
+   * `name`'s bags into the leader's, where the bag reserve sells or destroys them. Only runs while
+   * the leader is active. Stops after two failed pulls, because the list can be an hour old.
+   * Returns the number of items pulled.
+   */
+  const makeRoom = async (i, name, spare = [], count = 4) => {
+    if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return 0;
+    let pulled = 0;
+    let failed = 0;
+    for (const s of spare) {
+      if (pulled >= count || failed >= 2) break;
+      if (i.bagSpace().free < 2) await keepReserve(i, true);
+      const r = await i.pullItem({ name: s.name, id: s.id }, { from: name, timeoutMs: 8000 }).catch(() => null);
+      if (r?.got) pulled++;
+      else failed++;
+    }
+    if (pulled) log(`made room in ${name}'s bags: pulled ${pulled} spare item(s)`);
+    return pulled;
   };
 
   // Raid mode turns AutoLevel off and the leader commands each fight (main.pretty.js:72297-72300),
@@ -1545,7 +1584,10 @@
   const pullOne = async (i, item, from = null, avoid = []) => {
     if (i.bagSpace().free < 2) await keepReserve(i, true);
     const r = await i.pullItem(item, { from, avoid });
-    if (!r.got) throw new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`);
+    if (r.got) return;
+    // The reserve does not run for a member, so its next quest task makes room first (`questMember`).
+    if (BAGS_FULL.test(r.reply ?? "")) (state.fullBags ??= {})[activeName(i)] = now();
+    throw new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`);
   };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
@@ -1566,6 +1608,8 @@
       log(`gear: ${mv.item} to ${mv.to} failed: ${mv.error}`);
     };
     const toPlace = [];
+    // Receivers whose bags this task already tried to empty.
+    const roomTried = new Set();
     for (const mv of task.moves) {
       if (mv.done || mv.error) continue;
       try {
@@ -1593,7 +1637,16 @@
           continue;
         }
         const place = Boolean(mv.exact) && !self && inParty(to.id);
-        const r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" && !place, settle: () => settleHeld(i) }), 30000);
+        const give = () => step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" && !place, settle: () => settleHeld(i) }), 30000);
+        let r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await give();
+        // A give needs a free slot in the receiver's bags, for the item itself or for the one it
+        // replaces. On that refusal the task pulls spare gear out of the receiver's bags, enough
+        // for its remaining moves to that receiver, and gives once more.
+        if (!self && !r.ok && r.lines.some((l) => BAGS_FULL.test(l)) && !roomTried.has(mv.to)) {
+          roomTried.add(mv.to);
+          const remaining = task.moves.filter((x) => x.to === mv.to && !x.done && !x.error).length;
+          if (await step(`make room for ${mv.to}`, () => makeRoom(i, mv.to, task.spare?.[mv.to], remaining + 2), 180000)) r = await give();
+        }
         // A move retried after a reinstall may find the item already given, which the server
         // reports as a lore conflict, so that refusal means the receiver has it.
         const given = r.ok || r.lines.some((l) => /already possesses a Lore item/i.test(l));
@@ -1701,6 +1754,13 @@
     if (m.done) return;
     const t0 = now();
     await step(`stop for ${m.name}`, () => calm(i), 75000);
+    // The member pulls quest items into its own bags, which only the leader can empty. So the
+    // leader makes room first if the member's last pull failed for space or its bags are nearly full.
+    const self = findCharacter(i, m.name);
+    if (m.spare?.length && self && (state.fullBags?.[m.name] || (memberRoom(i, self.id) ?? Infinity) < 3)) {
+      await step(`make room for ${m.name}`, () => makeRoom(i, m.name, m.spare), 120000);
+      delete state.fullBags?.[m.name];
+    }
     await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
     // Resume after the last step whose `expect` the member already carries.
     const resume = m.steps.findLastIndex((s) => s.expect && i.carried(ref(s.expect)) > 0) + 1;
@@ -3152,11 +3212,13 @@
      * task in the page (`questTask`). A step is `{ zone, npc, say, give, each, expect }`, such as
      * `{ zone: "freporte", npc: "Kargek Redblade", say: ["scabbard", "favor"], expect: "Wax Sealed
      * Note" }`. A missing item is pulled from another account character, never from one in `avoid`,
-     * the other characters that need it. Returns a copy of the task, which `state.task` keeps up to date.
+     * the other characters that need it. `spare` maps a member to the gear the leader may pull out
+     * of its bags when they are full (`makeRoom`). Returns a copy of the task, which `state.task`
+     * keeps up to date.
      */
-    quest({ members, steps, name = "quest", avoid = [], ids = {} }) {
+    quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {} }) {
       if (!steps?.length) throw new Error("a quest needs steps");
-      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids })), name);
+      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids, spare: spare[n] ?? [] })), name);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;
     },
@@ -3224,12 +3286,13 @@
     /**
      * Carry out gear moves `[{ item, from, to, slot }]` from the roster gear plan as a task in the
      * page (`gearTask`): pull each item from its holder and give it equipped to its receiver.
-     * Returns a copy of the task, which `state.task` keeps up to date.
+     * `spare` maps a receiver to the gear the task may pull out of its bags when they are full
+     * (`makeRoom`). Returns a copy of the task, which `state.task` keeps up to date.
      */
-    gear({ moves }) {
+    gear({ moves, spare = {} }) {
       takeTab();
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), spare, moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },

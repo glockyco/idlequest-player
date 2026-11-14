@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
+import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -357,4 +357,28 @@ test("a moved lore copy releases its holder for a later copy unless another stay
   expect(plan.moves[1].loreHolders).toEqual(["A"]);
   const retained = planGear({ survey: [copy("B", 1), copy("Holder", 2), { ...copy("B", 3), location: "Bank" }], items: lore, people });
   expect(retained.moves).toHaveLength(1);
+});
+
+test("spareGear lists carried gear that is not kept, needed, reserved for a move or unmovable, cheapest first", () => {
+  const more = new Map([
+    ...items,
+    item(20, "Hand Drum", { slots: 1 << 13, bardtype: 26, itemtype: 26, bardvalue: 18, price: 1 }),
+    item(21, "Backpack", { slots: 0, bagslots: 8 }),
+    item(22, "Quest Robe", { slots: 1 << 17, price: 0 }),
+    item(23, "Summoned Blade", { slots: 1 << 13, norent: 0 }),
+    item(24, "Bread", { slots: 0 }),
+  ]);
+  const held = (who: string, itemId: number, inst: number, blockReason = "") => ({ characterName: who, characterId: who.length, itemId, itemName: more.get(itemId)!.Name, itemInstanceId: inst, location: "Carried", slot: 0, bag: 25, blockReason });
+  const people = [{ name: "Song", cls: "bard", level: 50, race: "" }, { name: "Pal", cls: "paladin", level: 50, race: "" }];
+  const withPrice = new Map([...more].map(([id, i]) => [id, id === 2 ? { ...i, price: 50 } : id === 4 ? { ...i, price: 5 } : i]));
+  const survey = [
+    held("Pal", 2, 1), held("Pal", 4, 2), held("Pal", 4, 3), held("Pal", 1, 4), held("Pal", 3, 5), held("Pal", 3, 6), held("Pal", 21, 7), held("Pal", 22, 8), held("Pal", 23, 9), held("Pal", 24, 10), held("Pal", 6, 11, "Not in Inventory Search."), held("Pal", 7, 12),
+    held("Song", 20, 13), held("Song", 4, 14), held("Stranger", 4, 15),
+  ];
+  const spare = spareGear({ survey, items: withPrice, people, keep: { counts: { 1: 1 }, instances: [5] }, need: { 22: 4 }, unworn: new Set([7]) });
+  // Listed: the Rusty Sword (two copies, one entry) and the dearer Plain Cloak.
+  // Not listed: Fine Cloak (plan is short of it), Long Sword (a copy is reserved for a move),
+  // Quest Robe (in demand), Twin Dagger (quest hand-in), Buckler (Inventory Search cannot move it),
+  // Backpack, Bread and the NO RENT blade (not gear), the Bard's Hand Drum, and a non-roster holder.
+  expect(spare).toEqual({ Pal: [{ id: 4, name: "Rusty Sword" }, { id: 2, name: "Plain Cloak" }], Song: [{ id: 4, name: "Rusty Sword" }] });
 });

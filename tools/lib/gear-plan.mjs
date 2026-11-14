@@ -492,6 +492,47 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   return { moves, keep: { counts, instances: [...keepInstances] }, drops: [...want.values()], targets: rankTargets(byTarget, copyValue), characters: people.map((p) => characterReport(p, { wornRows: wornRows.get(p.name), worn: worn.get(p.name), scoreNow: scoreNow.get(p.name), moves: moves.filter((m) => m.to === p.name), wants: [...want].filter(([, w]) => w.to === p.name).map(([k, w]) => ({ ...w, slotNum: wantSlot.get(k) })), items, value }) ) };
 }
 
+// Maximum spare items listed per character. One gear task pulls fewer than this.
+const SPARE_LISTED = 12;
+
+/**
+ * Lists, per character, the carried gear that nothing on the account needs:
+ * `{ [name]: [{ id, name }] }`, cheapest first.
+ *
+ * A gear move leaves the replaced item in the receiver's bags, and the server refuses a move once
+ * those bags are full. Only the leader's bags are emptied by the bag reserve, so a gear task uses
+ * this list to pull items out of a full receiver's bags to the leader, who sells them.
+ *
+ * An item is spare if all of these hold:
+ * - it is wearable gear, not a bag and not NO RENT
+ * - Inventory Search can move it (no `blockReason`)
+ * - no copy of it on that character is reserved for a planned move (`keep.instances`)
+ * - the plan is not short of it (`keep.counts`)
+ * - it is not in the account's demand (`need`, by item id) and not a quest hand-in (`unworn`)
+ * - it is not an instrument in a Bard's bags, which the Bard uses from there
+ */
+export function spareGear({ survey, items, people, keep, need = {}, unworn = new Set() }) {
+  const kept = new Set(keep.instances);
+  const bards = new Set(people.filter((p) => p.cls === "bard").map((p) => p.name));
+  const names = new Set(people.map((p) => p.name));
+  const held = new Map();
+  for (const r of survey) if (r.location === "Carried" && names.has(r.characterName)) (held.get(r.characterName) ?? held.set(r.characterName, []).get(r.characterName)).push(r);
+  const out = {};
+  for (const [who, rows] of held) {
+    const moving = new Set(rows.filter((r) => kept.has(r.itemInstanceId)).map((r) => r.itemId));
+    const spare = new Map();
+    for (const r of rows) {
+      const item = items.get(r.itemId);
+      if (!item || !(item.slots > 0) || item.bagslots > 0 || item.norent === 0 || r.blockReason) continue;
+      if (moving.has(r.itemId) || keep.counts[r.itemId] > 0 || need[r.itemId] > 0 || unworn.has(r.itemId)) continue;
+      if (bards.has(who) && bagInstrument(item)) continue;
+      spare.set(r.itemId, { id: r.itemId, name: r.itemName, price: item.price ?? 0 });
+    }
+    if (spare.size) out[who] = [...spare.values()].sort((a, b) => a.price - b.price).slice(0, SPARE_LISTED).map(({ id, name }) => ({ id, name }));
+  }
+  return out;
+}
+
 // The further takers of an item a target lists, for the copies of groups that hunt it at one time.
 const OTHER_TAKERS = 3;
 

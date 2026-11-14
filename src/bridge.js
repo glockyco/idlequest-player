@@ -1735,7 +1735,8 @@
       await pause(700);
     }
     if (cursorItem()) throw new Error(`${cursorItem()} is still on the cursor`);
-    const lines = events.filter((x) => x.seq > since && /equips|transfer|give|cannot|space/i.test(x.text ?? "")).map((x) => x.text);
+    // Refusals arrive as SYSTEM_ERROR lines whose wording varies, so all of them are returned.
+    const lines = events.filter((x) => x.seq > since && (x.type === "SYSTEM_ERROR" || /equips|transfer|give|cannot|space/i.test(x.text ?? ""))).map((x) => x.text);
     return { ok: Boolean(ok), lines };
   };
   /**

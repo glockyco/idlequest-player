@@ -875,6 +875,8 @@ export class Daemon {
       potionDemand(this.itemModel.bosses),
       stones.demand,
     );
+    // Kept for the next gear pass, which needs the demand for `spareGear`.
+    this.need = need;
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
@@ -1363,7 +1365,7 @@ export class Daemon {
     // while a watched boss's respawn is near, which a look has to meet (`nextLook`).
     if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
-    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
+    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
     // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
     // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
     // the middle of a character switch, is tried once more.
@@ -1506,7 +1508,10 @@ export class Daemon {
     metaSet(this.db, "gearKeep", keep);
     metaSet(this.db, "gear", { t: now, next: now + GEAR_EVERY_MIN * 60000, items: survey.length, moves: moves.length, kept: Object.keys(keep.counts).length, keptCopies: keep.instances.length, capped: job.result.capped, missed: job.result.missed ?? [], drops, targets: this.targetWants, killsPerHour: this.killsPerHour });
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
-    return { moves };
+    // Spare gear per character, for gear tasks whose receiver has full bags. Requires the demand
+    // of an earlier coordinator pass. Without it nothing counts as spare.
+    const spare = this.need ? spareGear({ survey: survey.filter((r) => !unseen.has(r.characterName)), items: this.items, people, keep, need: this.need, unworn }) : {};
+    return { moves, spare };
   }
 
   /**
