@@ -437,7 +437,7 @@ function renderBosses(s) {
     w.state === "alive"
       ? `<span class="pill accent">up</span>${s.now - w.seenAt > 30 * 60000 ? ` <span class="muted">at the last look</span>` : ""}`
       : w.state === "unknown"
-        ? `<span class="muted">no tab has looked yet</span>`
+        ? `<span class="muted">${w.raid && w.raid.kills < w.raid.fights ? "no look, since the raid loses to it in the simulator" : !w.raid ? "no look until the simulator has fought it" : "not looked at yet, its look waits its turn"}</span>`
         : w.state === "stale"
           ? `not known <span class="muted">the server put bosses up ahead of their timers by ${when(R.spawnsResetAt)}, after the last look</span>`
           : w.state === "due"
