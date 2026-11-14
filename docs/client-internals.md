@@ -478,9 +478,11 @@ presses) leaves the preview with a disposed scene, which never calls back (`if (
 shows, and after each kill AutoLevel waits for the pending loot until its deadline, which the bridge
 labels `lootSettle` once the party is full. Later zone changes and sign-ins do not end it, and a
 page reload does. A healthy preview calls back after the client's 1 s delay and 2 s preview, and
-AutoLevel checks the loot only after its 5 s pause after a kill (`Dt`). So the bridge's
-`lootPreview` shim (`SHIMS` in `src/bridge.js`) calls back at 3.5 s when the scene has not, which
-runs only the client's own collection, and counts the previews the scene never answered
+AutoLevel checks the loot only after its 5 s pause after a kill (`Dt`). The previews of several
+kills queue and answer one after another (`autoLootQueue`, `drainAutoLootQueue`), so a later one
+answers later. The bridge's `lootPreview` shim (`SHIMS` in `src/bridge.js`) calls back in the
+scene's place once its runtime is disposed, at 3.5 s or at its next look, or after 15 s without an
+answer, which runs only the client's own collection, and counts each call it makes
 (`iq.shimCounts`). Should loot lines stop anyway, the page supervisor reloads a tab after 25 kills
 in a row without one, which the bridge counts (`faults.lootless`, tools/lib/page.mjs).
 
