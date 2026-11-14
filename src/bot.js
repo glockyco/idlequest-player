@@ -1883,8 +1883,11 @@
         // A fight that still runs is no lost one, however long it takes: group 9 fought Jaeil the
         // Insane for 159 s, and the step gave up eight seconds before the kill, so nobody looted
         // the hammer it dropped (2026-11-12).
+        // An enemy that does not come up is not up for any group, so the next try waits an hour,
+        // which holds the chain for every tab (`worldHold` in tools/lib/coordinator.mjs).
         for (let r = null; r !== "killed" && !killedSince(i, wanted, since); ) {
-          if (r && r !== "fighting" && now() > end) throw new Error(`${r === "none" ? `no ${s.kill} came up` : `the fight with ${s.kill} was lost`} (${fightState(i)})`);
+          if (r === "none" && now() > end) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
+          if (r && r !== "fighting" && now() > end) throw new Error(`the fight with ${s.kill} was lost (${fightState(i)})`);
           if (r && r !== "fighting") await sleep(2000);
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
