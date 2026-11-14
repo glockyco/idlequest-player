@@ -1614,9 +1614,11 @@
     if (i.bagSpace().free < 2) await keepReserve(i, true);
     const r = await i.pullItem(item, { from, avoid });
     if (r.got) return;
-    // The reserve does not run for a member, so its next quest task makes room first (`questMember`).
-    if (BAGS_FULL.test(r.reply ?? "")) (state.fullBags ??= {})[activeName(i)] = now();
-    throw new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`);
+    // The reserve does not run for a member, so its next quest task makes room first (`questMember`),
+    // and that task comes in ten minutes rather than after the chain's retry time.
+    const full = BAGS_FULL.test(r.reply ?? "");
+    if (full) (state.fullBags ??= {})[activeName(i)] = now();
+    throw Object.assign(new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`), full ? { retryAfterMs: 10 * 60000 } : {});
   };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
@@ -1784,9 +1786,10 @@
     const t0 = now();
     await step(`stop for ${m.name}`, () => calm(i), 75000);
     // The member pulls quest items into its own bags, which only the leader can empty. So the
-    // leader makes room first if the member's last pull failed for space or its bags are nearly full.
+    // leader makes room first if the member's last pull failed for space or its bags are nearly
+    // full, or the client holds no inventory for it to tell.
     const self = findCharacter(i, m.name);
-    if (m.spare?.length && self && (state.fullBags?.[m.name] || (memberRoom(i, self.id) ?? Infinity) < 3)) {
+    if (m.spare?.length && self && (state.fullBags?.[m.name] || (memberRoom(i, self.id) ?? 0) < 3)) {
       await step(`make room for ${m.name}`, () => makeRoom(i, m.name, m.spare), 120000);
       delete state.fullBags?.[m.name];
     }
