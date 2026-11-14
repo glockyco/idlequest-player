@@ -862,8 +862,10 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   if (!state) return null;
   const history = state.history ?? [];
   const code = metaRow(db, "daemon")?.code ?? null;
-  // The newest entry of each task on each tab says when it comes back, soonest first.
-  const newest = new Map(history.map((h) => [`${h.label}|${h.kind}|${h.id}`, h]));
+  // The newest entry of each task on each tab says when it comes back, soonest first. A quest
+  // whose chain the coordinator no longer has does not come back.
+  const gone = (h) => h.kind === "quest" && state.last?.chains && !(h.id in state.last.chains);
+  const newest = new Map(history.filter((h) => !gone(h)).map((h) => [`${h.label}|${h.kind}|${h.id}`, h]));
   const retries = [...newest.values()].map((h) => ({ group: groupOf.get(h.label) ?? null, name: taskLabel(catalog, h), retryAt: retryAt(catalog, h, { history, code }) })).filter((h) => h.retryAt != null && h.retryAt > now).sort((a, b) => a.retryAt - b.retryAt).slice(0, 8);
   const running = rows
     .filter((r) => r.task?.status === "running")
