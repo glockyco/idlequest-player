@@ -402,7 +402,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles.
       if (q.steps.some((s) => s.kill && s.level != null && (killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1) < cfg.questKillChance)) continue;
       for (const [p, n] of left) spare.set(p, n);
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${id} for ${who.join(", ")}` });
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
     }
   }
 
