@@ -123,6 +123,8 @@ async function install(partyIds: number[] = []) {
   const zones = [
     { shortName: "guktop", longName: "The City of Guk", zoneidnumber: 65 },
     { shortName: "permafrost", longName: "The Permafrost Caverns", zoneidnumber: 73 },
+    { shortName: "hole", longName: "The Hole", zoneidnumber: 39 },
+    { shortName: "skyshrine", longName: "Skyshrine", zoneidnumber: 114 },
   ];
   const kills: { t: number; xp: number; enemy: string }[] = [];
   // Seconds per activity label over the last minutes, as the bridge counts them from its samples. The
@@ -661,7 +663,7 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     expect(farm.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
 
     // An errand without its item only notes, because the coordinator retries it, and a party outside
-    // its rotation moves back into it.
+    // its rotation moves back into it at once.
     const late = await install();
     late.bot.config.rotation = ["guktop"];
     late.combat.currentZone = 65;
@@ -669,9 +671,6 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
     vi.advanceTimersByTime(31 * 60000);
     await late.bot.tick();
     expect(late.bot.state.alerts.find((a) => a.kind === "errand")?.wake).toBe(false);
-    expect(late.moves).toEqual(["permafrost"]);
-    vi.advanceTimersByTime(61000);
-    await late.bot.tick();
     expect(late.moves).toEqual(["permafrost", "guktop"]);
 
     // A crowded errand zone, whose enemies other players take, ends the errand before its minutes,
@@ -1583,6 +1582,23 @@ test("a hunt over several zones moves on when none of the enemies is up and ends
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, result: "none of faerie guard up" });
     expect(f.moves).toEqual(["lfaydark", "gfaydark", "lfaydark"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a party a hunt took out of its rotation goes back at the first tick after the hunt", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    Object.assign(f.bot.config, { leaderId: 1, rotation: ["guktop"] });
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    f.runtime.combatScene.getAliveCombatTargetList = () => [];
+    Object.assign(f.runtime, { selectEnemyTarget: () => {} });
+    f.bot.hunt({ zone: ["permafrost"], keep: "ice giant", item: "Power of Earth", waitMin: 0 });
+    await runToEnd(f);
+    expect(f.bot.state.task.status).toBe("done");
+    expect(f.moves).toEqual(["permafrost", "guktop"]);
   } finally {
     vi.useRealTimers();
   }

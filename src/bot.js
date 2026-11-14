@@ -2742,11 +2742,15 @@
   };
   const zoneShort = (i) => i.stores.staticData.getState().zones.find((z) => z.zoneidnumber === i.stores.combat.getState().currentZone)?.shortName;
   // A party outside its rotation, after a respawn at the bind point, a new rotation or a fresh
-  // start in a home city, moves to the rotation's first zone after `outsideRotationSec`.
+  // start in a home city, moves to the rotation's first zone after `outsideRotationSec`. A party
+  // that an errand or a task took there goes back as soon as that has ended, because AutoLevel
+  // would otherwise fight whatever stands around in a zone nobody chose for it.
+  const TRIP_ENDED_MS = 120000;
   const watchOutside = async (i) => {
     const list = config.rotation ?? [];
     if (!list.length || state.errand || !config.outsideRotationSec || list.includes(zoneShort(i))) return;
-    if (now() - (state.zoneSince ?? now()) < config.outsideRotationSec * 1000) return;
+    const tripEnded = now() - Math.max(state.errandEndedAt ?? 0, state.task?.endedAt ?? 0) < TRIP_ENDED_MS;
+    if (!tripEnded && now() - (state.zoneSince ?? now()) < config.outsideRotationSec * 1000) return;
     await moveTo(i, list[0], `${zoneShort(i)} is not in the rotation`);
   };
   const nextZone = (i) => {
@@ -2852,6 +2856,7 @@
   const endErrand = (i, why, failed) => {
     const e = state.errand;
     state.errand = null;
+    state.errandEndedAt = now();
     if (e.widened) setLimits(i.stores.combat.getState(), config.limits ?? e.limits);
     // The visit clock restarts, so the rate rule judges the zone without the errand.
     state.zoneSince = now();
