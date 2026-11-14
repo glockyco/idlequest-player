@@ -815,12 +815,12 @@
   const SHIMS = {
     // After a kill the client asks the scene for an auto-loot preview and collects the loot, with its
     // "You loot" lines, in the preview's callback, which comes after a 1 s delay and a 2 s preview
-    // (AUTO_LOOT_DELAY_MS, AUTO_LOOT_PREVIEW_MS). The previews queue and answer one after another,
-    // so a preview behind another answers late. A zone load that failed and was tried again leaves
-    // the preview with a disposed runtime, which drops the queue without calling back
-    // (docs/client-internals.md, Loot messages). The shim looks every `ms` and calls back when the
-    // runtime is disposed, or at `dropMs` when the client has still not answered, and counts each
-    // call it makes.
+    // (AUTO_LOOT_DELAY_MS, AUTO_LOOT_PREVIEW_MS). A zone load that failed and was tried again leaves
+    // the preview with a disposed scene, which returns without calling back (docs/client-internals.md,
+    // Loot messages). The shim calls back at `ms` when the client has not, which AutoLevel's 5 s
+    // pause after a kill hides, and counts the previews the client still had not answered at `dropMs`.
+    // The previews of several kills queue, and a queue a server lag leaves stuck answers none. So the
+    // shim calls back at `ms` whether the scene is disposed or the preview waits in the queue.
     lootPreview: {
       ms: 3500,
       dropMs: 15000,
@@ -858,21 +858,22 @@
     const { ms, dropMs } = SHIMS.lootPreview;
     inner.previewAutoLootNearCorpse = (loot, done) => {
       let finished = false;
+      let answered = false;
       const once = () => {
         if (finished) return;
         finished = true;
         done();
       };
-      const look = (waited) => {
-        if (finished) return;
-        if (!inner.disposed && waited < dropMs) return void setTimeout(() => look(waited + ms), ms);
-        shimCounts.lootPreview++;
-        once();
-      };
       try {
-        preview(loot, once);
+        preview(loot, () => {
+          answered = true;
+          once();
+        });
       } finally {
-        setTimeout(() => look(ms), ms);
+        setTimeout(once, ms);
+        setTimeout(() => {
+          if (!answered) shimCounts.lootPreview++;
+        }, dropMs);
       }
     };
     inner.__iqShim = INSTALL;
