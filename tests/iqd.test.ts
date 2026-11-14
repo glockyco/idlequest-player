@@ -3,7 +3,7 @@
 import { expect, spyOn, test } from "bun:test";
 import type { Subprocess } from "bun";
 import type { Database } from "bun:sqlite";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as gearPlan from "../tools/lib/gear-plan.mjs";
@@ -674,4 +674,25 @@ test("a tab that was busy does not count against the task it refused", () => {
   expect(tabWasBusy("TypeError: Cannot read properties of undefined (reading 'hunt')")).toBe(true);
   expect(tabWasBusy("Error: could not move to velketor")).toBe(false);
   expect(tabWasBusy("Error: Tagujazolu is not a character on this account")).toBe(false);
+});
+
+test("a tab that stays detached for two minutes asks play.sh for a new relay, at most every ten minutes", async () => {
+  const runs = await mkdtemp(join(tmpdir(), "iqd-relay-"));
+  await mkdir(join(runs, "state"));
+  const logged: string[] = [];
+  const d = collector({ runs, log: (line: string) => logged.push(line) });
+  const asked = () => readFile(join(runs, "state/relay-restart"), "utf8").catch(() => null);
+  d.trackers.set("a", { targetId: "a", label: "Ibaegrix", state: {}, detachedSince: T0 });
+  d.trackers.set("b", { targetId: "b", label: "Embrogg", state: {}, detachedSince: null });
+  await d.relayStuck(T0 + 119 * SEC);
+  expect(await asked()).toBeNull();
+  await d.relayStuck(T0 + 121 * SEC);
+  expect(await asked()).toContain("Ibaegrix");
+  expect(logged).toHaveLength(1);
+  // play.sh removes the file. The collector does not ask again for ten minutes.
+  await rm(join(runs, "state/relay-restart"));
+  await d.relayStuck(T0 + 500 * SEC);
+  expect(await asked()).toBeNull();
+  await d.relayStuck(T0 + 722 * SEC);
+  expect(await asked()).toContain("Ibaegrix");
 });

@@ -37,6 +37,16 @@ while :; do
   started=$(date +%s)
   while kill -0 "$collector" 2>/dev/null; do
     sleep 15
+    # The collector asks for a new relay with this file (`relayStuck` in tools/iqd.mjs). Only a
+    # relay this script started can be replaced. The block below starts the new one.
+    ask="${IQD_RUNS:-runs}/state/relay-restart"
+    if [ -e "$ask" ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') play: the collector asked for a new relay: $(cat "$ask")"
+      rm -f "$ask"
+      kill "$relay" 2>/dev/null
+      sleep 2
+      relayStarted=0
+    fi
     # Another relay may own the port, so retry our exited relay at most once a minute.
     if ! kill -0 "$relay" 2>/dev/null && [ "$(($(date +%s) - ${relayStarted:-0}))" -ge 60 ]; then
       omp browser-relay &

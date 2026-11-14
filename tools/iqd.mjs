@@ -420,6 +420,10 @@ const REFUSED_RETRY_MIN = 360;
 // Retry delay for a potion the server refused because the boss has no spawn point. Only a server
 // update can fix that, and every attempt buys raid time first.
 const NO_SPAWN_RETRY_MIN = 7 * 1440;
+// How long a tab may answer "Debugger is not attached" before the collector asks for a new relay,
+// and how long it waits before it asks again.
+const RELAY_STUCK_MS = 120000;
+const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
@@ -1572,6 +1576,7 @@ export class Daemon {
     if (this.recover) await part("deployed code", () => this.readDeployed().catch((e) => this.log(`deployed code: ${e.message}`)));
     await part("tabs", () => Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`)))));
     sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
+    await this.relayStuck(now);
     // The leaders whose pages run other code than their group should, for `status`.
     const behind = this.recover && this.code ? [...this.trackers.values()].filter((tr) => tr.snap?.leader && tr.snap.code !== this.codeOf(tr)).map((tr) => tr.snap.leader.name) : null;
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null, behind });
@@ -1598,6 +1603,22 @@ export class Daemon {
     const total = Date.now() - now;
     if (total > 60000) this.log(`cycle took ${Math.round(total / 1000)} s: ${spent.filter(([, ms]) => ms >= 1000).map(([name, ms]) => `${name} ${Math.round(ms / 1000)} s`).join(", ") || "no part over a second"}`);
     this.part = null;
+  }
+
+  /**
+   * Asks tools/play.sh for a new relay when a tab has answered "Debugger is not attached" for
+   * `RELAY_STUCK_MS`. Every call attaches anew after that error, so a tab that keeps giving it is
+   * held by stale state in the relay's browser extension, which a relay restart clears. The page
+   * keeps playing meanwhile, but unfocused and without tasks. play.sh restarts the relay when the
+   * file `state/relay-restart` appears.
+   */
+  async relayStuck(now) {
+    const stuck = [...this.trackers.values()].filter((tr) => tr.detachedSince && now - tr.detachedSince >= RELAY_STUCK_MS);
+    if (!stuck.length || now - (this.relayAskedAt ?? 0) < RELAY_ASK_EVERY_MS) return;
+    this.relayAskedAt = now;
+    const why = `${stuck.map((tr) => tr.label).join(", ")} answered "Debugger is not attached" for ${Math.round((now - Math.min(...stuck.map((tr) => tr.detachedSince))) / 1000)} s`;
+    await writeFile(join(this.runs, "state/relay-restart"), `${why}\n`).catch((e) => this.log(`relay: could not ask for a restart: ${e.message}`));
+    this.log(`relay: asked play.sh for a new relay: ${why}`);
   }
 
   /**
@@ -1682,6 +1703,8 @@ export class Daemon {
         obs = { reachable: false, present: true, error: String(e.message).slice(0, 100) };
       }
     }
+    // Since when the tab has answered only "Debugger is not attached" (`relayStuck`).
+    tr.detachedSince = /Debugger is not attached/.test(obs.error ?? "") ? (tr.detachedSince ?? now) : null;
     const snap = obs.snap;
     const oldLabel = tr.label;
     if (snap?.leader?.name) tr.label = snap.leader.name;
