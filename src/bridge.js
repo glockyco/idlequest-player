@@ -1684,7 +1684,8 @@
    * Craft tradeskill recipe `recipeId` with the Advanced recipe window's own requests
    * (docs/plans/systems-research.md, section 2), up to `quantity` attempts and until `until`
    * successes: each attempt buys the catalog ingredients the Tradeskill Bank lacks for one set and
-   * crafts once (the server accepts no container, 0). Then `output` is withdrawn from the bank onto
+   * crafts once. Container 0 serves a recipe of a world container such as the forge, and a recipe
+ * whose only container is an item, such as the Enchanters Sack, is refused with it. Then `output` is withdrawn from the bank onto
    * the cursor and goes where `settle` puts it (`settled`). The catalog answers for one set only, so
    * a batch would run out after the first attempt whenever the bank held exactly one set. Resolves
    * with the attempts' counts and the number withdrawn.

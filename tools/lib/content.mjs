@@ -39,9 +39,10 @@ export async function* liveSpawnRows(table, root) {
 /**
  * The recipes a character can craft, `Map<id, { id, name, skill, trivial, nofail, parts, yields }>`
  * with `parts` and `yields` as `[{ item, n }]`: enabled, shown in the Advanced recipe window, whose
- * requests `craftItem` (src/bridge.js) sends, and inside the live expansion. The server crafts
- * without a container, so a recipe's container is no part, and a part the recipe hands back, such as
- * a tool, is no yield.
+ * requests `craftItem` (src/bridge.js) sends, and inside the live expansion. A recipe's container
+ * is no part: `craftItem` crafts world-container recipes without one, and a recipe whose only
+ * container is an item, such as the Enchanters Sack, still fails there. A part the recipe hands
+ * back, such as a tool, is no yield.
  */
 export async function craftableRecipes(root) {
   const recipes = new Map();
