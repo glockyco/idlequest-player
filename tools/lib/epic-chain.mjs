@@ -281,8 +281,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       };
     })
     // A part with a craft that trivials above `CRAFT_TRIVIAL_MAX` waits until the account trains
-    // its skill, because each failed attempt uses its components up: the Warrior's Rebreather
-    // trivials at 175 and costs 383 pp an attempt.
+    // its skill, because each failed attempt uses its components up.
     .filter((c) => c.trivial <= CRAFT_TRIVIAL_MAX)
     .map(({ id, chain }) => ({ id, chain }));
 }
