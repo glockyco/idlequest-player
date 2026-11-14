@@ -185,7 +185,8 @@ minutes per tab, because a sign-in outlasts a cycle, and six times in the fleet 
 because the server refuses a burst ("Too many login attempts"), and a page that shows that refusal
 holds every sign-in for the minute the server asks. A character select without a connection for a
 minute is a session the server ended ("Log in before entering the world."), so its page reloads to
-show the login form. It installs the bridge and bot as
+show the login form, and so does a page that shows the game without a connection for five minutes.
+It installs the bridge and bot as
 `attach` does (`src/install.mjs`) where either is missing, at once after the tab's sign-in and
 otherwise at most every two minutes, and installs the deployed code in a tab that runs other code
 (`iqd deploy`), outside raids. A running task delays installation only while its page is in the world and the task is younger than `PAGE.taskWaitMin` in `tools/lib/page.mjs`. iqd loads `src/install.mjs` once,

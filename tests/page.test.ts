@@ -111,6 +111,20 @@ test("a character select without a connection for a minute reloads, so the login
   expect(step(0, game({ screen: "select" }), T0 + 300 * SEC)).toBeNull();
 });
 
+test("a page that shows the game without a connection for five minutes reloads", () => {
+  const step = fleetOf(1);
+  const down = game({ conn: { connected: false } });
+  expect(step(0, down, T0)).toBeNull();
+  // The client mostly reaches the login form by itself within three minutes.
+  expect(step(0, down, T0 + 4 * MIN)).toBeNull();
+  expect(step(0, down, T0 + 5 * MIN)).toBe("reload");
+  // A connection that came back in between starts the count again.
+  const other = fleetOf(1);
+  expect(other(0, down, T0)).toBeNull();
+  expect(other(0, game(), T0 + 3 * MIN)).toBeNull();
+  expect(other(0, down, T0 + 5 * MIN)).toBeNull();
+});
+
 test("a page that shows the server's refusal holds every sign-in of the fleet for its minute", () => {
   const step = fleetOf(3);
   const fresh = { hasBridge: false, hasBot: false };

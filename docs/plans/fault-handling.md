@@ -41,6 +41,7 @@ action. iqd executes that action through `pageAction`.
 | --- | --- |
 | Loading | Wait until `PAGE.loadingMin`, then reload under the sign-in budgets |
 | Disconnected character select | Reload after `PAGE.offlineSec`, under the sign-in budgets |
+| Game shown without a connection | Reload after `PAGE.gameOfflineMin`, under the sign-in budgets |
 | Login form | Sign in immediately on a fresh page, otherwise after `PAGE.offlineSec`. Per-page spacing and the fleet burst window limit attempts. A refusal holds fleet sign-ins for `PAGE.refusedHoldSec` |
 | Bridge or bot missing | Install, with per-page spacing and an exception after sign-in |
 | Older code | Install outside raids and running in-world tasks younger than `PAGE.taskWaitMin` |

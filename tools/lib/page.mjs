@@ -21,10 +21,14 @@
 //            a reconnect restores. Both, like a renewal, wait until every row is on disk, for a
 //            quiet moment, and for one page of the fleet per `reloadGapMin`. A character select whose
 //            connection stayed down for `offlineSec` is a session the server ended without the login
-//            form ("Log in before entering the world."), so its reload counts as a sign-in
+//            form ("Log in before entering the world."), so its reload counts as a sign-in. So
+//            does the reload of a page that shows the game without a connection for
+//            `gameOfflineMin`: the client mostly finds the login form by itself within three
+//            minutes of a server restart, and a page that does not would stand until someone came
 
 export const PAGE = {
   offlineSec: 60, // the client tries to resume a session by itself first
+  gameOfflineMin: 5,
   loadingMin: 3, // a reload can outlast a cycle, but should not leave a blank page indefinitely
   signInEveryMin: 2, // a sign-in takes the page through loading to the character select, which outlasts a cycle
   signInBurst: 6, // twelve sign-ins at once saw two or three refused, and nine at once none
@@ -97,12 +101,14 @@ export function pageStep({ obs, page = {}, fleet = {}, now, code = null, exporte
   const signInHeld = now < (next.signInHoldUntil ?? 0) || next.signIns.length >= cfg.signInBurst;
   const stuckLoading = snap.screen === "loading" && now - out.loadingSince >= cfg.loadingMin * 60000;
   if (snap.screen === "loading" && !stuckLoading) return result();
-  if (stuckLoading || (snap.screen === "select" && snap.conn?.connected === false && now - out.offlineSince >= cfg.offlineSec * 1000)) {
+  const offlineFor = snap.conn?.connected === false ? now - out.offlineSince : 0;
+  const noSession = (snap.screen === "select" && offlineFor >= cfg.offlineSec * 1000) || (snap.screen === "game" && offlineFor >= cfg.gameOfflineMin * 60000);
+  if (stuckLoading || noSession) {
     if (now - (out.signInAt ?? 0) < cfg.signInEveryMin * 60000 || signInHeld) return result();
     out.signInAt = now;
     out.reloadSignIn = true;
     next.signIns = [...next.signIns, now];
-    return result({ kind: "reload", why: stuckLoading ? `the page stayed loading for ${cfg.loadingMin} min` : `the character select had no connection for ${Math.round((now - out.offlineSince) / 1000)} s` });
+    return result({ kind: "reload", why: stuckLoading ? `the page stayed loading for ${cfg.loadingMin} min` : `the ${snap.screen === "game" ? "game" : "character select"} had no connection for ${Math.round(offlineFor / 1000)} s` });
   }
   if (snap.screen === "login") {
     // A fresh page signs in at once, and one that left the game gives the client its minute.
