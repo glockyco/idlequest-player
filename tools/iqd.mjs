@@ -675,7 +675,7 @@ export class Daemon {
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
     this.doing = "item searches";
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, releaseWaits, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -823,6 +823,7 @@ export class Daemon {
     // writes the outcomes (`recordOutcomes`), and this keeps the retry times current for the pass.
     settleHistory(state.history, tabs.map((t) => t.task));
     settleErrands(state.history, tabs, now);
+    releaseWaits(state.history, metaGet(this.db, "bossPlan")?.spawnsResetAt ?? 0);
     this.doing = "experiments";
     const held = await this.experimentPass(now, tabs, state);
     this.saveCoordinator(state);

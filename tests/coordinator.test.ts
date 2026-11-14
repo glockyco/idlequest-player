@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, retryTime, settleErrands, settleHistory, worldHold } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, releaseWaits, retryTime, settleErrands, settleHistory, worldHold } from "../tools/lib/coordinator.mjs";
 import { ACQUIRE } from "../tools/lib/acquire.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -932,4 +932,19 @@ test("a member runs a chain part when he carries some of its pieces and a free c
   expect(decide({ now: NOW, tabs, quests: { q }, have: { Hilt: 2, Sword: 0 }, own }).actions.map((a) => a.spec.members)).toEqual([["Pal1", "Pal2"]]);
   // A Paladin without his sword does not run, whatever lies free of the other piece.
   expect(decide({ now: NOW, tabs, quests: { q }, have: { Hilt: 2, Sword: 0 }, own: { q: { Pal2: { Sword: 1 } } } }).actions.map((a) => a.spec.members)).toEqual([["Pal2"]]);
+});
+
+test("a spawn reset ends the quest waits from before it and leaves the others", () => {
+  const reset = NOW - 3600000;
+  const history = [
+    // Jaeil the Wretched's wait had grown to eight hours.
+    { t: reset - 7200000, kind: "quest", id: "ranger", status: "waiting", nextAt: NOW + 4 * 3600000 },
+    { t: reset + 60000, kind: "quest", id: "ranger", status: "waiting", nextAt: NOW + 4 * 3600000 },
+    { t: reset - 7200000, kind: "casino", id: "casino", status: "waiting", nextAt: NOW + 4 * 3600000 },
+    { t: reset - 7200000, kind: "quest", id: "other", status: "failed", nextAt: NOW + 4 * 3600000 },
+  ];
+  expect(releaseWaits(history, reset)).toBe(true);
+  expect(history.map((h) => h.nextAt)).toEqual([reset, NOW + 4 * 3600000, NOW + 4 * 3600000, NOW + 4 * 3600000]);
+  expect(releaseWaits(history, reset)).toBe(false);
+  expect(releaseWaits(history, 0)).toBe(false);
 });

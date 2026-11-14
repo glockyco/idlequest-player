@@ -255,6 +255,21 @@ export function retryTime(last, retryMin, code = null) {
 }
 
 /**
+ * End the waits of quest runs from before `resetAt`, the time the server last put its spawns up
+ * again (`spawnReset` of tools/lib/boss-plan.mjs): an NPC a script took away is back then, however
+ * long the wait had grown. Returns whether an entry changed.
+ */
+export function releaseWaits(history, resetAt) {
+  let changed = false;
+  for (const h of history) {
+    if (!resetAt || h.kind !== "quest" || h.status !== "waiting" || !(h.t < resetAt) || !(h.nextAt > resetAt)) continue;
+    h.nextAt = resetAt;
+    changed = true;
+  }
+  return changed;
+}
+
+/**
  * Until when quest `id` is held for every tab, in ms (0 for not at all): a run that waits for the
  * world's time, such as a spawn point that rolls at a known time, and a failure with a time of its
  * own under the code that runs now (`code`) or repeated at its step, such as an occupant the group

@@ -99,9 +99,9 @@ produces, and the rest starts from that item (`uncovered`).
 A script that removes its NPC with `eq.depop()` starts no respawn timer, and the NPC's spawn point
 then leaves the zone's spawn list. It has not been seen to come back without a server restart.
 Jaeil the Wretched, who gives the Ranger's hammer fight, is such an NPC, so one Ranger can use him
-per restart. A step that
-does not find its NPC's point in the list waits, and the wait doubles up to eight hours
-(`settleHistory` in `tools/lib/coordinator.mjs`).
+per restart. A step that does not find its NPC's point in the list waits, and the wait doubles up
+to eight hours (`settleHistory` in `tools/lib/coordinator.mjs`). The wait ends when the boss watch
+sees that the server put its spawns up again (`releaseWaits`, `spawnReset`).
 
 A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
 its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
