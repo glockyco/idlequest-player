@@ -101,7 +101,10 @@ function renderGoal(s) {
   const L = g.levels;
   const r = g.recent ?? {};
   // An XP event multiplies kill XP for some hours, which the estimate leaves out, since it is for the levels after it.
-  const event = L.event ? ` <span class="up" title="Found in the kill lines: each kill pays ${L.event.factor} times its normal XP. The estimate and the zone choice count that XP once, and trips that can run on any day wait.">XP event: kills pay ${L.event.factor} times their XP since ${new Date(L.event.since).toTimeString().slice(0, 5)}.</span>` : "";
+  const holds = L.event?.holds ?? [];
+  const waiting = [["quest", "quest task", "quest tasks"], ["hunt", "hunt for an epic piece", "hunts for epic pieces"]].map(([kind, one, many]) => [holds.filter((h) => h.kind === kind).length, one, many]).filter(([n]) => n).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  const held = holds.length ? ` <span title="${esc(holds.map((h) => `${h.group}: ${h.why}`).join("\n"))}">${waiting.join(" and ")} wait${holds.length === 1 ? "s" : ""} for its end.</span>` : "";
+  const event = L.event ? ` <span class="up" title="Found in the kill lines: each kill pays ${L.event.factor} times its normal XP. The estimate and the zone choice count that XP once, and trips that can run on any day wait.">XP event: kills pay ${L.event.factor} times their XP since ${new Date(L.event.since).toTimeString().slice(0, 5)}.</span>${held}` : "";
   const missing = L.noEstimate?.length ? ` No estimate for ${L.noEstimate.map((g) => esc(g.group ?? g.leader ?? g)).join(", ")}.` : "";
   const eta = (L.slowest ? ` <span title="${esc(`${L.slowest.leader}'s group, ${hours(L.slowest.low)} to ${hours(L.slowest.high)}${L.event ? ", at normal XP" : ""}`)}">The last group, ${esc(L.slowest.group ?? L.slowest.leader)}, reaches ${L.target} in about ${hours(L.slowest.hours)}${L.event ? " at normal XP" : ""}.</span>${event}` : event) + missing;
   const none = () => `<span class="muted">not measured yet</span>`;

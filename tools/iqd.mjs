@@ -921,7 +921,12 @@ export class Daemon {
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
-    const { actions, targets: targetEval } = decide({ now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor: factorAt(this.xpEvents, now) });
+    const xpFactor = factorAt(this.xpEvents, now);
+    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor };
+    const { actions, targets: targetEval } = decide(input);
+    // The quests and piece hunts the pass would start without the XP event, for the dashboard.
+    const pieceIds = new Set(opportunities.map((o) => o.id));
+    const eventHolds = xpFactor > 1 ? decide({ ...input, xpFactor: 1 }).actions.filter((a) => a.kind === "quest" || (a.kind === "hunt" && pieceIds.has(a.id))).map((a) => ({ label: a.label, kind: a.kind, id: a.id, why: a.why })) : [];
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
@@ -1000,7 +1005,7 @@ export class Daemon {
     const chains = chainSummary({ quests, holders, started, members });
     this.recordPassProgress(now, { quests, opportunities, missing, lacking, doneItems, progressItems, chainsBefore: state.last?.chains, chains, aaBefore, aa });
     state.history = state.history.filter((h) => now - h.t < 2 * 86400000);
-    state.last = { t: now, stock, missing, chains, epicHolders: [...new Set([...epicHolders.values()].flatMap((s) => [...s]))].sort(), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })) };
+    state.last = { t: now, stock, missing, chains, epicHolders: [...new Set([...epicHolders.values()].flatMap((s) => [...s]))].sort(), actions: actions.map((a) => ({ label: a.label, kind: a.kind, why: a.why })), eventHolds };
     // How long the pass took, so a slow pass shows before it delays the groups.
     this.saveCoordinator(state, Date.now() - now);
   }
