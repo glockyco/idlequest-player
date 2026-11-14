@@ -38,19 +38,29 @@ export function recordFights(db, grp, rows) {
   for (const r of rows) insert.run(r.t, grp, r.level, r.npc, r.outcome, r.rule);
 }
 
+// An escape of a leader `n` levels below counts as this to the power of `n`.
+const ESCAPE_DECAY = 0.5;
+
 /**
  * The kills and escapes against enemy `npc` in the last `days` that say how a group whose leader
  * stands at `level` fares: `{ kills, escapes }`. A kill counts when a leader at this level or below
  * won it, and an escape when a leader at this level or above lost it, whichever group fought,
  * because the groups are built alike and grow with their level. So a group knows an enemy the
- * others lost to before it meets it, and keeps what it knew when it gains a level: Phinigel
- * Autropos beat eleven groups 46 times on 2026-11-12, each of them sent on its own record. An
- * escape by the guard's level rule was a fight refused at its first second, which says nothing
- * about how it would have gone, so it does not count.
+ * others lost to before it meets it. An escape of a leader below this level counts for less with
+ * each level between (`ESCAPE_DECAY`), because a level changes little: without it every level
+ * gained kept the kills and forgot the escapes, and the groups went back to an enemy that had
+ * beaten them a level before. An escape by the guard's level rule was a fight refused at its
+ * first second, which says nothing about how it would have gone, so it does not count.
  */
 export function recordCounts(db, { npc, level, now = Date.now(), days = 14 }) {
-  const r = db
-    .query("SELECT SUM(outcome = 'kill' AND level <= ?1) AS kills, SUM(outcome = 'escape' AND rule IS NOT 'level' AND level >= ?1) AS escapes FROM fights WHERE npc = ?2 AND t >= ?3")
-    .get(level, npcKey(npc), now - days * 86400000);
-  return { kills: r?.kills ?? 0, escapes: r?.escapes ?? 0 };
+  const rows = db
+    .query("SELECT level, outcome, COUNT(*) AS n FROM fights WHERE npc = ?1 AND t >= ?2 AND (outcome = 'kill' OR rule IS NOT 'level') GROUP BY level, outcome")
+    .all(npcKey(npc), now - days * 86400000);
+  let kills = 0;
+  let escapes = 0;
+  for (const r of rows) {
+    if (r.outcome === "kill") kills += r.level <= level ? r.n : 0;
+    else if (r.outcome === "escape") escapes += r.n * (r.level >= level ? 1 : ESCAPE_DECAY ** (level - r.level));
+  }
+  return { kills, escapes };
 }

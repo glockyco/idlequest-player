@@ -98,7 +98,8 @@ live fight says how a group of this level fares, and from then on the live fight
   raid mode, which takes only enemies above level 50;
 - the live fights against the enemy (`tools/lib/fight-record.mjs`): each kill by a leader at the
   group's level or below, and each escape of the guard that names the enemy by a leader at its
-  level or above, whichever group fought, apart from an escape by the level rule, which refused a
+  level or above, whichever group fought. An escape of a leader below the group's level counts
+  half for each level between. An escape by the level rule does not count, because it refused a
   fight and lost none. The simulator fights an enemy alone, so the enemies that join show only
   here: it gave group 1 four wins of four against Phinigel Autropos, who beat eleven groups 46
   times beside his seahorses.
@@ -144,7 +145,7 @@ for raids. A leader that carries too little for a purchase pulls the largest acc
 | T | assumed 10 levels, while each gear pass records how long items stay in a slot (`wear` table, `tools/lib/wear.mjs`), which replaces the assumption once replaced stints span the level bands |
 | `sharedCost` 0.4 | one errand of group 4, to be measured from the next shared errands |
 | `visitHours` 0.1 | measured at about 1.6 minutes from a visit's start to the group's next fight for a visit that found nothing up, and kept higher, because the visit's deadline comes from the same hours and has to leave the walk to an enemy that is up. Next: a deadline apart from the expected cost, checked against the scenarios where a cheaper visit beats a camp or an errand |
-| Kill chance | the model fitted to every simulated fight, the simulator per pair of group and target, and the live fights per enemy of leaders at the group's level or below (kills) and at it or above (escapes) |
+| Kill chance | the model fitted to every simulated fight, the simulator per pair of group and target, and the live fights per enemy of leaders at the group's level or below (kills) and at it or above (escapes, and those below at half for each level) |
 | Deaths | their cost measured from the fight logs (`tools/fights.mjs`), their number per fight from the simulator or the model, for each enemy of a chain of deaths at its own level and hit points |
 | Kill shares | modeled: an enemy's points over their respawn against the group's kills per hour from the gear pass, until trips are measured |
 | Time of day | read from the spawn conditions (`spawnTimes`): an enemy whose points all spawn only by night or by day is hunted only then, by the tab's game hour |

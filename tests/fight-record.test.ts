@@ -24,7 +24,7 @@ test("an enemy has one key however the game spells its name", () => {
   expect(["Cazic-Thule", "#Cazic_Thule", "Cazic Thule"].map(npcKey)).toEqual(["cazic thule", "cazic thule", "cazic thule"]);
 });
 
-test("the record counts the kills of leaders at a group's level or below and the escapes of those at it or above", () => {
+test("the record counts the kills of leaders at a group's level or below, the escapes of those at it or above, and less of the escapes below", () => {
   const db = new Database(":memory:");
   db.run(FIGHTS_SCHEMA);
   const fight = (t: number, level: number, outcome: string) => ({ t, npc: "lady vox", level, outcome, rule: outcome === "escape" ? "dying" : null });
@@ -37,5 +37,6 @@ test("the record counts the kills of leaders at a group's level or below and the
   recordFights(db, "G2", [fight(T0 + 5, 54, "escape"), fight(T0 + 6, 54, "kill")]);
   expect(recordCounts(db, { npc: "Lady_Vox", level: 52, now: T0 + 10 })).toEqual({ kills: 3, escapes: 2 });
   expect(recordCounts(db, { npc: "Lady_Vox", level: 51, now: T0 + 10 })).toEqual({ kills: 1, escapes: 2 });
-  expect(recordCounts(db, { npc: "Lady_Vox", level: 55, now: T0 + 10 })).toEqual({ kills: 4, escapes: 0 });
+  // An escape counts half for each level its leader stood below: one at 54 and one at 52.
+  expect(recordCounts(db, { npc: "Lady_Vox", level: 55, now: T0 + 10 })).toEqual({ kills: 4, escapes: 0.5 + 0.125 });
 });
