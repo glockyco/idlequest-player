@@ -144,6 +144,14 @@ test("a chain whose reward a later chain takes stays done", () => {
   };
   // Spent on hayle, then on the chain after it: either reward shows the note chain is done.
   expect(doneItems("note", quests).sort()).toEqual(["Badge", "Note", "Sealed Note", "SoulFire"]);
+  // The reward can also be consumed in the middle of the next chain. Then the items produced from
+  // that step onward count, but not the items of the steps before it ("Pass").
+  const tree = {
+    sword: { class: "Paladin", reward: "Sword", steps: [{ npc: "Valeron", expect: "Sword" }] },
+    soulfire: { class: "Paladin", reward: "SoulFire", needs: ["Sword"], steps: [{ npc: "Hayle", give: ["Sword"], expect: "SoulFire" }] },
+    avenger: { class: "Paladin", reward: "Avenger", needs: ["SoulFire", "Ghoulbane"], steps: [{ npc: "Dason", say: ["Dirkog"], expect: "Pass" }, { npc: "Inte", give: ["SoulFire"], expect: "First Blessing" }, { npc: "Inte", give: ["Ghoulbane"], expect: "Second Blessing" }, { npc: "Inte", give: ["First Blessing", "Second Blessing"], expect: "Avenger" }] },
+  };
+  expect(doneItems("sword", tree)).toEqual(["Sword", "SoulFire", "First Blessing", "Second Blessing", "Avenger"]);
 });
 
 // One item for X1, a level 30 character an hour from its next level, one copy an hour of hunting:

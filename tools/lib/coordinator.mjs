@@ -99,17 +99,22 @@ export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
 }
 
 /**
- * The items that show a character is done with quest chain `id`: its reward, its `doneIf`, and,
- * for every chain that `needs` the reward and so takes it away, that chain's own done items, so a
- * reward spent on the next chain (the Sealed Note for Brother Hayle's Note) does not start the
- * chain over.
+ * Returns the items that show a character has finished quest chain `id`:
+ * - its reward and its `doneIf` items
+ * - for each chain that consumes the reward (lists it in `needs`): every `expect` from the
+ *   consuming step onward, and that chain's own done items, recursively
+ *
+ * The second rule covers a reward that was already handed in, including a character that stopped
+ * part way through the consuming chain.
  */
 export function doneItems(id, quests, seen = new Set()) {
   const q = quests[id];
   if (!q || seen.has(id)) return [];
   seen.add(id);
+  const takes = (s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...(s.cast?.inputs ?? [])].includes(q.reward);
   const later = Object.keys(quests).filter((k) => k !== id && (quests[k].needs ?? []).includes(q.reward));
-  return [...new Set([q.reward, ...(q.doneIf ?? []), ...later.flatMap((k) => doneItems(k, quests, seen))].filter(Boolean))];
+  const spent = (k) => (quests[k].steps ?? []).slice(Math.max(0, (quests[k].steps ?? []).findIndex(takes))).map((s) => s.expect);
+  return [...new Set([q.reward, ...(q.doneIf ?? []), ...later.flatMap((k) => [...spent(k), ...doneItems(k, quests, seen)])].filter(Boolean))];
 }
 
 /**

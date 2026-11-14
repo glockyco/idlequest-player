@@ -462,12 +462,18 @@ export function dependencies(model, reward) {
 }
 
 /**
- * The chosen steps of an epic reward for class `cls`, in the order they run: `{ branch, cost, held }`
- * for a script branch (a say, a hand-in, or an event a hand-in starts), `held` the items its
- * conditions want besides its trade's inputs, and `{ item, way, cost }` for a piece from a source or
- * a kill. Where no way is open, the tree follows the least blocked one and lists each blocked branch
- * in `blocked` with its reasons, so it reaches the actual blockers: `gaps`, the items nothing gives,
- * and branches no class, spawn or signal can run. Also the reward's `cost`.
+ * Returns the chosen steps for epic `reward` of class `cls`, in the order they run, as
+ * `{ steps, gaps, blocked, cost, cls }`.
+ *
+ * Each step is one of:
+ * - `{ branch, cost, held, after }`: a script branch (a say, a hand-in, or an event a hand-in
+ *   starts). `held` lists items its conditions require besides the trade inputs. `after` lists
+ *   the branches it depends on: the one that spawns its NPC or sends its signal or timer, and
+ *   those that set the flags or variables its conditions test.
+ * - `{ item, way, cost }`: a piece from a source or a kill.
+ *
+ * Where no way is open, the tree follows the least blocked one and records each blocked branch
+ * with its reasons in `blocked`. `gaps` lists the items nothing gives. `cost` is the reward's cost.
  */
 export function epicTree(model, cls, reward) {
   const pick = cheapest(model, cls, reward);
@@ -489,7 +495,7 @@ export function epicTree(model, cls, reward) {
       blocked.push({ branch: b, reasons: reasons.map((r) => r.reason) });
       for (const r of reasons) if (r.branch) doBranch(r.branch);
     }
-    steps.push({ branch: b, cost: pick.branchCost(b), held: needs.items });
+    steps.push({ branch: b, cost: pick.branchCost(b), held: needs.items, after: [...needs.branches, ...pick.startOf(b)] });
   };
   const doItem = (id) => {
     if (seenItems.has(id)) return;

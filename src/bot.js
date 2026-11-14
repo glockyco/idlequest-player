@@ -1680,7 +1680,9 @@
     }
   };
   const questMember = async (i, m, step, task) => {
-    const ref = (name) => m.ids?.[name] == null ? name : { name, id: m.ids[name] };
+    // A chain may name the second item of a shared name "Name [id]" (tools/lib/epic-chain.mjs).
+    // The game knows only the plain name, and the id selects the item.
+    const ref = (name) => m.ids?.[name] == null ? name : { name: name.replace(/ \[\d+\]$/, ""), id: m.ids[name] };
     const buy = async (s, item, n) => {
       if (i.carried(ref(item)) >= n) return;
       await step(`coin for ${m.name}'s purchase`, async () => {
@@ -1700,10 +1702,14 @@
     const t0 = now();
     await step(`stop for ${m.name}`, () => calm(i), 75000);
     await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
-    // A chain that stopped part way, in this task or an earlier one, goes on after the last step
-    // whose reward the member carries, so no step repeats and no reward is asked for twice.
+    // Resume after the last step whose `expect` the member already carries.
     const resume = m.steps.findLastIndex((s) => s.expect && i.carried(ref(s.expect)) > 0) + 1;
     m.at = Math.max(m.at ?? 0, resume);
+    // A remaining step may need an NPC that a skipped step spawned (`calledBy`). Those steps run
+    // again, and so do the steps that spawned their NPCs. A step that hands an item in cannot be
+    // repeated, so the walk back stops there.
+    const redo = new Set();
+    for (const s of m.steps.slice(m.at)) for (let c = s.calledBy; c != null && c < m.at && !redo.has(c) && !m.steps[c].give?.length && !m.steps[c].kill; c = m.steps[c].calledBy) redo.add(c);
     let fresh = true;
     let gathered = false;
     // Up to four minutes for full HP and mana, the readiness the client's pull waits for.
@@ -1711,7 +1717,7 @@
       for (const end = now() + 240000; !i.partyFull() && now() < end; ) await sleep(3000);
     }, 260000);
     for (const [k, s] of m.steps.entries()) {
-      if (k < m.at) continue;
+      if (k < m.at && !redo.has(k)) continue;
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
       // The enemy a hand-in summons being up already shows that the hand-in happened earlier, so the
@@ -1723,7 +1729,7 @@
       if (next?.kill && !s.kill && next.zone === s.zone && !enemyPattern(next.kill).test(s.npc ?? "")) {
         if ((runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(next.kill).test(x.name ?? ""))) {
           log(`quest: ${next.kill} is up already, so ${m.name} goes on to the fight`);
-          m.at = k + 1;
+          m.at = Math.max(m.at, k + 1);
           continue;
         }
       }
@@ -1733,7 +1739,7 @@
           const n = s.buy.counts?.[item] ?? 1;
           await buy(s, item, n);
         }
-        m.at = k + 1;
+        m.at = Math.max(m.at, k + 1);
         continue;
       }
       const need = { ...(s.each ?? {}) };
@@ -1899,7 +1905,7 @@
           throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}`);
         }
       }
-      m.at = k + 1;
+      m.at = Math.max(m.at, k + 1);
     }
     Object.assign(m, { done: true, sec: Math.round((now() - t0) / 1000) });
     log(`quest: ${m.name} done in ${m.sec} s${m.xp ? `, ${m.items} items for ${m.xp} XP` : ""}`);

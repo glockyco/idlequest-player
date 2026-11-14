@@ -30,22 +30,76 @@ end`;
   });
   const names = new Map([[10, "Note"], [20, "Fang"], [30, "Prize"], [60, "Hide"]]);
   const chains = epicChains(model, epicTree(model, "Cleric", 30), { cls: "Cleric", reward: 30, names });
-  expect(chains).toEqual([
+  // `flow` is checked separately below.
+  expect(chains.map(({ id, chain: { flow, ...chain } }) => ({ id, chain }))).toEqual([
     {
-      id: "epic-cleric-30-1",
-      // The guardian's level less three, above the zone's median level less three. A step at an NPC
-      // names its type ids, which tell it from another NPC of its name.
+      // The id ends in the id of the item the part produces.
+      id: "epic-cleric-30-20",
+      // minLevel is the guardian's level minus three. NPC steps carry the NPC type ids, and the
+      // kill carries the index of the step that spawned its NPC.
       chain: { class: "Cleric", minLevel: 37, reward: "Fang", ids: { Note: 10, Fang: 20 }, steps: [
         { zone: "z", npc: "Giver", npcIds: [1], say: ["task"], expect: "Note" },
         { zone: "z", npc: "Giver", npcIds: [1], give: ["Note"] },
-        { zone: "z", kill: "a guardian", level: 40, hp: null, expect: "Fang", waitSec: 60 },
+        { zone: "z", kill: "a guardian", level: 40, hp: null, expect: "Fang", waitSec: 60, calledBy: 1 },
       ] },
     },
     {
-      id: "epic-cleric-30-2",
+      id: "epic-cleric-30-30",
       chain: { class: "Cleric", minLevel: 27, reward: "Prize", ids: { Fang: 20, Hide: 60, Prize: 30 }, needs: ["Fang", "Hide"], steps: [{ zone: "z", npc: "Taker", npcIds: [2], give: ["Fang", "Hide"], expect: "Prize" }] },
     },
   ]);
+  expect(chains[0].chain.flow).toEqual([{ ins: [], outs: ["Note"] }, { ins: ["Note"], outs: [] }, { ins: [], outs: ["Fang"] }]);
+});
+
+test("a step that does not depend on the current part starts a new part, and needs list only outside inputs", () => {
+  const trade = (item: number, gives: number) => `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = ${item}}) then\n    e.other:SummonItem(${gives})\n  end\nend`;
+  const last = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 11, item2 = 21}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Smith.lua", trade(10, 11)), script("y/Priest.lua", trade(20, 21)), script("z/Judge.lua", last)],
+    npcs: [{ id: 1, name: "Smith", level: 30, loottable: 0 }, { id: 2, name: "Priest", level: 30, loottable: 0 }, { id: 3, name: "Judge", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 1, zone: "z" }, { npcId: 2, zone: "y" }, { npcId: 3, zone: "z" }],
+    sources: [{ item: 10, way: { kind: "ground", zone: "z", respawn: 60 } }, { item: 20, way: { kind: "ground", zone: "y", respawn: 60 } }],
+  });
+  const names = new Map([[10, "Ore"], [11, "Blade"], [20, "Water"], [21, "Blessing"], [30, "Sword"]]);
+  const chains = epicChains(model, epicTree(model, "Paladin", 30), { cls: "Paladin", reward: 30, names });
+  // The Smith steps do not depend on the Priest steps, so they form their own part without
+  // needs. The Judge consumes the Blessing, so it continues that part, which then needs the Blade.
+  expect(chains.map((c: { id: string; chain: { needs?: string[]; reward: string } }) => [c.id, c.chain.reward, c.chain.needs ?? []])).toEqual([
+    ["epic-paladin-30-11", "Blade", []],
+    ["epic-paladin-30-30", "Sword", ["Blade"]],
+  ]);
+});
+
+test("an NPC that drops two pieces gets one kill step, and the other part lists the second piece as a need", () => {
+  const caller = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 10}) then\n    eq.spawn2(500, 0, 0, 0, 0, 0, 0)\n  end\nend`;
+  const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 20, item2 = 21, item3 = 60}) then\n    e.other:SummonItem(30)\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/Caller.lua", caller), script("z/Taker.lua", taker)],
+    npcs: [{ id: 1, name: "Caller", level: 30, loottable: 0 }, { id: 2, name: "Taker", level: 30, loottable: 0 }, { id: 7, name: "a_beast", level: 35, loottable: 0 }, { id: 500, name: "a_lich", level: 40, loottable: 9 }],
+    spawns: [{ npcId: 1, zone: "z" }, { npcId: 2, zone: "z" }, { npcId: 7, zone: "z", points: 2, respawn: 600, spawn: 1 }],
+    loot: new Map([[9, [{ item: 20, p: 1 }, { item: 21, p: 1 }]]]),
+    sources: [{ item: 10, way: { kind: "buy", npc: "Vintner", zone: "z" } }, { item: 60, way: { kind: "drop", npcId: 7, npc: "a beast", zone: "z", level: 35, drop: 0.5, spawn: 1, points: 2, respawn: 600 } }],
+  });
+  const names = new Map([[10, "Wine"], [20, "Robe"], [21, "Head"], [30, "Prize"], [60, "Hide"]]);
+  const chains = epicChains(model, epicTree(model, "Cleric", 30), { cls: "Cleric", reward: 30, names });
+  expect(chains).toHaveLength(2);
+  expect(chains[0].chain.steps.filter((s: { kill?: string }) => s.kill)).toHaveLength(1);
+  expect(chains[0].chain.flow.at(-1)).toEqual({ ins: [], outs: ["Robe", "Head"] });
+  expect(chains[1].chain.steps.some((s: { kill?: string }) => s.kill)).toBe(false);
+  expect([...chains[1].chain.needs].sort()).toEqual(["Head", "Hide", "Robe"]);
+});
+
+test("the second of two items with the same name gets its id appended", () => {
+  const trade = (item: number, gives: number) => `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = ${item}}) then\n    e.other:SummonItem(${gives})\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("z/First.lua", trade(10, 11)), script("z/Second.lua", trade(11, 12)), script("z/Third.lua", trade(12, 30))],
+    npcs: [{ id: 1, name: "First", level: 30, loottable: 0 }, { id: 2, name: "Second", level: 30, loottable: 0 }, { id: 3, name: "Third", level: 30, loottable: 0 }],
+    spawns: [{ npcId: 1, zone: "z" }, { npcId: 2, zone: "z" }, { npcId: 3, zone: "z" }],
+    sources: [{ item: 10, way: { kind: "ground", zone: "z", respawn: 60 } }],
+  });
+  const [chain] = epicChains(model, epicTree(model, "Cleric", 30), { cls: "Cleric", reward: 30, names: new Map([[10, "Crown"], [11, "Shell"], [12, "Shell"], [30, "Orb"]]) });
+  expect(chain.chain.steps.map((s: { expect?: string }) => s.expect)).toEqual(["Crown", "Shell", "Shell [12]", "Orb"]);
+  expect(chain.chain.ids).toMatchObject({ Shell: 11, "Shell [12]": 12 });
 });
 
 test("a piece sold in another zone is bought in a step of its own, in a city before a dungeon, and a hand-in carries its coin", () => {
@@ -80,14 +134,30 @@ test("a chain with a kill above level 60 exists, asks for the level cap and name
   });
   const [chain] = epicChains(model, epicTree(model, "Monk", 30), { cls: "Monk", reward: 30, names: new Map([[10, "Wine"], [30, "Fangs"]]) });
   expect(chain.chain.minLevel).toBe(60);
-  expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", level: 65, hp: 32500, expect: "Fangs", waitSec: 60 });
+  expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", level: 65, hp: 32500, expect: "Fangs", waitSec: 60, calledBy: 0 });
 });
 
-test("a model chain part that yields a hand-kept chain's reward of its class is left out, and the parts beyond it stay", () => {
+test("uncovered cuts a generated part after the last item a hand-kept chain of its class produces", () => {
   const part = (cls: string, expects: string[]) => ({ class: cls, steps: expects.map((expect) => ({ zone: "z", npc: "N", expect })) });
+  // Without `flow` a covered part cannot be cut, so it is dropped.
   const chains = { a: part("Cleric", ["Crown", "Statue", "Orb"]), b: part("Cleric", ["Sceptre"]), c: part("Monk", ["Statue"]) };
   const hand = { h: { class: "Cleric", reward: "Statue", steps: [] } };
   expect(Object.keys(uncovered(chains, hand))).toEqual(["b", "c"]);
+  // With `flow`, the steps after the hand-kept chain's last item stay, and that item becomes a
+  // need. `calledBy` is shifted, or removed if the calling step was cut. "Shell [12]" has a
+  // different id than the hand-kept "Shell", so it is not covered.
+  const long = {
+    class: "Cleric",
+    needs: ["Crown"],
+    ids: { Shell: 11, "Shell [12]": 12 },
+    steps: [{ npc: "A", give: ["Crown"], expect: "Shell" }, { npc: "B", give: ["Shell"], expect: "Statue" }, { npc: "C", give: ["Statue"] }, { kill: "a priest", expect: "Robe", calledBy: 2 }, { npc: "B", give: ["Robe", "Ring"], expect: "Shell [12]", calledBy: 1 }],
+    flow: [{ ins: ["Crown"], outs: ["Shell"] }, { ins: ["Shell"], outs: ["Statue"] }, { ins: ["Statue"], outs: [] }, { ins: [], outs: ["Robe"] }, { ins: ["Robe", "Ring"], outs: ["Shell [12]"] }],
+  };
+  const cut = uncovered({ long }, { h: { class: "Cleric", reward: "Statue", ids: { Shell: 11 }, steps: [{ expect: "Shell" }, { expect: "Statue" }] } }).long;
+  expect(cut.needs).toEqual(["Statue", "Ring"]);
+  expect(cut.steps).toEqual([{ npc: "C", give: ["Statue"] }, { kill: "a priest", expect: "Robe", calledBy: 0 }, { npc: "B", give: ["Robe", "Ring"], expect: "Shell [12]" }]);
+  // A part that produces nothing after the cut is dropped.
+  expect(uncovered({ long: { ...long, steps: long.steps.slice(0, 2), flow: long.flow.slice(0, 2) } }, { h: { class: "Cleric", reward: "Statue", steps: [] } })).toEqual({});
 });
 
 test("a quest item that lies in its zone is a pickup step with its respawn", () => {

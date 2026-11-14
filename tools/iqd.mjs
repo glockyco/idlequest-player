@@ -18,7 +18,7 @@ import { accumulate, crowdShare, zoneNames } from "./lib/rates.mjs";
 import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
-import { uncovered } from "./lib/epic-chain.mjs";
+import { plainName, uncovered } from "./lib/epic-chain.mjs";
 import { OPEN_BUY, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
@@ -743,12 +743,18 @@ export class Daemon {
     // makes a looted copy progress (`recordPassProgress`).
     const lacking = {};
     const members = tabs.flatMap((t) => t.members);
+    // `ids` maps an item name to its id where the chain has one. Generated chains may suffix a
+    // name with ` [id]`, so searches use `plainName`. Done items can come from later chains of
+    // the same class, so their `ids` are merged in for the holder lookup.
     const matches = (row, item, ids) => ids?.[item] != null ? row.itemId === ids[item] : row.item === item;
-    const carriers = async (item, ids) => (await search(item)).filter((m) => matches(m, item, ids)).map((m) => m.who);
+    const carriers = async (item, ids) => (await search(plainName(item))).filter((m) => matches(m, item, ids)).map((m) => m.who);
+    const classIds = {};
+    for (const q of Object.values(quests)) Object.assign((classIds[q.class] ??= {}), q.ids ?? {});
     for (const [id, q] of Object.entries(quests)) {
+      const ids = { ...classIds[q.class], ...q.ids };
       // A character is done with a chain while it carries an item that shows it (`doneItems`): the
       // reward, or what the reward was spent on, so a spent reward does not restart the chain.
-      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map((n) => carriers(n, q.ids)))).flat())];
+      holders[id] = [...new Set((await Promise.all(doneItems(id, quests).map((n) => carriers(n, ids)))).flat())];
       // A step's item shows progress only once the chain's needed pieces lie behind it
       // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
       started[id] = [...new Set((await Promise.all(progressItems(q).map((n) => carriers(n, q.ids)))).flat())];
@@ -757,7 +763,7 @@ export class Daemon {
       // counts for that needer (`own`), and a needer that carries every piece runs like one part
       // way through.
       const needers = chainNeeders(id, { quests, holders, members });
-      const rows = await Promise.all(q.needs.map(async (n) => (await search(n)).filter((m) => matches(m, n, q.ids))));
+      const rows = await Promise.all(q.needs.map(async (n) => (await search(plainName(n))).filter((m) => matches(m, n, q.ids))));
       q.needs.forEach((n, k) => { const key = q.ids?.[n] ?? n; have[key] = Math.min(have[key] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0)); });
       q.needs.forEach((n, k) => {
         const free = rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0);
