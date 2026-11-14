@@ -670,6 +670,8 @@ test("a tab that was busy does not count against the task it refused", () => {
   expect(tabWasBusy("Error: the tab is paused for upkeep (level or spells changed)")).toBe(true);
   expect(tabWasBusy("Error: the hunt task is still running")).toBe(true);
   expect(tabWasBusy("Error: the errand in velketor is still running")).toBe(true);
+  // A page without `window.iqBot` fails with a TypeError.
+  expect(tabWasBusy("TypeError: Cannot read properties of undefined (reading 'hunt')")).toBe(true);
   expect(tabWasBusy("Error: could not move to velketor")).toBe(false);
   expect(tabWasBusy("Error: Tagujazolu is not a character on this account")).toBe(false);
 });

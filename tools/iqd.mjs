@@ -426,11 +426,11 @@ const CASINO_PP_PER_DAY = 3366;
 const call = (fn, arg) => `(${fn.toString()})(${JSON.stringify(arg)})`;
 
 /**
- * Whether a task was not queued because its tab was busy, by the bot's own refusals (`takeTab` and
- * `errand` in src/bot.js) or a page the collector cannot use right now, and not for a reason of the
- * task's own.
+ * Whether queuing a task failed only because the tab was busy, not because of the task itself.
+ * Matches the bot's refusals (`takeTab` and `errand` in src/bot.js) and pages the collector cannot
+ * use at the moment, including one without `window.iqBot` (a TypeError) after a new process.
  */
-export const tabWasBusy = (error) => /^(Error: )?(the tab is paused|the \w+ task is still running|the errand in \S+ is still running|tab is not usable|Cannot read properties of undefined)/.test(error);
+export const tabWasBusy = (error) => /^(\w*Error: )?(the tab is paused|the \w+ task is still running|the errand in \S+ is still running|tab is not usable|Cannot read properties of undefined)/.test(error);
 
 /** Inventory Search over every account character for `a.q`: `[{ item, itemId, who, n }]`. Read-only, through the bridge's `query`. */
 export async function searchInPage(a) {
