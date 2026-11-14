@@ -60,8 +60,9 @@ test("outside the rotation a camp and a visit each cost their whole time", () =>
   expect(camp).toMatchObject({ kind: "camp", hours: 1.39 });
   expect(camp.cost).toBeCloseTo(1.39);
   expect(visit.kind).toBe("visit");
-  expect(visit.up).toBeCloseTo(1 - 0.98 ** 6);
-  expect(visit.value).toBeCloseTo((1 - 0.98 ** 6) * copyValue(item(1000, 1.39, 1), pace));
+  // A visit finds an enemy at `upShare` of what the spawn tables give.
+  expect(visit.up).toBeCloseTo(ACQUIRE.upShare * (1 - 0.98 ** 6));
+  expect(visit.value).toBeCloseTo(ACQUIRE.upShare * (1 - 0.98 ** 6) * copyValue(item(1000, 1.39, 1), pace));
   expect(visit.cost).toBe(ACQUIRE.visitHours);
   expect(bestWay(tab(30, "paw"), x, { hoursPerLevel: pace, killChance: () => sure })).toEqual(netRate(visit) > netRate(camp) ? visit : camp);
 });
@@ -71,10 +72,11 @@ test("a visit's chance to find its enemy follows what the visits so far found", 
   const pace = { X1: 1 };
   const visit = (seen: { looks: number; up: number } | null) => ways(tab(30, "paw"), x, { hoursPerLevel: pace, upSeen: () => seen })[1];
   // The spawn tables' chance counts as two visits: eight looks that found nothing leave a fifth of it.
-  expect(visit(null).up).toBeCloseTo(0.2);
-  expect(visit({ looks: 8, up: 0 }).up).toBeCloseTo((2 * 0.2) / 10);
+  const table = ACQUIRE.upShare * 0.2;
+  expect(visit(null).up).toBeCloseTo(table);
+  expect(visit({ looks: 8, up: 0 }).up).toBeCloseTo((2 * table) / 10);
   expect(visit({ looks: 8, up: 0 }).value).toBeCloseTo(visit(null).value / 5);
-  expect(visit({ looks: 8, up: 6 }).up).toBeCloseTo((2 * 0.2 + 6) / 10);
+  expect(visit({ looks: 8, up: 6 }).up).toBeCloseTo((2 * table + 6) / 10);
 });
 
 const sure = { p: 1, fights: 4, deaths: 0, leaderDeaths: 0 };
@@ -164,10 +166,10 @@ test("a hunt for a copy at the end of a chain of deaths takes the whole chain", 
   // a visit spends half an hour on the chain, and every fight of it pays its deaths.
   const reaver = { npc: "a black reaver", zone: "citymist", npcLevel: 54, spawn: 1, points: 1, also: ["Lord Rak`Ashiir"], items: [{ ...item(5000, 2, 1), kills: 6 }] };
   const ctx = { hoursPerLevel: { X1: 1 }, killChance: () => sure, killsPerHour: { G1: 12 } };
-  expect(trip(tab(30, "paw"), [reaver], ctx, (_x, kind) => kind === "visit")!.hours).toBeCloseTo(ACQUIRE.visitHours + 6 / 12);
+  expect(trip(tab(30, "paw"), [reaver], ctx, (_x, kind) => kind === "visit")!.hours).toBeCloseTo(ACQUIRE.visitHours + (ACQUIRE.upShare * 6) / 12);
   const dying = { ...sure, deaths: 1, leaderDeaths: 1 };
   const [camp, visit] = ways(tab(30, "paw"), reaver, ctx, dying);
-  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + 6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
+  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + ACQUIRE.upShare * 6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
   expect(camp.cost - camp.zoneRate * camp.hours).toBeCloseTo(6 * deathHours(tab(30, "paw"), dying, { X1: 1 }));
 });
 
@@ -188,6 +190,6 @@ test("each fight of a chain pays the deaths of its own enemy", () => {
   const killChance = (_t: object, x: { npcLevel: number }) => (x.npcLevel >= 54 ? dying : sure);
   const [camp, visit] = ways(tab(30, "paw"), reaver, { hoursPerLevel: { X1: 1 }, killChance, killsPerHour: { G1: 12 } }, dying);
   const one = deathHours(tab(30, "paw"), dying, { X1: 1 });
-  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + one);
+  expect(visit.cost).toBeCloseTo(ACQUIRE.visitHours + ACQUIRE.upShare * one);
   expect(camp.cost - camp.hours).toBeCloseTo(one);
 });

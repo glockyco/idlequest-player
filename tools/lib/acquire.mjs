@@ -37,9 +37,11 @@ export const ACQUIRE = {
   // the groups that hunt it. Less is a trickle the trip's time does not pay for.
   minSupply: 0.25,
   // The spawn tables' chance that an enemy is up counts as this many visits beside the visits that
-  // looked (`upChanceOf`). On 2026-11-13 the tables expected 267 of 314 visits to find an enemy
-  // and 141 did, because other players hunt the same enemies and a point holds what stands on it.
+  // looked (`upChanceOf`), and at `upShare` of its value, because other players hunt the same
+  // enemies and a point holds what stands on it: over 1,130 looks of two days, the enemies the
+  // tables gave 80% or more stood at 70% of them.
   upPrior: 2,
+  upShare: 0.75,
 };
 
 // What a death costs beyond a won fight, in seconds of the party's time: the fight and the wait
@@ -119,11 +121,11 @@ export const copyValue = (w, hoursPerLevel = {}, hours = 0) => {
 
 /**
  * The chance a visit finds enemy `x` up: the spawn tables' chance that one of its points holds it,
- * 1 - (1 - spawn)^points, as `upPrior` visits beside the visits that looked for it (`seen`,
- * `{ looks, up }`, from the coordinator's history).
+ * 1 - (1 - spawn)^points, at `upShare`, as `upPrior` visits beside the visits that looked for it
+ * (`seen`, `{ looks, up }`, from the coordinator's history).
  */
 export const upChanceOf = (x, seen = null) => {
-  const model = 1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1);
+  const model = ACQUIRE.upShare * (1 - (1 - (x.spawn ?? 1)) ** Math.max(1, x.points ?? 1));
   return seen?.looks > 0 ? (ACQUIRE.upPrior * model + seen.up) / (ACQUIRE.upPrior + seen.looks) : model;
 };
 
