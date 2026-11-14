@@ -689,6 +689,24 @@ test("an errand puts its enemies first while AutoLevel can pull one and holds ro
   }
 });
 
+test("an errand leaves out a wanted enemy at a spawn point the party keeps losing at", async () => {
+  const f = await install();
+  f.bot.config.rotation = ["guktop", "permafrost"];
+  f.combat.currentZone = 65;
+  Object.assign(f.runtime, { getAutoCombatLevelBounds: () => ({ minLevel: 30, maxLevel: 40 }) });
+  const enemy = (spawnInstanceId: number, name: string) => ({ spawnInstanceId, name, level: 34 }) as { spawnInstanceId: number; name: string };
+  f.targets.push(enemy(1, "Arch_Inspector"), enemy(2, "a_courier"));
+  await f.bot.errand({ zone: "permafrost", keep: "Arch Inspector|Deathfang", item: "Robe" });
+  f.bot.state.lostCamps = { "permafrost:1": f.me.level };
+  f.bot.fastTick();
+  // The inspector's point is skipped, and with no other wanted enemy up the party hunts the rest.
+  expect(f.runtime.deferred).toEqual([1]);
+  f.runtime.deferred.length = 0;
+  f.targets.push(enemy(3, "Deathfang"));
+  f.bot.fastTick();
+  expect([...f.runtime.deferred].sort()).toEqual([1, 2]);
+});
+
 test("an errand widens AutoLevel's range for its enemies, keeps the others in the normal range and restores the limits", async () => {
   vi.useFakeTimers();
   try {

@@ -1177,7 +1177,8 @@
   // errand never leaves the party idle. When the errand widened AutoLevel's range, the other
   // enemies outside the normal range stay on the list. The fast tick renews the entries.
   // So do the spawn points of fights with an enemy the party keeps losing to (`state.lostCamps`),
-  // and those around an enemy the client keeps out of AutoLevel (`guardedSpawns`).
+  // an errand's enemies among them, and those around an enemy the client keeps out of AutoLevel
+  // (`guardedSpawns`).
   const avoidTargets = (i) => {
     const e = state.errand;
     const keep = e?.arrived && zoneShort(i) === e.zone ? e.keep : null;
@@ -1201,13 +1202,13 @@
       const owner = Number(rt.combatScene.getCombatTargetBySpawnInstanceId?.(t.spawnInstanceId)?.spawn?.combatOwnerCharacterId ?? 0);
       return t.level >= minLevel && t.level <= maxLevel && !((rt.unreachableSpawnUntil?.get(t.spawnInstanceId) ?? 0) > now()) && !(owner > 0 && owner !== me);
     };
-    const first = wanted && targets.some((t) => wanted.test(t.name ?? "") && pullable(t));
+    const first = wanted && targets.some((t) => wanted.test(t.name ?? "") && pullable(t) && !lostHere.has(t.spawnInstanceId));
     const ms = (config.fastTickSec * 2 + 1) * 1000;
     for (const t of targets) {
       const name = t.name ?? "";
       const other = !wanted?.test(name);
       const outside = normal && (t.level < normal.minLevel || t.level > normal.maxLevel);
-      if (avoid?.test(name) || wards.has(t.spawnInstanceId) || (other && (first || outside || slow.has(foeKey(name)) || lostHere.has(t.spawnInstanceId)))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
+      if (avoid?.test(name) || wards.has(t.spawnInstanceId) || lostHere.has(t.spawnInstanceId) || (other && (first || outside || slow.has(foeKey(name))))) rt.deferAutoLevelSpawn(t.spawnInstanceId, ms);
     }
   };
 
