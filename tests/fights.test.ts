@@ -27,6 +27,8 @@ function fights(...args: string[]) {
   const text = proc.stdout.toString().trim();
   return text ? text.split("\n").map((line) => JSON.parse(line)) : [];
 }
+// Each test runs the tool as a subprocess, which takes several seconds on a machine that plays.
+const SUBPROCESS_MS = 30000;
 
 test("fight streams reorder and deduplicate rows and preserve cycle summaries", () => {
   const rows = fights();
@@ -35,10 +37,10 @@ test("fight streams reorder and deduplicate rows and preserve cycle summaries", 
   expect(rows[1]).toMatchObject({ start: start + 15000, dmgTaken: 8, cycle: null, toNext: null });
   expect(rows[0].raw).toBeUndefined();
   expect(rows[0].replayRows).toBeUndefined();
-});
+}, SUBPROCESS_MS);
 
 test("fight time options exclude old rows without becoming directory arguments", () => {
   expect(fights("--since", String(start + 10000))).toHaveLength(1);
   expect(fights("--last", "60")).toHaveLength(2);
   expect(fights("--last", "60", "--since", String(start + 10000))).toHaveLength(1);
-});
+}, SUBPROCESS_MS);
