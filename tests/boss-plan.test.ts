@@ -140,6 +140,13 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
     { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", respawnMs: 12 * H, varianceMs: 0, goal: false },
     { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", respawnMs: 72 * H, varianceMs: 0, goal: true },
   ]);
+  // A gear target no group can kill joins the watch as a non-goal boss, and one that is also a goal
+  // boss stays a goal boss.
+  const withGear = watchedBosses({ daily: d, goal, gear: ["Narandi the Wretched", "Lord Yelinak"], spawns: new Map([...spawns, ["Narandi the Wretched", [{ zone: "greatdivide", point: 7, respawnMs: 72 * H }]]]) });
+  expect(withGear.filter((w) => w.gear || w.key === "lord yelinak").map((w) => [w.key, w.goal, w.gear ?? false])).toEqual([["lord yelinak", true, false], ["narandi the wretched", false, true]]);
+  // Seen standing, it is an open-world boss for the raid, and an unlisted name is not.
+  const standing = { "narandi the wretched": { name: "Narandi_the_Wretched", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 }, "a frost giant": { name: "a_frost_giant", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 } };
+  expect(openBosses({ seen: standing, gear: ["Narandi the Wretched"], now: NOW })).toEqual([{ key: "narandi the wretched", name: "Narandi the Wretched", zone: "greatdivide" }]);
 
   // Nobody has seen any of them: the goal's bosses first.
   expect(nextLook({ watch, seen: {}, now: NOW })).toMatchObject({ key: "cazic", zone: "fearplane", until: 0, why: "no tab has seen it yet" });

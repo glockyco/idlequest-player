@@ -60,17 +60,17 @@ const db = new Database("runs/iq.db", { readonly: true });
 const targets = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'gear'").get()?.v ?? "{}").targets ?? [];
 const held = new Set(survey.map((r) => r.itemId));
 
-// Raid bosses of the goal that stand in the open world and that the daily list does not name,
-// from the boss plan's watch (the db meta key `bossPlan`, `watchedBosses` of
-// tools/lib/boss-plan.mjs): the raid fights them too, by their name key, so the boss plan knows
-// before a group looks for one whether a raid there is worth its travel.
+// Raid bosses of the goal and gear targets no group can kill that stand in the open world and that
+// the daily list does not name, from the boss plan's watch (the db meta key `bossPlan`,
+// `watchedBosses` of tools/lib/boss-plan.mjs): the raid fights them too, by their name key, so the
+// boss plan knows before a group looks for one whether a raid there is worth its travel.
 const watch = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'bossPlan'").get()?.v ?? "{}").watch ?? [];
-const openGoal = watch.filter((w) => w.goal && !(daily.bosses ?? []).some((b) => b.key === w.key)).map((w) => ({ key: w.key, name: w.name, zone: w.zone }));
+const openWatched = watch.filter((w) => (w.goal || w.gear) && !(daily.bosses ?? []).some((b) => b.key === w.key)).map((w) => ({ key: w.key, name: w.name, zone: w.zone }));
 
 // An enemy is the NPC of its name that spawns in its zone, since a name alone is ambiguous in the
 // content (Talendor has a level-90 `#Talendor` beside the level-60 boss). Read once for every
 // enemy this run may fight and every one on file.
-const wanted = new Set([...(daily.bosses ?? []).flatMap((b) => bossParts(b.name)), ...openGoal.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
+const wanted = new Set([...(daily.bosses ?? []).flatMap((b) => bossParts(b.name)), ...openWatched.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
 const named = new Map();
 for await (const n of rows("npc_types")) if (wanted.has(npcKey(n.name))) named.set(n.id, n);
 const groupsOf = new Map();
@@ -98,7 +98,7 @@ const add = (e, group) => {
 };
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
 for (const c of casino) if (held.has(c.itemId)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
-for (const b of openGoal) add({ ...b, raid: true }, strongest);
+for (const b of openWatched) add({ ...b, raid: true }, strongest);
 const pairs = [];
 for (const x of targets.filter((t) => t.npcLevel > 50)) {
   const key = `${x.zone}|${npcKey(x.npc)}`;

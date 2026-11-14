@@ -152,41 +152,45 @@ const OPEN_SEEN_MS = 30 * 60000;
  * The raid bosses that stand in the open world, from what the tabs see in their zones' spawn lists
  * (`seen`, by name key: `{ name, zone, level, state, seenAt }`, the enemies the client keeps out of
  * AutoLevel): those alive at a look within `OPEN_SEEN_MS` whose name is on the daily list
- * (`daily.bosses`, which gives the key and the zone the look has to be from) or among the raid
- * goal's bosses (`goal`, names), as `[{ key, name, zone }]`. A boss off the daily list goes by its
- * name key.
+ * (`daily.bosses`, which gives the key and the zone the look has to be from), among the raid
+ * goal's bosses (`goal`, names) or among the gear targets no group can kill (`gear`, names), as
+ * `[{ key, name, zone }]`. A boss off the daily list goes by its name key.
  */
-export function openBosses({ seen = {}, daily = null, goal = [], now }) {
+export function openBosses({ seen = {}, daily = null, goal = [], gear = [], now }) {
   const out = [];
   for (const [key, s] of Object.entries(seen)) {
     if (s.state !== "alive" || now - s.seenAt > OPEN_SEEN_MS) continue;
     const listed = (daily?.bosses ?? []).find((b) => npcKey(b.name) === key);
-    if (listed ? listed.zone !== s.zone : !goal.some((g) => npcKey(g) === key)) continue;
+    if (listed ? listed.zone !== s.zone : ![...goal, ...gear].some((g) => npcKey(g) === key)) continue;
     out.push({ key: listed?.key ?? key, name: listed?.name ?? String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone });
   }
   return out;
 }
 
 /**
- * The bosses the account watches in the open world: those of the daily list and of the raid goal
- * (`goal`, names) that a live spawn point puts up (`spawns`, `namedSpawns` of
- * tools/lib/content.mjs for their names), as `[{ key, name, zone, respawnMs, varianceMs, goal }]`.
- * A boss of the daily list goes by the list's key and counts at a point in the list's zone. The
- * server draws each respawn from `respawnMs` less `varianceMs` to `respawnMs` plus `varianceMs`:
- * the raids of 2026-11-12 killed Lady Vox, Innoruuk and Trakanon 60.4, 66.3 and 78.6 hours before
- * the respawn times the server then gave, with 72 hours and 12, 21.6 and 7.2 hours in the content.
- * The two free summons a day bring two kills, and each of these is one more. Lord Yelinak and
- * Vulak`Aerr are on no list, so the open world is the only place the account kills them.
+ * The bosses the account watches in the open world: those of the daily list, of the raid goal
+ * (`goal`, names) and the gear targets no group can kill (`gear`, names, docs/plans/gear-
+ * acquisition.md, "Ways to get a copy") that a live spawn point puts up (`spawns`, `namedSpawns`
+ * of tools/lib/content.mjs for their names), as `[{ key, name, zone, respawnMs, varianceMs, goal,
+ * gear }]`, `gear` true for a gear boss. A boss of the daily list goes by the list's key and counts at a point in the list's
+ * zone. The server draws each respawn from `respawnMs` less `varianceMs` to `respawnMs` plus
+ * `varianceMs`: the raids of 2026-11-12 killed Lady Vox, Innoruuk and Trakanon 60.4, 66.3 and
+ * 78.6 hours before the respawn times the server then gave, with 72 hours and 12, 21.6 and 7.2
+ * hours in the content. The two free summons a day bring two kills, and each of these is one more.
+ * Lord Yelinak and Vulak`Aerr are on no list, so the open world is the only place the account
+ * kills them, and so are the gear bosses.
  */
-export function watchedBosses({ daily = null, goal = [], spawns = new Map() }) {
+export function watchedBosses({ daily = null, goal = [], gear = [], spawns = new Map() }) {
   const out = [];
-  const add = (name, key, zone, isGoal) => {
+  const add = (name, key, zone, isGoal, isGear = false) => {
     const points = (spawns.get(name) ?? []).filter((p) => !zone || p.zone === zone);
-    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), varianceMs: Math.max(...points.map((p) => p.varianceMs ?? 0)), goal: isGoal });
+    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), varianceMs: Math.max(...points.map((p) => p.varianceMs ?? 0)), goal: isGoal, ...(isGear ? { gear: true } : {}) });
   };
   const isGoal = (name) => goal.some((g) => npcKey(g) === npcKey(name));
+  const onList = (name) => (daily?.bosses ?? []).some((b) => npcKey(b.name) === npcKey(name));
   for (const b of daily?.bosses ?? []) add(b.name, b.key, b.zone, isGoal(b.name));
-  for (const g of goal) if (!(daily?.bosses ?? []).some((b) => npcKey(b.name) === npcKey(g))) add(g, npcKey(g), null, true);
+  for (const g of goal) if (!onList(g)) add(g, npcKey(g), null, true);
+  for (const g of gear) if (!onList(g) && !isGoal(g)) add(g, npcKey(g), null, false, true);
   return out;
 }
 
@@ -334,7 +338,7 @@ export function watchRows({ watch = [], seen = {}, log = [], value = {}, odds = 
     const down = s && s.state !== "alive";
     const state = !s ? "unknown" : !down ? "alive" : s.seenAt < resetAt ? "stale" : s.respawnAt && s.respawnAt <= now ? "due" : "down";
     const { killed, lived } = down && s.respawnAt ? killWindow(w, s, log) : { killed: null, lived: null };
-    return { key: w.key, name: w.name, zone: w.zone, goal: w.goal, state, seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killed, lived, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
+    return { key: w.key, name: w.name, zone: w.zone, goal: w.goal, ...(w.gear ? { gear: true } : {}), state, seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killed, lived, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
   });
 }
 

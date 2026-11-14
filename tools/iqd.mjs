@@ -941,8 +941,8 @@ export class Daemon {
     const rolled = metaGet(this.db, "casinoRolls") ?? {};
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded. A boss of
-    // the daily list or the raid goal is the boss plan's kill, by raid, so no group hunts it: group 1
-    // set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
+    // the daily list, the raid goal or the gear watch is the boss plan's kill, by raid, so no group
+    // hunts it: group 1 set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
@@ -1298,19 +1298,28 @@ export class Daemon {
     }
     metaSet(this.db, "bossesSeen", seen);
     const goal = this.raidGoal();
-    // The bosses of the daily list and the goal that the open world puts up, from the content
-    // snapshot, read once for their names.
-    const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal])];
-    this.bossNames = new Set(names.map(npcKey));
+    // The gear targets above level 50 that no group can kill (state `tooStrong` of the coordinator
+    // pass), which the raid can (docs/plans/gear-acquisition.md, "Ways to get a copy"), and those the
+    // watch holds already, which the coordinator lists "by raid" from then on. One leaves once the
+    // gear plan no longer wants its drops.
+    const status = metaGet(this.db, "targetStatus")?.targets ?? {};
+    const watchedGear = new Set((metaGet(this.db, "bossPlan")?.watch ?? []).filter((w) => w.gear).map((w) => npcKey(w.name)));
+    const gear = [...new Set((this.targetWants ?? []).filter((x) => x.npcLevel > 50 && (status[targetId(x)]?.state === "tooStrong" || watchedGear.has(npcKey(x.npc)))).map((x) => x.npc))];
+    // The bosses of the daily list, the goal and the gear that the open world puts up, from the
+    // content snapshot, read once for their names.
+    const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...gear])];
     if (this.bossSpawns?.key !== names.join("|")) {
       const { namedSpawns } = await import("./lib/content.mjs");
       this.bossSpawns = { key: names.join("|"), spawns: await namedSpawns(names, npcKey).catch((e) => (this.log(`boss spawns: ${e.message}`), new Map())) };
     }
-    const watch = watchedBosses({ daily: st.daily, goal, spawns: this.bossSpawns.spawns });
+    const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns });
+    // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
+    // bosses the watch holds, since a gear target without a live spawn point stays a group's target.
+    this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
     const log = noteSightings(metaGet(this.db, "bossLog") ?? [], watch, seen);
     metaSet(this.db, "bossLog", log);
     const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;
-    const open = openBosses({ seen, daily: st.daily, goal, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
+    const open = openBosses({ seen, daily: st.daily, goal, gear, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
     const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing, ...watch.filter((w) => !(st.daily?.bosses ?? []).some((b) => b.key === w.key))];
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
     // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
