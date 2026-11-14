@@ -417,6 +417,9 @@ const GEAR_RETRY_MIN = 10;
 const RAID_RETRY_MIN = 30;
 // A potion the server refused is tried again this long after, whatever the code (`bossPass`).
 const REFUSED_RETRY_MIN = 360;
+// Retry delay for a potion the server refused because the boss has no spawn point. Only a server
+// update can fix that, and every attempt buys raid time first.
+const NO_SPAWN_RETRY_MIN = 7 * 1440;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
@@ -1283,9 +1286,11 @@ export class Daemon {
       if (!l) return null;
       const killed = /^killed /.test(l.result ?? "");
       const lost = !killed && (/^(time is up|wiped|ended) /.test(l.result ?? "") || /^fight /.test(l.step ?? ""));
+      // The server refuses a potion whose boss has no spawn point until its content changes.
+      const noSpawn = /authored spawn is unavailable/.test(l.error ?? "");
       const lastTab = tabs.find((t) => t.label === l.label);
-      const at = killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
-      return now < at ? `its last raid ${killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again at ${clock(at)}` : null;
+      const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
+      return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
     const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
     // A look goes to every watched boss the account could kill, whether or not an hour of raid

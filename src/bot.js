@@ -1983,13 +1983,14 @@
   const KILL_LINE = /^You have (?:defeated|slain) (.+?)(?: and gained \d+ experience!|, but gain no experience\.)/;
   // "a swirlspine seahorse heals Phinigel Autropos for 10000 points.": healer, healed.
   const HEAL_LINE = /^(.+?) heals (.+?) for \d+ points?/;
+  // The newest kill line since `t0` whose enemy matches `wanted`, or null.
   const killedSince = (i, wanted, t0) => {
     const evs = i.events ?? [];
     for (let k = evs.length - 1; k >= 0 && evs[k].t >= t0; k--) {
       const m = KILL_LINE.exec(evs[k].text ?? "");
-      if (m && wanted.test(m[1])) return true;
+      if (m && wanted.test(m[1])) return evs[k];
     }
-    return false;
+    return null;
   };
   // What a failed directed kill saw, for its error.
   const fightState = (i) => `in combat ${Boolean(i.stores.skills.getState().inCombat)}, target ${i.stores.combat.getState().targetNPC?.name ?? "none"}, last line: ${(i.events ?? []).at(-1)?.text ?? "none"}`;
@@ -2250,7 +2251,9 @@
         if (at.some((s) => s.state === "alive")) return void (task.result = `${task.name} stands`);
         if (now() >= (task.until ?? 0)) {
           const next = Math.min(...at.map((s) => s.nextRespawnAtMs).filter((t) => t > now()));
-          return void (task.result = at.length ? `${task.name} is not up${Number.isFinite(next) ? `, next spawn at ${new Date(next).toTimeString().slice(0, 5)}` : ""}` : `${task.name} has no spawn point in ${task.zone}`);
+          // A boss respawns days later, so the day is named unless it is today.
+          const day = Number.isFinite(next) && new Date(next).toDateString() !== new Date(now()).toDateString() ? ` on ${new Date(next).toDateString().slice(0, 10)}` : "";
+          return void (task.result = at.length ? `${task.name} is not up${Number.isFinite(next) ? `, next spawn at ${new Date(next).toTimeString().slice(0, 5)}${day}` : ""}` : `${task.name} has no spawn point in ${task.zone}`);
         }
         await sleep(LOOK_EVERY_MS);
       }
@@ -2286,9 +2289,10 @@
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
     const rt = runtime(i);
-    // A potion raid is led by the potion's holder, since a potion never leaves the character that won it.
-    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
+    // The fight has to end before a switch, which the client refuses in combat. A potion raid is
+    // led by the potion's holder, since a potion never leaves the character that won it.
     await step("stop", () => calm(i), 75000);
+    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     if (task.zone && zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
     // A boss of the open world can be dead by the time the raid arrives, killed by other players,
     // so the raid looks before it buys an hour.
@@ -2332,7 +2336,12 @@
       // A casino potion summons its boss at the boss's own spawn point, in the zone the task traveled to.
       if (task.potion) {
         await step(`use potion ${task.potion}`, async () => {
-          if (!(await i.useItem(task.potion))) throw new Error(`the server refused potion ${task.potion}`);
+          const since = now();
+          if (await i.useItem(task.potion)) return;
+          // The server says why in a system line, which the coordinator's retry depends on.
+          await sleep(500);
+          const said = (i.events ?? []).findLast((e) => e.t >= since && /^SYSTEM/.test(e.type ?? ""))?.text;
+          throw new Error(`the server refused potion ${task.potion}${said ? `: ${said}` : ""}`);
         }, 30000);
       }
       // The whole name, as the open-world check compares it (`bossKey`): "Innoruuk" also matched
@@ -2494,7 +2503,11 @@
         }
         return killed() ? "killed" : task.status !== "running" ? "stopped" : "time is up";
       }, task.minutes * 60000 + 3600000);
-      Object.assign(task.fight, { outcome, seconds: Math.round((now() - t0) / 1000), alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
+      // A weak boss can die while the raid still walks to it, before `t0`. Then the fight is
+      // timed from the engagement.
+      const killAt = killedSince(i, bossName, tEngage)?.t ?? now();
+      const seconds = Math.round((outcome === "killed" ? killAt - (killAt < t0 ? tEngage : t0) : now() - t0) / 1000);
+      Object.assign(task.fight, { outcome, seconds, alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
       task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
       if (outcome === "killed") alert("raid", `killed ${boss.name}`, true, { killed: boss.name });
     } finally {

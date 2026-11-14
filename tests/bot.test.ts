@@ -1619,7 +1619,8 @@ test("a look waits in a boss's zone for its respawn, keeps what the zone's list 
     // A look without a wait reads once and reports when the boss is due.
     const down = await look(3 * 3600000, 0);
     expect(down.task).toMatchObject({ status: "done", seen: [{ name: "Lord_Yelinak", state: "respawning" }] });
-    expect(down.task.result).toMatch(/^Lord Yelinak is not up, next spawn at \d\d:\d\d$/);
+    // The day is added when the respawn falls on another day than the look.
+    expect(down.task.result).toMatch(/^Lord Yelinak is not up, next spawn at \d\d:\d\d( on \w{3} \w{3} \d\d)?$/);
     expect(down.task.seen[0].respawnAt).toBe(down.t0 + 3 * 3600000);
     expect(down.reads).toBe(1);
     expect(down.moves).toEqual(["skyshrine", "hole"]);
