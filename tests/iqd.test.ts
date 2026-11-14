@@ -571,6 +571,31 @@ test("bosses whose respawn has passed get looks while no hour of raid time can b
   expect(meta(d.db, "bossPlan").look).toMatchObject({ key: "naga", waits: expect.any(String) });
 });
 
+test("inside paid raid time standing bosses of two zones get two raids at once, and a zone's second boss goes with its raid", async () => {
+  const d = collector({
+    runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: { active: true, expiresAt: T0 + 30 * 60000, pricePp: 10000 } }) },
+    bossSpawns: { key: "x1|x2|y1", spawns: new Map(["x1", "x2", "y1"].map((n) => [n, [{ zone: n[0] === "x" ? "xzone" : "yzone", respawnMs: 3600000 }]])) },
+  });
+  d.raidGoal = () => ["x1", "x2", "y1"];
+  const up = (zone: string) => ({ name: "", zone, state: "alive", seenAt: T0 - 60000 });
+  meta(d.db, "bossesSeen", { x1: { ...up("xzone"), name: "x1" }, x2: { ...up("xzone"), name: "x2" }, y1: { ...up("yzone"), name: "y1" } });
+  const tabs = ["A", "B", "C"].map((l, k) => ({ targetId: l, label: l, group: `g${k + 1}`, members: [{ name: l, level: 50 }] }));
+  const groupOf = new Map([["A", "g1"], ["B", "g2"], ["C", "g3"]]);
+  const win = { raid: { kills: 1, fights: 1, meanSec: 30 } };
+  const odds = { strongest: "g1", odds: { x1: win, x2: win, y1: win } };
+  const raids = (await d.bossPass(T0, tabs, [], groupOf, odds)).filter((a: { kind: string }) => a.kind === "raid");
+  expect(raids.map((r: { spec: { zone: string } }) => r.spec.zone).sort()).toEqual(["xzone", "yzone"]);
+  expect(new Set(raids.map((r: { label: string }) => r.label)).size).toBe(2);
+  // The strongest group's leader takes the first, and the zone's other boss rides along.
+  expect(raids[0].label).toBe("A");
+  const x = raids.find((r: { spec: { zone: string } }) => r.spec.zone === "xzone");
+  expect([x.spec.target, ...x.spec.also].sort()).toEqual(["x1", "x2"]);
+  // Without paid time only one raid starts, since each would buy an hour.
+  d.relay.evaluate = async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: { active: false, pricePp: 10000 } });
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds)).filter((a: { kind: string }) => a.kind === "raid")).toHaveLength(1);
+});
+
 test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
   const boss = { key: "boss", name: "Boss", zone: "z", itemId: 99 };
   const d = collector({

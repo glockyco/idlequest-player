@@ -50,7 +50,8 @@ export function dailyCandidates(daily) {
 }
 
 /**
- * The next boss kill, or null with the reasons in `skipped`.
+ * The next boss kill (`kill`, or null) and every kill that is due, best first (`kills`), with the
+ * reasons for the others in `skipped`.
  * - `daily`: `iq.raid.bosses()` of a leader at 46 or more: `{ resetsRemaining, resetLimit, bosses: [{ key, name, zone, status }] }`.
  * - `potions`: casino potions the survey finds, `[{ key, name, zone, itemId, who }]`, `who` the holder.
  * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
@@ -107,7 +108,8 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
   }
   const perMinute = (w) => (value[w.key] ?? 0) / (RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60);
   const rank = (w) => (w.source === "standing" ? 0 : 1);
-  return { kill: ways.sort((a, b) => rank(a) - rank(b) || perMinute(b) - perMinute(a))[0] ?? null, skipped };
+  const kills = ways.sort((a, b) => rank(a) - rank(b) || perMinute(b) - perMinute(a));
+  return { kill: kills[0] ?? null, kills, skipped };
 }
 
 // The minutes a raid takes besides its fight: from the task's start to the engagement (two minutes

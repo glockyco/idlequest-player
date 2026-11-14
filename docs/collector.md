@@ -61,7 +61,9 @@ next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily 
 casino potion as a raid of all roster characters, led by the potion's holder or the strongest
 group's leader, once the simulator kills the boss in every fight (`runs/state/kill-odds.json`, which
 `bun tools/kill-odds.mjs` refreshes in the background hourly). A raid runs as soon as one is due,
-by the worth of its loot per raid minute, one at a time, and buys raid time at the server's quote. The
+by the worth of its loot per raid minute, and buys raid time at the server's quote. Raids fight with
+snapshots of the characters, so inside paid raid time up to three run at once, each in its own zone
+with its own leader, and the bosses that stand in a raid's zone come with it. The
 same pass watches the raid bosses that stand in the open world, sends a free group to look into a
 boss's zone when its respawn is due (`iqBot.look`) and raids one a tab sees standing. A
 batch of at least two stones per member goes to the group with the lowest levels as a hand-in,

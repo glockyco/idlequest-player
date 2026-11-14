@@ -426,6 +426,8 @@ const RELAY_STUCK_MS = 120000;
 const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
+// Raids at once, each in its own zone with its own leader (`bossPass`).
+const RAIDS_AT_ONCE = 3;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
 // (`bossPlan` of the boss pass) and a casino boss potion a day, 3,366 pp at 9 dice by the casino
 // panel's own odds (docs/plans/systems-research.md, "Boss summons and daily allowance").
@@ -955,8 +957,8 @@ export class Daemon {
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
     for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
-    // The next boss kill (docs/plans/raids.md), one at a time across the account. It takes its tab
-    // from any other action of this pass, since summons and potions are time gated and a hunt is not.
+    // The boss kills that are due (docs/plans/raids.md), each raid with a tab of its own. A raid takes
+    // its tab from any other action of this pass, since summons and potions are time gated and a hunt is not.
     this.doing = "boss plan";
     const bossActs = await this.bossPass(now, tabs, survey, groupOf, odds, hoursPerLevel, state.history).catch((e) => (this.log(`boss pass: ${e.message}`), []));
     this.doing = "tasks and zones";
@@ -1366,7 +1368,7 @@ export class Daemon {
       const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
-    const { kill, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
+    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
     // A look goes to every watched boss the account could kill, whether or not an hour of raid
     // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: a goal
     // boss, and another one inside paid raid time or for a kill worth an hour the coin pays.
@@ -1380,41 +1382,71 @@ export class Daemon {
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     const plan = { t: now, kill, skipped, value, first, next, open, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
-    const last = kill ? history.filter((h) => h.id === killId(kill)).at(-1) : null;
-    // A standing boss is fought again at the next pass, three times, before its raids wait like a
-    // failure. A potion the server refused waits six hours, since the refusal names a summoned
-    // boss this history does not know, and its raid would buy an hour of raid time to be refused.
-    // The refusal is over once a raid has killed a casino boss after it, the one that stood.
-    const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
-    const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
-    const retryMin = kill?.source === "standing" ? (kill.fights < 3 ? 0 : 12 * 60) : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
-    const leader = kill?.who ?? [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
-    const tab = tabs.find((t) => t.group != null && t.group === groupOf.get(leader));
     const free = (t) => t && !t.stale && t.task?.status !== "running";
-    const due = kill && !raiding && now >= retryTime(last, retryMin, kill.source === "standing" || refused ? null : tab?.code ?? this.code) && kill.zone;
-    // A boss of the open world stands until another player kills it, so the raid's leader does
-    // not finish a hunt first, which can run for half an hour: the hunt is stopped, and the pass
-    // comes again with the next cycle to send the raid.
-    if (due && kill.source === "open" && tab && !tab.stale && tab.task?.status === "running" && tab.task.kind === "hunt") {
-      this.passAgain = true;
-      return [{ label: tab.label, kind: "stopTask", id: null, spec: null, why: `${kill.name} stands in ${kill.zone}, and the raid's leader is on a hunt` }];
-    }
-    if (due && free(tab)) {
+    // A raid fights with snapshots of the characters (docs/client-internals.md, "Recruits"), so it
+    // takes nobody from their groups, and the account's hour of raid time serves every leader. So up
+    // to `RAIDS_AT_ONCE` raids run at once, each in its own zone with its own free leader of 46 or
+    // more, the strongest group's leader for the best kill. A second raid starts only inside paid
+    // time, since two raids that each found no hour would each buy one, and one potion raid runs at
+    // a time, since the server takes no potion while another's boss stands. The open-world bosses
+    // that stand in a raid's zone come with it (`also`), so one trip and setup serve them all.
+    const raidTabs = tabs.filter((t) => t.task?.status === "running" && t.task.kind === "raid");
+    const busyZones = new Set(raidTabs.map((t) => t.zone));
+    const used = new Set(raidTabs.map((t) => t.label));
+    const strongestLeader = [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
+    const leaderTab = (name) => tabs.find((t) => t.group != null && t.group === groupOf.get(name));
+    const out = [];
+    let potionRaid = raidTabs.some((t) => /^boss:potion:/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
+    for (const k of kills) {
+      if (raidTabs.length + out.length >= (paid ? RAIDS_AT_ONCE : 1) || busyZones.has(k.zone) || !k.zone) continue;
+      const potion = k.source === "potion" || k.source === "standing";
+      if (potion && potionRaid) continue;
+      const last = history.filter((h) => h.id === killId(k)).at(-1);
+      // A standing boss is fought again at the next pass, three times, before its raids wait like a
+      // failure. A potion the server refused waits six hours, since the refusal names a summoned
+      // boss this history does not know, and its raid would buy an hour of raid time to be refused.
+      // The refusal is over once a raid has killed a casino boss after it, the one that stood.
+      const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
+      const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
+      const retryMin = k.source === "standing" ? (k.fights < 3 ? 0 : 12 * 60) : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
+      const preferred = leaderTab(k.who ?? strongestLeader);
+      const tab = potion ? (free(preferred) && !used.has(preferred.label) ? preferred : null) : [preferred, ...tabs.filter((t) => (t.members[0]?.level ?? 0) >= 46).sort((a, b) => (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0))].find((t) => free(t) && !used.has(t.label));
+      if (now < retryTime(last, retryMin, potion || refused ? null : (tab ?? preferred)?.code ?? this.code)) continue;
+      // A boss of the open world stands until another player kills it, so the strongest leader does
+      // not finish a hunt first when no other leader is free, which can run for half an hour: the
+      // hunt is stopped, and the pass comes again with the next cycle to send the raid.
+      if (!tab) {
+        if (!out.length && !raidTabs.length && k.source === "open" && preferred && !preferred.stale && preferred.task?.status === "running" && preferred.task.kind === "hunt") {
+          this.passAgain = true;
+          return [{ label: preferred.label, kind: "stopTask", id: null, spec: null, why: `${k.name} stands in ${k.zone}, and the raid's leader is on a hunt` }];
+        }
+        continue;
+      }
+      const leader = tab.members[0].name;
       const members = [...groupOf.keys()].filter((n) => n !== leader);
-      const also = bossParts(kill.name);
-      const what = kill.source === "potion" ? { target: kill.name, potion: kill.itemId, who: kill.who } : kill.source === "standing" ? { target: kill.name, who: kill.who } : kill.source === "open" ? { target: kill.name, open: true } : { bossKey: kill.key, ...(also.length > 1 ? { also } : {}) };
-      const from = kill.source === "potion" ? `${kill.who}'s potion` : kill.source === "standing" ? `${kill.who}'s potion, whose boss still stands after ${kill.fights} fight${kill.fights === 1 ? "" : "s"}` : kill.source === "open" ? `its open-world spawn in ${kill.zone}` : "a free summon";
-      // A raid gets three times its simulated fight, and a quarter of an hour at least: the simulator
-      // takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off in many fights.
-      const minutes = Math.min(45, Math.max(15, Math.ceil((3 * (odds.odds?.[kill.key]?.raid?.meanSec ?? 0)) / 60)));
-      return [{ label: tab.label, kind: "raid", id: killId(kill), spec: { members, zone: kill.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${kill.name} by ${kill.way} from ${from}` }];
+      const parts = bossParts(k.name);
+      const nearby = k.source === "open" ? kills.filter((o) => o !== k && o.source === "open" && o.zone === k.zone).map((o) => o.name) : [];
+      const also = parts.length > 1 ? parts : nearby;
+      const what = k.source === "potion" ? { target: k.name, potion: k.itemId, who: k.who } : k.source === "standing" ? { target: k.name, who: k.who } : k.source === "open" ? { target: k.name, open: true, ...(also.length ? { also } : {}) } : { bossKey: k.key, ...(also.length > 1 ? { also } : {}) };
+      const from = k.source === "potion" ? `${k.who}'s potion` : k.source === "standing" ? `${k.who}'s potion, whose boss still stands after ${k.fights} fight${k.fights === 1 ? "" : "s"}` : k.source === "open" ? `its open-world spawn in ${k.zone}${nearby.length ? `, with ${nearby.join(", ")}` : ""}` : "a free summon";
+      // A raid gets three times its simulated fights, and a quarter of an hour at least: the
+      // simulator takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off
+      // in many fights.
+      const keyOf = (name) => kills.find((o) => o.name === name)?.key ?? npcKey(name);
+      const sec = [k.key, ...nearby.map(keyOf)].reduce((s, key) => s + (odds.odds?.[key]?.raid?.meanSec ?? 0), 0);
+      const minutes = Math.min(45, Math.max(15, Math.ceil((3 * sec) / 60)));
+      out.push({ label: tab.label, kind: "raid", id: killId(k), spec: { members, zone: k.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${k.name} by ${k.way} from ${from}` });
+      used.add(tab.label);
+      busyZones.add(k.zone);
+      if (potion) potionRaid = true;
     }
     // Each look takes a free tab that leads no raid: one in the boss's zone already, else one
     // without an errand, which a task ends (the first look, of 39 s, ended group 4's), else the
     // one with the highest leader, which has the best chance in a zone a boss lives in. Several
     // bosses are due together after the server put them up, and other players are on their way.
-    const lookers = tabs.filter((t) => free(t) && t !== tab && (t.members[0]?.level ?? 0) >= 46);
-    const out = [];
+    // The leader the next raid wants, the potion's holder or the strongest group's, stays free of looks.
+    const reserved = leaderTab(kill?.who ?? strongestLeader);
+    const lookers = tabs.filter((t) => free(t) && t !== reserved && !used.has(t.label) && (t.members[0]?.level ?? 0) >= 46);
     for (const l of looks.slice(0, LOOKS_A_PASS)) {
       const t = lookers.filter((c) => !out.some((a) => a.label === c.label)).sort((a, b) => Number(b.zone === l.zone) - Number(a.zone === l.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0))[0];
       if (!t) break;
