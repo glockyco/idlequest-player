@@ -702,15 +702,21 @@ test("a rotation set within the settle time stays while the group travels", () =
   expect(assignZones({ now: NOW, tabs: [{ ...travelling, rotationSetAt: NOW - 15 * 60000 }], rows: ROWS, rates: RATES })).toHaveLength(1);
 });
 
-test("a running hunt counts by its elapsed time, and a new hunt gets only what is left of the share, if that is enough", () => {
+test("piece hunts share a time budget per hour, and gear trips do not count against it", () => {
   const tabs = [tab("A", "G1", 40)];
-  // A camp started 9 minutes ago is still running, so 0.15 h minus 9 minutes leaves none.
-  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] }).actions).toEqual([]);
+  const crown = { ...page, id: "x", keep: "goblin king", item: "Crown" };
+  const opportunities = [page, crown];
+  const missing = { x: 0 };
+  // A piece hunt that started 9 minutes ago and is still running uses up the 9-minute budget.
+  expect(decide({ now: NOW, tabs, opportunities, missing, history: [{ t: NOW - 9 * 60000, label: "A", kind: "hunt", id: "x" }] }).actions).toEqual([]);
   // One finished 2-minute hunt leaves 7 minutes for the next.
-  const [a] = decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] }).actions;
+  const [a] = decide({ now: NOW, tabs, opportunities, missing, history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 120000 }] }).actions;
   expect(a.spec.minutes).toBe(7);
   // A finished 5-minute hunt leaves 4, too little for a trip and a clear of the points.
-  expect(decide({ now: NOW, tabs, opportunities: [page], history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 300000 }] }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs, opportunities, missing, history: [{ t: NOW - 25 * 60000, label: "A", kind: "hunt", id: "x", ms: 300000 }] }).actions).toEqual([]);
+  // A 30-minute gear trip does not reduce the budget.
+  const [b] = decide({ now: NOW, tabs, opportunities, missing, history: [{ t: NOW - 40 * 60000, label: "A", kind: "hunt", id: "target-hole-a-rock-golem", ms: 1800000 }] }).actions;
+  expect(b.spec.minutes).toBe(9);
 });
 
 test("no two quest chains give the same reward to the same class, and every hunt names a chain that exists", async () => {
@@ -719,7 +725,8 @@ test("no two quest chains give the same reward to the same class, and every hunt
   const keys = Object.values(quests).map((q: { class: string; reward: string }) => `${q.class}: ${q.reward}`);
   expect(keys.filter((k, n) => keys.indexOf(k) !== n)).toEqual([]);
   const ops = JSON.parse(await Bun.file(new URL("../data/opportunities.json", import.meta.url)).text());
-  expect(ops.filter((o: { quest?: string }) => o.quest && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
+  // A chain the epic model generates (`epic-...`) is not in the file, and a hunt for one counts its copies by `count` until the model has it.
+  expect(ops.filter((o: { quest?: string }) => o.quest && !o.quest.startsWith("epic-") && !quests[o.quest]).map((o: { id: string }) => o.id)).toEqual([]);
 });
 
 test("every hunt and farm names a zone the live game has", async () => {

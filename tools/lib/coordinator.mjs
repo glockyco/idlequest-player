@@ -15,8 +15,8 @@ export const DEFAULTS = {
   // A hand-in or farm join that failed holds its tab this long, because neither has a retry time
   // of its own, unlike quests, hunts and targets (`due` in `decide`).
   failHoldMin: 30,
-  // A hunt for an epic or quest piece, whose value the gear model does not price, starts only while
-  // the tab's hunts took less than this share of its last hour.
+  // Share of a tab's last hour that hunts for epic and quest pieces may take. The gear model does
+  // not price these pieces, so they get a time budget instead of competing on value.
   huntShare: 0.15,
   // A piece hunt needs this many minutes of that share left, since a trip and a clear of the
   // points take about two and a shorter hunt ends with nothing.
@@ -310,10 +310,18 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const event = xpFactor > 1;
   const net = (w) => (w.value - xpFactor * w.cost) / w.hours;
 
-  // Time of the last hour each tab spent on the coordinator's hunts, by their recorded length, and
-  // a hunt without one, still running or ended unseen, by the time since it started, at most the
-  // 20 minutes a hunt may run.
-  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && !(h.status === "failed" && h.task === null) && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, 1200000)), 0);
+  // The `spare` part of a task spec: the spare gear lists of the last gear pass (`spareGear`) for
+  // the given characters. The bot uses them to make room in a character's full bags.
+  const spareOf = (names) => {
+    const lists = Object.fromEntries([...new Set(names)].filter((n) => gear?.spare?.[n]?.length).map((n) => [n, gear.spare[n]]));
+    return Object.keys(lists).length ? { spare: lists } : {};
+  };
+
+  // Milliseconds of the last hour a tab spent on piece hunts. A hunt without a recorded length
+  // (still running, or its end was not seen) counts from its start, capped at the 20-minute hunt
+  // limit. Gear trips are excluded because the gear model already decides whether they pay.
+  const pieceIds = new Set(opportunities.map((o) => o.id));
+  const huntMs = (label) => history.filter((h) => h.label === label && h.kind === "hunt" && pieceIds.has(h.id) && !(h.status === "failed" && h.task === null) && now - h.t < 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, 1200000)), 0);
 
   // A group an experiment holds plays only what its arm sets, so an errand it runs stops.
   for (const t of tabs) if (held.has(t.group) && t.errand) out.push({ label: t.label, kind: "stopErrand", id: null, spec: null, why: `an experiment holds ${t.group}` });
