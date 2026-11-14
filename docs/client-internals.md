@@ -639,7 +639,10 @@ AutoLevel until the destroy goes through.
   off-hand landing replaced an off-hand weapon of lower damage over delay beside a main-hand-only
   weapon, so the server seems to replace the weaker of the slots the new item may take. A gear
   move whose hand matters therefore goes into the receiver's bags (`equip` false) and is worn with
-  the receiver active (`exact` moves in `gearTask`, `src/bot.js`). Unverified for this call: the
+  the receiver active (`exact` moves in `gearTask`, `src/bot.js`). An item given with `equip` to a
+  character that is active in another tab is back in that character's bags by the next gear pass,
+  so a tab's leader gets its moves in its own tab (`decide` in `tools/lib/coordinator.mjs`).
+  Unverified for this call: the
   message "That character has no inventory space for the replaced item" was seen only with
   Auto-Upgrade Companions (`diary/2026-11-07-f.md`, section "Companion bags").
 - Manage Money (`engine.pretty.js:419664-419899`): sends `{ action: "read" }` and gets one row per

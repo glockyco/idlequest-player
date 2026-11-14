@@ -479,6 +479,21 @@ test("a move that has to be placed runs in its receiver's own tab, with the rece
   expect(decide({ now: NOW, tabs: busy, gear: { moves: [whip, cloak, knife] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak, knife] } }]);
 });
 
+test("a move to a tab's leader runs in that leader's own tab and waits while the tab is busy", () => {
+  const tabs = [tab("A", "G1", 41), tab("C", "G9", 13)];
+  const earring = { item: "Earring", from: "A0", to: "A0", slot: "ear" };
+  const cloak = { item: "Cloak", from: "X", to: "A4", slot: "back" };
+  expect(decide({ now: NOW, tabs, gear: { moves: [earring, cloak] } }).actions).toMatchObject([
+    { label: "A", kind: "gear", spec: { moves: [earring] } },
+    { label: "C", kind: "gear", spec: { moves: [cloak] } },
+  ]);
+  const busy = [tab("A", "G1", 41, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
+  expect(decide({ now: NOW, tabs: busy, gear: { moves: [earring, cloak] } }).actions).toMatchObject([{ label: "C", kind: "gear", spec: { moves: [cloak] } }]);
+  // A lore item the leader carries itself needs no pull, so it does not block its own move.
+  const lore = { ...earring, loreHolders: ["A0"] };
+  expect(decide({ now: NOW, tabs, gear: { moves: [lore] } }).actions).toMatchObject([{ label: "A", kind: "gear", spec: { moves: [lore] } }]);
+});
+
 test("gear and quest task specs include the spare gear lists of their own characters", () => {
   const tabs = [tab("A", "G1", 41), tab("C", "G9", 13)];
   const cloak = { item: "Cloak", from: "X", to: "A4", slot: "back" };

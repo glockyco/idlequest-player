@@ -470,16 +470,20 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // free tab whose leader blocks the fewest moves, then to the one with the lowest levels, whose
   // hunting the minutes cost least. A move that has to be placed (`exact`) runs in the tab of the
   // receiver's own group, where the receiver can become the active character, together with the
-  // receiver's other moves, so no other tab changes what it wears meanwhile. While that tab is
-  // busy the placed move waits for the next plan, and the receiver's other moves go as usual.
+  // receiver's other moves, so no other tab changes what it wears meanwhile. So does a move to a
+  // tab's leader: an item another tab gives it to wear is back in its bags by the next pass,
+  // because the leader's own page does not learn of the equip. While the own tab is busy these
+  // moves wait for the next plan, and a member's other moves go as usual.
   if (gear?.moves?.length) {
     const blocks = (t, m) => (m.loreHolders ?? []).includes(t.members[0]?.name);
     const ownTab = (name) => tabs.find((x) => x.members.some((m) => m.name === name));
-    const placed = new Set(gear.moves.filter((m) => m.exact && ownTab(m.to) && free(ownTab(m.to))).map((m) => m.to));
-    const anywhere = gear.moves.filter((m) => !placed.has(m.to) && !m.exact);
+    const leads = (name) => ownTab(name)?.members[0]?.name === name;
+    const home = (m) => Boolean(m.exact) || leads(m.to);
+    const placed = new Set(gear.moves.filter((m) => home(m) && ownTab(m.to) && free(ownTab(m.to))).map((m) => m.to));
+    const anywhere = gear.moves.filter((m) => !placed.has(m.to) && !home(m));
     for (const x of tabs.filter((x) => x.members.some((m) => placed.has(m.name)))) {
-      const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && !blocks(x, m));
-      if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own, ...spareOf(own.map((m) => m.to)) }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, placed in their hands` });
+      const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && (!blocks(x, m) || m.from === x.members[0]?.name));
+      if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own, ...spareOf(own.map((m) => m.to)) }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, in their own tab` });
     }
     const blocked = (t) => anywhere.filter((m) => blocks(t, m)).length;
     const t = tabs.filter((x) => free(x) && x.members.length).sort((a, b) => blocked(a) - blocked(b) || mean(a) - mean(b))[0];
