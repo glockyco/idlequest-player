@@ -95,10 +95,7 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
-  for (const s of standing) {
-    if (s.held) skipped.push({ key: s.key, why: s.held });
-    else add(s, "standing");
-  }
+  for (const s of standing) add(s, "standing");
   const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
   for (const o of open) {
     if (first.includes(o.key) || paid) add(o, "open");
@@ -411,9 +408,7 @@ export function standingBosses(history, bosses, now) {
  * <name>." when another character summoned it, as `[{ key, name, zone, who, credit, since,
  * fights }]`. It stands until a raid kills it or a day after its summon, and blocks every other
  * credit and potion meanwhile. `fights` counts the raids on it for that holder since the summon
- * that reached the fight and did not kill it. One a raid killed after the summon still blocks, but
- * gets no raid (`held`): the server listed Tolapumj as resumable for a day after the raid of
- * 2026-11-14 killed him, and a second kill of one summon is no play the game intends.
+ * that reached the fight and did not kill it.
  */
 export function casinoStanding(list, reader, history) {
   return (list ?? []).filter((c) => c.status === "resume").map((c) => {
@@ -421,8 +416,6 @@ export function casinoStanding(list, reader, history) {
     const since = c.expiresAt ? c.expiresAt - STANDING_MS : 0;
     const id = killId({ source: "credit", key: c.key, who });
     const fights = history.filter((h) => h.kind === "raid" && h.id === id && h.t >= since && !/^killed /.test(h.result ?? "") && (/^(time is up|wiped|ended) /.test(h.result ?? "") || /^fight /.test(h.step ?? ""))).length;
-    const killed = history.findLast((h) => h.kind === "raid" && (h.endedAt ?? h.t) >= since && (h.result ?? "").startsWith(`killed ${c.name} `));
-    const held = killed ? `a raid killed ${c.name} after the summon, and the server keeps the copy until ${new Date(c.expiresAt).toTimeString().slice(0, 5)}` : null;
-    return { key: c.key, name: c.name, zone: c.zone, who, credit: c.key, since, fights, ...(held ? { held } : {}) };
+    return { key: c.key, name: c.name, zone: c.zone, who, credit: c.key, since, fights };
   });
 }

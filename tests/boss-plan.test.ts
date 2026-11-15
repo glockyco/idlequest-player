@@ -317,11 +317,6 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
   const next = nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 9 } });
   expect(next.kill).toMatchObject({ key: "vox", source: "credit", who: "Tagujazolu" });
   expect(killId(next.kill)).toBe("boss:credit:Tagujazolu:vox");
-  // A copy a raid killed after the summon gets no raid of its own and still holds the credits.
-  const killed = casinoStanding(list, "Tagujazolu", [{ t: 4 * DAY - 60000, endedAt: 4 * DAY + 60000, kind: "raid", id: "boss:potion:990107:Domeyafun", result: "killed Tolapumj in 27 s with 71 of 71 standing, looted 3 items" }]);
-  const after = nextBossKill({ daily: daily(0, []), credits, standing: killed, odds, value: { vox: 9 } });
-  expect(after.kill).toBeNull();
-  expect(after.skipped.map((s) => s.key)).toEqual(["tolapumj", "vox"]);
 });
 
 test("held open bosses add no worth to buying an hour", () => {
