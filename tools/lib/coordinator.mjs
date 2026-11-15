@@ -35,7 +35,7 @@ export const DEFAULTS = {
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
   // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average
   // (docs/plans/coin.md). So the account rolls for one every `extraEveryMin` while it holds
-  // `extraReservePp` of coin it may spend, fewer than `extraHold` credits wait for a raid that
+  // `extraReservePp`, fewer than `extraHold` credits wait for a raid that
   // kills their boss, and a credit is worth `extraWorth` hours of a group's progress or more, on
   // average over the casino's bosses with those the raid does not kill at nothing
   // (`coin.creditMean`, from the boss pass). A roll stops after `extraMaxPp`.

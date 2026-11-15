@@ -1,25 +1,6 @@
 // The account's coin: what comes in and goes out, by kind and day, from the lines each tab's
 // recorder exports, and the account's total as the boss pass reads it (docs/plans/coin.md).
 
-/**
- * Platinum the account holds and does not spend: what crafting for a merchant brought it between
- * 16:40 and 17:20 on 2026-11-15, before the game's developer called such loops exploits and took
- * the platinum of other accounts back (docs/plans/coin.md, "Held coin"). Every decision that
- * spends coin reads the account's coin less this (`spendable`), so the account plays on what it
- * earned by play. Set it to what is left of that platinum once its fate is decided.
- */
-export const HELD_PP = 512000;
-/**
- * Casino credits the held platinum bought, which get no raid while it is held: by the character
- * that won them and the boss's name.
- */
-export const HELD_CREDITS = [
-  { who: "Ibaegrix", name: "Dain Frostreaver IV" },
-  { who: "Tagujazolu", name: "Tukaarak the Warder" },
-];
-/** The coin a decision may count on: `pp` less `HELD_PP`, null when the coin is unread. */
-export const spendable = (pp) => (pp == null ? null : Math.max(0, pp - HELD_PP));
-
 export const COIN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS coin_ledger (
   day TEXT NOT NULL, grp TEXT NOT NULL, kind TEXT NOT NULL, pp REAL NOT NULL DEFAULT 0, n INTEGER NOT NULL DEFAULT 0,

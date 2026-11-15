@@ -364,7 +364,7 @@
       }
     ],
     "goods": true,
-    "maxPp": 50000,
+    "maxPp": 200000,
     "retryMin": 60
   }
 }

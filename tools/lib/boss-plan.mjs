@@ -158,10 +158,9 @@ export const killId = (k) =>
  * What an open-world boss outside the raid goal may spend on raid time: an hour for kills worth
  * `worth` hours of a group's progress together, while the account's coin pays that hour and
  * `reserveHours` more, which the next summon needs. `worth` is an assumed price, since nothing
- * measures yet what else the platinum would buy. The coin, less what the account holds back
- * (`spendable` of tools/lib/coin.mjs), is the only limit on the hours: a count of two a day left
- * Lord Nagafen and Talendor without a look for eight hours on 2026-11-13, with 123,000 platinum
- * on the account.
+ * measures yet what else the platinum would buy. The coin is the only limit on the hours: a count
+ * of two a day left Lord Nagafen and Talendor without a look for eight hours on 2026-11-13, with
+ * 123,000 platinum on the account.
  */
 export const OPEN_BUY = { worth: 1, reserveHours: 1 };
 

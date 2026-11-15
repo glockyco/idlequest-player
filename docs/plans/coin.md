@@ -18,15 +18,9 @@ All groups at level 58 to 60. Platinum a day, from the tabs' event lines.
 - The account held 123,000 on 2026-11-13 around noon and 212,186 on 2026-11-15 at 08:40. So of about 326,000 earned in those 44 hours, 237,000 were spent, 130,000 of them on the lines above. The other 107,000, about 58,000 a day, went to spells at level-ups, merchant gear and quest hand-ins, which the logs of those days do not separate. The ledger does from 2026-11-15.
 - The Tradeskill Bank holds 39,674 ingredients of 331 kinds, worth about 148,000 at merchants, and the Spell Bank 910 scrolls of 119 kinds, worth about 44,000. No party member of 55 read lacked a banked scroll its class can scribe at its level. The ingredients stay for tradeskill training, so the courier's fee is the price of keeping them.
 
-## Held coin
+## Crafting for a merchant
 
-Crafting for a merchant is not played. On 2026-11-15 the game's developer wrote that a patch had fixed exploits by which players gathered over 100 million platinum, that their platinum and tradeskill bank items were taken back, and that exploits which are not reported may be treated more harshly.
-
-Before that post the account had sold crafted items to a merchant for more than their components cost: Powered Gloves, Rebreathers and the Aqualungs its Tinkering training left, of which one combine gives 20. Its coin rose from about 203,000 to about 715,000 between 16:40 and 17:20 that day.
-
-- The account does not spend those 512,000 platinum. Every decision that spends coin counts the account's coin less `HELD_PP` (`spendable` in `tools/lib/coin.mjs`): raid time, casino credits, AA ranks, merchant gear and craft jobs.
-- A craft task sells nothing (`craftTask` in `src/bot.js`). What training leaves stays in the Tradeskill Bank.
-- Ask before changing `HELD_PP`, before selling crafted items, and before reporting to the developer. Set `HELD_PP` to what is left of that platinum once its fate is decided.
+Crafting for a merchant is not played. The game's developer treats loops that sell crafted items above the price of their components as exploits, and wrote that exploits which are not reported may be treated more harshly. So a craft task sells nothing (`craftTask` in `src/bot.js`), and what training leaves stays in the Tradeskill Bank. Ask before selling crafted items.
 
 ## What a platinum buys
 
@@ -45,8 +39,6 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 
 ## Policy
 
-Coin means the account's coin less the held platinum ("Held coin").
-
 1. Raid time first. A summon buys its hour, since an unused summon is lost. A credit keeps, so its raid runs in paid time or buys an hour as an open-world boss's does, for kills worth an hour of a group's progress (`OPEN_BUY` in `tools/lib/boss-plan.mjs`).
 2. The day's casino credit, then one more every four hours while the coin allows, fewer than three credits wait for a raid that kills their boss, and a credit is worth half a group-hour on average over the casino's 30 bosses (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`, `creditMean` from the boss pass). Kill odds fights every casino boss for that.
 3. AA ranks from what is above the reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
@@ -55,7 +47,6 @@ Coin means the account's coin less the held platinum ("Held coin").
 
 ## Open
 
-- What becomes of the held platinum ("Held coin").
 - Weigh ranks against credits once coin limits the ranks.
 - The Spell Bank's scrolls: sell the copies nobody can use, or stop banking them.
 - The courier came at every cleanup, about 87 times a day for each group. Ingredients stack and take few slots, so it now comes once enough stacks wait (`bankAtStacks` in `src/bot.js`), and the reserve sells no ingredient meanwhile. Read the ledger's courier line after a day.

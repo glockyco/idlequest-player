@@ -13,10 +13,20 @@ This account used the same kind of loop for forty minutes that afternoon: it sol
 
 The account's coin rose from about 203,000 at 16:40 to about 715,000 at 17:20. Since then about 29,000 went to two more casino credits (Dain Frostreaver IV, Tukaarak the Warder) and some to raid time. It holds 681,575 now, so nothing was taken back from it so far.
 
+## Answered, 2026-11-15 18:35
+
+The developer said in a follow-up message that a minor amount like this is fine, so the account is not affected by the rollback.
+
+- No hold on the 512,000 platinum, and no report.
+- The two casino credits are used normally.
+- The jewelry goes on.
+
+Done after the answer: the hold on the platinum and on the credits is removed, and the jewelry training may spend 200,000 platinum in one run. Crafting for a merchant stays off, since the post says further exploits may be treated more harshly, and a craft task still sells nothing.
+
 ## Done without asking
 
 - The coin job is removed and no craft task sells anything (`c16c3c2`, `9a5f903`). No coin job ran after the patch.
-- The 512,000 platinum the loop brought are held: every decision that spends coin counts the coin less that amount (`HELD_PP` in `tools/lib/coin.mjs`). The account plays on about 169,000.
+- The 512,000 platinum the loop brought were held out of every spending decision, until the answer above.
 - The spending rules of this afternoon that rested on free coin are back to what they were: a raid hour for kills worth a group-hour, one more casino credit every four hours, 200 platinum for a resurrection.
 - The bots keep playing. The post is about exploits, not about automation.
 
@@ -41,7 +51,7 @@ Draft, to adapt:
 
 Dain Frostreaver IV (Ibaegrix) and Tukaarak the Warder (Tagujazolu) were won with 28,800 platinum of the gain. Their raids have not run.
 
-- **Recommended: name them in the report and leave them unused until the answer.** They are held now (`HELD_CREDITS` in `tools/lib/coin.mjs`).
+- **Recommended: name them in the report and leave them unused until the answer.** They were held until the answer above.
 - Use them. They are won, and a credit cannot be given back.
 
 ## 4. Jewelry for the roster
