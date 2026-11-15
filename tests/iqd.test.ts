@@ -615,6 +615,24 @@ test("inside paid raid time standing bosses of two zones get two raids at once, 
   expect((await d.bossPass(T0, tabs, [], groupOf, odds)).filter((a: { kind: string }) => a.kind === "raid")).toHaveLength(0);
 });
 
+test("a pass starts no more summon raids than the daily list has free summons, counting one that runs unseen", async () => {
+  const bosses = ["a", "b", "c"].map((n) => ({ key: n, name: n, zone: `${n}zone`, status: "available" }));
+  const d = collector({
+    runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 2, bosses }, time: { active: true, expiresAt: T0 + 30 * 60000, pricePp: 10000 } }) },
+    bossSpawns: { key: "none", spawns: new Map() },
+  });
+  const tabs = ["A", "B", "C", "D"].map((l, k) => ({ targetId: l, label: l, group: `g${k + 1}`, members: [{ name: l, level: 50 }] }));
+  const groupOf = new Map([["A", "g1"], ["B", "g2"], ["C", "g3"], ["D", "g4"]]);
+  const win = { raid: { kills: 1, fights: 1, meanSec: 30 } };
+  const odds = { strongest: "g1", odds: { a: win, b: win, c: win } };
+  const raids = async (t = tabs, history: object[] = []) => (await d.bossPass(T0, t, [], groupOf, odds, {}, history)).filter((a: { kind: string }) => a.kind === "raid");
+  expect(await raids()).toHaveLength(2);
+  // A summon raid that runs while the list still shows its boss available has used one.
+  const running = [{ ...tabs[3], task: { status: "running", kind: "raid" } }, ...tabs.slice(0, 3)];
+  expect(await raids(running, [{ t: T0 - 60000, label: "D", kind: "raid", id: "boss:summon:c" }])).toHaveLength(1);
+});
+
 test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
   const boss = { key: "boss", name: "Boss", zone: "z", itemId: 99 };
   const d = collector({

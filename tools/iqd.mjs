@@ -1611,6 +1611,12 @@ export class Daemon {
     const leaderTab = (name) => tabs.find((t) => t.group != null && t.group === groupOf.get(name));
     const out = [];
     let potionRaid = raidTabs.some((t) => /^boss:(potion|credit):/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
+    // Free summons left for this pass: the daily list's count, less the summon raids that run and
+    // whose boss the list does not show on cooldown yet, since the server counts a summon only once
+    // the raid has made it. A boss to resume spends none.
+    const statusOf = (key) => st.daily?.bosses?.find((b) => b.key === key)?.status;
+    const summoning = raidTabs.map((t) => history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? "").filter((id) => id.startsWith("boss:summon:") && statusOf(id.slice(12)) !== "cooldown");
+    let summonsLeft = (st.daily?.resetsRemaining ?? Infinity) - summoning.length;
     // A raid that killed and then failed to loot left the loot for its leader. Its tab goes back
     // first, five minutes apart, up to three times per page code, while a try failed or left items.
     const zoneOf = new Map(watch.map((w) => [w.key, w.zone]));
@@ -1628,6 +1634,8 @@ export class Daemon {
       if (raidTabs.length + out.length >= (paid ? RAIDS_AT_ONCE : 1) || busyZones.has(k.zone) || !k.zone) continue;
       const potion = k.source === "potion" || k.source === "credit" || k.source === "standing";
       if (potion && potionRaid) continue;
+      const spends = k.source === "summon" && statusOf(k.key) !== "resume";
+      if (spends && summonsLeft <= 0) continue;
       const last = history.filter((h) => h.id === killId(k)).at(-1);
       // A standing boss is fought again at the next pass, three times, before its raids wait like a
       // failure. A potion the server refused waits six hours, since the refusal names a summoned
@@ -1666,6 +1674,7 @@ export class Daemon {
       used.add(tab.label);
       busyZones.add(k.zone);
       if (potion) potionRaid = true;
+      if (spends) summonsLeft--;
     }
     // Each look takes a free tab that leads no raid: one in the boss's zone already, else one
     // without an errand, which a task ends (the first look, of 39 s, ended group 4's), else the
