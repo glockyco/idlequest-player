@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance, weaponRatio } from "../tools/lib/gear-data.mjs";
-import { damageShares, fists, gainParts, hitShares, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
+import { buyBudget, damageShares, fists, gainParts, hitShares, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -517,4 +517,16 @@ test("a shield and an off-hand weapon replace each other by what each adds", () 
   expect(overDagger.map((m) => [m.item, m.slot, m.replaces])).toEqual([["Spiked Shield", "secondary", "Twin Dagger"]]);
   // The Buckler does not replace the dagger, whose swings are worth more than it adds.
   expect(planGear({ survey: [sword, dagger("Rng", "Equipped", 14, 2), row("Holder", 6, "Carried", 25, 3)], items: set, people }).moves).toEqual([]);
+});
+
+test("a gear pass spends the hour's income less the raid budget, or what stands above the reserve, and never more than the account holds", () => {
+  const rows = [{ platPerHour: 4000 }, { platPerHour: 3000 }];
+  // 7,000 an hour less 12,000 a day for raids.
+  expect(buyBudget(rows, 12000, 150000)).toBe(6500);
+  // 300,000 held leave 100,000 above the reserve.
+  expect(buyBudget(rows, 12000, 300000)).toBe(100000);
+  // An account that holds 3,000 spends no more, whatever the hour brought.
+  expect(buyBudget([{ platPerHour: 37000 }], 12000, 3000)).toBe(3000);
+  // With the coin unread the income decides.
+  expect(buyBudget(rows, 12000)).toBe(6500);
 });
