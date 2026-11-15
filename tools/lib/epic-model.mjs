@@ -136,7 +136,7 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   for (const npcId of spawners.keys()) for (const { item, p } of loot.get(npcs.get(npcId)?.loottable) ?? []) addWay(ways, item, { kind: "scene", npcId, drop: p });
   for (const e of edges) {
     if (e.kind === "combine") for (const id of e.outputs) addWay(ways, id, { kind: "combine", recipe: e.recipe, skill: e.skill, trivial: e.trivial, nofail: e.nofail, container: e.container, inputs: e.inputs });
-    if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, name: e.name, classes: e.classes ?? {}, inputs: e.inputs });
+    if (e.kind === "spell") for (const id of e.outputs) addWay(ways, id, { kind: "cast", spell: e.spell, name: e.name, classes: e.classes ?? {}, inputs: e.inputs, ...(e.when ? { when: e.when } : {}) });
   }
   for (const { item, way } of sources) addWay(ways, item, way);
   return { scripts, npcs, staticIds, sites, branches, spawners, ways, catalog };
@@ -165,7 +165,9 @@ async function craftEdges(root) {
     for (let k = 1; k <= 4; k++) if (s[`components${k}`] > 0) inputs[s[`components${k}`]] = (inputs[s[`components${k}`]] ?? 0) + (s[`component_counts${k}`] || 1);
     const classes = {};
     for (const [k, cls] of Object.entries(CLASS_BY_NUMBER)) if (s[`classes${k}`] > 0 && s[`classes${k}`] < 255) classes[cls] = s[`classes${k}`];
-    edges.push({ kind: "spell", spell: s.id, name: s.name, classes, inputs, outputs: summons });
+    // `TimeOfDay` 1 casts only by day and 2 only by night (the client's spell time rule).
+    const when = s.TimeOfDay === 1 ? "day" : s.TimeOfDay === 2 ? "night" : undefined;
+    edges.push({ kind: "spell", spell: s.id, name: s.name, classes, inputs, outputs: summons, ...(when ? { when } : {}) });
   }
   for (const r of (await craftableRecipes(root)).values()) {
     if (!r.yields.length) continue;

@@ -204,7 +204,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
         const inputs = take(s.way.inputs).map(name);
         const zone = part.steps.at(-1)?.zone ?? tree.steps.find((x) => x.branch)?.branch.zone;
         buyInputs(s.way.inputs, zone);
-        yieldItem(s.item, push({ zone, cast: { spellId: s.way.spell, spell: s.way.name, inputs }, expect: name(s.item) }, copies(s.way.inputs)));
+        yieldItem(s.item, push({ zone, cast: { spellId: s.way.spell, spell: s.way.name, inputs, ...(s.way.when ? { when: s.way.when } : {}) }, expect: name(s.item) }, copies(s.way.inputs)));
         part.castLevel = Math.max(part.castLevel ?? 0, s.way.classes?.[cls] ?? 0);
       }
       continue;

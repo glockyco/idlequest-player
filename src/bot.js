@@ -2269,6 +2269,14 @@
         for (const item of s.cast.inputs ?? []) {
           if (i.carried(ref(item)) < 1) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
         }
+        // `when` names the only time of day the spell casts. The game day lasts 40 minutes, from
+        // 5 to 20 by day (bridge `gameHour`), so the task comes back when that time begins.
+        const hour = i.gameHour();
+        const night = hour != null && (hour >= 20 || hour < 5);
+        if (s.cast.when && hour != null && night !== (s.cast.when === "night")) {
+          const until = ((s.cast.when === "night" ? 20 : 5) - hour + 24) % 24;
+          throw new TaskLater(`${s.cast.spell} casts only by ${s.cast.when}, in ${Math.ceil(until * 100 / 60)} minutes`, now() + (until * 100 + 30) * 1000);
+        }
         await step(`cast ${s.cast.spell}`, () => i.castSummon(s.cast.spellId, { output: ref(s.expect) }), 180000);
       }
       // A quest item that lies in the zone is picked up where it lies. One that another player
