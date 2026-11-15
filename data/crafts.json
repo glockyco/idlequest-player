@@ -1,0 +1,20 @@
+{
+  "rebreather": {
+    "who": "Edroun",
+    "skillId": 57,
+    "skillName": "Tinkering",
+    "train": [
+      { "recipeId": 495, "name": "Spyglass", "to": 95, "pp": 3.2 },
+      { "recipeId": 491, "name": "Powered Gloves", "to": 122, "pp": 8.1 },
+      { "recipeId": 347, "name": "Aqualung", "to": 148, "pp": 22.1 }
+    ],
+    "make": [{ "recipeId": 492, "item": "Rebreather", "itemId": 16889, "pp": 381.5 }],
+    "makes": {
+      "Collapsible Fishing Pole": { "recipeId": 413, "pp": 1.5, "batch": 10 },
+      "Firewater": { "recipeId": 421, "pp": 0.1, "batch": 10 },
+      "Aqualung": { "recipeId": 347, "pp": 22.1, "batch": 1 }
+    },
+    "maxPp": 15000,
+    "retryMin": 360
+  }
+}

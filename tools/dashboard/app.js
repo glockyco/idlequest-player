@@ -144,7 +144,7 @@ function stateCell(g) {
   return `<span class="dot" style="background:${actColor(st.act)}"></span>${esc(st.act)}${st.why && st.act !== "task" ? ` <span class="muted">${esc(idleWord(st.why))}</span>` : ""} <span class="muted">${dur(st.forMs)}</span>`;
 }
 
-const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid", farm: "farm", look: "look" };
+const TASK_WORD = { hunt: "hunt", errand: "errand", quest: "quest", gear: "gear moves", handIn: "hand-in", raid: "raid", farm: "farm", look: "look", craft: "tradeskill" };
 /** What the group's task is now: a running task with its time, or a failure. A finished task leaves the cell to the group's activity. */
 function taskCell(now, t) {
   if (!t) return "";

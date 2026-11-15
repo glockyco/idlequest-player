@@ -284,7 +284,7 @@ export function mostWantedView(targets, { catalog, groupOf = new Map(), evaluati
   });
 }
 
-const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped", look: "look", raid: "raid" };
+const TASK_KIND = { hunt: "hunt", handIn: "lightstone hand-in", errand: "errand", quest: "quest", gear: "gear moves", stopErrand: "errand stopped", look: "look", raid: "raid", craft: "tradeskill" };
 // A trip's task names all its enemies (`ids`), and reads as its first one and how many more.
 const taskLabel = (catalog, h) => (h.id ? `${taskName(catalog, h.id)}${h.ids?.length > 1 ? ` and ${h.ids.length - 1} more` : ""}` : (TASK_KIND[h.kind] ?? h.kind));
 

@@ -52,6 +52,24 @@ test("stones go to the lowest free group only once there are two a member", () =
   expect(decide({ now: NOW, tabs, stock: { "Greater Lightstone": 12 }, history: [{ t: NOW - 60000, label: "B", kind: "quest", id: "q", status: "done" }] }).actions[0].label).toBe("B");
 });
 
+test("a tradeskill job goes to its crafter's tab when that is free and the coin allows", () => {
+  const job = { id: "rebreather", who: "A1", skillId: 57, skillName: "Tinkering", train: [{ recipeId: 495, name: "Spyglass", to: 95, pp: 3 }], make: [{ recipeId: 492, item: "Rebreather", itemId: 16889, n: 4, pp: 380 }], makes: {}, maxPp: 15000, retryMin: 360 };
+  const tabs = [tab("A", "G1", 40), tab("B", "G2", 40)];
+  const crafts = (extra = {}) => decide({ now: NOW, tabs, crafts: [job], ...extra }).actions.filter((a) => a.kind === "craft");
+  const [a] = crafts();
+  expect(a).toMatchObject({ label: "A", id: "craft:rebreather", spec: { who: "A1", make: [{ item: "Rebreather", n: 4 }], maxPp: 15000 } });
+  expect(a.spec).not.toHaveProperty("retryMin");
+  expect(a.why).toBe("A1 makes 4 Rebreather with Tinkering, for up to 15000 pp");
+  // Not while the crafter's tab is busy, the account is under the job's cost over the reserve,
+  // an XP event runs, or the job failed within its retry time.
+  expect(decide({ now: NOW, tabs: [{ ...tabs[0], task: { status: "running" } }, tabs[1]], crafts: [job] }).actions.filter((x) => x.kind === "craft")).toEqual([]);
+  expect(crafts({ coin: { pp: 110000, credits: 3 } })).toEqual([]);
+  expect(crafts({ coin: { pp: 120000, credits: 3 } })).toHaveLength(1);
+  expect(crafts({ xpFactor: 2 })).toEqual([]);
+  expect(crafts({ history: [{ t: NOW - 60 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toEqual([]);
+  expect(crafts({ history: [{ t: NOW - 400 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toHaveLength(1);
+});
+
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
   const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] }).actions).toMatchObject([{ label: "A", kind: "stopTask" }]);

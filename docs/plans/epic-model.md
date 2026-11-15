@@ -73,7 +73,11 @@ sells it, and else in a step of its own before it, in a city where any party can
 (`data/shop-zones.json`) when one sells it. A quest item that lies in a zone is picked up with the
 client's own requests (`pickupGround`: the zone's ground items, then the pickup within 20 units),
 and one another player took ends the task until its respawn. A part whose craft trivials above 50
-waits until a character trains that tradeskill, because a failed attempt uses its components up.
+is left out, because a failed attempt uses its components up, and its item becomes a need of the
+part that takes it. A tradeskill job of `data/crafts.json` makes such an item: its crafter trains
+the skill by the job's ladder and makes the copies the account is short of (`craftTask` in
+`src/bot.js`, `crafts` in `tools/lib/coordinator.mjs`), as Edroun does the Warriors' Rebreathers
+with Tinkering. The server crafts a recipe of the Advanced window without its container.
 A summoning spell the epic's own class casts is a step of its own (`castSummon`: scribe the scroll,
 memorize it into the last gem, click the gem), at the spell's level. One only another class casts,
 such as the Enchanter's Enchant Platinum for the Shadow Knight, still keeps the epic's chains out,
@@ -152,7 +156,7 @@ certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own, the ground pickup, the summoning cast by the epic's own class, the item an NPC wants carried (`hold`), the combine in a carried container such as the Enchanters Sack, the fight by raid for an enemy the group does not beat and the enemy a timer puts up long after its call (`after`, Keeper of Souls an hour or more after a soul carrier's death, for which the member stays in the zone), which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Enchanter and Magician beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill. The Warrior epic is blocked: its Rebreather is combined in a Collapsible Toolbox that no merchant, drop or script gives, and the Rebreather's other source, Triathalon Swim Goggles, has no live spawn. To build: a cast by another class (the Shadow Knight's Enchanted Platinum Bar), forage, tradeskill training. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own, the ground pickup, the summoning cast by the epic's own class, the item an NPC wants carried (`hold`), the combine in a carried container such as the Enchanters Sack, the fight by raid for an enemy the group does not beat and the enemy a timer puts up long after its call (`after`, Keeper of Souls an hour or more after a soul carrier's death, for which the member stays in the zone), which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Enchanter and Magician beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 is left to a tradeskill job (`data/crafts.json`), as the Warrior's Rebreathers are. To build: a cast by another class (the Shadow Knight's Enchanted Platinum Bar), forage, tradeskill training. | |
 | 5 | Kills and raid pieces a group cannot win, such as the Wizard's enraged golem at 65 with 175,000 HP, with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 

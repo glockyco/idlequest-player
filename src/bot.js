@@ -3075,7 +3075,73 @@
     }
     throw new TaskLater(`no boss credit in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
   };
-  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask };
+  /**
+   * A tradeskill task (`iqBot.craft`): `who` trains `skillId` with each recipe of `train` until its
+   * `to`, and makes the items of `make` until it carries `n` of each. The server crafts a recipe
+   * of the Advanced window without its container, from the Tradeskill Bank, and the catalog sells
+   * most components into the bank from the active character's coin (`craftItem` in src/bridge.js).
+   * A component it does not sell is crafted first with the recipe `makes` names for it, as the
+   * Collapsible Fishing Pole for a Spyglass. The skill is read from the craft replies. The task
+   * ends once its attempts have cost `maxPp`, by each recipe's `pp`, the catalog's price of one attempt.
+   */
+  const CRAFT_BATCH = 10;
+  const craftTask = async (i, task, step) => {
+    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
+    const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
+    Object.assign(task, { attempts: 0, spentPp: 0, skill: null, made: {} });
+    const paid = async (pp) => {
+      if (task.spentPp + pp > task.maxPp) throw new Error(`the crafts cost ${Math.round(task.spentPp)} of the ${task.maxPp} pp they may, at skill ${task.skill ?? "unknown"}`);
+      if (purse() >= pp + 5) return;
+      const from = await pullCoin(i, pp + 5, { least: true }).catch((e) => (log(`craft: no coin pull (${e?.message ?? e})`), null));
+      if (from) {
+        state.coinBack = [...new Set([...(state.coinBack ?? []), task.who ?? activeName(i)])];
+        log(`craft: pulled ${from}`);
+      }
+      if (purse() < pp) throw new Error(`no balance of the account covers ${Math.round(pp)} pp of components`);
+    };
+    // Attempts at one recipe, after the crafts of what the catalog does not sell for it.
+    const attempts = async (r, opts, depth = 0) => {
+      for (let tries = 0; ; tries++) {
+        await paid((r.pp ?? 0) * (opts.quantity ?? 1));
+        try {
+          const out = await i.craftItem(r.recipeId, { skillId: task.skillId, ...opts });
+          task.attempts += out.attempted;
+          task.spentPp += out.attempted * (r.pp ?? 0);
+          task.skill = out.newSkillValue ?? task.skill;
+          return out;
+        } catch (e) {
+          const lacks = /Missing component: (.+?) \(need/.exec(e?.message ?? "")?.[1];
+          const pre = lacks ? task.makes?.[lacks] : null;
+          if (!pre || depth >= 2 || tries >= 30) throw e;
+          await attempts(pre, { quantity: CRAFT_BATCH, until: pre.batch ?? 5 }, depth + 1);
+        }
+      }
+    };
+    for (const r of task.train ?? []) {
+      // The first batch tells the skill, which the client keeps nowhere.
+      for (let idle = 0; task.status === "running" && (task.skill == null || task.skill < r.to); ) {
+        const before = task.skill;
+        const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, { quantity: CRAFT_BATCH }), 300000);
+        if (!out.attempted || task.skill == null) throw new Error(`${r.name} gave no attempt or no skill value (${JSON.stringify(out).slice(0, 200)})`);
+        // Forty batches without a point: the recipe is past its trivial, or the skill at its cap.
+        idle = task.skill > (before ?? -1) ? 0 : idle + 1;
+        if (idle >= 40) throw new Error(`${r.name} raised the skill no further than ${task.skill} in 400 attempts`);
+      }
+    }
+    for (const r of task.make ?? []) {
+      const ref = { name: r.item, id: r.itemId };
+      for (let dry = 0; task.status === "running" && i.carried(ref) < r.n; ) {
+        const have = i.carried(ref);
+        const out = await step(`make ${r.item} (${have} of ${r.n})`, () => attempts(r, { quantity: Math.min(CRAFT_BATCH, 2 * (r.n - have)), until: r.n - have, output: r.itemId, settle: () => settleHeld(i) }), 600000);
+        task.made[r.item] = i.carried(ref);
+        dry = out.successes ? 0 : dry + 1;
+        if (dry >= 6) throw new Error(`${r.item} did not come out of ${6 * CRAFT_BATCH} attempts at skill ${task.skill ?? "unknown"}`);
+      }
+    }
+    task.result = `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`;
+    log(`craft: ${task.result}`);
+  };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask, craft: craftTask };
   // A task takes a free tab only: one without a running task and without a pause, which holds the
   // tab for a script's work by hand or the upkeep. The coordinator decides from a snapshot up to a
   // cycle old, and a raid it queued over a pause took the tab from a trip for loot.
@@ -3813,6 +3879,21 @@
      * `dice` dice on symbol `face` until it wins or has spent `maxPp`. With `extra` it rolls for a
      * credit beyond the day's, which takes four matches of nine dice.
      */
+    /**
+     * Train a tradeskill and make items with it as a task in the page (`craftTask`): `who` the
+     * crafter, `skillId` and `skillName` the skill, `train` its ladder, `[{ recipeId, name, to, pp }]`,
+     * `make` the items to carry, `[{ recipeId, item, itemId, n, pp }]`, `makes` the recipes of
+     * components the catalog does not sell, `{ [item name]: { recipeId, pp, batch } }`, and `maxPp`
+     * the most the attempts may cost. Returns a copy of the task.
+     */
+    craft({ who, skillId, skillName = "skill", train = [], make = [], makes = {}, maxPp = 0 } = {}) {
+      takeTab();
+      if (who) accountCharacter(iq(), who);
+      if (!skillId || !(train.length || make.length)) throw new Error("a craft task needs a skill and a recipe");
+      state.task = { id: `craft-${now().toString(36)}`, kind: "craft", startedAt: now(), who, skillId, skillName, train, make, makes, maxPp };
+      log(`task craft: ${who ?? "the active character"}, ${skillName}${train.length ? ` to ${train.at(-1).to}` : ""}${make.length ? `, ${make.map((m) => `${m.n} ${m.item}`).join(", ")}` : ""}, up to ${maxPp}pp`);
+      return { ...runTask(state.task) };
+    },
     casino({ who = null, dice = 9, face = 1, maxPp = 10000, extra = false } = {}) {
       takeTab();
       if (who) accountCharacter(iq(), who);

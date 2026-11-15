@@ -1763,6 +1763,8 @@
       if (rolled) {
         done.attempted += r.attempted ?? 1;
         done.failures += r.failures ?? 1;
+        // A failed attempt can raise the skill too.
+        done.newSkillValue = r.newSkillValue ?? done.newSkillValue;
         continue;
       }
       if (!r?.success) {

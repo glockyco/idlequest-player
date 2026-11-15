@@ -986,6 +986,20 @@ export class Daemon {
     );
     // Kept for the next gear pass, which needs the demand for `spareGear`.
     this.need = need;
+    // The tradeskill jobs (data/crafts.json) whose items the account is short of by that demand,
+    // each with the copies its crafter has to carry in the end, where the chains that take them
+    // find them: a Warrior's Ancient Sword Blade takes two Rebreathers, which only Tinkering makes.
+    this.craftJobs ??= JSON.parse(await readFile(join(REPO, "data/crafts.json"), "utf8"));
+    const crafts = [];
+    for (const [id, job] of Object.entries(this.craftJobs)) {
+      const make = [];
+      for (const m of job.make) {
+        const held = (await search(m.item)).filter((r) => r.itemId === m.itemId);
+        const short = (need[m.itemId] ?? 0) - held.reduce((s, r) => s + r.n, 0);
+        if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + short });
+      }
+      if (make.length) crafts.push({ id, ...job, make });
+    }
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey, and is
     // titled after its group, so the twelve game tabs can be told apart.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
@@ -1036,6 +1050,7 @@ export class Daemon {
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
       raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
       raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
+      crafts,
       resumeAt,
       // A quest that `iqd why` asked about: the pass logs why each tab gets it or not, once.
       explain: metaGet(this.db, "explain")?.id ?? null,

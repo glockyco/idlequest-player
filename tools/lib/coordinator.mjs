@@ -376,6 +376,8 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
+ * - `crafts`: the tradeskill jobs whose items the account is short of, `[{ id, who, skillId,
+ *   skillName, train, make, makes, maxPp, retryMin }]` with `make[].n` the copies the crafter is to carry.
  * - `explain`: a quest's id, or "all", for which `explained` lists why each tab gets it or not (`iqd why`).
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
@@ -384,7 +386,7 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, explain = null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, crafts = [], resumeAt = {}, explain = null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
   const explained = [];
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
@@ -438,6 +440,18 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // One more credit while the coin allows (`casino` of DEFAULTS), once the day's is won.
   else if (roller && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
     out.push({ label: roller.label, kind: "casino", id: "casino:extra", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: 9, maxPp: cfg.casino.extraMaxPp, extra: true }, why: `one more boss credit with ${roller.members[0].name}, with ${Math.round(coin.pp / 1000)}k platinum on the account and ${coin.credits} credit${coin.credits === 1 ? "" : "s"} waiting` });
+
+  // A tradeskill job (`crafts`, data/crafts.json with the copies the account is short of): its
+  // crafter's tab trains the skill and makes the items, once the tab is free and the account
+  // holds the job's cost over the reserve a raid waits for. A job that failed waits `retryMin`.
+  for (const job of event ? [] : crafts) {
+    const t = tabs.find((x) => x.members.some((m) => m.name === job.who));
+    if (!t || !free(t)) continue;
+    if (coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
+    if (!due(history.filter((h) => h.id === `craft:${job.id}`).at(-1), job.retryMin ?? 360, t)) continue;
+    const { id, retryMin, ...spec } = job;
+    out.push({ label: t.label, kind: "craft", id: `craft:${id}`, spec, why: `${job.who} makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")} with ${job.skillName}, for up to ${job.maxPp} pp` });
+  }
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks

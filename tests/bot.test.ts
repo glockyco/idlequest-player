@@ -3940,6 +3940,68 @@ test("a reinstall settles a running raid and releases its long task pause", asyn
   }
 });
 
+test("a craft task trains a skill by its ladder, crafts what the catalog does not sell, and makes its items", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    Object.assign(f.sheet.characterProfile, { platinum: 5000 });
+    // The server's side: a skill that rises every second attempt, a Spyglass that takes a fishing
+    // pole the catalog does not sell, and a bank the results go to.
+    let skill = 50;
+    let poles = 0;
+    let rolls = 0;
+    const bags: Record<string, number> = {};
+    const log: string[] = [];
+    Object.assign(f.iq, {
+      carried: (item: { name: string }) => bags[item.name] ?? 0,
+      craftItem: async (recipeId: number, opts: { quantity: number; until?: number; output?: number }) => {
+        const done = { attempted: 0, successes: 0, failures: 0, newSkillValue: null as number | null, withdrawn: 0 };
+        while (done.attempted < opts.quantity && done.successes < (opts.until ?? Infinity)) {
+          if (recipeId === 495) {
+            if (!poles) {
+              if (done.attempted) break;
+              throw new Error("the craft failed: Missing component: Collapsible Fishing Pole (need 1, have 0)");
+            }
+            poles--;
+          }
+          done.attempted++;
+          done.successes++;
+          if (recipeId === 413) poles++;
+          if (recipeId !== 492 && ++rolls % 2 === 0 && skill < 95) skill++;
+          done.newSkillValue = skill;
+        }
+        if (opts.output != null) bags.Rebreather = (bags.Rebreather ?? 0) + done.successes;
+        log.push(`${recipeId} x${done.attempted}`);
+        return done;
+      },
+    });
+    f.bot.craft({
+      who: "Tagujazolu",
+      skillId: 57,
+      skillName: "Tinkering",
+      train: [{ recipeId: 495, name: "Spyglass", to: 60, pp: 3 }],
+      make: [{ recipeId: 492, item: "Rebreather", itemId: 16889, n: 3, pp: 380 }],
+      makes: { "Collapsible Fishing Pole": { recipeId: 413, pp: 1.4, batch: 5 } },
+      maxPp: 3000,
+    });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", skill: 60, made: { Rebreather: 3 } });
+    // Poles five at a time before the Spyglasses that use them up, and three Rebreathers at the end.
+    expect(log.slice(0, 3)).toEqual(["413 x5", "495 x5", "413 x5"]);
+    expect(log.at(-1)).toBe("492 x3");
+    expect(f.bot.state.task.result).toMatch(/^Tinkering 60 after \d+ attempts for about \d+ pp, carries 3 Rebreather$/);
+    // A task whose attempts would cost more than it may ends with what it reached.
+    const g = await install([10, 20]);
+    Object.assign(g.sheet.characterProfile, { platinum: 5000 });
+    Object.assign(g.iq, { carried: () => 0, craftItem: async (_id: number, opts: { quantity: number }) => ({ attempted: opts.quantity, successes: 0, failures: opts.quantity, newSkillValue: 50, withdrawn: 0 }) });
+    g.bot.craft({ who: "Tagujazolu", skillId: 57, skillName: "Tinkering", train: [{ recipeId: 495, name: "Spyglass", to: 60, pp: 3 }], maxPp: 100 });
+    await runToEnd(g);
+    expect(g.bot.state.task).toMatchObject({ status: "failed", error: expect.stringMatching(/^the crafts cost 90 of the 100 pp they may, at skill 50/) });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a quest buy with no added item fails at the merchant without pulling a substitute", async () => {
   vi.useFakeTimers();
   try {
