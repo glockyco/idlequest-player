@@ -2237,26 +2237,49 @@
         return this.state();
       },
       /**
-       * Heal & Revive for the dead leader, as in the raid window: open the panel, choose its first
-       * revive spell a living member can cast, then the leader in the roster. Resolves once the
-       * leader stands again.
+       * Heal & Revive, as in the raid window: open the panel, choose a revive a living member can
+       * cast, then the fallen one in the roster. The revive of the Cleric epic, which the panel
+       * marks "Item · Free" and which costs no mana, goes before a spell's.
+       * Without `target` it revives the dead leader and resolves once he stands again. With a
+       * roster member's id it queues that member's revive and resolves with `{ queued, free }`, or
+       * with null when `free` is asked for and no living member holds such an item.
        */
-      async revive() {
+      async revive(target = "player", { free = false } = {}) {
         const wait = (ms) => new Promise((res) => setTimeout(res, ms));
-        if (!stores.raid.getState().leaderDead) return this.state();
+        const st = () => stores.raid.getState();
+        const leader = target === "player";
+        const fallen = () => (leader ? Boolean(st().leaderDead) : (st().roster ?? []).some((m) => m.id === target && m.alive === false));
+        if (!fallen()) return leader ? this.state() : { queued: false, free: false };
         // The client records the death with the server first and takes no revive until it has.
-        for (let k = 0; k < 20 && stores.raid.getState().lifecyclePending; k++) await wait(500);
+        for (let k = 0; k < 20 && st().lifecyclePending; k++) await wait(500);
         await raidPanel("heal");
-        const spell = document.querySelector('[aria-label="Revive"] button:not([disabled])');
-        if (!spell) throw new Error("no living raid member can revive the leader");
+        const buttons = [...document.querySelectorAll('[aria-label="Revive"] button:not([disabled])')];
+        const isFree = (b) => /Item · Free/.test(b.textContent ?? "");
+        const spell = buttons.find(isFree) ?? (free ? null : buttons[0]);
+        if (!spell) {
+          if (free) return null;
+          throw new Error(`no living raid member can revive ${leader ? "the leader" : target}`);
+        }
         spell.click();
         await wait(400);
-        const leader = document.querySelector('[data-testid="raid-member-player"]');
-        if (!leader) throw new Error("the raid roster shows no leader to revive");
-        (leader.querySelector("button") ?? leader).click();
-        for (let k = 0; k < 30 && stores.raid.getState().leaderDead; k++) await wait(500);
-        if (stores.raid.getState().leaderDead) throw new Error(`the leader was not revived: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
-        return this.state();
+        const row = document.querySelector(`[data-testid="raid-member-${leader ? "player" : CSS.escape(String(target))}"]`);
+        if (!row) {
+          st().clearTargetPick?.();
+          throw new Error(`the raid roster shows no ${leader ? "leader" : `member ${target}`} to revive`);
+        }
+        (leader ? (row.querySelector("button") ?? row) : row).click();
+        if (leader) {
+          for (let k = 0; k < 30 && st().leaderDead; k++) await wait(500);
+          if (st().leaderDead) throw new Error(`the leader was not revived: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
+          return this.state();
+        }
+        const queued = () => (st().pendingActions ?? []).some((a) => a.kind === "revive" && a.targetId === target);
+        for (let k = 0; k < 10 && fallen() && !queued(); k++) await wait(300);
+        if (fallen() && !queued()) {
+          st().clearTargetPick?.();
+          throw new Error(`no revive was queued for ${target}: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
+        }
+        return { queued: true, free: isFree(spell) };
       },
       /**
        * A Slow, Mez, Debuff or Snare order against the running fight's target, as in the raid

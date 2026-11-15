@@ -822,7 +822,11 @@ orders the raid holds, and nothing else moves or casts.
   270400 experience!", after "Raid combat ended: no engaged enemies remaining."
 - The leader's death: `RaidLeaderLifecycle` (1226) records the death, a revive or a release. In
   the window, Heal & Revive, a revive spell and then the leader in the roster lets a living member
-  cast it, and the leader comes back with the spell's share of HP and no mana. Two raid deaths of
+  cast it, and the leader comes back with the spell's share of HP and no mana. A fallen member
+  comes back the same way, by its row `raid-member-<roster id>`, as a queued action of kind
+  "revive". A revive from an item, the Cleric epic's Reviviscence from the Water Sprinkler of Nem
+  Ankh (`resurrectionItem`, `itemSource` on the spell), costs no mana, and the panel marks it
+  "Item · Free". Two raid deaths of
   the leader cost no XP. A release respawns the leader at the bind point after 15 seconds and
   keeps raid mode on.
 - Raid time is checked when a fight starts. The client does not end a fight when the hour runs
@@ -874,8 +878,9 @@ run once.
 - Orders: `iq.raid.heal(mode)` sets `autoHealMode` and `iq.raid.nuke(mode)` sets `autoNukeOrder`
   for the running fight's target, the fields the window's panels set through the raid engine.
   `iq.raid.position()` is Run To Target (`positionAtTarget`). `iq.raid.revive()` opens Heal &
-  Revive (`toggleCommandPanel("heal")`), picks the first revive spell in the panel's Revive group
-  and then `raid-member-player`, the steps a person takes in the window. `iq.raid.state().leader`
+  Revive (`toggleCommandPanel("heal")`), picks a revive in the panel's Revive group, a free one
+  first, and then `raid-member-player`, the steps a person takes in the window, and with a roster
+  id the row of that fallen member. `iq.raid.state().leader`
   holds the leader's order, auto attack, casting and navigation, which decide whether his frame
   loop moves him.
 - The leader himself follows the raid's orders through the raid player controller (`YEi`,

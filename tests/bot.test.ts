@@ -1953,9 +1953,9 @@ test("a quest item that lies in the zone is picked up, and one another player to
 // leader once, mid-fight, `endFails` makes that many calls of `end` throw, `diesOnArrival`
 // has the raid engage and kill the boss while it walks there, before any attack order, and
 // `stalls` leaves the raid standing in combat under its first attack order until a second one.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false, stalls = false } = {}) {
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false, stalls = false, memberFalls = false, freeRevive = true } = {}) {
   const calls: string[] = [];
-  const r = { active: false, combat: false, leaderDead: false, roster: [] as { name: string; damage: number; alive: boolean }[] };
+  const r = { active: false, combat: false, leaderDead: false, roster: [] as { id?: string; role?: string; name: string; damage: number; alive: boolean }[] };
   let started = false;
   let drops: { id: string; name: string }[] = [];
   const page = f.iq as unknown as { events: { t: number; seq: number; type?: string; text: string }[] };
@@ -1975,7 +1975,7 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
     open: async () => (calls.push("open"), (r.active = true)),
     recruit: async (ids: number[]) => {
       calls.push(`recruit ${ids.join(",")}`);
-      r.roster = [{ name: "Tagujazolu", damage: 0, alive: true }, { name: "Edroun", damage: 0, alive: true }];
+      r.roster = [{ id: "player", role: "Tanks", name: "Tagujazolu", damage: 0, alive: true }, { id: "m2", role: "Utility", name: "Edroun", damage: 0, alive: true }];
       return ids;
     },
     heal: (mode: string) => calls.push(`heal ${mode}`),
@@ -1990,6 +1990,7 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       if (stalls) return void (stalls = false);
       started = true;
       if (leaderFalls) setTimeout(() => (r.leaderDead = true), fightMs / 2);
+      if (memberFalls) setTimeout(() => (r.roster = r.roster.map((m) => (m.id === "m2" ? { ...m, alive: false } : m))), fightMs / 4);
       // An add joins the fight and heals the boss, as Phinigel's seahorse did.
       if (healer)
         setTimeout(() => {
@@ -2010,7 +2011,13 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       if (kind === "debuff") throw new Error("no raid member has resistance debuffs");
       return { kind, spell: "Drowsy", kept: true };
     },
-    revive: async () => {
+    revive: async (target?: string, opts?: { free?: boolean }) => {
+      if (target) {
+        calls.push(`revive ${target} ${opts?.free ? "free" : "any"}`);
+        if (!freeRevive) return null;
+        r.roster = r.roster.map((m) => (m.id === target ? { ...m, alive: true } : m));
+        return { queued: true, free: true };
+      }
       calls.push("revive");
       r.leaderDead = false;
     },
@@ -2289,6 +2296,28 @@ test("a raid on a boss of the open world that no longer stands ends before it bu
     await runToEnd(f);
     expect(f.bot.state.task).toMatchObject({ status: "done", result: "Phinigel Autropos is not up", seen: [{ name: "Phinigel_Autropos", state: "respawning" }] });
     expect(calls).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a raid brings a fallen member back with a revive that costs no mana, and looks for one only once a minute", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, memberFalls: true, fightMs: 40000 });
+    f.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen" });
+    await runToEnd(f);
+    expect(calls.filter((c) => c.startsWith("revive "))).toEqual(["revive m2 free"]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", fight: { outcome: "killed", memberRevives: 1 } });
+    expect(f.bot.state.task.result).toContain("1 members revived");
+    // Without such an item among the living, the 40 s of the fight see one look into the window.
+    const g = await install([10, 20]);
+    const none = fakeRaid(g, { timeLeft: true, memberFalls: true, freeRevive: false, fightMs: 40000 });
+    g.bot.raid({ members: ["Tagujazolu", "Edroun"], target: "Lord Nagafen" });
+    await runToEnd(g);
+    expect(none.filter((c) => c.startsWith("revive "))).toEqual(["revive m2 free"]);
+    expect(g.bot.state.task.fight.memberRevives).toBeUndefined();
   } finally {
     vi.useRealTimers();
   }

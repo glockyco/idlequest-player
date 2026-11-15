@@ -2371,6 +2371,8 @@
   // fight is read from: duration, the orders given, each member's damage, HP and mana, the leader's
   // deaths and revives, the raid log's last lines and a trace every 5 s of the leader's order, auto
   // attack, casting and navigation, his distance to the boss and the boss's HP.
+  // The roles a raid revives first, the last named first.
+  const REVIVE_FIRST = ["Healers", "Tanks"];
   // Balances a raid's leader pulls at most for an hour of raid time.
   const RAID_COIN_PULLS = 8;
   const raidFight = async (i, task, step) => {
@@ -2524,6 +2526,7 @@
         let traced = 0;
         let dead = false;
         let reviveAt = 0;
+        let memberReviveAt = 0;
         let healSeq = 0;
         const healers = new Set();
         let progress = null;
@@ -2610,6 +2613,17 @@
             }
             if (s.roster.some((m) => m.alive)) continue;
           } else dead = false;
+          // A fallen member comes back by the Cleric epic's revive, which costs no mana (`revive`
+          // "free", the default), tanks and healers first: another player outlasted Kerafyrm for 45
+          // minutes that way. "all" also takes a spell's revive for mana, and "off" none. Without
+          // such an item among the living the window is looked into again only after a minute.
+          const fallen = (task.revive ?? "free") === "off" ? [] : s.roster.filter((m) => !m.alive && m.id !== "player").sort((a, b) => REVIVE_FIRST.indexOf(b.role) - REVIVE_FIRST.indexOf(a.role));
+          if (s.combat && fallen.length && now() >= memberReviveAt) {
+            memberReviveAt = now() + 5000;
+            const r = await raid.revive(fallen[0].id, { free: task.revive !== "all" }).catch((e) => (log(`task raid: revive of ${fallen[0].name} failed: ${e?.message ?? e}`), { queued: false }));
+            if (r === null) memberReviveAt = now() + 60000;
+            else if (r.queued) task.fight.memberRevives = (task.fight.memberRevives ?? 0) + 1;
+          }
           if (s.combat) continue;
           // The kill line can come a moment after the fight's end, as Lodizal's did.
           await sleep(3000);
@@ -2623,7 +2637,7 @@
       const killAt = killedSince(i, bossName, tEngage)?.t ?? now();
       const seconds = Math.round((outcome === "killed" ? killAt - (killAt < t0 ? tEngage : t0) : now() - t0) / 1000);
       Object.assign(task.fight, { outcome, seconds, alive: task.fight.roster?.filter((m) => m.alive).length ?? 0 });
-      task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}`;
+      task.result = `${outcome} ${boss.name} in ${task.fight.seconds} s with ${task.fight.alive} of ${task.fight.roster?.length ?? 0} standing${task.fight.deaths ? `, leader died ${task.fight.deaths}x` : ""}${task.fight.memberRevives ? `, ${task.fight.memberRevives} members revived` : ""}`;
       if (outcome === "killed") alert("raid", `killed ${boss.name}`, true, { killed: boss.name });
     } finally {
       // An end that has to stop a fight waits for the server, so it gets a second try. A raid left
@@ -3426,7 +3440,8 @@
      * ends before it buys anything when the zone's spawn list does not show it alive. An hour of
      * raid time is bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
-     * `iq.raid.effect`), null or empty for none. No effect is ordered unless a caller names one:
+     * `iq.raid.effect`), null or empty for none. `revive` says which fallen members the raid
+     * brings back: "free" with a revive that costs no mana, "all" also with a spell's, "off" none. No effect is ordered unless a caller names one:
      * in all four fights of 2026-11-11 that ordered a slow and a debuff, the page stopped taking
      * the server's messages the second the orders began and reconnected 31 to 49 s later, which
      * ended the fight with the boss alive, and the three fights without the orders were kills. The
@@ -3435,14 +3450,14 @@
      * `also` names them, and each that still stands after a kill gets a fight of its own. Returns a
      * copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
+    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [], revive = "free" }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if ((potion || credit) && !target) throw new Error("a potion or credit raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], revive, startedAt: now() };
       log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${credit ? ` from a credit for ${credit}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
