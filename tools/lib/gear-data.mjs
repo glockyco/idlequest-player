@@ -320,8 +320,11 @@ export function dropChance({ chance, sum, entryMult = 1 }, { probability, multip
 //              points   spawn points of the NPC in the zone, respawn the shortest respawn time (s)
 //              when     "night" or "day" when every point spawns only then (`spawnTimes`), else null
 //   sellers  item id -> [{ npc, zone, zoneShort }] merchants that sell it and stand in a live zone
-// NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources.
-export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName }) {
+// NPCs above `maxNpcLevel` and NPCs `skipNpc(row)` accepts are left out of the drop sources. An NPC
+// of `summoned` (npc id -> zone short name), a boss the raid summons, that has no spawn point in a
+// live zone is a source in its zone (`summoned`) at one kill a day, the cooldown of a daily summon
+// and of a casino boss after its kill.
+export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipNpc = () => false, zoneName, summoned = new Map() }) {
   const dropsByLootdrop = new Map(); // lootdrop_id -> { sum of every entry's chance, entries: [{item, chance, entryMult}] of the wanted items }
   for await (const e of rows("lootdrop_entries", root)) {
     if (!(e.chance > 0)) continue;
@@ -344,7 +347,7 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
   const npcsOfLt = new Map(); // npc id -> {name, level, hp, lt}
   const merchantNpcs = new Map(); // npc id -> {name, items}
   for await (const n of rows("npc_types", root)) {
-    if (n.level <= maxNpcLevel && itemsOfLt.has(n.loottable_id) && !skipNpc(n)) npcsOfLt.set(n.id, { id: n.id, name: n.name, level: n.level, hp: Number(n.hp) || null, lt: n.loottable_id });
+    if ((n.level <= maxNpcLevel || summoned.has(n.id)) && itemsOfLt.has(n.loottable_id) && !skipNpc(n)) npcsOfLt.set(n.id, { id: n.id, name: n.name, level: n.level, hp: Number(n.hp) || null, lt: n.loottable_id });
     if (n.merchant_id && itemsOfMerchant.has(n.merchant_id)) merchantNpcs.set(n.id, { name: n.name, items: itemsOfMerchant.get(n.merchant_id) });
   }
   const sites = await spawnSites(root, { npcIds: new Set([...npcsOfLt.keys(), ...merchantNpcs.keys()]), zoneName });
@@ -353,6 +356,10 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
     for (const [zone, z] of sites.get(npc.id) ?? []) for (const [item, p] of itemsOfLt.get(npc.lt)) {
       const list = sources.get(item) ?? sources.set(item, []).get(item);
       list.push({ npcId: npc.id, npc: npc.name.replace(/_/g, " "), level: npc.level, hp: npc.hp, zone: zoneName.get(zone), zoneShort: zone, drop: p, spawn: z.spawn, points: z.points, respawn: z.respawn, when: z.when });
+    }
+    const zone = summoned.get(npc.id);
+    if (zone && !sites.has(npc.id)) {
+      for (const [item, p] of itemsOfLt.get(npc.lt)) (sources.get(item) ?? sources.set(item, []).get(item)).push({ npcId: npc.id, npc: npc.name.replace(/^#/, "").replace(/_/g, " "), level: npc.level, hp: npc.hp, zone: zoneName.get(zone) ?? zone, zoneShort: zone, drop: p, spawn: 1, points: 1, respawn: 86400, when: null, summoned: true });
     }
   }
   const sellers = new Map();
@@ -393,20 +400,21 @@ export const farmHours = (s) => (s.respawn > 0 && Number.isFinite(s.respawn) && 
 // spawns. Null when the enemy has no spawn timer.
 export const dropRow = (itemId, s) => {
   const hours = farmHours(s) / Math.max(1, s.points);
-  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, npcHp: s.hp ?? null, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn, when: s.when ?? null, ...(s.kills != null ? { kills: s.kills } : {}) } : null;
+  return Number.isFinite(hours) ? { itemId, zone: s.zoneShort, npc: s.npc, npcLevel: s.level, npcHp: s.hp ?? null, hours: Math.round(hours * 100) / 100, spawn: s.spawn, drop: s.drop, points: s.points, respawn: s.respawn, when: s.when ?? null, ...(s.kills != null ? { kills: s.kills } : {}), ...(s.summoned ? { summoned: true } : {}) } : null;
 };
 
 /**
  * The gear enemies drop in every live zone, for the roster gear plan's `drops` (`dropRow`): items
- * that fit a slot and carry stats, armor or damage. Which enemies a group can kill is decided per
- * group and enemy (docs/plans/gear-acquisition.md, "Kill chance"), not here. Resolves with
- * `{ drops, items }`.
+ * that fit a slot and carry stats, armor or damage, also those of the summoned bosses without a
+ * spawn point of `summoned` (`loadSources`), such as Tunare, whose rows carry `summoned`. Which
+ * enemies a group can kill is decided per group and enemy (docs/plans/gear-acquisition.md, "Kill
+ * chance"), not here. Resolves with `{ drops, items }`.
  */
-export async function liveDrops(root) {
+export async function liveDrops(root, { summoned = new Map() } = {}) {
   const stats = ["ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint", "awis", "acha", "damage", "bardvalue", "haste", "regen", "manaregen"];
   const items = new Map();
   for await (const i of rows("items", root)) if (i.slots > 0 && !(i.bagslots > 0) && stats.some((k) => i[k] > 0)) items.set(i.id, i);
-  const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root) });
+  const { sources } = await loadSources(root, { itemIds: new Set(items.keys()), zoneName: await liveZoneNames(root), summoned });
   const drops = [];
   for (const [itemId, list] of sources) {
     for (const s of list) {

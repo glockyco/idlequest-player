@@ -162,7 +162,9 @@ content update, `bun tools/epic-model.mjs` lists each class epic's steps, gaps a
 take, and fails while a chosen step uses a script idiom the analyzer cannot read. iqd saves
 the survey to `runs/state/account-items.json`, and `bun tools/handdown.mjs` prints the plan for it.
 The plan also lists the gear that enemies of every live zone drop (`liveDrops` in
-`tools/lib/gear-data.mjs`), where it beats what a character wears, and the pieces a hunt gets of
+`tools/lib/gear-data.mjs`), where it beats what a character wears, with the drops of the casino
+bosses that have no spawn point, such as Tunare and the Warders, as targets only a raid kills
+(`summoned`), and the pieces a hunt gets of
 the class epics the account can finish (`huntPieces` in `tools/lib/epic-model.mjs`), each worth
 the epic's reward to its character, shared by the pieces it lacks. It ranks the enemies by the
 value an hour of hunting them brings to the account (`targets`), and the pieces the epics hand in

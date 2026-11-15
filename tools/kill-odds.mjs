@@ -104,7 +104,8 @@ for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone
 for (const c of casino) if (held.has(c.itemId) || credited.has(c.key)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
 for (const b of openWatched) add({ ...b, raid: true }, strongest);
 const pairs = [];
-for (const x of targets.filter((t) => t.npcLevel > 50)) {
+// A summoned boss's drops (`summoned`) come only from a raid, so no group fights it.
+for (const x of targets.filter((t) => t.npcLevel > 50 && !t.summoned)) {
   const key = `${x.zone}|${npcKey(x.npc)}`;
   for (const g of roster) {
     if (fresh(odds[key]?.groups?.[g.id], leaderLevel(g))) continue;

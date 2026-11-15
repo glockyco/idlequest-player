@@ -976,7 +976,7 @@ export class Daemon {
     // the daily list, the raid goal or the gear watch is the boss plan's kill, by raid, so no group
     // hunts it: group 1 set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
-    this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
+    this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...(this.itemModel?.bosses ?? []).map((c) => c.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
     const xpFactor = factorAt(this.xpEvents, now);
     const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, xpFactor };
@@ -1360,7 +1360,7 @@ export class Daemon {
     const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns });
     // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
     // bosses the watch holds, since a gear target without a live spawn point stays a group's target.
-    this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
+    this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...casino.map((c) => c.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
     // A raid that killed an open-world boss is a sighting of it down at the raid's end, until a look
     // or the raid's own read of the spawn list after the kill says when it comes back.
     for (const w of watch) {
@@ -1575,18 +1575,19 @@ export class Daemon {
     const { attachEffects, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
     const { refusedGoods } = await import("./lib/coordinator.mjs");
     const { contentRoot, rows } = await import("./lib/content.mjs");
-    // The merchant goods, the gear every live zone's enemies drop, and their item rows, read once.
+    // The merchant goods, the gear every live zone's enemies drop and the casino bosses' drops,
+    // which a credit summons where they have no spawn point, and their item rows, read once.
+    this.itemModel ??= await loadItemModel();
     if (!this.shop) {
       const goods = await merchantGoods(contentRoot());
       this.shop = goods.shop;
       this.items = goods.items;
-      const dropped = await liveDrops(contentRoot());
+      const dropped = await liveDrops(contentRoot(), { summoned: new Map(this.itemModel.bosses.map((b) => [b.npcId, b.zone])) });
       this.drops = dropped.drops;
       for (const [id, i] of dropped.items) this.items.set(id, i);
     }
     // The class epics' rewards, which the plan values for the characters still lacking them, and
     // the quest rewards (`gearQuests`).
-    this.itemModel ??= await loadItemModel();
     const rewards = Object.values(this.itemModel.epics).flat();
     const questData = await this.gearQuests();
     const questRewards = questData?.rewards ?? [];
