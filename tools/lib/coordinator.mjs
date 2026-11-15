@@ -780,7 +780,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // that held 12 chains on 2026-11-15 were never hunted. So a free group whose share of time for
   // pieces is not used up (`huntShare` of the last `pieceWindowH` hours) goes for the pieces of one
   // zone that come soonest, with each piece worth `pieceHours`. A hunt inside the group's own
-  // rotation costs none of that share.
+  // rotation costs none of that share. That worth leaves a trip's deaths out of its price, so the
+  // group goes only for enemies it beats in half its fights or more, as for a quest's fight.
   const pieceMs = (label) => history.filter((h) => h.label === label && h.piece && !(h.status === "failed" && h.task === null) && now - h.t < cfg.pieceWindowH * 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, ACQUIRE.campMin * 60000)), 0);
   for (; !event; ) {
     const withTrips = { ...ctx, tabs: [...tabs, ...occupied], pieceHours: cfg.pieceHours };
@@ -788,7 +789,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     for (const t of tabs.filter(hunter)) {
       const share = Math.floor((cfg.huntShare * cfg.pieceWindowH * 3600000 - pieceMs(t.label)) / 60000);
       for (const xs of zones.values()) {
-        const open = xs.filter((x) => x.items.some(isPiece) && !queuedFor.has(targetId(x)) && !hunted.get(targetId(x)).length && left(x) >= ACQUIRE.minSupply && inTime(x, t) && killChance(t, x)?.p >= ACQUIRE.tooStrong).map((x) => withClaims(shared(x))).filter((x) => x.items.some((w) => isPiece(w) && !w.claim));
+        const open = xs.filter((x) => x.items.some(isPiece) && !queuedFor.has(targetId(x)) && !hunted.get(targetId(x)).length && left(x) >= ACQUIRE.minSupply && inTime(x, t) && killChance(t, x)?.p >= cfg.questKillChance).map((x) => withClaims(shared(x))).filter((x) => x.items.some((w) => isPiece(w) && !w.claim));
         if (!open.length) continue;
         const minutes = (kind) => (kind === "errand" ? 0 : kind === "camp" ? ACQUIRE.campMin : Math.max(cfg.minHuntMin, Math.round(ACQUIRE.visitHours * 60)));
         const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && (kind === "errand" || minutes(kind) <= share) && !(kind === "camp" && noCamp.has(targetId(x))) && due(lastHunt(targetId(x)), targetRetryMin(kind), t));

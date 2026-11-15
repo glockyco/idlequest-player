@@ -144,7 +144,8 @@ from the gear trips that pay (`decide` in `tools/lib/coordinator.mjs`). The piec
 `data/opportunities.json` may take `huntShare` of each group's hour. A piece among the gear
 targets that no trip pays for gets a trip of a free group all the same, inside `huntShare` of the
 group's last `pieceWindowH` hours: the trip into one zone whose pieces come soonest, each piece
-worth `pieceHours` on it. A hunt in the group's own rotation uses none of that share. Each piece
+worth `pieceHours` on it, against enemies the group beats in half its fights or more. A hunt in
+the group's own rotation uses none of that share. Each piece
 is a slot of its own (`slotKey` in `tools/lib/acquire.mjs`), so a hunt for one piece of an epic
 leaves its other pieces wanted. A chain step runs before a gear trip, because each step is
 certain progress.

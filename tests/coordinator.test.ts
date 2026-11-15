@@ -409,9 +409,10 @@ test("a piece of an epic that no trip pays for is hunted in the group's time for
   // A gear trip of that time does not count, and four hours later the share is free again.
   expect(run([near], { history: [{ ...camped("A"), piece: undefined }, camped("B")] }).actions.map((a) => a.label)).toEqual(["A"]);
   expect(run([near], { history: [{ ...camped("A"), t: NOW - 250 * 60000 }, camped("B")] }).actions.map((a) => a.label)).toEqual(["A"]);
-  // No piece trip goes during an XP event, nor against an enemy the group does not beat.
+  // No piece trip goes during an XP event, nor against an enemy the group beats in under half its fights.
   expect(run([near], { xpFactor: 2 }).actions).toEqual([]);
   expect(run([{ ...near, npcLevel: 40 }]).actions).toEqual([]);
+  expect(run([near], { killChance: () => ({ p: 0.4, fights: 4, deaths: 0, leaderDeaths: 0 }) }).actions).toEqual([]);
   // A piece in the group's own rotation is an errand inside its hunting, which uses no share.
   expect(run([piece("a goo", "paw", 0.5, 3)], { history: [camped("A"), camped("B")] }).actions.map((a) => [a.kind, a.piece])).toEqual([["errand", true]]);
 });
