@@ -1387,6 +1387,7 @@ export class Daemon {
       }
     }
     if (this.oddsJob?.adopted && !alive(this.oddsJob.adopted)) {
+      this.log(`kill chances: the refresh of pid ${this.oddsJob.adopted} ended${(await readFile(errFile, "utf8").catch(() => "")).trim() ? `, with errors in ${errFile}` : ""}`);
       this.oddsJob = null;
       await rm(pidFile, { force: true }).catch(() => {});
     }
