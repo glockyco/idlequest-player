@@ -431,18 +431,16 @@ const RELAY_STUCK_MS = 120000;
 const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
-// For `RESET_RUSH_MS` after the server put its bosses up every boss stands and other players are
-// on their way, so a pass sends up to `LOOKS_AFTER_RESET` looks.
+// Looks a pass sends within `RESET_RUSH_MS` of a spawn reset, when most bosses stand at once.
 const LOOKS_AFTER_RESET = 10;
 const RESET_RUSH_MS = 30 * 60000;
-// How long after a raid its tab still goes back for loot the raid left on the corpse.
+// How long a raid's tab still goes back for loot left on the corpse.
 const LOOT_BACK_MS = 2 * 3600000;
-// A casino boss is watched in the open world when its kill is worth this many hours of a group's
-// progress: a look costs a group about a minute, and Quillmane's drops were worth 36 seconds.
+// Group-hours a casino boss's kill must be worth to be watched in the open world. A look costs about a minute.
 const WATCH_WORTH = 0.1;
-// How old a leader's read of its casino credits may get before the boss pass reads it again.
+// Age at which a leader's casino credits are read again.
 const CREDIT_READ_MS = 3600000;
-// The gear plan offers what a crafter makes at this chance an attempt or better.
+// Least success chance per attempt for a crafted item to enter the gear plan.
 const CRAFT_GEAR_CHANCE = 0.5;
 // The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
 const AA_STAT_FIELD = { 50001: "astr", 50002: "asta", 50005: "aint", 50006: "awis" };
@@ -959,10 +957,8 @@ export class Daemon {
     }
     // Each group's kills per hour from the last gear pass's report, which bound a common drop's hours per copy.
     this.killsPerHour ??= metaGet(this.db, "gear")?.killsPerHour ?? {};
-    // The last gear pass's moves wait for a free tab until a gear task takes them or a newer pass
-    // replaces them, because the pass runs hourly and a busy hour would otherwise lose them. They
-    // are kept in the db (meta key `pendingGear`), so a restart of iqd does not lose them either:
-    // the crafted jewelry of 2026-11-15 waited for its crafter's tab through two restarts.
+    // The last pass's moves wait for a free tab until a gear task or a newer pass takes them, kept
+    // in meta `pendingGear` so a restart keeps them.
     this.doing = "gear pass";
     const planned = await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
     if (planned) metaSet(this.db, "pendingGear", planned);
@@ -1011,8 +1007,7 @@ export class Daemon {
         const short = (need[m.itemId] ?? 0) - banked - held.reduce((s, r) => s + r.n, 0);
         if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + banked + short });
       }
-      // A job whose crafter makes gear for the roster (`goods`) is due until its skill is where
-      // its training ends.
+      // A `goods` job is due until its crafter's skill reaches the ladder's end.
       const skill = metaGet(this.db, "craftSkills")?.[job.skillId];
       const untrained = Boolean(job.goods) && !(skill?.who === job.who && skill.skill >= job.train.at(-1).to);
       if (make.length || untrained) crafts.push({ id, ...job, make });
@@ -1342,11 +1337,8 @@ export class Daemon {
   }
 
   /**
-   * Keeps the casino credits a casino or raid task read for its character (`creditsOf`, db meta
-   * key `casinoCredits`). The read lives in the tab's task until the next task replaces it, so it
-   * is taken at every cycle. The tab's snapshot carries it (`creditsOf`, `credits`, `creditsAt`
-   * of its task): it did not before, so the credits Ibaegrix and Tagujazolu won at 17:24 and
-   * 17:29 on 2026-11-15 were never recorded.
+   * Copy each task's read of its character's casino credits (`creditsOf`) into meta
+   * `casinoCredits`. Runs every cycle, since the next task replaces the read.
    */
   keepCreditReads() {
     const reads = metaGet(this.db, "casinoCredits") ?? {};
@@ -1446,12 +1438,10 @@ export class Daemon {
     // the daily list (`iq.raid.bosses`). So the pass keeps each character's last read (db meta key
     // `casinoCredits`): the reader's, and what a casino or raid task read after its win or summon
     // (`creditsOf`). A credit a raid spent since that read is left out (`potionSpent`).
-    // A task's read is taken at every cycle (`keepCreditReads`), since the next task replaces it.
     this.keepCreditReads();
     const creditReads = metaGet(this.db, "casinoCredits") ?? {};
     if (st.daily?.who && Array.isArray(st.daily.credits) && !(creditReads[st.daily.who]?.t >= now)) creditReads[st.daily.who] = { t: now, list: st.daily.credits };
-    // The other leaders' credits are read too, two tabs a pass, each once in `CREDIT_READ_MS`, so
-    // a credit whose read the collector missed is found within the hour.
+    // Also read two other leaders a pass, each once per `CREDIT_READ_MS`.
     for (const t of tabs.filter((x) => x !== reader && (x.members[0]?.level ?? 0) >= 46 && !(now - (creditReads[x.members[0].name]?.t ?? 0) < CREDIT_READ_MS)).slice(0, 2)) {
       const r = await this.relay.evaluate(t.targetId, call(creditsInPage, {}), { timeout: 20000 }).catch(() => null);
       if (r?.who && Array.isArray(r.credits)) creditReads[r.who] = { t: now, list: r.credits };
@@ -1477,9 +1467,7 @@ export class Daemon {
     // The gear targets above level 50 that no group can kill (state `tooStrong` of the coordinator
     // pass), which the raid can (docs/plans/gear-acquisition.md, "Ways to get a copy"), and those the
     // watch holds already, which the coordinator lists "by raid" from then on. One leaves once the
-    // gear plan no longer wants its drops. A casino boss is no group's target, so it counts by
-    // what its kill is worth to the gear plan, from `WATCH_WORTH` on: Lord Yelinak and Vulak`Aerr
-    // stand in the open world.
+    // gear plan no longer wants its drops. Casino bosses count from `WATCH_WORTH` on.
     const status = metaGet(this.db, "targetStatus")?.targets ?? {};
     const watchedGear = new Set((metaGet(this.db, "bossPlan")?.watch ?? []).filter((w) => w.gear).map((w) => npcKey(w.name)));
     const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
@@ -1595,18 +1583,15 @@ export class Daemon {
     const leaderTab = (name) => tabs.find((t) => t.group != null && t.group === groupOf.get(name));
     const out = [];
     let potionRaid = raidTabs.some((t) => /^boss:(potion|credit):/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
-    // A raid that killed its boss and failed while it collected the loot left the loot on the
-    // corpse, which only its leader can take. That tab goes back for it before anything else, up
-    // to three times for the page code it runs, five minutes apart, while a try failed or left an item behind: the client's patch of 2026-11-15 broke the collecting
-    // for every raid until the page code was repaired, Lord Yelinak's among them.
+    // A raid that killed and then failed to loot left the loot for its leader. Its tab goes back
+    // first, five minutes apart, up to three times per page code, while a try failed or left items.
     const zoneOf = new Map(watch.map((w) => [w.key, w.zone]));
     for (const h of history.filter((h) => h.kind === "raid" && h.status === "failed" && h.step === "collect the loot" && /^killed /.test(h.result ?? "") && now - (h.endedAt ?? 0) < LOOT_BACK_MS)) {
       const tries = history.filter((x) => x.id === `loot:${h.task}`);
       const zone = h.zone ?? zoneOf.get(String(h.id).split(":").slice(2).join(":"));
       const t = tabs.find((x) => x.label === h.label);
       if (!zone || !free(t) || used.has(t.label) || tries.some((x) => (x.status === "done" && !/, left /.test(x.result ?? "")) || !x.endedAt) || now - (tries.at(-1)?.t ?? 0) < 5 * 60000) continue;
-      // A raid that failed for a function the client no longer has fails the same way until the
-      // tab gets other page code, so the way back waits for that, and the three tries count per code.
+      // A missing client function fails again until the tab's code changes.
       if ((/^client function \w+ not found/.test(h.error ?? "") && h.code === t.code) || tries.filter((x) => x.code === t.code).length >= 3) continue;
       out.push({ label: t.label, kind: "loot", id: `loot:${h.task}`, spec: { zone }, why: `the loot of ${h.result.replace(/^killed (.+?) in \d+ s.*$/, "$1")} lies in ${zone}, where the raid could not collect it (${h.error})` });
       used.add(t.label);
@@ -1667,8 +1652,7 @@ export class Daemon {
       out.push({ label: t.label, kind: "look", id: `look:${l.key}`, spec: { zone: l.zone, name: l.name, until: l.until }, why: `${l.name} in ${l.zone}: ${l.why}` });
     }
     if (look && !out.length) metaSet(this.db, "bossPlan", { ...plan, look: { ...look, waits: "every group with a leader of 46 or more is on a task" } });
-    // After a reset the next pass follows at once while a boss waits for a look or a raid, since
-    // a pass every five minutes leaves a boss a tab has just seen standing to other players.
+    // After a reset, run the next pass at once while a boss waits for a look or a raid.
     if (now - spawnsResetAt < RESET_RUSH_MS && (looks.length || kills.length)) this.passAgain = true;
     return out;
   }
@@ -1690,10 +1674,8 @@ export class Daemon {
     // that fails comes again after GEAR_RETRY_MIN.
     const prev = metaGet(this.db, "gear") ?? {};
     if (now < (prev.next ?? (prev.t ?? 0) + GEAR_EVERY_MIN * 60000)) return null;
-    // A survey holds the pass for minutes, and the boss pass comes after it. So the survey waits
-    // while the respawn of a watched boss is near that a look has to meet (`nextLook`): one whose
-    // kill is worth an hour of raid time. The Skyshrine Crusaders come back every ten minutes at
-    // 0.6 hours each, and their respawns held the survey of 19:36 on 2026-11-15 back for a pass and more.
+    // A survey holds the pass for minutes, so it waits while a look has to meet the near respawn
+    // of a boss worth an hour of raid time.
     if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => (w.value ?? 0) >= OPEN_BUY.worth && w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
     const { ARMOR_SLOTS, buyBudget, damageShares, hitShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, setValue, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
@@ -1827,9 +1809,8 @@ export class Daemon {
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
     // Goods a merchant refused lately stay out of the plan for a day (`refusedGoods`).
     const refused = refusedGoods(metaGet(this.db, "coordinator")?.history ?? [], now);
-    // What a crafter makes from the catalog's components counts as goods too, without a trip: of
-    // each job of data/crafts.json with `goods`, the recipes of its skill that its crafter makes
-    // at least every second time, by the skill its last craft task read (`craftSkills`).
+    // Crafted goods: recipes of each `goods` job its crafter makes at `CRAFT_GEAR_CHANCE` or better
+    // at the skill last read (`craftSkills`).
     this.craftGear ??= await craftGoods(contentRoot());
     for (const [id, i] of this.craftGear.items) if (!this.items.has(id)) this.items.set(id, i);
     this.craftJobs ??= JSON.parse(await readFile(join(REPO, "data/crafts.json"), "utf8"));
@@ -1985,9 +1966,7 @@ export class Daemon {
     this.pass ??= this.coordinatePass(Date.now())
       .catch((e) => {
         this.log(`coordinator: ${e.message}`);
-        // So does one that a page's own socket ended ("Not connected", the client's error), as
-        // in the minutes after the server's restarts of 19:52 on 2026-11-15, when two passes
-        // failed at an item search and the next came five minutes later.
+        // Likewise when a page's socket was down ("Not connected").
         if (/relay (connection closed|not connected)|Not connected/.test(e.message)) this.coordinatedAt = 0;
       })
       .finally(() => {
@@ -2047,9 +2026,8 @@ export class Daemon {
    * Check a client release the first time a page runs it: save it (tools/client-snapshot.mjs) and
    * run tools/check-client.mjs on it, and raise an item only for the parts it lacks, because a
    * release with everything the bot uses needs nobody. The meta key `clientChecks` keeps the results.
-   * A release that lacked something is checked again once another commit of page code is deployed,
-   * and its item closes when the check passes: the item for the release of 2026-11-15 stayed in
-   * "Needs you" for two hours after the bridge was repaired.
+   * A release that lacked something is checked again after each deploy, and its item closes when
+   * the check passes.
    */
   async checkRelease(now) {
     if (this.checkingRelease) return;

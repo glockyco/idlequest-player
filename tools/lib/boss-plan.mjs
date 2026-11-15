@@ -40,12 +40,8 @@ export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
 export const killable = (o) => Boolean(o && !o.error && o.fights > 0 && o.kills === o.fights);
 
 /**
- * Bosses whose simulated raid says nothing about the live one, by key, with the reason. The
- * simulator fights a boss alone, and the collector voids its raid result for these (`killOdds`
- * of tools/iqd.mjs), so no look, raid or credit counts on them. Tunare: an attack on her brings
- * the whole Plane of Growth into the fight (the developer, 2026-11-15). The simulator kills her
- * alone in four fights of four in 219 s, and the raid of 17:54 that day ended after 963 s with 5
- * of 71 standing, while her zone's enemies healed her and no other player could fight them.
+ * Bosses the simulator cannot judge, by key, with the reason. It fights a boss alone, so the
+ * collector voids their raid results (`killOdds` in tools/iqd.mjs).
  */
 export const SIM_BLIND = { tunare: "an attack on Tunare brings her whole zone into the fight, and the simulator fights her alone" };
 
@@ -207,13 +203,8 @@ export function openBosses({ seen = {}, daily = null, gear = [], now }) {
  * acquisition.md, "Ways to get a copy", and the casino's bosses whose kill is worth something)
  * that a live spawn point puts up (`spawns`, `namedSpawns` of tools/lib/content.mjs for their
  * names), as `[{ key, name, zone, respawnMs, varianceMs, gear }]`, `gear` true for a boss off the
- * daily list, which has none. A boss of the daily list goes by the list's key and counts at a point in the list's
- * zone. The server draws each respawn from `respawnMs` less `varianceMs` to `respawnMs` plus
- * `varianceMs`: the raids of 2026-11-12 killed Lady Vox, Innoruuk and Trakanon 60.4, 66.3 and
- * 78.6 hours before the respawn times the server then gave, with 72 hours and 12, 21.6 and 7.2
- * hours in the content. The two free summons a day bring two kills, and each of these is one more.
- * Lord Yelinak and Vulak`Aerr are on no daily list, so the open world and a casino credit are the
- * only places the account kills them.
+ * daily list. A daily-list boss goes by the list's key and counts only at a point in the list's
+ * zone. A respawn falls within `respawnMs` plus or minus `varianceMs`.
  */
 export function watchedBosses({ daily = null, gear = [], spawns = new Map() }) {
   const out = [];
@@ -244,17 +235,15 @@ const clock = (t) => new Date(t).toTimeString().slice(0, 5);
 // its timer.
 const RESET_EARLY_MS = 10 * 60000;
 
-/**
- * When the server last put bosses up ahead of their timers, from the sightings on record
- * (`noteSightings`): the first sighting, of the latest run of them less than `RESET_SPAN_MS`
- * apart, of a boss alive before the respawn time its row before gave, 0 for none. The first and
- * not the last, because the tabs find the bosses of one reset over the next quarter of an hour,
- * and a look sent in between must still count. After the server's restart at 21:15 on 2026-11-12 six bosses of seven the tabs
- * saw stood one to two days early. A sighting of a boss down that is older than this says nothing
- * about now: Lord Nagafen, Talendor, Gorenaire and Faydedar kept their respawn times of the
- * morning, and nobody looked at them that evening.
- */
+// Sightings closer together than this belong to one reset.
 const RESET_SPAN_MS = 2 * 3600000;
+
+/**
+ * When the server last put bosses up ahead of their timers (`noteSightings` rows), 0 for none:
+ * the first sighting of the latest run of bosses seen alive before their given respawn. The
+ * first, because the tabs find one reset's bosses over several minutes. Down sightings older
+ * than this are stale.
+ */
 export function spawnReset(log = []) {
   const last = new Map();
   const early = [];
@@ -270,8 +259,8 @@ export function spawnReset(log = []) {
 }
 
 /**
- * Whether the game went away for every tab and came back, which is a restart of the server, after
- * which every boss with a spawn point stands. `prev`: `{ since }` of the last cycle, `since` the
+ * Whether every tab left the world and one came back, which marks a server restart. Bosses may
+ * or may not keep their timers through one. `prev`: `{ since }` of the last cycle, `since` the
  * first cycle that found no tab in the world, null while one is. `inWorld`: tabs in the world now.
  * `answered`: tabs whose page answered, so a relay that reaches no tab is no outage. Returns
  * `{ since, restartAt }` with `restartAt` set in the cycle a tab is back after `OUTAGE_MIN_MS` out.
@@ -301,9 +290,9 @@ export function worldOutage(prev, { inWorld, answered, now }) {
  *   collector notes when every tab was out of the world and one is back (`worldOutage`). Looks
  *   and sightings from before it say nothing about now, so they hold no look back.
  * - `worth(w)`: what the boss's kill is worth, by which bosses due at the same time are ordered.
- * A due respawn and a sighting from before the server's reset go first, the earliest of them
- * and of those after a reset the one worth most, then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
- * has seen, then a boss that stood and the plan would not raid.
+ * Order: due respawns and sightings older than the reset, earliest first and then by worth; a
+ * boss that stood and needs a fresh look (`OPEN_SEEN_MS`); a boss no tab has seen; a boss that
+ * stood and the plan would not raid.
  */
 export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0, worth = () => 0 }) {
   const due = [];

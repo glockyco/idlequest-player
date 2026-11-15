@@ -899,11 +899,9 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
 }
 
 /**
- * The account's coin for the Coin panel: its total now and over the last day (the boss pass's
- * reads, db table `coin`), what came in and went out by kind on the last `days` days (`coinDays`,
- * with `other` the change no ledger line explains), the income per hour of today so far, and what
- * the coin pays for by the spending rules: an hour of raid time with its reserve (`OPEN_BUY`), one
- * more casino credit, AA ranks above their reserve and gear purchases above `BUY_RESERVE_PP`.
+ * The Coin panel: the account's coin now and over the last day (table `coin`), the ledger of the
+ * last `days` days (`coinDays`), today's income per hour, and what the spending rules let the coin
+ * buy now.
  */
 export function coinView(db, now, { days = 3, rows = [] } = {}) {
   const reads = db.query("SELECT t, pp FROM coin WHERE t >= ? ORDER BY t").all(now - 86400000);

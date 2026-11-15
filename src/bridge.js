@@ -1296,11 +1296,7 @@
     if (!r?.success) throw new Error(r?.message ?? `the pickup of ${name} was refused`);
     return r.message ?? `picked up ${name}`;
   };
-  /**
-   * Forage once, as the macro bar's Forage button does: the client sends the Forage message (187)
-   * with the active character's position, and the server answers in the chat and puts a find on
-   * the cursor. Resolves with the chat lines of the next five seconds, `{ lines, cursor }`.
-   */
+  /** Forage once, as the Forage button does (message 187). Resolves with `{ lines, cursor }` after 5 s. */
   const forage = async () => {
     const p = stores.character.getState().characterProfile;
     if (!p?.id) throw new Error("no character in the world to forage");

@@ -33,12 +33,9 @@ export const DEFAULTS = {
   // The casino's daily boss potion (docs/plans/systems-research.md, "Boss summons and daily
   // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
-  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average
-  // (docs/plans/coin.md). So the account rolls for one every `extraEveryMin` while it holds
-  // `extraReservePp`, fewer than `extraHold` credits wait for a raid that
-  // kills their boss, and a credit is worth `extraWorth` hours of a group's progress or more, on
-  // average over the casino's bosses with those the raid does not kill at nothing
-  // (`coin.creditMean`, from the boss pass). A roll stops after `extraMaxPp`.
+  // An extra credit (four of nine dice, about 12,500 pp) is rolled every `extraEveryMin` while the
+  // account holds `extraReservePp`, fewer than `extraHold` credits wait, and the mean credit is
+  // worth `extraWorth` group-hours (`coin.creditMean`). A roll stops after `extraMaxPp`.
   casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 240, extraReservePp: 100000, extraHold: 3, extraWorth: 0.5 },
   // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
   // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
@@ -48,9 +45,7 @@ export const DEFAULTS = {
   // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
   // Groups have won the fights at 55 (Jaeil the Insane, a plasmatic priest), which cost no raid time.
   questRaidLevel: 57,
-  // The account's coin below which no quest starts a raid, which buys raid time: two hours at the
-  // server's price and one in reserve, since a Necromancer's try for the Black Silk Cape can buy
-  // one hour for the soul carrier and one for the Keeper an hour or more later.
+  // Coin below which no quest starts a raid: three raid hours, as one try can buy two.
   questRaidReservePp: 30000,
 };
 
@@ -623,10 +618,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const ownTab = (name) => tabs.find((x) => x.members.some((m) => m.name === name));
     const leads = (name) => ownTab(name)?.members[0]?.name === name;
     const home = (m) => Boolean(m.exact) || leads(m.to);
-    // A move of an item a crafter makes (`buy.craft`) runs in the crafter's tab with the crafter
-    // active, who makes each item and gives it on. One for a tab's leader or one that has to be
-    // placed stays in the crafter's bags (`stock`, the receivers' names), from where the next
-    // plan moves it in the receiver's own tab.
+    // Crafted moves (`buy.craft`) run in the crafter's tab. Copies for leaders and placed moves
+    // stay in the crafter's bags (`stock`) for a later move in the receiver's own tab.
     const crafted = gear.moves.filter((m) => m.buy?.craft);
     for (const who of new Set(crafted.map((m) => m.buy.craft.who))) {
       const t = ownTab(who);

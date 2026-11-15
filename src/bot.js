@@ -1730,16 +1730,13 @@
         const to = accountCharacter(i, mv.to);
         const ref = mv.itemId != null ? { name: mv.item, id: mv.itemId } : mv.item;
         if (mv.buy?.craft) {
-          // The crafter makes the item: up to twenty attempts for one, taken out of the bank into
-          // its bags. One for a tab's leader stays there (`stock`), and the next plan moves it in
-          // that leader's own tab, since a leader's page does not learn of an item another tab
-          // gives it to wear.
+          // Up to 20 attempts for one copy. A copy for a leader stays in the crafter's bags (`stock`)
+          // and moves in the leader's own tab, whose page would not see an equip from here.
           const c = mv.buy.craft;
           const before = i.carried(ref);
           if (mv.stock && i.bagSpace().free < 3) throw new Error(`${activeName(i)}'s bags have no room to keep it`);
-          // The crafter pays the catalog from its own purse. It gathers two attempts' worth, the
-          // account's largest balances first, since no single balance may cover a piece: after
-          // the account's coin was taken on 2026-11-15 the richest character held 392 platinum.
+          // The catalog charges the crafter, so it gathers two attempts' worth from the largest
+          // balances, as no single balance may cover it.
           const need = (mv.buy.price ?? 0) * 2;
           const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
           for (let k = 0; k < 8 && purse() < need; k++) {
@@ -2131,8 +2128,7 @@
               results.push(fight.result);
             }
           }
-          // A raid kept for enemies that did not stand any more ends here, and what its kills
-          // left on their corpses is taken now.
+          // End a raid kept for enemies that never came, and loot its kills.
           if (killed && fight.keepRaid && !nextIsRaid) {
             if (inRaid(i)) await i.raid.end().catch((e) => log(`quest: end raid failed: ${e?.message ?? e}`));
             const loot = await step("collect the loot", () => collectCorpseLoot(i), 120000).catch((e) => (log(`quest: the loot of the raid on ${s.kill} was not collected (${e?.message ?? e})`), null));
@@ -2269,9 +2265,8 @@
           throw e;
         }), 300000);
       }
-      // A foraged quest item (`forage`, `{ tries, everySec }`): the member forages where the party
-      // stands until it carries `expect` or the tries run out, a forage every `everySec` seconds,
-      // since the skill has a reuse time. What else it finds goes where `settleHeld` puts it.
+      // `forage: { tries, everySec }`: forage until the member carries `expect`. Other finds go
+      // where `settleHeld` puts them.
       if (s.forage) {
         const want = ref(s.expect);
         const found = {};
@@ -2683,8 +2678,7 @@
       for (;;) {
         if (state.task !== task || task.status !== "running" || task.runner !== runner) throw new TaskStopped();
         const list = await readBosses(i, task, task.name);
-        // With `list` the look writes the zone's whole spawn list to the log once, names and states,
-        // for comparing the live world with the content's spawn tables.
+        // `list`: log the zone's whole spawn list once.
         if (task.list && !task.listed) {
           task.listed = true;
           const names = [...new Set(list.map((s) => `${s.name}:${s.state}`))].sort();
@@ -3033,9 +3027,8 @@
     // Raid kills leave their corpses to the leader's RAID LOOT tab instead of Auto Loot, and the
     // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted. The tab is
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
-    // A raid that stays on for the next enemy (`keepRaid`) leaves the loot to the fight that ends
-    // it, because the tab does not open in raid mode: a quest's raids on Zordak Ragefire and on a
-    // soul carrier failed at it with the kill made (2026-11-15).
+    // The tab does not open in raid mode, so a raid kept for the next enemy (`keepRaid`) leaves
+    // the loot to the fight that ends it.
     if (task.fight && !task.keepRaid) {
       await keepReserve(i, true);
       const collect = () => (task.status !== "running" ? collectCorpseLoot(i) : step("collect the loot", () => collectCorpseLoot(i), 120000));
@@ -3107,9 +3100,8 @@
       await loot.open(false);
     }
   };
-  // A raid's kills keep their loot in the RAID LOOT tab of their zone for the raid's leader. When
-  // a raid ended before it could take it, this task goes back for it, as the raid does: with
-  // room made first, and once more with the party gathered for what the leader cannot hold.
+  // Collect loot a raid left in its zone's RAID LOOT tab, as the raid does: room first, then a
+  // second pass with the party gathered for what the leader cannot hold.
   const lootTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
     if (zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
@@ -3172,8 +3164,7 @@
    * A component it does not sell is crafted first with the recipe `makes` names for it, as the
    * Collapsible Fishing Pole for a Spyglass. The skill is read from the craft replies. The task
    * ends once its attempts have cost `maxPp`, by each recipe's `pp`, the catalog's price of one attempt.
-   * What it makes beyond `make` stays in the Tradeskill Bank: the task sells nothing, because
-   * crafting for a merchant is an exploit by the developer's word (docs/plans/coin.md).
+   * Nothing is sold (docs/plans/coin.md, "Crafting for a merchant").
    */
   const CRAFT_BATCH = 10;
   const craftTask = async (i, task, step) => {
@@ -3211,15 +3202,13 @@
     const line = () => `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`;
     try {
       for (const r of task.train ?? []) {
-        // The first batch tells the skill, which the client keeps nowhere. More than two points
-        // short of the recipe's end the attempts go twenty at a request, as the window's x20
-        // button sends them, since a skill takes thousands.
+        // The first batch reads the skill. Far from the step's end, attempts go 20 a request (x20).
         for (let idle = 0; task.status === "running" && (task.skill == null || task.skill < r.to); ) {
           const before = task.skill;
           const many = before != null && r.to - before > 2;
           const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, many ? { quantity: 20, batch: 20 } : { quantity: CRAFT_BATCH }), 300000);
           if (!out.attempted || task.skill == null) throw new Error(`${r.name} gave no attempt or no skill value (${JSON.stringify(out).slice(0, 200)})`);
-          // Four hundred attempts without a point: the recipe is past its trivial, or the skill at its cap.
+          // 400 attempts without a point: past trivial or at the cap.
           idle = task.skill > (before ?? -1) ? 0 : idle + out.attempted;
           if (idle >= 400) throw new Error(`${r.name} raised the skill no further than ${task.skill} in ${idle} attempts`);
         }
