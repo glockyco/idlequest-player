@@ -3444,6 +3444,40 @@ test("a gear move with a merchant travels there, buys the item and gives it, a h
   }
 });
 
+test("a crafted gear move is made by the crafter and given on, and a leader's copy stays in the crafter's bags", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    const bag: Record<string, number> = {};
+    const log: string[] = [];
+    const nameOf = (x: string | { name: string }) => (typeof x === "string" ? x : x.name);
+    Object.assign(f.iq, {
+      carried: (x: string | { name: string }) => bag[nameOf(x)] ?? 0,
+      craftItem: async (recipeId: number, opts: { until: number; output: number }) => {
+        log.push(`${f.sheet.characterProfile.name} crafts ${recipeId} for item ${opts.output} until ${opts.until}`);
+        bag["Velium Jasper Ring"] = (bag["Velium Jasper Ring"] ?? 0) + 1;
+        return { attempted: 2, successes: 1, failures: 1, withdrawn: 1 };
+      },
+      giveItem: async (item: string, id: number, { equip }: { equip: boolean }) => {
+        log.push(`give ${item} to ${id}${equip ? " equipped" : " into the bags"}`);
+        bag[item] -= 1;
+        return { ok: true, lines: [] };
+      },
+    });
+    const craft = { recipeId: 8411, skillId: 68, who: "Edroun" };
+    const ring = (to: string) => ({ item: "Velium Jasper Ring", itemId: 14675, from: null, to, slot: "finger", slotNum: 15, buy: { merchant: "Edroun", zone: "craft", price: 3, craft } });
+    f.bot.gear({ moves: [ring("Tagujazolu"), ring(f.me.name)], who: "Edroun", stock: [f.me.name] });
+    await runToEnd(f);
+    // Edroun makes both. The member's goes on at once, and the leader's stays with Edroun.
+    expect(log).toEqual(["Edroun crafts 8411 for item 14675 until 1", "give Velium Jasper Ring to 10 equipped", "Edroun crafts 8411 for item 14675 until 1"]);
+    expect(bag["Velium Jasper Ring"]).toBe(1);
+    expect(f.bot.state.task).toMatchObject({ status: "done", result: "2 of 2 moves", moves: [{ done: true }, { done: true, stocked: true }] });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a move that has to be placed goes into the member's bags and into its slot with the member active", async () => {
   vi.useFakeTimers();
   try {
