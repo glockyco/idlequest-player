@@ -110,7 +110,12 @@ export const CLIENTS = {
         "raidStore": "st",
         "raidTick": "Zd",
         "setAutoHeal": "QL",
-        "setAutoDps": "$Ge"
+        "setAutoDps": "$Ge",
+        "requestSpell": "hD",
+        "spellOptions": "Vd",
+        "livingMembers": "In",
+        "raidClock": "yl",
+        "modRod": "WGe"
       }
     },
     "counted": {

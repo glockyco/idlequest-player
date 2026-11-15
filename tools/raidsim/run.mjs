@@ -25,7 +25,7 @@ let compact;
  * Returns `[{ label, roster, summary, fights }]` in the order of `variants`, `roster` being the
  * normalized members.
  */
-export async function simulate({ boss, variants, level = 60, gear, farmHours, resolve, seeds = 20, seedBase = 1, maxSec = 900, dpsMode = "dps-all-out", healMode = "clr-balanced", jobs = DEFAULT_JOBS, onProgress, trace }) {
+export async function simulate({ boss, variants, level = 60, gear, farmHours, resolve, seeds = 20, seedBase = 1, maxSec = 900, dpsMode = "dps-all-out", healMode = "clr-balanced", revive = "off", rods = "off", jobs = DEFAULT_JOBS, onProgress, trace }) {
   const options = { gear, farmHours, resolve };
   const rosters = [];
   for (const v of variants) rosters.push(await normalizeEntries(v.entries, level, options));
@@ -39,7 +39,7 @@ export async function simulate({ boss, variants, level = 60, gear, farmHours, re
   for (const [v, members] of rosters.entries()) {
     const items = {};
     for (const m of members) for (const id of Object.values(m.equipped)) items[id] ??= itemRows.get(id);
-    for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members, boss, items, compact, seed: (variants[v].seedBase ?? seedBase) + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode, trace: v === 0 && s === 0 ? traceIndex : undefined } });
+    for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members, boss, items, compact, seed: (variants[v].seedBase ?? seedBase) + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode, revive, rods, trace: v === 0 && s === 0 ? traceIndex : undefined } });
   }
 
   const fights = await runJobs(queue.map((q) => q.job), jobs, onProgress);

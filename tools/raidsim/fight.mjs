@@ -283,6 +283,42 @@ export async function runJob(job) {
   if (healMode) inEngine(N.engine.setAutoHeal)(healMode);
   if (dpsMode) await inEngine(N.engine.setAutoDps)(dpsMode, target);
 
+  // Revive orders (`job.revive`): each second one fallen member without a queued revive gets one,
+  // tanks before healers before the others, as the raid window's Heal & Revive does (the engine's
+  // request function). "free" takes only a revive from an item, which costs no mana, the Cleric
+  // epic's, and "all" also a spell's. A client table without these names orders none.
+  const request = N.engine.requestSpell ? inEngine(N.engine.requestSpell) : null;
+  const optionsOf = N.engine.spellOptions ? inEngine(N.engine.spellOptions) : null;
+  const living = N.engine.livingMembers ? inEngine(N.engine.livingMembers) : null;
+  const raidClock = N.engine.raidClock ? inEngine(N.engine.raidClock) : null;
+  const reviveMode = job.revive ?? "off";
+  let revives = 0;
+  const orderRevive = () => {
+    if (reviveMode === "off" || !request || !optionsOf || !living || !raidClock) return;
+    const st = rt.getState();
+    const fallen = st.roster.filter((m) => !m.alive && !st.pendingActions.some((a) => a.kind === "revive" && a.targetId === m.id));
+    if (!fallen.length) return;
+    const rank = (m) => (m.role === "Tanks" ? 0 : m.role === "Healers" ? 1 : 2);
+    const m = fallen.sort((a, b) => rank(a) - rank(b))[0];
+    const opts = optionsOf({ ...st, roster: living(st), kind: "revive", recipientId: m.id, nowMs: raidClock().nowMs(), target: null }).filter((o) => !o.disabledReason);
+    const pick = opts.find((o) => o.spell?.itemSource) ?? (reviveMode === "all" ? opts[0] : null);
+    if (pick && request("revive", pick.key, m.id)) revives++;
+  };
+
+  // Mod Rod orders (`job.rods`): every half minute the raid window's "Mod Rod x 3" (the engine's
+  // command behind the button), which turns hit points into mana at once for every member of the
+  // group and stops at full mana or before 10% HP: "casters" for "Casters Only", "all" also for
+  // "Healers Only".
+  const modRod = N.engine.modRod ? inEngine(N.engine.modRod) : null;
+  const rodMode = job.rods ?? "off";
+  let rods = 0;
+  let rodAt = clock.now + 30000;
+  const orderRods = () => {
+    if (rodMode === "off" || !modRod || clock.now < rodAt) return;
+    rodAt = clock.now + 30000;
+    for (const group of rodMode === "all" ? ["Pure Casters", "Healers"] : ["Pure Casters"]) if (modRod(group, 3)) rods++;
+  };
+
   const startedAt = clock.now;
   const bossActorId = `npc:${init.spawnInstanceId}`;
   const bossState = () => pi.getRuntimeSnapshot().actors.find((a) => a.id === bossActorId);
@@ -321,12 +357,14 @@ export async function runJob(job) {
   };
   while (clock.now - startedAt < maxSec * 1000 && !over()) {
     placeActors();
+    orderRevive();
+    orderRods();
     await advance(1000, over);
     if (!bossSeen && clock.now - startedAt > 10_000) throw new Error("the boss never entered the combat engine");
   }
   await flush();
   const b = bossState();
-  return summarize({ stubs, members, built, leader, bossActorId, bossHpLeft: b ? Math.max(0, b.hp) : 0, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples, startStats });
+  return { ...summarize({ stubs, members, built, leader, bossActorId, bossHpLeft: b ? Math.max(0, b.hp) : 0, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples, startStats }), revives, rods };
 }
 
 function summarize({ stubs, members, built, leader, bossActorId, bossHpLeft, init, startedAt, maxSec, seed, anyAlive, rt, traceId, samples, startStats }) {

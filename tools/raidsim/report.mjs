@@ -50,6 +50,10 @@ export function summarize(fights, maxSec) {
     bossMaxHp: fights[0].bossMaxHp,
     // Member deaths per fight, over all members.
     deathsPerFight: round(mean(fights.map((f) => f.members.filter((r) => r.died !== null).length)), 2),
+    // Revive orders the raid queued per fight (`--revive`).
+    revivesPerFight: round(mean(fights.map((f) => f.revives ?? 0)), 2),
+    // Mod Rod orders the raid took per fight (`--rods`).
+    rodsPerFight: round(mean(fights.map((f) => f.rods ?? 0)), 2),
     members,
   };
 }
@@ -78,7 +82,7 @@ export function fightLines(summary, maxSec) {
   const k = summary.killSec;
   const lines = [`Fights ${summary.fights}: ${summary.kills} kills, ${summary.wipes} wipes, ${summary.timeouts} timeouts (limit ${maxSec} s)`];
   if (summary.kills) lines.push(`Kill time: min ${k.min} s, median ${k.median} s, mean ${k.mean} s, max ${k.max} s`);
-  lines.push(`Member deaths per fight: ${summary.deathsPerFight} of ${summary.members.length}`);
+  lines.push(`Member deaths per fight: ${summary.deathsPerFight} of ${summary.members.length}${summary.revivesPerFight ? `, revives ordered per fight: ${summary.revivesPerFight}` : ""}${summary.rodsPerFight ? `, Mod Rod orders per fight: ${summary.rodsPerFight}` : ""}`);
   const missed = summary.fights - summary.kills;
   if (missed) lines.push(`Boss HP left, mean over all fights: ${summary.bossHpLeftMean} of ${summary.bossMaxHp}`);
   return lines;

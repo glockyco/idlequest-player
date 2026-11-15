@@ -20,6 +20,10 @@
 //   --max-sec S   fight time limit in seconds (default 900)
 //   --dps-mode    dps-balanced | dps-all-out | all-all-out (default dps-all-out), the raid's Auto-DPS
 //   --heal-mode   clr-balanced | all-balanced | clr-all-out | all-all-out | off (default clr-balanced)
+//   --revive      off | free | all (default off): revive orders for fallen members, "free" only with a
+//                 revive from an item, which costs no mana, "all" also with a spell's
+//   --rods        off | casters | all (default off): the raid window's "Mod Rod x 3" every half minute,
+//                 "Casters Only" or also "Healers Only"
 //   --class-sweep swap the --slot member through all 14 classes (default kit of each class) and
 //                 compare kill times with the roster as given
 //   --client      the client build to run: a release id under .re/releases/ or "legacy" (.re/js). Default is
@@ -139,6 +143,10 @@ const maxSec = Number(opt("max-sec", 900));
 const jobs = Number(opt("jobs", DEFAULT_JOBS));
 const dpsMode = opt("dps-mode", "dps-all-out");
 const healMode = opt("heal-mode", "clr-balanced");
+const revive = opt("revive", "off");
+if (!["off", "free", "all"].includes(revive)) fail("--revive must be one of off, free, all");
+const rods = opt("rods", "off");
+if (!["off", "casters", "all"].includes(rods)) fail("--rods must be one of off, casters, all");
 if (!(seeds >= 1) || !(maxSec > 0)) fail("--seeds and --max-sec must be positive numbers");
 if (!DPS_MODES.includes(dpsMode)) fail(`--dps-mode must be one of ${DPS_MODES.join(", ")}`);
 if (!HEAL_MODES.includes(healMode)) fail(`--heal-mode must be one of ${HEAL_MODES.join(", ")}`);
@@ -202,6 +210,8 @@ try {
     maxSec,
     dpsMode,
     healMode,
+    revive,
+    rods,
     jobs,
     onProgress: progress,
     trace: opt("trace"),

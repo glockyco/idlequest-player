@@ -114,6 +114,7 @@ bun tools/raidsim.mjs --boss "Hraashna the Warder" --roster tools/raidsim/roster
 bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --class-sweep --slot "G3 monk" --seeds 10 --json
 bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --seeds 1 --trace "G1 warrior"   # one member's hit points, damage, healing and hate over time
 bun tools/raidsim.mjs --boss 128093 --roster my-roster.json --gear farm --gear-report   # dropped gear and spells, with where each item comes from
+bun tools/raidsim.mjs --boss 113457 --roster account --leader Tagujazolu --revive all   # with revive orders for fallen members, as the raid window's Heal & Revive gives them
 ```
 
 Every fight runs in its own process and normally takes a few seconds. A fight process that runs for ten minutes is killed and reported as a timeout. A roster file is `{ "level": 60, "members": [{ "name": "Tank", "class": "warrior", "leader": true }, ...] }`. The numbers are as good as the remaining assumptions, so use them to compare rosters and not as a forecast.
