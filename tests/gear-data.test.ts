@@ -1,7 +1,7 @@
 // The score and farm-time rules shared by tools/gear.mjs and the raid simulator's farmed kits.
 import { expect, test } from "bun:test";
 // @ts-expect-error plain .mjs module without types
-import { CLASS_KEYS, BIT, capFor, damageBonus, dropChance, expectedMult, farmHours, outputValue, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
+import { BIT, CLASS_KEYS, capFor, damageBonus, dropChance, expectedMult, farmHours, hasteCap, outputValue, procDamagePerMinute, scoreFor, statScore, weaponRatio } from "../tools/lib/gear-data.mjs";
 
 test("class keys line up with the class bit masks", () => {
   CLASS_KEYS.slice(1).forEach((key: string, i: number) => expect(BIT[key]).toBe(1 << i));
@@ -113,3 +113,19 @@ test("farm hours are respawn over spawn chance and drop chance", () => {
   expect(farmHours({ respawn: Infinity, spawn: 1, drop: 1 })).toBe(Infinity);
   expect(farmHours({ respawn: 640, spawn: 0, drop: 1 })).toBe(Infinity);
 });
+
+test("item haste counts for what the level's cap leaves it beside the buffs' haste", () => {
+  const sash = [{ haste: 24 }];
+  const melee = (level: number, haste?: number) => outputValue(sash, "cleric", level, haste == null ? {} : { room: { haste } }).melee;
+  // Without a buff 24% haste is 24% more swings.
+  expect(melee(59)).toBeCloseTo(240);
+  // Beside a buff of 50 the swings go from 150 to 174, 16% more.
+  expect(melee(59, 50)).toBeCloseTo(160);
+  // At 59 items, buffs and songs give 94 together, and at 60 they give 100: a buff of 80 leaves
+  // the sash 14 and 20 of its 24 points, and a group whose songs reach the cap none.
+  expect(melee(59, 80)).toBeCloseTo((10 * 100 * 14) / 180);
+  expect(melee(60, 80)).toBeCloseTo((10 * 100 * 20) / 180);
+  expect(melee(60, 125)).toBe(0);
+  expect([30, 31, 50, 51, 54, 55, 59, 60].map(hasteCap)).toEqual([50, 74, 74, 84, 84, 94, 94, 100]);
+});
+

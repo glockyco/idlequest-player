@@ -506,18 +506,22 @@ export function inventoryInPage() {
 
 /**
  * What the stat cap leaves the gear of the tab's leader and account companions, `{ name: { STR, STA,
- * INT, WIS, buffed } }`: the cap less every other part of the stat (base, buffs and songs, AA), from
- * the character sheet's `statBreakdowns`, the profile's for the active character and the companion
- * store's `botComputedStats` for a member. `buffed` says whether any buff counted in.
+ * INT, WIS, haste, buffed } }`: the cap less every other part of the stat (base, buffs and songs,
+ * AA), from the character sheet's `statBreakdowns`, the profile's for the active character and the
+ * companion store's `botComputedStats` for a member. `haste` is the haste the party's buffs and
+ * songs give the character, in percent, which item haste shares the level's cap with. `buffed`
+ * says whether any buff counted in.
  */
 export function statRoomInPage() {
   const S = window.iq.stores;
   const p = S.character.getState().characterProfile;
   const cs = S.companions.getState();
   const chars = S.roster?.getState?.().characters ?? [];
-  const room = (b) => {
+  const room = (b, support) => {
     if (!b) return null;
-    const out = { buffed: false };
+    const bonus = support?.bonuses ?? {};
+    const out = { buffed: false, haste: Math.max(0, (Number(bonus.Haste) || 0) + (Number(bonus.HasteType2) || 0)) };
+    if (out.haste > 0) out.buffed = true;
     for (const k of ["STR", "STA", "INT", "WIS"]) {
       const s = b[k];
       if (!Number.isFinite(s?.cap) || !Array.isArray(s.parts)) return null;
@@ -528,10 +532,10 @@ export function statRoomInPage() {
     return out;
   };
   const out = {};
-  if (p?.name) out[p.name] = room(p.statBreakdowns);
+  if (p?.name) out[p.name] = room(p.statBreakdowns, p.partySupport);
   for (const c of cs.companions ?? []) {
     const r = chars.find((x) => x.id === c.characterId);
-    if (r) out[r.name] = room(cs.botComputedStats?.[c.id]?.statBreakdowns);
+    if (r) out[r.name] = room(cs.botComputedStats?.[c.id]?.statBreakdowns, cs.botComputedStats?.[c.id]?.partySupport);
   }
   return out;
 }

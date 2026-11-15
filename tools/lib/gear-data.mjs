@@ -61,7 +61,10 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * What a set of worn armor and jewelry adds to a character, in tenths of a percent, by channel, from
  * the client's formulas (docs/client-internals.md, "What item stats and effects do"):
  * - `melee`, of the wearer's melee damage: offense (2/3 a point of STR, 1 a point of ATK) through the
- *   damage roll, and the highest item haste (at most 50) as swing rate;
+ *   damage roll, and the swings the highest item haste (at most 50) adds. The client adds it to the
+ *   haste of buffs and songs and caps the sum by level (`hasteCap`), so with `room.haste`, the
+ *   wearer's buff haste, an item counts for what the cap still leaves it, over the swings the buffs
+ *   give already: nothing in a group whose buffs reach the cap, two thirds beside a buff of 50;
  * - `spells`, of the wearer's spell damage: spell damage and spell haste focus percent, and without
  *   `recovery` the mana it can spend: item mana and INT or WIS (80 × level / 425 mana a point) as a
  *   percent of the pool (`pool`, else a typical 30 mana a level), each point of `manaregen` (at most
@@ -83,6 +86,8 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * gear together (`Za`), so with `room` (`{ STR, STA, INT, WIS }`, what the cap leaves the wearer's
  * gear, `statRoom` in tools/iqd.mjs) gear counts a stat only up to its room.
  */
+/** The most haste, in percent, that items, buffs and songs give together at `level` (`PEe` in the client of 2026-11-15). */
+export const hasteCap = (level) => (level <= 30 ? 50 : level <= 50 ? 74 : level <= 54 ? 84 : level <= 59 ? 94 : 100);
 export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
   // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
@@ -120,7 +125,10 @@ export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}
   str = fit(str, "STR");
   sta = fit(sta, "STA");
   stat = fit(stat, WIS_CLASSES.has(c) ? "WIS" : "INT");
-  const melee = ((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50);
+  const cap = hasteCap(level);
+  const buffs = Math.min(cap, Math.max(0, room?.haste ?? 0));
+  const swings = (100 * (Math.min(cap, Math.min(haste, 50) + buffs) - buffs)) / (100 + buffs);
+  const melee = ((2 / 3) * str + atk) * damagePctPerOffense(level) + swings;
   const regen = Math.min(manaregen, 15);
   const added = mana + ((80 * level) / 425) * stat;
   const base = pool > 0 ? pool : 30 * level;

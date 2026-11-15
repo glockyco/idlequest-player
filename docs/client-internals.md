@@ -429,8 +429,13 @@ Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` u
 Line numbers are in `.re/releases/20261108T004644-064bc896/pretty/OSTsR53r.js` ("O") and
 `0eakiHJI.js` ("R"). `Sd` (O 21186-21291) sums the item fields, `kd` (O 21292-21660) applies the
 worn and focus effect spells, and `Bt` (O 21847-22168) caps and totals them. Every stat is capped
-at 255 (`a4`), item haste takes the highest item at most 50 (buff haste adds up to the level cap
-`hd`), and item HP and mana regeneration are capped at 15 each.
+at 255 (`a4`), item haste takes the highest item at most 50, and item HP and mana regeneration are
+capped at 15 each. Item haste, the haste of buffs and songs and a second haste type add up to a
+cap by level (50 to level 30, 74 to 50, 84 to 54, 94 to 59, 100 at 60, `PEe` in the release of
+2026-11-15), and a third type adds past it. A buff's haste comes from the party supply
+(`partySupport.bonuses.Haste`): 115 in a group with a Bard, an Enchanter and a Shaman, where an
+item's haste adds nothing, 50 with a Shaman alone, and 0 without a haste spell. The supply's
+equipment haste (`equipmentHaste`) is for pets only.
 
 - STR enters melee only as offense, `weaponSkill + max(0, (2 STR - 150) / 3) + item ATK + buff ATK`
   (`je` O 16715), which scales the damage roll against the target's AC (0.1 to 2.0, `ap` O 62209).
