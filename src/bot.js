@@ -2332,7 +2332,7 @@
         // loot window, and its loot packet says `autoLoot` false.
         const plain = s.expect.replace(/ \[\d+\]$/, "");
         const onCorpse = () => Boolean(s.kill) && (i.lootLog ?? []).some((l) => l.t >= m.foughtAt && l.auto === false && l.items.includes(plain));
-        for (let w = 0; w < (s.kill ? 40 : 10) && !held() && !onCorpse(); w++) await sleep(500);
+        for (let w = 0; w < (s.kill ? 40 : 20) && !held() && !onCorpse(); w++) await sleep(500);
         if (s.kill && !held()) {
           const r = await step(`loot ${plain} from the corpse`, () => collectCorpseLoot(i, plain), 60000).catch((e) => ({ looted: [], error: String(e?.message ?? e) }));
           log(`quest: ${m.name} looked into the corpses for ${plain}: ${r.error ?? (r.looted.length ? `took ${r.looted.join(", ")}` : "not there")}`);
@@ -2352,9 +2352,11 @@
           }
         }
         if (!held()) {
-          // What the corpse gave instead, which tells a lost loot from a drop that is not there.
+          // What the corpse gave instead, which tells a lost loot from a drop that is not there,
+          // and what came into the bags during the step.
           const loot = s.kill ? (i.lootLog ?? []).filter((l) => l.t >= m.foughtAt).map((l) => l.items.join(", ") || "coin only") : null;
-          throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}`);
+          const came = (i.stores.character.getState().characterProfile?.inventory ?? []).filter((r) => !had.has(r.itemInstanceId)).map((r) => r.itemDetails?.Name ?? r.itemDetails?.name ?? r.itemid);
+          throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}; new in the bags: ${came.join(", ") || "nothing"}`);
         }
       }
       m.at = Math.max(m.at, k + 1);
