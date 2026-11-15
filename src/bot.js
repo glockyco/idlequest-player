@@ -1897,7 +1897,13 @@
         // The raid fight reads and writes a raid task, so it gets one that falls back on this task
         // for its status and runner.
         const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", effects: [], fight: null, result: null, spawnInstanceId: null });
-        await raidFight(i, fight, step);
+        // The tick ends raid mode that no running task owns, so the quest says that it raids.
+        task.raiding = true;
+        try {
+          await raidFight(i, fight, step);
+        } finally {
+          task.raiding = false;
+        }
         (task.raids ??= []).push(fight.result);
         log(`quest: the raid on ${s.kill} for ${m.name}: ${fight.result ?? "no fight"}`);
         if (fight.fight?.outcome !== "killed") throw new Error(`the raid on ${s.kill} ended without a kill: ${fight.result ?? "no fight"}`);
@@ -3274,8 +3280,9 @@
     if (inRaid(i)) {
       // Raid mode that no running raid task owns holds the group out of play, as after the stopped
       // Cazic-Thule raid of 2026-11-12, whose own two tries to end it came while the fight was
-      // closing. A minute after the task's end the tick ends it, every 30 s until it is off.
-      const owned = state.task?.kind === "raid" && state.task.status === "running";
+      // closing. A minute after the task's end the tick ends it, every 30 s until it is off. A quest
+      // owns it while it fights one of its enemies as a raid (`raiding`).
+      const owned = (state.task?.kind === "raid" || state.task?.raiding) && state.task.status === "running";
       if (!owned && typeof i.raid?.end === "function" && now() - (state.task?.endedAt ?? 0) > 60000 && now() - (state.raidEndTry ?? 0) > 30000) {
         state.raidEndTry = now();
         await i.raid.end().then(() => log("raid mode no task owned is ended"), (e) => log(`raid mode no task owns: end failed: ${e?.message ?? e}`));
@@ -3659,7 +3666,7 @@
     const task = state.task;
     setTimeout(() => {
       if (state.task !== task || task.status !== "running") return;
-      if (task.kind === "raid") {
+      if (task.kind === "raid" || task.raiding) {
         task.status = "stopped";
         settleTask(task);
         iq()?.raid?.end().catch(() => {});

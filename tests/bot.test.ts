@@ -2301,6 +2301,25 @@ test("a raid on a boss of the open world that no longer stands ends before it bu
   }
 });
 
+test("a quest's kill step marked for the raid is fought as a raid led by the member, which owns raid mode meanwhile", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000 });
+    let ownedInFight: unknown = null;
+    const attack = f.iq.raid.attack;
+    f.iq.raid.attack = async () => ((ownedInFight = f.bot.state.task.raiding), attack());
+    f.bot.quest({ members: ["Tagujazolu"], steps: [{ zone: "guktop", kill: "Lord Nagafen", level: 62, raid: true }], raid: { members: ["Tagujazolu", "Edroun"], maxPp: 0, heal: "all-balanced", nuke: "dps-all-out" } });
+    await runToEnd(f);
+    expect(calls).toEqual(expect.arrayContaining(["open", "heal all-balanced", "attack Lord_Nagafen", "nuke dps-all-out", "end"]));
+    expect(calls.find((c) => c.startsWith("recruit"))).toBe("recruit 20");
+    expect(ownedInFight).toBe(true);
+    expect(f.bot.state.task).toMatchObject({ kind: "quest", status: "done", raiding: false, raids: [expect.stringMatching(/^killed Lord.Nagafen/)] });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid brings a fallen member back with a revive that costs no mana, and looks for one only once a minute", async () => {
   vi.useFakeTimers();
   try {
