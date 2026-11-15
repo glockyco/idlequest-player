@@ -1,6 +1,6 @@
 // Checks the pure parts of the raid kit (tools/lib/raid-kit.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { applySwap, buildBatch, candidates, closestToKill, compareOutcomes, copyFor, dominates, improves, kitState, outcomeOf, probeRounds, spearman, undominated, withSwaps } from "../tools/lib/raid-kit.mjs";
+import { applySwap, buildBatch, candidates, closestToKill, compareOutcomes, copyFor, dominates, improves, kitState, memberOutput, outcomeOf, probeRounds, spearman, undominated, withSwaps } from "../tools/lib/raid-kit.mjs";
 
 // Content rows: slots, classes and races are bit masks (ear = 1 << 1 | 1 << 4, back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const WARRIOR = 1;
@@ -213,4 +213,11 @@ test("the goal boss closest to a kill is the one with the best outcome, by share
   // A kill beats any miss, a faster kill beats a slower one, and among misses the smaller share left wins whatever the boss's size.
   expect(closestToKill([row("big", 0, null, 700_000, 900_000), row("small", 0, null, 190_000, 200_000), row("mid", 0, null, 300_000, 500_000)]).boss).toBe("mid");
   expect(closestToKill([row("miss", 0, null, 10, 200_000), row("slow", 2, 300, 0, 200_000), row("fast", 2, 80, 0, 200_000)]).boss).toBe("fast");
+});
+
+test("a member's output counts the damage it took against its damage and healing", () => {
+  // A cloak that saves its wearer 300 hit points of hits scores as 300 more damage would.
+  const fight = (taken: number) => ({ damage: { melee: 1000, nuke: 200 }, healed: 500, taken });
+  expect(memberOutput(fight(900)) - memberOutput(fight(1200))).toBe(300);
+  expect(memberOutput(fight(0))).toBe(1700);
 });

@@ -26,7 +26,7 @@
 //   Candidates  Every such swap, less those the worn item or another candidate beats in every stat.
 //   Screen      Fights of the screen's length where each member wears one candidate (the p-th of its
 //               list in fight p), so one fight tests a candidate for every member at once. A member's
-//               result is its damage to the boss plus its healing, which is compared with the same
+//               result is its damage to the boss plus its healing less the damage it took, which is compared with the same
 //               member's mean over the baseline fights of the same length. Stage one fights every
 //               candidate once. Stage two fights the best four of each member (by the change against the
 //               member's own spread) twice more, and a candidate's score is its mean over the three
@@ -202,8 +202,8 @@ const stats = await (async () => {
 
 /**
  * Probe fights: fight `p` of `roundList` has the `p`-th swap of every member worn, `seedsPerRound`
- * times. Returns each swap with `gain`, the change of its member's output (damage plus healing, in
- * hit points) against the member's mean in the baseline fights of the same length, and the
+ * times. Returns each swap with `gain`, the change of its member's output (damage plus healing less
+ * damage taken, in hit points) against the member's mean in the baseline fights of the same length, and the
  * member's `noise`, its standard deviation there.
  */
 async function probe(roundList, { seedStart, seedsPerRound, label }) {

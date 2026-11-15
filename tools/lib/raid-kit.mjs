@@ -209,8 +209,12 @@ export function probeRounds(swaps) {
   return rounds;
 }
 
-/** What a roster member did to the boss and for the raid in a fight: its damage plus its healing, both in hit points. */
-export const memberOutput = (m) => Object.values(m.damage).reduce((a, b) => a + b, 0) + m.healed;
+/**
+ * What a roster member did for the raid in a fight, in hit points: its damage to the boss plus
+ * its healing, less the damage it took, each point of which uses up a point of someone's healing.
+ * Without the last term a swap for armor, hit points or resists never scored.
+ */
+export const memberOutput = (m) => Object.values(m.damage).reduce((a, b) => a + b, 0) + m.healed - (m.taken ?? 0);
 
 /**
  * A batch of swaps from `ranked` (best first): at most one per member, never into a slot a swap of
