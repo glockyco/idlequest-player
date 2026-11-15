@@ -262,6 +262,10 @@ test("several groups hunt one common enemy while its spawn points feed them, eac
   const joined = decide({ killChance: byLevel, now: NOW, tabs: hunting, targets: [disciple([{ to: "X2", slot: "primary", gain: 200, level: 30 }])], hoursPerLevel: paces, killsPerHour: { G1: 20, G2: 20, G3: 20 }, history });
   expect(joined.actions.map((a) => a.label)).toEqual(["B"]);
   expect(joined.targets["target-hateplane-a-disciple"]).toMatchObject({ state: "hunting", groups: ["G1", "G2"] });
+  // A visit that found none up read their next spawn. Until then nobody joins the hunt.
+  const read = { t: NOW - 30000, label: "C", kind: "hunt", id: "target-hateplane-a-disciple", ids: ["target-hateplane-a-disciple"], status: "done", result: "none of a disciple up, next spawn at 12:00", nextAt: NOW + 600000 };
+  const waits = decide({ killChance: byLevel, now: NOW, tabs: hunting, targets: [disciple([{ to: "X2", slot: "primary", gain: 200, level: 30 }])], hoursPerLevel: paces, killsPerHour: { G1: 20, G2: 20, G3: 20 }, history: [...history, read] });
+  expect(waits.actions).toEqual([]);
 });
 
 test("the strongest group takes the zone where its targets add most, and the others hunt what they reach", () => {

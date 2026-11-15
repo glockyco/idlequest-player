@@ -734,10 +734,14 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     let best = null;
     for (const t of tabs.filter(hunter)) {
       for (const xs of zones.values()) {
-        // An enemy a group hunts now is not waiting for its next hunt, so its retry time does not hold a further group.
+        // An enemy a group hunts now is not waiting for its next hunt, so its retry time does not
+        // hold a further group. A respawn time the last hunt read does: until then nothing stands
+        // for a second group either, and three visits to the Plane of Hate in ten minutes found
+        // none up while a first group hunted there (2026-11-15).
         const open = xs.filter((x) => left(x) >= ACQUIRE.minSupply && inTime(x, t)).map((x) => withClaims(shared(x)));
         if (!open.length) continue;
-        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && !(kind === "camp" && noCamp.has(targetId(x))) && (taken.has(targetId(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind), t)));
+        const respawning = (x) => lastHunt(targetId(x))?.nextAt > now;
+        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && !(kind === "camp" && noCamp.has(targetId(x))) && ((taken.has(targetId(x)) && !respawning(x)) || due(lastHunt(targetId(x)), targetRetryMin(kind), t)));
         if (w && net(w) > 0 && (!best || net(w) > net(best.w))) best = { t, w };
       }
     }
