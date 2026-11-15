@@ -20,7 +20,7 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 
 ## Rules that hold for every epic
 
-1. All fourteen 1.0 epics have a script for every NPC step (`Q`). The Druid's four foraged items and the Rose of Firiona come from Forage (data/forage.json), which the Ranger's Swiftwind needs too. The Monk has spawn blockers listed in its section (`S`). The 1.5 and 2.0 continuations need zones or items that the Velious-era snapshot lacks and are out of scope (`Q`, `S`).
+1. All fourteen 1.0 epics have a script for every NPC step (`Q`). The Druid's four foraged items and the Rose of Firiona come from Forage (data/forage.json), which the Ranger's Swiftwind needs too. The 1.5 and 2.0 continuations need zones or items that the Velious-era snapshot lacks and are out of scope (`Q`, `S`).
 2. No 1.0 script checks the player's level. The wiki says epic steps can be completed at any level, and the server policy records the same (`W` overview, `T` `content_exclusions.json`). Real limits are zone minimums (Plane of Hate, Plane of Fear and Plane of Sky need level 46 in `S`) and mob strength.
 3. Quest-only faction checks always pass (`W` overview, `T` `faction_policy.go`: `GetFaction` returns Ally and `GetCharacterFactionLevel` returns the maximum). Class, item and quest-flag checks still apply.
 4. Only the active (logged-in) character hands items in. The Give window offers the active character's inventory slots to the targeted NPC (`K` `engine.pretty.js` `QGe`: `characterProfile.inventory`, NPC id, current zone). A companion cannot hand in. Hostile actors that a hand-in spawns attack the hand-in character (`Q`, for example Rak, Lhranc, the Necromancer's golem). The window's Cancel returns the offered items to the bags when they fit (`K` the handler `B` beside `quest-give-window` in `BHfVSHXB.js` of release 20261110T154736), so a trade cut short before Give leaves nothing in the window.
@@ -375,7 +375,7 @@ Scripts: `erudnext/Tomekeeper_Danl`, `dreadlands/Brother_Balatin`, `rathemtn/Bro
 | Step | NPC, zone, level | Hand in | Receive | Source | Party |
 | --- | --- | --- | --- | --- | --- |
 | M1 | Tomekeeper Danl, erudnext (Monk only) | Immortals [18195] | Danl's Reference [1682] | Skyfire: Faerie of Dismay L47, a_soul_devourer L47 and a_lava_walker L50 drop it at 35% with spawn 11% each, 640 s. Other skyfire mobs drop 4 to 15% | 44 |
-| M2 | Brother Balatin, dreadlands | Metal Pipe Zan [12979], Metal Pipe Fi [12980], Robe of the Lost Circle [12256] | Robe of the Whistling Fists [12970] | Zan: Drolvarg pawbuster L51 karnor 100%, spawn 5% on 4 points, 1,440 s. Fi: Iksar betrayer L53 chardok 100%, spawn 10%. Robe: Brother_Zephyl L61 rathemtn, spawn 5%, 150 s, drop 23%, or #Qwinn (weight 0) | 46 and about 6 h |
+| M2 | Brother Balatin, dreadlands | Metal Pipe Zan [12979], Metal Pipe Fi [12980], Robe of the Lost Circle [12256] | Robe of the Whistling Fists [12970] | Zan: Drolvarg pawbuster L51 karnor 100%, spawn 5% on 4 points, 1,440 s. Fi: Iksar betrayer L53 chardok 100%, spawn 10%. Robe: Brother_Zephyl L61 rathemtn, spawn 5%, 150 s, drop 23%, or #Qwinn (a weight-0 group, which spawns) | 46 and about 6 h |
 | M3 | Lheao, timorous | Robe, Reference | Book of Celestial Fists [1683] | M1, M2 | 40 |
 | M4 | Fire sprite, lavastorm: say "I challenge Eejag" | none | kill Eejag L55 (monk class), Charred Scale [1684] | script spawn | 50 |
 | M5 | a_presence, airplane (Monk only) | Charred Scale | Gwan L57 spawns, drops Breath of Gwan [1685] | M4 | 52, zone 46 |
