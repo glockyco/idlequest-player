@@ -445,22 +445,31 @@
   };
   /**
    * Pulls up to `count` items of `spare` (`[{ id, name }]`, the gear plan's `spareGear`) out of
-   * `name`'s bags into the leader's, where the bag reserve sells or destroys them. Only runs while
-   * the leader is active. Stops after two failed pulls, because the list can be an hour old.
+   * `name`'s bags into the leader's, where the bag reserve sells or destroys them. Another active
+   * character, as a crafter giving its copies, pulls them into its own bags and gives each on to
+   * the leader. Stops after two failed pulls, because the list can be an hour old.
    * Returns the number of items pulled.
    */
   const makeRoom = async (i, name, spare = [], count = 4) => {
-    if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return 0;
+    const other = config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId);
     let pulled = 0;
     let failed = 0;
     for (const s of spare) {
       if (pulled >= count || failed >= 2) break;
-      if (i.bagSpace().free < 2) await keepReserve(i, true);
+      if (other && i.bagSpace().free < 2) break;
+      if (!other && i.bagSpace().free < 2) await keepReserve(i, true);
       const r = await i.pullItem({ name: s.name, id: s.id }, { from: name, timeoutMs: 8000 }).catch(() => null);
-      if (r?.got) pulled++;
-      else failed++;
+      if (!r?.got) {
+        failed++;
+        continue;
+      }
+      pulled++;
+      if (other) {
+        const g = await i.giveItem(s.name, Number(config.leaderId), { equip: false, settle: () => settleHeld(i) }).catch((e) => ({ ok: false, lines: [String(e?.message ?? e)] }));
+        if (!g.ok) log(`kept ${s.name} from ${name}'s bags: the leader took none (${g.lines?.at(-1) ?? "no line"})`);
+      }
     }
-    if (pulled) log(`made room in ${name}'s bags: pulled ${pulled} spare item(s)`);
+    if (pulled) log(`made room in ${name}'s bags: pulled ${pulled} spare item(s)${other ? " for the leader" : ""}`);
     return pulled;
   };
 
