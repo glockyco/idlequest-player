@@ -2269,6 +2269,26 @@
           throw e;
         }), 300000);
       }
+      // A foraged quest item (`forage`, `{ tries, everySec }`): the member forages where the party
+      // stands until it carries `expect` or the tries run out, a forage every `everySec` seconds,
+      // since the skill has a reuse time. What else it finds goes where `settleHeld` puts it.
+      if (s.forage) {
+        const want = ref(s.expect);
+        const found = {};
+        await step(`forage for ${s.expect}`, async () => {
+          for (let k = 0; k < (s.forage.tries ?? 30) && i.carried(want) < 1; k++) {
+            if (task.status !== "running") throw new TaskStopped();
+            const r = await i.forage();
+            const line = r.lines.find((l) => /forag|find|found/i.test(l ?? ""));
+            if (r.cursor) found[r.cursor] = (found[r.cursor] ?? 0) + 1;
+            if (r.cursor) await settleHeld(i);
+            if (k === 0 || r.cursor) log(`quest: ${m.name} foraged in ${zoneShort(i)}: ${r.cursor ?? "nothing"}${line ? ` (${line.slice(0, 80)})` : ""}`);
+            if (i.carried(want) < 1) await sleep(Math.max(0, (s.forage.everySec ?? 30) * 1000 - 5000));
+          }
+          log(`quest: ${m.name}'s forage in ${zoneShort(i)} found ${Object.entries(found).map(([k, n]) => `${n} ${k}`).join(", ") || "nothing"}`);
+          if (i.carried(want) < 1) throw new TaskLater(`no ${s.expect} in ${s.forage.tries ?? 30} forages in ${zoneShort(i)}`, now() + 3600000);
+        }, ((s.forage.tries ?? 30) * (s.forage.everySec ?? 30) + 120) * 1000);
+      }
       // The walk can cross a large zone, and talkToNpc gives up after two minutes without progress, so the step itself may last 15.
       // `npcIds` tells the step's NPC from another of its name in the zone.
       const talk = (say) => i.talkToNpc(s.npc, say, s.npcIds?.length ? { ids: s.npcIds } : undefined);

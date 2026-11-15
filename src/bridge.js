@@ -1296,6 +1296,20 @@
     if (!r?.success) throw new Error(r?.message ?? `the pickup of ${name} was refused`);
     return r.message ?? `picked up ${name}`;
   };
+  /**
+   * Forage once, as the macro bar's Forage button does: the client sends the Forage message (187)
+   * with the active character's position, and the server answers in the chat and puts a find on
+   * the cursor. Resolves with the chat lines of the next five seconds, `{ lines, cursor }`.
+   */
+  const forage = async () => {
+    const p = stores.character.getState().characterProfile;
+    if (!p?.id) throw new Error("no character in the world to forage");
+    const at = lastPos ?? p;
+    const since = stores.chat.getState().messages.length;
+    socket.sendJsonMessage(187, { x: Number(at.x ?? 0) || 0, y: Number(at.y ?? 0) || 0, z: Number(at.z ?? 0) || 0, heading: Number(p.heading ?? 0) || 0 });
+    await pause(5000);
+    return { lines: stores.chat.getState().messages.slice(since).map((m) => m.text), cursor: cursorItem() };
+  };
   // The zone and NPC whose dialogue the last talk opened (`talkToNpc`).
   let talking = null;
   /**
@@ -2033,6 +2047,7 @@
     balances,
     takeCoin,
     pickupGround,
+    forage,
     handInEach,
     pullItem,
     giveItem,
