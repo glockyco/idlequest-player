@@ -1985,7 +1985,10 @@ export class Daemon {
     this.pass ??= this.coordinatePass(Date.now())
       .catch((e) => {
         this.log(`coordinator: ${e.message}`);
-        if (/relay (connection closed|not connected)/.test(e.message)) this.coordinatedAt = 0;
+        // So does one that a page's own socket ended ("Not connected", the client's error), as
+        // in the minutes after the server's restarts of 19:52 on 2026-11-15, when two passes
+        // failed at an item search and the next came five minutes later.
+        if (/relay (connection closed|not connected)|Not connected/.test(e.message)) this.coordinatedAt = 0;
       })
       .finally(() => {
         this.pass = this.doing = null;
