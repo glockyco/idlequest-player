@@ -54,8 +54,8 @@ const MAIN_HAND_TYPE = { rogue: PIERCING };
  * (`platPerHour` of every group, the pass runs hourly), less the raid budget's share of that hour,
  * so purchases spend income and the standing coin stays for raids (`docs/plans/gear-acquisition.md`).
  * `rows` are `bun tools/groups.mjs --json` rows, `raidPpPerDay` the raid budget. With the account's
- * coin (`coinPp`) the pass may also spend what stands above `BUY_RESERVE_PP`, since crafting for a
- * merchant brings more than the groups earn (docs/plans/coin.md).
+ * coin (`coinPp`, what it may spend, `spendable` of tools/lib/coin.mjs) the pass may also spend
+ * what stands above `BUY_RESERVE_PP`, which the raids and quests do not need.
  */
 export const BUY_RESERVE_PP = 200000;
 export const buyBudget = (rows, raidPpPerDay, coinPp = null) => Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24, (coinPp ?? 0) - BUY_RESERVE_PP);

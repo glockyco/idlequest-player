@@ -27,14 +27,14 @@ test("once the day's credit is won, one more is rolled for while the coin allows
   const extra = (coin: object | null, history: object[] = [won]) => decide({ now: NOW, tabs, history, coin }).actions.filter((a) => a.kind === "casino").map((a) => [a.id, a.spec.extra, a.spec.maxPp]);
   expect(extra({ pp: 150000, credits: 0 })).toEqual([["casino:extra", true, 20000]]);
   // Not below the reserve, not with three credits waiting for a raid, not without a read of the
-  // coin, not within four minutes of the last one, and not once a credit is worth under a tenth
-  // of a group-hour on average.
+  // coin, not within ten minutes of the last one, and not once a credit is worth under half a
+  // group-hour on average.
   expect(extra({ pp: 90000, credits: 0 })).toEqual([]);
   expect(extra({ pp: 150000, credits: 3 })).toEqual([]);
   expect(extra(null)).toEqual([]);
-  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 3 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toEqual([]);
-  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 5 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toHaveLength(1);
-  expect(extra({ pp: 150000, credits: 0, creditMean: 0.05 })).toEqual([]);
+  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 200 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toEqual([]);
+  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 250 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toHaveLength(1);
+  expect(extra({ pp: 150000, credits: 0, creditMean: 0.3 })).toEqual([]);
   expect(extra({ pp: 150000, credits: 0, creditMean: 2.6 })).toHaveLength(1);
   // Only a leader of the account's highest level rolls for more, since its tab leads the raid.
   const lower = decide({ now: NOW, tabs: [{ ...tab("A", "G2", 60), task: { status: "running", kind: "hunt" } }, tab("B", "G1", 52)], history: [won], coin: { pp: 150000, credits: 0 } }).actions.filter((a) => a.kind === "casino");
@@ -74,19 +74,6 @@ test("a tradeskill job goes to its crafter's tab when that is free and the coin 
   expect(crafts({ xpFactor: 2 })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 60 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 400 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toHaveLength(1);
-  // A job that crafts for a merchant needs no reserve. It runs while the account holds less than
-  // its `untilPp`, with the coin known, and again after its `retryMin`.
-  const coinJob = { id: "coin", who: "B1", skillId: 57, skillName: "Tinkering", make: [], sell: [{ recipeId: 491, name: "Powered Gloves", itemId: 16876, pp: 8.1, attempts: 6000 }], maxPp: 60000, retryMin: 240, untilPp: 1500000 };
-  const sells = (extra = {}) => decide({ now: NOW, tabs, crafts: [coinJob], ...extra }).actions.filter((a) => a.kind === "craft");
-  expect(sells()).toEqual([]);
-  const [s] = sells({ coin: { pp: 20000, credits: 3 } });
-  expect(s).toMatchObject({ label: "B", id: "craft:coin" });
-  expect(s.why).toBe("B1 crafts 6000 Powered Gloves for a merchant with Tinkering, for up to 60000 pp");
-  expect(s.spec).not.toHaveProperty("untilPp");
-  expect(sells({ coin: { pp: 1600000, credits: 3 } })).toEqual([]);
-  const ran = (min: number) => [{ t: NOW - min * 60000, label: "B", kind: "craft", id: "craft:coin", status: "done" }];
-  expect(sells({ coin: { pp: 20000, credits: 3 }, history: ran(200) })).toEqual([]);
-  expect(sells({ coin: { pp: 20000, credits: 3 }, history: ran(250) })).toHaveLength(1);
 });
 
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {

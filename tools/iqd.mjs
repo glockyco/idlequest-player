@@ -19,11 +19,11 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, creditPays, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
-import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, recordPurse } from "./lib/coin.mjs";
+import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, recordPurse, spendable } from "./lib/coin.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -982,7 +982,6 @@ export class Daemon {
     // The tradeskill jobs (data/crafts.json) whose items the account is short of by that demand,
     // each with the copies its crafter has to carry in the end, where the chains that take them
     // find them: a Warrior's Ancient Sword Blade takes two Rebreathers, which only Tinkering makes.
-    // And the jobs that craft for a merchant.
     this.craftJobs ??= JSON.parse(await readFile(join(REPO, "data/crafts.json"), "utf8"));
     const crafts = [];
     for (const [id, job] of Object.entries(this.craftJobs)) {
@@ -997,12 +996,11 @@ export class Daemon {
         const short = (need[m.itemId] ?? 0) - banked - held.reduce((s, r) => s + r.n, 0);
         if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + banked + short });
       }
-      // A job that crafts for a merchant (`sell`) is due by its own time, whatever the account holds
-      // of its items, and one whose crafter makes gear for the roster (`goods`) until its skill
-      // is where its training ends.
+      // A job whose crafter makes gear for the roster (`goods`) is due until its skill is where
+      // its training ends.
       const skill = metaGet(this.db, "craftSkills")?.[job.skillId];
       const untrained = Boolean(job.goods) && !(skill?.who === job.who && skill.skill >= job.train.at(-1).to);
-      if (make.length || job.sell?.length || untrained) crafts.push({ id, ...job, make });
+      if (make.length || untrained) crafts.push({ id, ...job, make });
     }
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey, and is
     // titled after its group, so the twelve game tabs can be told apart.
@@ -1049,7 +1047,7 @@ export class Daemon {
     // more credit is rolled for (`casino` of DEFAULTS in tools/lib/coordinator.mjs).
     const purse = this.db.query("SELECT t, pp FROM coin ORDER BY t DESC LIMIT 1").get();
     const lastPlan = metaGet(this.db, "bossPlan");
-    const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.creditsDue ?? lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0), ...(lastPlan?.creditMean != null ? { creditMean: lastPlan.creditMean } : {}) } : null;
+    const coin = purse && now - purse.t < 1800000 ? { pp: spendable(purse.pp), credits: (lastPlan?.creditsDue ?? lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0), ...(lastPlan?.creditMean != null ? { creditMean: lastPlan.creditMean } : {}) } : null;
     const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor,
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
       raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
@@ -1136,7 +1134,7 @@ export class Daemon {
       const money = await this.relay.evaluate(idle[0].targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`coordinator: the account's coin: ${e.message}`), null));
       // What a rank adds to each character, from the last gear pass (`aaGain`).
       const aaGain = metaGet(this.db, "aaGain") ?? {};
-      if (money) plan = { ...aaPlan({ characters: pointed.map((s) => ({ ...s, class: classOf.get(s.name), gain: aaGain[s.name] })), totalPp: money.totalPp }), totalPp: money.totalPp };
+      if (money) plan = { ...aaPlan({ characters: pointed.map((s) => ({ ...s, class: classOf.get(s.name), gain: aaGain[s.name] })), totalPp: spendable(money.totalPp) }), totalPp: money.totalPp };
     }
     metaSet(this.db, "aaPlan", { t: now, wanted: plan.wanted, budget: plan.budget, totalPp: plan.totalPp, reservePp: AA_POLICY.reservePp, rankPp: AA_POLICY.rankPp });
     for (const t of idle) {
@@ -1489,7 +1487,7 @@ export class Daemon {
     const money = await this.relay.evaluate(reader.targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`boss pass: the account's coin: ${e.message}`), null));
     const coinPp = money?.totalPp ?? null;
     if (coinPp != null) recordPurse(this.db, now, coinPp);
-    const canBuy = canBuyHour({ coinPp, pricePp: st.time?.pricePp });
+    const canBuy = canBuyHour({ coinPp: spendable(coinPp), pricePp: st.time?.pricePp });
     const { retryTime } = await import("./lib/coordinator.mjs");
     // A boss whose last raid is not due again stands aside for the next one. A killed boss waits
     // six hours, since the daily list can still offer its summon ("Resume with Tagujazolu" after
@@ -1527,11 +1525,11 @@ export class Daemon {
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     // What one more credit is worth: the mean over the casino's bosses of what a kill brings, with
     // a boss the simulated raid does not kill at nothing, and none while no boss is simulated. And
-    // the credits that wait for a raid that kills their boss and pays, which hold further rolls back.
+    // the credits that wait for a raid that kills their boss, which hold further rolls back.
     const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
     const fought = casino.filter((c) => odds.odds[c.key]?.raid);
     const creditMean = fought.length ? casino.reduce((s, c) => s + (killable(odds.odds[c.key]?.raid) ? (casinoValue[c.key] ?? 0) : 0), 0) / casino.length : null;
-    const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid) && creditPays(c, value, first)).length;
+    const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid)).length;
     const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";
@@ -1817,7 +1815,7 @@ export class Daemon {
     const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
     // The class epics, which stay with the character that carries them, worn or in its bags.
     const bound = new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat());
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay, this.db.query("SELECT pp FROM coin ORDER BY t DESC LIMIT 1").get()?.pp ?? null), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay, spendable(this.db.query("SELECT pp FROM coin ORDER BY t DESC LIMIT 1").get()?.pp ?? null)), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     // The crafted items of this plan, by whose names the next survey finds the copies a crafter keeps for a leader.
     metaSet(this.db, "craftNames", [...new Set(plan.moves.filter((m) => m.buy?.craft).map((m) => m.item))]);
     const { keep, drops, targets, quests: questWants } = plan;

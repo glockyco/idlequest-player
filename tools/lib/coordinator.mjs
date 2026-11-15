@@ -33,15 +33,13 @@ export const DEFAULTS = {
   // The casino's daily boss potion (docs/plans/systems-research.md, "Boss summons and daily
   // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
-  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average, which
-  // crafting for a merchant earns in under a minute (docs/plans/coin.md). So what limits the
-  // credits is the time of the tab that rolls and then leads the raid, 10 to 20 s a roll and
-  // about two and a half minutes a raid: the account rolls for one every `extraEveryMin`, which
-  // is every pass, while it holds `extraReservePp`, fewer than `extraHold` credits wait for a raid
-  // that kills their boss and pays, and a credit is worth `extraWorth` hours of a group's progress
-  // or more, on average over the casino's bosses with those the raid does not kill at nothing
+  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average
+  // (docs/plans/coin.md). So the account rolls for one every `extraEveryMin` while it holds
+  // `extraReservePp` of coin it may spend, fewer than `extraHold` credits wait for a raid that
+  // kills their boss, and a credit is worth `extraWorth` hours of a group's progress or more, on
+  // average over the casino's bosses with those the raid does not kill at nothing
   // (`coin.creditMean`, from the boss pass). A roll stops after `extraMaxPp`.
-  casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 4, extraReservePp: 100000, extraHold: 3, extraWorth: 0.1 },
+  casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 240, extraReservePp: 100000, extraHold: 3, extraWorth: 0.5 },
   // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
   // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
   questKillChance: 0.5,
@@ -380,9 +378,9 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
- * - `crafts`: the tradeskill jobs whose items the account is short of or that craft for a merchant,
- *   `[{ id, who, skillId, skillName, train, make, makes, sell, maxPp, retryMin, untilPp }]` with
- *   `make[].n` the copies the crafter is to carry.
+ * - `crafts`: the tradeskill jobs whose items the account is short of or whose crafter still
+ *   trains for the gear plan (`goods`), `[{ id, who, skillId, skillName, train, make, makes,
+ *   goods, maxPp, retryMin }]` with `make[].n` the copies the crafter is to carry.
  * - `explain`: a quest's id, or "all", for which `explained` lists why each tab gets it or not (`iqd why`).
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
@@ -450,18 +448,15 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
 
   // A tradeskill job (`crafts`, data/crafts.json with the copies the account is short of): its
   // crafter's tab trains the skill and makes the items, once the tab is free and the account
-  // holds the job's cost over the reserve a raid waits for. A job that crafts for a merchant
-  // (`sell`) pays for itself, so it needs no reserve, and it runs every `retryMin` while the
-  // account holds less than `untilPp`, since coin and not XP limits the AA ranks. A job that
-  // failed waits `retryMin` too.
+  // holds the job's cost over the reserve a raid waits for. A job with `goods` trains its crafter
+  // for the gear plan. A job that failed waits `retryMin`.
   for (const job of event ? [] : crafts) {
     const t = tabs.find((x) => x.members.some((m) => m.name === job.who));
     if (!t || !free(t)) continue;
-    if (job.make.length && coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
-    if (!job.make.length && (!coin || coin.pp >= (job.untilPp ?? Infinity))) continue;
+    if (coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
     if (!due(history.filter((h) => h.id === `craft:${job.id}`).at(-1), job.retryMin ?? 360, t)) continue;
-    const { id, retryMin, untilPp, goods, ...spec } = job;
-    const what = [job.make.length ? `makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")}` : null, job.sell?.length ? `crafts ${job.sell.map((m) => `${m.attempts} ${m.name}`).join(", ")} for a merchant` : null, job.goods ? `trains to ${job.train.at(-1).to}` : null].filter(Boolean).join(" and ");
+    const { id, retryMin, goods, ...spec } = job;
+    const what = [job.make.length ? `makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")}` : null, job.goods ? `trains to ${job.train.at(-1).to}` : null].filter(Boolean).join(" and ");
     out.push({ label: t.label, kind: "craft", id: `craft:${id}`, spec, why: `${job.who} ${what} with ${job.skillName}, for up to ${job.maxPp} pp` });
   }
 

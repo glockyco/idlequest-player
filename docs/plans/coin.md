@@ -18,19 +18,17 @@ All groups at level 58 to 60. Platinum a day, from the tabs' event lines.
 - The account held 123,000 on 2026-11-13 around noon and 212,186 on 2026-11-15 at 08:40. So of about 326,000 earned in those 44 hours, 237,000 were spent, 130,000 of them on the lines above. The other 107,000, about 58,000 a day, went to spells at level-ups, merchant gear and quest hand-ins, which the logs of those days do not separate. The ledger does from 2026-11-15.
 - The Tradeskill Bank holds 39,674 ingredients of 331 kinds, worth about 148,000 at merchants, and the Spell Bank 910 scrolls of 119 kinds, worth about 44,000. No party member of 55 read lacked a banked scroll its class can scribe at its level. The ingredients stay for tradeskill training, so the courier's fee is the price of keeping them.
 
-## Crafting for a merchant
+## Held coin
 
-A merchant pays 85% of an item's price, and the crafting catalog sells components for less than that for 170 of the 741 recipes it supplies in full (`runs/tmp/profit.mjs` on 2026-11-15, from the content snapshot). Sold on 2026-11-15 with the bank window's Sell Stack: Powered Gloves at 34 platinum, Spyglasses at 16.8 and Aqualungs at 170.
+Crafting for a merchant is not played. On 2026-11-15 the game's developer wrote that a patch had fixed exploits by which players gathered over 100 million platinum, that their platinum and tradeskill bank items were taken back, and that exploits which are not reported may be treated more harshly.
 
-- Powered Gloves (Tinkering recipe 491, trivial 122) cost 8.1 in components. A hundred attempts at Tinkering 153 gave 95 and 96 pairs, about 3,250 platinum for 820, and took about 9 s with the recipe window's x100 buy and craft. That is about 16,000 platinum a minute of one tab.
-  A run of 6,000 took nine minutes and brought 194,650 for 49,212.
-- A Rebreather (Tinkering recipe 492, trivial 175) sells for 680 and costs 383 in components, with an Aqualung and a Firewater the crafter makes. Of 200 attempts from Tinkering 153 on, 132 succeeded, and the skill rose to 171. At 175 the success rule gives 95%, about 26,000 platinum a hundred attempts, which take about 12 s.
-- With crafted components counted (`runs/tmp/profit2.mjs`), nothing plain pays more an attempt than the Rebreather but Alchemy's 10 Doses Of Greater Rejuvenation, which takes a Shaman's trained Alchemy. Fletching's bows at a trivial of 215 to 282 pay 103 to 134, and neither skill is trained.
-- An Aqualung combine (recipe 347) costs 22 and gives 20 Aqualungs, 3,400 platinum. It is the one recipe whose count is an item's charges, so it is left out of crafting for coin, and made only as the Rebreather's component. The 2,046 that the Tinkering training left were sold for about 348,000.
+Before that post the account had sold crafted items to a merchant for more than their components cost: Powered Gloves, Rebreathers and the Aqualungs its Tinkering training left, of which one combine gives 20. Its coin rose from about 203,000 to about 715,000 between 16:40 and 17:20 that day.
 
-The coin job of `data/crafts.json` crafts 6,000 Rebreathers every hour in Edroun's tab, about ten minutes, while the account holds under 100 million platinum (`crafts` in `tools/lib/coordinator.mjs`, `craftTask` in `src/bot.js`). The hoard is there in case the game's prices change. Coin weighs nothing: the client counts the weight of items only.
+- The account does not spend those 512,000 platinum. Every decision that spends coin counts the account's coin less `HELD_PP` (`spendable` in `tools/lib/coin.mjs`): raid time, casino credits, AA ranks, merchant gear and craft jobs.
+- A craft task sells nothing (`craftTask` in `src/bot.js`). What training leaves stays in the Tradeskill Bank.
+- Ask before changing `HELD_PP`, before selling crafted items, and before reporting to the developer. Set `HELD_PP` to what is left of that platinum once its fate is decided.
 
-## What a platinum bought before crafting for a merchant
+## What a platinum buys
 
 The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.mjs`), as the boss plan values kills.
 
@@ -47,19 +45,17 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 
 ## Policy
 
-Since crafting for a merchant, platinum is priced by the time of the tab that spends it, not by what it costs.
+Coin means the account's coin less the held platinum ("Held coin").
 
-1. The coin job crafts for a merchant until the account holds 100 million ("Crafting for a merchant").
-2. Raid time whenever a kill is worth the raid: an open-world boss or a credit's boss buys its hour for kills worth a tenth of a group-hour, what a raid of about two and a half minutes costs its leader's tab (`OPEN_BUY` in `tools/lib/boss-plan.mjs`). A summon buys its hour, since an unused summon is lost.
-3. The day's casino credit, then one more at every coordinator pass, while fewer than three credits wait for a raid that kills their boss and pays, and a credit is worth a tenth of a group-hour on average over the casino's 30 bosses (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`, `creditMean` from the boss pass). A credit for a boss that drops nothing wanted or that the raid does not kill keeps without a raid (`creditPays`). Kill odds fights every casino boss for that.
-4. AA ranks from what is above the reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`). Points limit them, not coin.
-5. Merchant gear from what the account holds above 200,000 (`buyBudget`).
-6. A dead leader takes the resurrection that restores most (`rezMaxPp` in `src/bot.js`).
+1. Raid time first. A summon buys its hour, since an unused summon is lost. A credit keeps, so its raid runs in paid time or buys an hour as an open-world boss's does, for kills worth an hour of a group's progress (`OPEN_BUY` in `tools/lib/boss-plan.mjs`).
+2. The day's casino credit, then one more every four hours while the coin allows, fewer than three credits wait for a raid that kills their boss, and a credit is worth half a group-hour on average over the casino's 30 bosses (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`, `creditMean` from the boss pass). Kill odds fights every casino boss for that.
+3. AA ranks from what is above the reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
+4. Merchant gear from the hour's income less the raid budget, or from what the coin holds above 200,000 (`buyBudget`). Crafted jewelry counts as merchant gear ([gear acquisition](gear-acquisition.md), "Ways to get a copy"), and its crafter trains when the coin covers a run of the job over the raid reserve.
+5. A dead leader takes the resurrection that restores most for up to 200 platinum (`rezMaxPp` in `src/bot.js`).
 
 ## Open
 
-- The prices under "What a platinum bought before crafting for a merchant" no longer decide anything. Read what a day of rolls at every pass wins: the credits by boss, the raids they got, and the gear those brought.
-- Whether the server limits the credits a day or the price of a roll rises.
+- What becomes of the held platinum ("Held coin").
 - Weigh ranks against credits once coin limits the ranks.
 - The Spell Bank's scrolls: sell the copies nobody can use, or stop banking them.
 - The courier came at every cleanup, about 87 times a day for each group. Ingredients stack and take few slots, so it now comes once enough stacks wait (`bankAtStacks` in `src/bot.js`), and the reserve sells no ingredient meanwhile. Read the ledger's courier line after a day.

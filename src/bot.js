@@ -130,7 +130,7 @@
     limits: { minCon: 4, maxCon: 13, maxLevelDiff: 5 },
     widenMin: 20,
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
-    rezMaxPp: 2000, // the most platinum one resurrection may cost (1,000 buys 96% of the lost XP back, and a leader of 60 loses 2.4 million); 0 = only free ones
+    rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
     rezReservePp: 100, // platinum a paid resurrection must leave for spells
     rezPullCoin: true, // a dead leader short of coin pulls the largest account balance with Manage Money
     coinKeepNames: [], // characters whose coin is never pulled, such as a farming leader's
@@ -3138,18 +3138,14 @@
    * A component it does not sell is crafted first with the recipe `makes` names for it, as the
    * Collapsible Fishing Pole for a Spyglass. The skill is read from the craft replies. The task
    * ends once its attempts have cost `maxPp`, by each recipe's `pp`, the catalog's price of one attempt.
-   * What the training made is sold out of the bank after it, for a recipe of `train` with an `itemId`.
-   * Each recipe of `sell` is crafted `attempts` times, a hundred at a go as the window's x100 button
-   * does, after as many of its `needs` as the bank lacks, and each hundred is sold out of the bank
-   * with its Sell Stack: a merchant pays 85% of an item's price, which for Powered Gloves is four
-   * times what the catalog asks for their components. With no attempts it sells what the bank holds.
+   * What it makes beyond `make` stays in the Tradeskill Bank: the task sells nothing, because
+   * crafting for a merchant is an exploit by the developer's word (docs/plans/coin.md).
    */
   const CRAFT_BATCH = 10;
-  const SELL_BATCH = 100;
   const craftTask = async (i, task, step) => {
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
-    Object.assign(task, { attempts: 0, spentPp: 0, skill: null, made: {}, soldPp: 0 });
+    Object.assign(task, { attempts: 0, spentPp: 0, skill: null, made: {} });
     const paid = async (pp) => {
       if (task.spentPp + pp > task.maxPp) throw new Error(`the crafts cost ${Math.round(task.spentPp)} of the ${task.maxPp} pp they may, at skill ${task.skill ?? "unknown"}`);
       if (purse() >= pp + 5) return;
@@ -3178,13 +3174,7 @@
         }
       }
     };
-    const line = () => `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}${task.soldPp ? `, sold for ${Math.round(task.soldPp)} pp` : ""}`;
-    const sale = async (r) => {
-      const sold = await step(`sell the ${r.name}`, () => i.bankSell(r.itemId, "stack"), 60000);
-      task.soldPp += sold.pp;
-      // The line the coin ledger reads the sale from.
-      if (sold.quantity) log(`craft: sold ${sold.quantity} ${r.name} for ${Math.round(sold.pp)} pp`);
-    };
+    const line = () => `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`;
     try {
       for (const r of task.train ?? []) {
         // The first batch tells the skill, which the client keeps nowhere. More than two points
@@ -3200,8 +3190,6 @@
           if (idle >= 400) throw new Error(`${r.name} raised the skill no further than ${task.skill} in ${idle} attempts`);
         }
       }
-      // What the training made lies in the bank and goes to a merchant, a ladder's recipe by its `itemId`.
-      if (task.attempts) for (const r of (task.train ?? []).filter((r) => r.itemId)) if ((await i.bankCount(r.itemId)) > 0) await sale(r);
       for (const r of task.make ?? []) {
         const ref = { name: r.item, id: r.itemId };
         // What an earlier task made and left in the bank comes out first.
@@ -3216,26 +3204,6 @@
           task.made[r.item] = i.carried(ref);
           dry = out.successes ? 0 : dry + 1;
           if (dry >= 6) throw new Error(`${r.item} did not come out of ${6 * CRAFT_BATCH} attempts at skill ${task.skill ?? "unknown"}`);
-        }
-      }
-      for (const r of task.sell ?? []) {
-        if (!(r.attempts > 0) && (await i.bankCount(r.itemId)) > 0) await sale(r);
-        for (let left = r.attempts ?? 0; task.status === "running" && left > 0; ) {
-          const n = Math.min(SELL_BATCH, left);
-          await step(`craft ${n} ${r.name} to sell`, async () => {
-            for (const pre of r.needs ?? []) {
-              // A tenth more than the bank lacks, for the attempts that fail.
-              // An attempt gives `yield` of it, an Aqualung combine 20.
-              const lacks = n - (await i.bankCount(pre.itemId));
-              const tries = Math.ceil((lacks * 1.1) / (pre.yield ?? 1));
-              if (lacks > 0) await attempts(pre, { quantity: tries >= 20 ? Math.ceil(tries / 20) * 20 : tries, batch: SELL_BATCH });
-            }
-            await attempts(r, { quantity: n, batch: SELL_BATCH });
-          }, 300000);
-          await sale(r);
-          left -= n;
-          // A breath between the batches, for a server that is someone else's.
-          await sleep(2000);
         }
       }
     } finally {
@@ -3999,17 +3967,15 @@
      * Train a tradeskill and make items with it as a task in the page (`craftTask`): `who` the
      * crafter, `skillId` and `skillName` the skill, `train` its ladder, `[{ recipeId, name, to, pp }]`,
      * `make` the items to carry, `[{ recipeId, item, itemId, n, pp }]`, `makes` the recipes of
-     * components the catalog does not sell, `{ [item name]: { recipeId, pp, batch } }`, `sell` the
-     * recipes crafted for a merchant, `[{ recipeId, name, itemId, pp, attempts, needs }]` with
-     * `needs` `[{ recipeId, itemId, pp }]`, and `maxPp` the most the attempts may cost. Returns a
-     * copy of the task.
+     * components the catalog does not sell, `{ [item name]: { recipeId, pp, batch } }`, and `maxPp` the most the attempts may cost.
+     * Returns a copy of the task.
      */
-    craft({ who, skillId, skillName = "skill", train = [], make = [], makes = {}, sell = [], maxPp = 0 } = {}) {
+    craft({ who, skillId, skillName = "skill", train = [], make = [], makes = {}, maxPp = 0 } = {}) {
       takeTab();
       if (who) accountCharacter(iq(), who);
-      if (!skillId || !(train.length || make.length || sell.length)) throw new Error("a craft task needs a skill and a recipe");
-      state.task = { id: `craft-${now().toString(36)}`, kind: "craft", startedAt: now(), who, skillId, skillName, train, make, makes, sell, maxPp };
-      log(`task craft: ${who ?? "the active character"}, ${skillName}${train.length ? ` to ${train.at(-1).to}` : ""}${make.length ? `, ${make.map((m) => `${m.n} ${m.item}`).join(", ")}` : ""}${sell.length ? `, ${sell.map((m) => `${m.attempts ?? 0} ${m.name}`).join(", ")} to sell` : ""}, up to ${maxPp}pp`);
+      if (!skillId || !(train.length || make.length)) throw new Error("a craft task needs a skill and a recipe");
+      state.task = { id: `craft-${now().toString(36)}`, kind: "craft", startedAt: now(), who, skillId, skillName, train, make, makes, maxPp };
+      log(`task craft: ${who ?? "the active character"}, ${skillName}${train.length ? ` to ${train.at(-1).to}` : ""}${make.length ? `, ${make.map((m) => `${m.n} ${m.item}`).join(", ")}` : ""}, up to ${maxPp}pp`);
       return { ...runTask(state.task) };
     },
     casino({ who = null, dice = 9, face = 1, maxPp = 10000, extra = false } = {}) {
