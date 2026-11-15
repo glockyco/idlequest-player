@@ -530,10 +530,11 @@
     return done ? `${pick.name} (${pick.pp}pp)` : null;
   };  /**
    * Bring the active character's carried coin to `pp`: one balance that covers the rest (the
-   * smallest such with `least`), else the largest balances one after another, up to `max` pulls.
-   * Pulled characters go to `state.coinBack`. Resolves with the names pulled from.
+   * smallest such with `least`), else the largest balances one after another, up to `max` pulls,
+   * one for each other leader. A member that pulled goes to `state.coinBack`, so the leader takes
+   * the coin back later. Resolves with the names pulled from.
    */
-  const gatherCoin = async (i, pp, { least = false, max = 8 } = {}) => {
+  const gatherCoin = async (i, pp, { least = false, max = 11 } = {}) => {
     const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
     const from = [];
     if (purse() >= pp) return from;
@@ -544,7 +545,8 @@
       if (!next) break;
       from.push(next);
     }
-    if (from.length) state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
+    const leader = config.leaderId == null || Number(i.stores.character.getState().characterProfile?.id) === Number(config.leaderId);
+    if (from.length && !leader) state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
     return from;
   };
 
@@ -1892,6 +1894,11 @@
   const returnCoin = async (i) => {
     if (!state.coinBack?.length || now() < (state.coinBackAt ?? 0) || Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
     const name = state.coinBack[0];
+    // A leader never takes its own coin back.
+    if (name === activeName(i)) {
+      state.coinBack = state.coinBack.slice(1);
+      return;
+    }
     try {
       const moved = await i.takeCoin(name);
       log(`coin: the leader took back ${name}'s coin (${Object.entries(moved ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`).join(", ") || "none"})`);
