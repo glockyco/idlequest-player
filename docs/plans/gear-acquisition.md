@@ -62,6 +62,7 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | --- | --- | --- | --- |
 | Move | none | none | the account holds a free copy (the gear plan's moves) |
 | Purchase | none | platinum | a merchant in a city sells it, within the pass's platinum budget |
+| Craft | none | platinum, the catalog's price of an attempt | a recipe of the Advanced window yields it from catalog components alone, the item needs no deity, and a crafter of `data/crafts.json` with `goods` makes it at least every second attempt |
 | Errand | hours per copy | 0, or `sharedCost` when another group plays the zone, plus 125 s without XP for each fight lost to the enemy (`LOST_SEC`) | the enemy's zone is in the group's rotation |
 | Camp | hours per copy | 1, since the client's Spawn Camp holds the enemy's points and earns no XP while it waits for their respawns | outside the rotation, when it earns more than a visit |
 | Visit | `visitHours`, and the group's time per kill for each enemy up, every kill of its chain for a copy a chain of deaths ends in (`chainKills`) | 1 | outside the rotation, for rare spawns: worth the chance the enemy is up on arrival (`upChanceOf`: the spawn tables' `1 - (1 - spawn)^points` as two visits beside what the visits so far found), times the kill chance and each drop chance and copy value |
@@ -69,6 +70,8 @@ So a group takes a quick lesser upgrade while a stronger group hunts the best on
 | Raid | the boss plan's raid of every character on the open-world boss, inside paid raid time or an hour it buys by worth (`OPEN_BUY` in `tools/lib/boss-plan.mjs`) | the raid's share of its hour | the enemy is above level 50, no group wins 5% of its fights (`ACQUIRE.tooStrong`), and a live spawn point puts it up ([boss kills](raids.md), Schedule) |
 
 A visit reads the zone's spawn list on arrival and fights the enemy only when it is up. It notes which of its enemies stood when it arrived (`up` of the hunt task), and the coordinator counts for each target how many of the visits that looked for it found it. When none is up, it names the first respawn of the enemy's spawn points (`watch` of `iqBot.hunt`), and the coordinator sends the next visit then instead of after an hour. A raid, for an enemy above level 50 that no group kills, is planned with the boss kills ([boss kills](raids.md)).
+
+A crafted copy is planned like a merchant's, without a trip: its move carries the recipe and the crafter, and the crafter's tab makes it with the crafter active and gives it on (`gearTask` in `src/bot.js`). A copy for a tab's leader stays in the crafter's bags, and the next plan moves it in that leader's own tab. The job with `goods` trains its crafter to the end of its `train` ladder first, and the collector knows the skill from the craft task that last read it (`craftSkills`).
 
 ### Quest rewards
 

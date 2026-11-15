@@ -380,6 +380,29 @@ export async function loadSources(root, { itemIds, maxNpcLevel = Infinity, skipN
 }
 
 /**
+ * The gear a crafter can make from what the crafting catalog sells (tools/lib/gear-plan.mjs `shop`,
+ * with `craft`): every wearable item without a deity that a recipe of the Advanced window yields
+ * from catalog components alone, at its cheapest recipe. A deity's item is left out because the
+ * survey does not know the characters' deities. Resolves with `{ goods: [{ itemId, recipeId,
+ * skillId, trivial, price }], items: Map(id -> content row) }`, prices in platinum an attempt.
+ */
+export async function craftGoods(root) {
+  const { craftableRecipes } = await import("./content.mjs");
+  const catalog = new Map();
+  for await (const c of rows("crafting_merchant_items", root)) catalog.set(c.item_id, c.price / 1000);
+  const best = new Map();
+  for (const r of (await craftableRecipes(root)).values()) {
+    const parts = r.parts.filter((p) => p.item !== r.container?.item);
+    if (!parts.length || !parts.every((p) => catalog.has(p.item))) continue;
+    const price = parts.reduce((s, p) => s + p.n * catalog.get(p.item), 0);
+    for (const y of r.yields) if (!(best.get(y.item)?.price <= price)) best.set(y.item, { itemId: y.item, recipeId: r.id, skillId: r.skill, trivial: r.trivial, price });
+  }
+  const items = new Map();
+  for await (const i of rows("items", root)) if (best.has(i.id) && i.slots > 0 && !(i.deity > 0) && i.nodrop !== 0) items.set(i.id, i);
+  return { goods: [...best.values()].filter((g) => items.has(g.itemId)), items };
+}
+
+/**
  * The merchant goods the roster gear plan may buy (tools/lib/gear-plan.mjs `shop`): items sold in a
  * city of data/shop-zones.json that carry stats, armor, a weapon's damage or an instrument, with up
  * to two sellers each. Only cities, because a party of any level can shop there. Resolves with

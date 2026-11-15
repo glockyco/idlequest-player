@@ -581,6 +581,23 @@ test("a quest chain runs for the members of its class who lack the reward", () =
   expect(decide({ now: NOW, tabs, quests, holders: { w1: ["Tagu"] }, history: [{ t: NOW - 60 * 60000, label: "B", kind: "quest", id: "w1" }] }).actions).toEqual([]);
 });
 
+test("a crafter's tab makes the crafted gear, and keeps a leader's copy for that leader's own tab", () => {
+  const who = (label: string, group: string, names: string[]) => ({ ...tab(label, group, 41), members: names.map((name) => ({ name, level: 41, class: "Enchanter" })) });
+  const tabs = [who("A", "G1", ["Tagu", "Edroun"]), who("B", "G2", ["Pivo", "Felo"])];
+  const craft = { recipeId: 8411, skillId: 68, who: "Edroun" };
+  const ring = (to: string) => ({ item: "Velium Jasper Ring", itemId: 14675, from: null, to, slot: "finger", buy: { merchant: "Edroun", zone: "craft", price: 301, craft } });
+  const cloak = { item: "Cloak", from: "Pivo", to: "Felo", slot: "back" };
+  const moves = [ring("Felo"), ring("Pivo"), cloak];
+  // The rings go to the crafter's tab, the leader's among them as stock, and the plain move elsewhere.
+  expect(decide({ now: NOW, tabs, gear: { moves } }).actions).toMatchObject([
+    { label: "A", kind: "gear", spec: { moves: [moves[0], moves[1]], who: "Edroun", stock: ["Pivo"] } },
+    { label: "B", kind: "gear", spec: { moves: [cloak] } },
+  ]);
+  // While the crafter's tab is busy the rings wait, and the plain move still goes.
+  const busy = [{ ...tabs[0], task: { kind: "hunt", status: "running" } }, tabs[1]];
+  expect(decide({ now: NOW, tabs: busy, gear: { moves } }).actions).toMatchObject([{ label: "B", kind: "gear", spec: { moves: [cloak] } }]);
+});
+
 test("gear moves go to the free tab with the lowest levels", () => {
   const tabs = [tab("A", "G1", 41), tab("B", "G5", 12, { task: { kind: "hunt", status: "running" } }), tab("C", "G9", 13)];
   const moves = [{ item: "Cloak", from: "X", to: "Y", slot: "back" }];

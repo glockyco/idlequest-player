@@ -460,8 +460,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     if (job.make.length && coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
     if (!job.make.length && (!coin || coin.pp >= (job.untilPp ?? Infinity))) continue;
     if (!due(history.filter((h) => h.id === `craft:${job.id}`).at(-1), job.retryMin ?? 360, t)) continue;
-    const { id, retryMin, untilPp, ...spec } = job;
-    const what = [job.make.length ? `makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")}` : null, job.sell?.length ? `crafts ${job.sell.map((m) => `${m.attempts} ${m.name}`).join(", ")} for a merchant` : null].filter(Boolean).join(" and ");
+    const { id, retryMin, untilPp, goods, ...spec } = job;
+    const what = [job.make.length ? `makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")}` : null, job.sell?.length ? `crafts ${job.sell.map((m) => `${m.attempts} ${m.name}`).join(", ")} for a merchant` : null, job.goods ? `trains to ${job.train.at(-1).to}` : null].filter(Boolean).join(" and ");
     out.push({ label: t.label, kind: "craft", id: `craft:${id}`, spec, why: `${job.who} ${what} with ${job.skillName}, for up to ${job.maxPp} pp` });
   }
 
@@ -626,10 +626,23 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const ownTab = (name) => tabs.find((x) => x.members.some((m) => m.name === name));
     const leads = (name) => ownTab(name)?.members[0]?.name === name;
     const home = (m) => Boolean(m.exact) || leads(m.to);
-    const placed = new Set(gear.moves.filter((m) => home(m) && ownTab(m.to) && free(ownTab(m.to))).map((m) => m.to));
-    const anywhere = gear.moves.filter((m) => !placed.has(m.to) && !home(m));
+    // A move of an item a crafter makes (`buy.craft`) runs in the crafter's tab with the crafter
+    // active, who makes each item and gives it on. One for a tab's leader or one that has to be
+    // placed stays in the crafter's bags (`stock`, the receivers' names), from where the next
+    // plan moves it in the receiver's own tab.
+    const crafted = gear.moves.filter((m) => m.buy?.craft);
+    for (const who of new Set(crafted.map((m) => m.buy.craft.who))) {
+      const t = ownTab(who);
+      if (!t || !free(t)) continue;
+      const mine = crafted.filter((m) => m.buy.craft.who === who);
+      const stock = [...new Set(mine.filter(home).map((m) => m.to))];
+      out.push({ label: t.label, kind: "gear", spec: { moves: mine, who, ...(stock.length ? { stock } : {}), ...spareOf(mine.map((m) => m.to)) }, why: `${who} crafts ${mine.length} items for ${new Set(mine.map((m) => m.to)).size} characters` });
+    }
+    const plain = gear.moves.filter((m) => !m.buy?.craft);
+    const placed = new Set(plain.filter((m) => home(m) && ownTab(m.to) && free(ownTab(m.to))).map((m) => m.to));
+    const anywhere = plain.filter((m) => !placed.has(m.to) && !home(m));
     for (const x of tabs.filter((x) => x.members.some((m) => placed.has(m.name)))) {
-      const own = gear.moves.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && (!blocks(x, m) || m.from === x.members[0]?.name));
+      const own = plain.filter((m) => placed.has(m.to) && x.members.some((mm) => mm.name === m.to) && (!blocks(x, m) || m.from === x.members[0]?.name));
       if (own.length) out.push({ label: x.label, kind: "gear", spec: { moves: own, ...spareOf(own.map((m) => m.to)) }, why: `${own.length} gear moves for ${[...new Set(own.map((m) => m.to))].join(", ")}, in their own tab` });
     }
     const blocked = (t) => anywhere.filter((m) => blocks(t, m)).length;

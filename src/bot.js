@@ -1713,6 +1713,8 @@
   // A move that fails is recorded and the next one runs.
   const gearTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
+    // Moves of items a crafter makes run with the crafter active (`who`).
+    if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     const inParty = (id) => (i.stores.companions.getState().companions ?? []).some((c) => Number(c.characterId) === Number(id));
     const failed = (mv, e) => {
       if (e instanceof TaskStopped) throw e;
@@ -1726,7 +1728,27 @@
       if (mv.done || mv.error) continue;
       try {
         const to = accountCharacter(i, mv.to);
-        if (mv.buy && i.carried(mv.item) < 1) {
+        const ref = mv.itemId != null ? { name: mv.item, id: mv.itemId } : mv.item;
+        if (mv.buy?.craft) {
+          // The crafter makes the item: up to twenty attempts for one, taken out of the bank into
+          // its bags. One for a tab's leader stays there (`stock`), and the next plan moves it in
+          // that leader's own tab, since a leader's page does not learn of an item another tab
+          // gives it to wear.
+          const c = mv.buy.craft;
+          const before = i.carried(ref);
+          if (mv.stock && i.bagSpace().free < 3) throw new Error(`${activeName(i)}'s bags have no room to keep it`);
+          const price = (mv.buy.price ?? 0) * 20;
+          if ((i.stores.character.getState().characterProfile?.platinum ?? 0) < price) {
+            const from = await pullCoin(i, price, { least: true }).catch((e) => `no pull (${e.message})`);
+            if (from) state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
+          }
+          const made = await step(`craft ${mv.item}`, () => i.craftItem(c.recipeId, { quantity: 20, until: 1, skillId: c.skillId, output: mv.itemId, settle: () => settleHeld(i) }), 120000);
+          if (i.carried(ref) <= before) throw new Error(`${mv.item} did not come out of ${made.attempted} attempts`);
+          if (mv.stock) {
+            Object.assign(mv, { done: true, stocked: true, lines: [] });
+            continue;
+          }
+        } else if (mv.buy && i.carried(mv.item) < 1) {
           if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
           if (i.bagSpace().free < 1) await keepReserve(i, true);
           // The gear plan spends account coin, so a leader that carries too little pulls the
@@ -3101,6 +3123,7 @@
    * A component it does not sell is crafted first with the recipe `makes` names for it, as the
    * Collapsible Fishing Pole for a Spyglass. The skill is read from the craft replies. The task
    * ends once its attempts have cost `maxPp`, by each recipe's `pp`, the catalog's price of one attempt.
+   * What the training made is sold out of the bank after it, for a recipe of `train` with an `itemId`.
    * Each recipe of `sell` is crafted `attempts` times, a hundred at a go as the window's x100 button
    * does, after as many of its `needs` as the bank lacks, and each hundred is sold out of the bank
    * with its Sell Stack: a merchant pays 85% of an item's price, which for Powered Gloves is four
@@ -3141,18 +3164,29 @@
       }
     };
     const line = () => `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}${task.soldPp ? `, sold for ${Math.round(task.soldPp)} pp` : ""}`;
+    const sale = async (r) => {
+      const sold = await step(`sell the ${r.name}`, () => i.bankSell(r.itemId, "stack"), 60000);
+      task.soldPp += sold.pp;
+      // The line the coin ledger reads the sale from.
+      if (sold.quantity) log(`craft: sold ${sold.quantity} ${r.name} for ${Math.round(sold.pp)} pp`);
+    };
     try {
       for (const r of task.train ?? []) {
-        // The first batch tells the skill, which the client keeps nowhere.
+        // The first batch tells the skill, which the client keeps nowhere. More than two points
+        // short of the recipe's end the attempts go twenty at a request, as the window's x20
+        // button sends them, since a skill takes thousands.
         for (let idle = 0; task.status === "running" && (task.skill == null || task.skill < r.to); ) {
           const before = task.skill;
-          const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, { quantity: CRAFT_BATCH }), 300000);
+          const many = before != null && r.to - before > 2;
+          const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, many ? { quantity: 20, batch: 20 } : { quantity: CRAFT_BATCH }), 300000);
           if (!out.attempted || task.skill == null) throw new Error(`${r.name} gave no attempt or no skill value (${JSON.stringify(out).slice(0, 200)})`);
-          // Forty batches without a point: the recipe is past its trivial, or the skill at its cap.
-          idle = task.skill > (before ?? -1) ? 0 : idle + 1;
-          if (idle >= 40) throw new Error(`${r.name} raised the skill no further than ${task.skill} in 400 attempts`);
+          // Four hundred attempts without a point: the recipe is past its trivial, or the skill at its cap.
+          idle = task.skill > (before ?? -1) ? 0 : idle + out.attempted;
+          if (idle >= 400) throw new Error(`${r.name} raised the skill no further than ${task.skill} in ${idle} attempts`);
         }
       }
+      // What the training made lies in the bank and goes to a merchant, a ladder's recipe by its `itemId`.
+      if (task.attempts) for (const r of (task.train ?? []).filter((r) => r.itemId)) if ((await i.bankCount(r.itemId)) > 0) await sale(r);
       for (const r of task.make ?? []) {
         const ref = { name: r.item, id: r.itemId };
         // What an earlier task made and left in the bank comes out first.
@@ -3170,13 +3204,7 @@
         }
       }
       for (const r of task.sell ?? []) {
-        const sale = async () => {
-          const sold = await step(`sell the ${r.name}`, () => i.bankSell(r.itemId, "stack"), 60000);
-          task.soldPp += sold.pp;
-          // The line the coin ledger reads the sale from.
-          if (sold.quantity) log(`craft: sold ${sold.quantity} ${r.name} for ${Math.round(sold.pp)} pp`);
-        };
-        if (!(r.attempts > 0) && (await i.bankCount(r.itemId)) > 0) await sale();
+        if (!(r.attempts > 0) && (await i.bankCount(r.itemId)) > 0) await sale(r);
         for (let left = r.attempts ?? 0; task.status === "running" && left > 0; ) {
           const n = Math.min(SELL_BATCH, left);
           await step(`craft ${n} ${r.name} to sell`, async () => {
@@ -3189,7 +3217,7 @@
             }
             await attempts(r, { quantity: n, batch: SELL_BATCH });
           }, 300000);
-          await sale();
+          await sale(r);
           left -= n;
           // A breath between the batches, for a server that is someone else's.
           await sleep(2000);
@@ -3939,11 +3967,12 @@
      * `spare` maps a receiver to the gear the task may pull out of its bags when they are full
      * (`makeRoom`). Returns a copy of the task, which `state.task` keeps up to date.
      */
-    gear({ moves, spare = {} }) {
+    gear({ moves, spare = {}, who = null, stock = [] }) {
       takeTab();
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), spare, moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.clears ? { clears: m.clears } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
-      log(`task gear: ${moves.length} moves`);
+      if (who) accountCharacter(iq(), who);
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), spare, ...(who ? { who } : {}), moves: moves.map((m) => ({ item: m.item, ...(m.itemId != null ? { itemId: m.itemId } : {}), from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.clears ? { clears: m.clears } : {}), ...(m.buy?.craft && stock.includes(m.to) ? { stock: true } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price, ...(m.buy.craft ? { craft: m.buy.craft } : {}) } } : {}) })) };
+      log(`task gear: ${moves.length} moves${who ? `, crafted by ${who}` : ""}`);
       return { ...runTask(state.task) };
     },
     /**

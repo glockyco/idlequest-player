@@ -306,7 +306,9 @@ export const fits = (item, p, slot) =>
  * tools/lib/fight-record.mjs), by which a proc for one kind of enemy counts. `minGain`: the smallest gain
  * worth a move. `shop`: merchant goods, `[{ itemId, merchant, zone, price }]`
  * with the price in platinum, which count as copies without end; the plan buys at most `buyPp`
- * platinum in one pass and only in one zone, so one trip serves a pass. `drops`: items enemies drop,
+ * platinum in one pass and only in one zone, so one trip serves a pass. A good a crafter makes
+ * carries `craft`, `{ recipeId, skillId, who }`, which its move keeps, and takes no trip, so it
+ * goes beside the purchases of any zone. `drops`: items enemies drop,
  * `[{ itemId, zone, npc, npcLevel, hours, spawn, drop, points, respawn }]` with `hours` the expected
  * hunting per copy, which become wants for every character they would serve. `copyValue(w)` weighs
  * a wanted copy for ranking the enemies, the acquisition model's `copyValue` (tools/lib/acquire.mjs),
@@ -485,7 +487,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   const moves = [];
   let budget = buyPp;
   let zone = null;
-  const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (zone == null || o.r.buy.zone === zone));
+  const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (Boolean(o.r.buy.craft) || zone == null || o.r.buy.zone === zone));
   const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy) ? o : a), null);
   // One move of the plan: the copy and the receiver's slot are spent. `placed` says that the
   // receiver has to wear it while it is the active character, as a pair of hands does.
@@ -507,10 +509,10 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     // What the armor of the move changes by channel, for a reader who sees stats leave (`gainParts`).
     const armorOf = (set) => [...set].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i);
     const parts = toBags || !ARMOR_SLOTS.includes(slot) ? null : gainParts(p, armorOf(worn.get(p.name)), armorOf(new Map([...worn.get(p.name), [slot, items.get(r.itemId)]])));
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, ...(parts && Object.keys(parts).length > 1 ? { parts } : {}), replaces: replaced?.Name ?? null, ...(cleared ? { clears: cleared.Name } : {}), ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, ...(parts && Object.keys(parts).length > 1 ? { parts } : {}), replaces: replaced?.Name ?? null, ...(cleared ? { clears: cleared.Name } : {}), ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price, ...(r.buy.craft ? { craft: r.buy.craft } : {}) } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
-      zone = r.buy.zone;
+      if (!r.buy.craft) zone = r.buy.zone;
       bought.set(r.itemId, (bought.get(r.itemId) ?? 0) + 1);
     } else {
       spent.add(key(r));

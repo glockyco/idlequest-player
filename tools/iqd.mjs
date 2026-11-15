@@ -319,7 +319,7 @@ export function snapshotInPage(a) {
         // it knows it waits until (`until`) are the coordinator's, for its holds and the long-task rule.
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.stepAt != null ? { stepAt: st.task.stepAt } : {}), ...(st.task.timed ? { timed: st.task.timed } : {}), ...(st.task.until ? { until: st.task.until } : {}), ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.stepAt != null ? { stepAt: st.task.stepAt } : {}), ...(st.task.timed ? { timed: st.task.timed } : {}), ...(st.task.until ? { until: st.task.until } : {}), ...(st.task.kind === "craft" ? { who: st.task.who ?? null, skillId: st.task.skillId, skill: st.task.skill ?? null } : {}), ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
@@ -437,6 +437,8 @@ const LOOKS_AFTER_RESET = 10;
 const RESET_RUSH_MS = 30 * 60000;
 // How long after a raid its tab still goes back for loot the raid left on the corpse.
 const LOOT_BACK_MS = 2 * 3600000;
+// The gear plan offers what a crafter makes at this chance an attempt or better.
+const CRAFT_GEAR_CHANCE = 0.5;
 // The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
 const AA_STAT_FIELD = { 50001: "astr", 50002: "asta", 50005: "aint", 50006: "awis" };
 // Raids at once, each in its own zone with its own leader (`bossPass`).
@@ -995,8 +997,12 @@ export class Daemon {
         const short = (need[m.itemId] ?? 0) - banked - held.reduce((s, r) => s + r.n, 0);
         if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + banked + short });
       }
-      // A job that crafts for a merchant (`sell`) is due by its own time, whatever the account holds of its items.
-      if (make.length || job.sell?.length) crafts.push({ id, ...job, make });
+      // A job that crafts for a merchant (`sell`) is due by its own time, whatever the account holds
+      // of its items, and one whose crafter makes gear for the roster (`goods`) until its skill
+      // is where its training ends.
+      const skill = metaGet(this.db, "craftSkills")?.[job.skillId];
+      const untrained = Boolean(job.goods) && !(skill?.who === job.who && skill.skill >= job.train.at(-1).to);
+      if (make.length || job.sell?.length || untrained) crafts.push({ id, ...job, make });
     }
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey, and is
     // titled after its group, so the twelve game tabs can be told apart.
@@ -1669,7 +1675,7 @@ export class Daemon {
     const readers = tabs.filter((t) => this.trackers.get(t.targetId)?.usable).slice(0, 2);
     for (const reader of readers) {
       try {
-        const id = await this.relay.evaluate(reader.targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...party, ...kept].map((r) => r.itemName))] }), { timeout: 10000 });
+        const id = await this.relay.evaluate(reader.targetId, call(startJobInPage, { name: "searchItems", args: [surveyWords([...[...party, ...kept].map((r) => r.itemName), ...(metaGet(this.db, "craftNames") ?? [])])] }), { timeout: 10000 });
         job = null;
         for (let k = 0; k < 90 && !job?.done; k++) {
           await new Promise((r) => setTimeout(r, 2000));
@@ -1688,7 +1694,8 @@ export class Daemon {
     await writeFile(join(this.runs, "state/account-items.json"), JSON.stringify(survey)).catch(() => {});
     // Each slot's stints, for how long items stay worn (tools/lib/wear.mjs).
     recordWear(this.db, survey.filter((r) => !unseen.has(r.characterName)), now);
-    const { attachEffects, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
+    const { attachEffects, craftGoods, liveDrops, merchantGoods } = await import("./lib/gear-data.mjs");
+    const { successChance } = await import("./tradeskills.mjs");
     const { refusedGoods } = await import("./lib/coordinator.mjs");
     const { contentRoot, rows } = await import("./lib/content.mjs");
     // The merchant goods, the gear every live zone's enemies drop and the casino bosses' drops,
@@ -1766,7 +1773,19 @@ export class Daemon {
     const kph = Object.values(this.killsPerHour).sort((a, b) => a - b);
     // Goods a merchant refused lately stay out of the plan for a day (`refusedGoods`).
     const refused = refusedGoods(metaGet(this.db, "coordinator")?.history ?? [], now);
-    const shop = this.shop.filter((s) => !refused.has(`${s.merchant}|${this.items.get(s.itemId)?.Name}`));
+    // What a crafter makes from the catalog's components counts as goods too, without a trip: of
+    // each job of data/crafts.json with `goods`, the recipes of its skill that its crafter makes
+    // at least every second time, by the skill its last craft task read (`craftSkills`).
+    this.craftGear ??= await craftGoods(contentRoot());
+    for (const [id, i] of this.craftGear.items) if (!this.items.has(id)) this.items.set(id, i);
+    this.craftJobs ??= JSON.parse(await readFile(join(REPO, "data/crafts.json"), "utf8"));
+    const skills = metaGet(this.db, "craftSkills") ?? {};
+    const crafters = Object.values(this.craftJobs).filter((j) => j.goods && skills[j.skillId]?.who === j.who);
+    const crafted = this.craftGear.goods.flatMap((g) => {
+      const j = crafters.find((x) => x.skillId === g.skillId);
+      return j && successChance(skills[g.skillId].skill, g.trivial) >= CRAFT_GEAR_CHANCE ? [{ itemId: g.itemId, merchant: j.who, zone: "craft", price: g.price, craft: { recipeId: g.recipeId, skillId: g.skillId, who: j.who } }] : [];
+    });
+    const shop = [...this.shop.filter((s) => !refused.has(`${s.merchant}|${this.items.get(s.itemId)?.Name}`)), ...crafted];
     const raidPpPerDay = (metaGet(this.db, "bossPlan")?.price ?? 8000) + CASINO_PP_PER_DAY;
     // Each epic reward is separate. Carried pieces cover their holders first, then other needers.
     const epicsOf = (cls) => Object.entries(this.itemModel.epics).find(([c]) => c.toLowerCase().replace(/ /g, "") === cls)?.[1] ?? [];
@@ -1793,6 +1812,8 @@ export class Daemon {
     // The class epics, which stay with the character that carries them, worn or in its bags.
     const bound = new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat());
     const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay, this.db.query("SELECT pp FROM coin ORDER BY t DESC LIMIT 1").get()?.pp ?? null), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    // The crafted items of this plan, by whose names the next survey finds the copies a crafter keeps for a leader.
+    metaSet(this.db, "craftNames", [...new Set(plan.moves.filter((m) => m.buy?.craft).map((m) => m.item))]);
     const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
@@ -1886,6 +1907,9 @@ export class Daemon {
     const polled = [...this.trackers.values()];
     const outage = worldOutage(metaGet(this.db, "worldOut"), { inWorld: polled.filter((tr) => tr.usable && tr.snap?.leader).length, answered: polled.filter((tr) => tr.snap && !tr.snap.error).length, now });
     metaSet(this.db, "worldOut", { since: outage.since });
+    // A crafter's skill as its craft task last read it, which the client keeps nowhere.
+    const crafting = polled.map((tr) => tr.snap?.bot?.task).filter((k) => k?.kind === "craft" && k.skillId && k.skill != null);
+    if (crafting.length) metaSet(this.db, "craftSkills", { ...metaGet(this.db, "craftSkills"), ...Object.fromEntries(crafting.map((k) => [k.skillId, { who: k.who, skill: k.skill, t: now }])) });
     if (outage.restartAt) {
       metaSet(this.db, "serverRestartAt", outage.restartAt);
       this.coordinatedAt = 0;

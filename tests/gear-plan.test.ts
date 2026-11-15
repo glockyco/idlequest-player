@@ -192,6 +192,15 @@ test("merchant goods are bought within the budget, in one zone, and lose a tie t
   ]);
   expect(keep).toEqual({ counts: { 20: 2 }, instances: [4] });
   expect(planGear({ survey, items: bardItems, people, shop }).moves).toHaveLength(1);
+  // What a crafter makes takes no trip, so it goes beside a purchase in any zone, and its move
+  // names the recipe and the crafter.
+  const craft = { recipeId: 8411, skillId: 68, who: "Edroun" };
+  const made = planGear({ survey: survey.slice(0, 3), items: bardItems, people, shop: [shop[0], { itemId: 20, merchant: "Edroun", zone: "craft", price: 0.01, craft }], buyPp: 0.15 }).moves;
+  expect(made.map((m) => [m.to, m.buy?.zone, m.buy?.craft ?? null])).toEqual([
+    ["B1", "freportw", null],
+    ["B2", "craft", craft],
+    ["B3", "craft", craft],
+  ]);
 });
 
 test("a target counts each item once at its best taker and each character slot once", () => {
