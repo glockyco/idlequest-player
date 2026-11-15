@@ -23,6 +23,10 @@ The developer said in a follow-up message that a minor amount like this is fine,
 
 Done after the answer: the hold on the platinum and on the credits is removed, and the jewelry training may spend 200,000 platinum in one run. Crafting for a merchant stays off, since the post says further exploits may be treated more harshly, and a craft task still sells nothing.
 
+## What happened at 19:10
+
+The account's coin was taken: 563,059 platinum at 19:08:52, 829 at 19:14:03, with no spending by any tab in between. The Tradeskill Bank went from 39,674 items to 5,054, with no stack above 27. So the repossession the post describes reached this account after the answer above, and took more than the loop had brought it.
+
 ## Done without asking
 
 - The coin job is removed and no craft task sells anything (`c16c3c2`, `9a5f903`). No coin job ran after the patch.
