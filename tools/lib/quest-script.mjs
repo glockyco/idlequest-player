@@ -40,6 +40,27 @@ const valueOf = (node, locals, depth = 0) => {
   return null;
 };
 
+// The least and the most a numeric expression can be, `[min, max]`, or null: a number, a sum or a
+// product of such, and `math.random(n)` (1 to n) or `math.random(a, b)`, as a timer's delay is
+// written (`math.random(1500000) + 3600000`).
+const rangeOf = (node, locals, depth = 0) => {
+  const v = valueOf(node, locals);
+  if (typeof v === "number") return [v, v];
+  if (!node || depth > 4) return null;
+  if (node.type === "CallExpression" && nameOf(node.base) === "math.random") {
+    const args = node.arguments.map((a) => rangeOf(a, locals, depth + 1));
+    if (args.some((a) => !a)) return null;
+    return args.length === 1 ? [1, args[0][1]] : args.length === 2 ? [args[0][0], args[1][1]] : null;
+  }
+  if (node.type === "BinaryExpression" && (node.operator === "+" || node.operator === "*")) {
+    const a = rangeOf(node.left, locals, depth + 1);
+    const b = rangeOf(node.right, locals, depth + 1);
+    if (!a || !b) return null;
+    return node.operator === "+" ? [a[0] + b[0], a[1] + b[1]] : [a[0] * b[0], a[1] * b[1]];
+  }
+  return null;
+};
+
 // A call's dotted name: `e.message:findi`, `item_lib.check_turn_in`, `eq.spawn2`.
 const nameOf = (node) => {
   if (!node) return "?";
@@ -94,7 +115,7 @@ const tradeOf = (table, locals) => {
  * an else branch, `{ any: [conditions] }` for an `or`, whose parts are `{ all: [conditions] }`
  * where a part has several, or `{ unread: text }`.
  * Actions are `{ give: [itemId] }` (one of them when the script chooses at random), `{ exp }`,
- * `{ spawn: npcId }`, `{ setFlag, value }`, `{ deleteFlag }`, `{ setVar, value }`, `{ setTimer, ms }`,
+ * `{ spawn: npcId }`, `{ setFlag, value }`, `{ deleteFlag }`, `{ setVar, value }`, `{ setTimer, ms, msRange }` (`msRange` the least and most of a delay that is no plain number),
  * `{ stopTimer }`, `{ signal: npcId, n }`, `{ attack: true }`, `{ depop: true }` or `{ unread: text }`.
  */
 export function parseScript(text) {
@@ -277,7 +298,10 @@ export function parseScript(text) {
     if (/^eq\.(spawn2|unique_spawn)$/.test(n)) return [{ spawn: arg(0) }];
     if (n === "eq.set_global") return [{ setFlag: arg(0), value: arg(1) }];
     if (n === "eq.delete_global") return [{ deleteFlag: arg(0) }];
-    if (n === "eq.set_timer") return [{ setTimer: arg(0), ms: arg(1) }];
+    if (n === "eq.set_timer") {
+      const range = typeof arg(1) === "number" ? null : rangeOf(call.arguments[1], locals);
+      return [{ setTimer: arg(0), ms: arg(1), ...(range ? { msRange: range } : {}) }];
+    }
     if (n === "eq.stop_timer") return [{ stopTimer: arg(0) }];
     if (n === "eq.signal") return [{ signal: arg(0), n: arg(1) }];
     if (/:(AddToHateList|Attack)$/.test(n) || n === "eq.attack") return [{ attack: true }];

@@ -159,7 +159,8 @@ const WAIT_MAX_MS = 8 * 3600000;
 /**
  * Copies the outcome of each ended bot task (`tasks`, the tabs' latest tasks) into its history
  * entry: end time, duration, status, result or error, the step it stopped at, `nextAt`, a gear
- * task's refused purchases (`refusedBuys`) and the wanted enemies a hunt found up (`up`).
+ * task's refused purchases (`refusedBuys`), the wanted enemies a hunt found up (`up`) and when a
+ * quest's step called a timed enemy (`timed`).
  * Returns whether any entry changed.
  *
  * Failures: `repeat` is set if the same tab's previous run of this task failed at the same step,
@@ -198,6 +199,11 @@ export function settleHistory(history, tasks) {
     }
     if (task.up && !h.up) {
       h.up = task.up;
+      changed = true;
+    }
+    // When a quest's step last called a timed enemy, which the next run in any tab needs.
+    if (task.timed && JSON.stringify(task.timed) !== JSON.stringify(h.timed ?? null)) {
+      h.timed = task.timed;
       changed = true;
     }
   }
@@ -447,8 +453,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       const byRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance));
       if (q.steps.some((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance)) continue;
       const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
+      // When this quest's steps last called a timed enemy, in any tab (a step's `after`).
+      const timed = Object.assign({}, ...history.filter((h) => h.id === id && h.timed && now - h.t < 3 * 3600000).map((h) => h.timed));
       for (const [p, n] of left) spare.set(p, n);
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(Object.keys(timed).length ? { timed } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
     }
   }
 

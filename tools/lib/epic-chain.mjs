@@ -39,7 +39,8 @@ export const plainName = (name) => String(name).replace(/ \[\d+\]$/, "");
  *   part if it carries the reward or something a later part made from it (`doneItems`). This is
  *   only valid because every part is a single dependency chain.
  * - `flow`: per step, the items it consumes (`ins`, without bought ones) and produces (`outs`).
- * - `calledBy` on a step: index of the step in the same part that spawned its NPC.
+ * - `calledBy` on a step: index of the step in the same part that spawned its NPC, with `after`
+ *   (`{ minSec, maxSec }`) when a timer of two minutes or more puts it up that long after that step.
  * - `id`: ends in the reward's item id, so it is stable when other parts of the tree change.
  * - `minLevel`: the highest of the hardest kill's level and each zone's median NPC level, minus
  *   `KILL_MARGIN`.
@@ -85,7 +86,15 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
   // The step of the current part that spawned one of `npcIds` in `zone`. The zone must match
   // because the same NPC type can also have a permanent spawn elsewhere.
   const caller = (npcIds, zone) => npcIds.map((id) => part.spawned.get(id)).find((c) => c?.zone === zone) ?? null;
-  const calledBy = (npcIds, zone) => (caller(npcIds, zone) ? { calledBy: caller(npcIds, zone).at } : {});
+  const calledBy = (npcIds, zone) => (caller(npcIds, zone) ? { calledBy: caller(npcIds, zone).at, ...(caller(npcIds, zone).delay ? { after: caller(npcIds, zone).delay } : {}) } : {});
+  // A timer's delay in seconds, `{ minSec, maxSec }`, from the branch that sets it, when it is two
+  // minutes or more: Keeper of Souls comes 60 to 85 minutes after a soul carrier's death.
+  const delayOf = (b, after) => {
+    const timer = b.event === "timer" ? b.when.find((c) => c.timer != null)?.timer : null;
+    const set = timer == null ? null : after.flatMap((x) => x.actions ?? []).find((a) => a.setTimer === timer);
+    const range = set?.msRange ?? (typeof set?.ms === "number" ? [set.ms, set.ms] : null);
+    return range && range[0] >= 120000 ? { minSec: Math.floor(range[0] / 1000), maxSec: Math.ceil(range[1] / 1000) } : null;
+  };
   // Closes the current part unless the next step belongs to it (see "Splitting into parts"
   // above). For a kill, an earlier step at the same NPC also counts as a dependency.
   const begin = ({ inputs = {}, after = [], npcIds = [], zone = null, kill = false }) => {
@@ -113,10 +122,10 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     return takes;
   };
   // Records that branch `b` ran at step `at`: the branch, its NPC and the NPCs it spawns.
-  const ran = (b, at) => {
+  const ran = (b, at, delay = null) => {
     part.branches.add(b);
     for (const id of b.npcIds ?? []) part.met.set(id, b.zone);
-    for (const a of b.actions) if (a.spawn != null) part.spawned.set(a.spawn, { zone: b.zone, at });
+    for (const a of b.actions) if (a.spawn != null) part.spawned.set(a.spawn, { zone: b.zone, at, ...(delay ? { delay } : {}) });
   };
   const yieldItem = (id, at) => {
     available.set(id, (available.get(id) ?? 0) + 1);
@@ -203,7 +212,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     if (b.event === "timer" || b.event === "signal") {
       if (!after.some((x) => part.branches.has(x))) continue;
       const at = part.steps.length - 1;
-      ran(b, at);
+      ran(b, at, delayOf(b, after));
       for (const id of b.actions.flatMap((a) => a.give ?? [])) yieldItem(id, at);
       continue;
     }

@@ -1842,8 +1842,33 @@
       for (const end = now() + 240000; !i.partyFull() && now() < end; ) await sleep(3000);
     }, 260000);
     const instances = () => new Set((i.stores.character.getState().characterProfile?.inventory ?? []).map((r) => r.itemInstanceId));
+    // An enemy that a timer puts up long after the step that calls it (`after`, `{ minSec, maxSec }`):
+    // Keeper of Souls comes 60 to 85 minutes after a soul carrier's death and stays half an hour.
+    // `state.timed` keeps when the calling step last ran, by zone and enemy, which the coordinator
+    // also hands to the next task of any tab (`timed`). A call inside the time the enemy can still
+    // come or stand starts no new timer, so it does not count.
+    const UP_SEC = 1800;
+    const timedKey = (x) => `${x.zone}|${x.kill}`;
+    const pending = (x) => {
+      const at = state.timed?.[timedKey(x)]?.at;
+      return at != null && now() < at + (x.after.maxSec + UP_SEC) * 1000 ? at : null;
+    };
+    const enemyUp = (name) => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(name).test(x.name ?? ""));
+    const called = (k) => {
+      for (const x of m.steps) {
+        if (x.calledBy !== k || !x.after || !x.kill || pending(x) != null) continue;
+        (state.timed ??= {})[timedKey(x)] = { at: now() };
+        (task.timed ??= {})[timedKey(x)] = now();
+      }
+    };
     for (const [k, s] of m.steps.entries()) {
       if (k < m.at && !redo.has(k)) continue;
+      // The step that calls a timed enemy is skipped while that enemy stands or is still to come.
+      const timedNext = m.steps[k + 1]?.after && m.steps[k + 1].calledBy === k ? m.steps[k + 1] : null;
+      if (timedNext && s.kill && (pending(timedNext) != null || (zoneShort(i) === timedNext.zone && enemyUp(timedNext.kill)))) {
+        m.at = Math.max(m.at, k + 1);
+        continue;
+      }
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
       const had = instances();
@@ -1913,6 +1938,19 @@
         gathered = true;
         await readyParty();
       }
+      // A timed enemy that is not up yet: the task comes back when it is due, and inside its window
+      // the party waits for it.
+      if (s.kill && s.after && !enemyUp(s.kill)) {
+        const at = pending(s);
+        const clock = (t) => new Date(t).toTimeString().slice(0, 5);
+        if (at != null && now() < at + s.after.minSec * 1000) throw new TaskLater(`${s.kill} comes between ${clock(at + s.after.minSec * 1000)} and ${clock(at + s.after.maxSec * 1000)}`, at + s.after.minSec * 1000 + 30000);
+        const until = at == null ? 0 : at + s.after.maxSec * 1000 + 60000;
+        if (now() < until) {
+          await step(`wait for ${s.kill}`, async () => {
+            while (!enemyUp(s.kill) && now() < until) await sleep(5000);
+          }, until - now() + 60000);
+        }
+      }
       // An enemy the group does not beat is the raid's (`raid` on the step, the coordinator's): the
       // member leads every other roster character against it and loots it. Group 1 lost Ixiblat Fer
       // of the Cleric epic at its first death twice, and the raid kills him in seconds. The raid
@@ -1936,6 +1974,7 @@
         log(`quest: the raid on ${s.kill} for ${m.name}: ${fight.result ?? "no fight"}`);
         if (fight.fight?.outcome !== "killed") throw new Error(`the raid on ${s.kill} ended without a kill: ${fight.result ?? "no fight"}`);
         m.foughtAt = now();
+        called(k);
       } else if (s.kill) {
         if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
         gathered = true;
@@ -1957,6 +1996,7 @@
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
         m.foughtAt = since;
+        called(k);
       }
       // An NPC that shares its spawn point with others (`points`, which tools/iqd.mjs adds from the
       // content snapshot) is up only when its point rolled it, and a point rolls again only after its
@@ -3436,10 +3476,12 @@
      * the other characters that need it. `spare` maps a member to the gear the leader may pull out
      * of its bags when they are full (`makeRoom`). A kill step with `raid` is fought as a raid led
      * by the member, with `raid` (`{ members, maxPp, heal, nuke }`, the roster and the orders of
-     * `iqBot.raid`). Returns a copy of the task, which `state.task` keeps up to date.
+     * `iqBot.raid`). `timed` tells when the step that calls a timed enemy last ran in any tab, by
+     * "zone|enemy" (a step's `after`). Returns a copy of the task, which `state.task` keeps up to date.
      */
-    quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {}, raid = null }) {
+    quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {}, raid = null, timed = {} }) {
       if (!steps?.length) throw new Error("a quest needs steps");
+      for (const [key, at] of Object.entries(timed ?? {})) if (!((state.timed ?? {})[key]?.at >= at)) (state.timed ??= {})[key] = { at };
       const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids, spare: spare[n] ?? [] })), name, raid);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;

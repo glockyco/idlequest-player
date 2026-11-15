@@ -223,6 +223,22 @@ end`;
   expect(steps.filter((s: { say?: string[] }) => s.say?.[0] === "i need a sack")).toHaveLength(2);
 });
 
+test("an enemy a timer spawns long after a death gets the timer's delay on its kill step", () => {
+  // A carrier's death signals the key master, whose timer puts the keeper up 60 to 85 minutes later.
+  const carrier = `function event_death_complete(e)\n  eq.signal(71056,2,200000);\nend`;
+  const master = `function event_signal(e)\n  if(e.signal == 2) then\n    eq.set_timer("87",math.random(1500000) + 3600000);\n  end\nend\nfunction event_timer(e)\n  if(e.timer == "87") then\n    eq.spawn2(71075,0,0,1,2,3,4);\n  end\nend`;
+  const model = buildEpicModel({
+    scripts: [script("airplane/a_soul_carrier.lua", carrier), script("airplane/Key_Master.lua", master)],
+    npcs: [{ id: 71017, name: "a_soul_carrier", level: 52, hp: 17000, loottable: 0 }, { id: 71056, name: "Key_Master", level: 60, loottable: 0 }, { id: 71075, name: "Keeper_of_Souls", level: 60, hp: 30000, loottable: 9 }],
+    spawns: [{ npcId: 71017, zone: "airplane" }, { npcId: 71056, zone: "airplane" }],
+    loot: new Map([[9, [{ item: 30, p: 0.55 }]]]),
+  });
+  const [{ chain }] = epicChains(model, epicTree(model, "Necromancer", 30), { cls: "Necromancer", reward: 30, names: new Map([[30, "Black Silk Cape"]]) });
+  expect(chain.steps.map((s: { kill: string }) => s.kill)).toEqual(["a soul carrier", "Keeper of Souls"]);
+  expect(chain.steps[1]).toMatchObject({ calledBy: 0, after: { minSec: 3600, maxSec: 5100 }, expect: "Black Silk Cape" });
+  expect(chain.steps[0].after).toBeUndefined();
+});
+
 test("a summoning spell the epic's class casts is a cast step at the spell's level, and one of another class keeps the chain out", () => {
   const taker = `function event_trade(e)\n  local item_lib = require("items")\n  if item_lib.check_turn_in(e.trade, {item1 = 70}) then\n    e.other:SummonItem(30)\n  end\nend`;
   const build = (cls: string) => {

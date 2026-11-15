@@ -2320,6 +2320,36 @@ test("a quest's kill step marked for the raid is fought as a raid led by the mem
   }
 });
 
+test("an enemy that a timer puts up an hour after its call ends the task until it is due, and the next task skips the call", async () => {
+  vi.useFakeTimers();
+  try {
+    const steps = [
+      { zone: "guktop", kill: "a soul carrier", level: 52 },
+      { zone: "guktop", kill: "Lord Nagafen", level: 62, raid: true, calledBy: 0, after: { minSec: 3600, maxSec: 5100 } },
+    ];
+    const raid = { members: ["Tagujazolu", "Edroun"], maxPp: 0, heal: "all-balanced", nuke: "dps-all-out" };
+    // The call ran 20 minutes ago in another tab, as the coordinator hands it on: the caller is
+    // skipped, and the enemy is not due for 40 minutes, so the task ends as waiting until then.
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000 });
+    f.targets.splice(0);
+    const calledAt = Date.now() - 20 * 60000;
+    f.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": calledAt } });
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "waiting", nextAt: calledAt + 3600000 + 30000 });
+    expect(f.bot.state.task.result).toMatch(/^Lord Nagafen comes between \d\d:\d\d and \d\d:\d\d$/);
+    expect(calls).not.toContain("open");
+    // An hour after the call the enemy stands: the caller is skipped again and the raid kills it.
+    const g = await install([10, 20]);
+    fakeRaid(g, { timeLeft: true, fightMs: 20000 });
+    g.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": Date.now() - 62 * 60000 } });
+    await runToEnd(g);
+    expect(g.bot.state.task).toMatchObject({ status: "done", raids: [expect.stringMatching(/^killed Lord.Nagafen/)] });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a raid brings a fallen member back with a revive that costs no mana, and looks for one only once a minute", async () => {
   vi.useFakeTimers();
   try {
