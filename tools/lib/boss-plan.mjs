@@ -408,7 +408,9 @@ export function standingBosses(history, bosses, now) {
  * <name>." when another character summoned it, as `[{ key, name, zone, who, credit, since,
  * fights }]`. It stands until a raid kills it or a day after its summon, and blocks every other
  * credit and potion meanwhile. `fights` counts the raids on it for that holder since the summon
- * that reached the fight and did not kill it.
+ * that reached the fight and did not kill it, `kills` the raids that killed it since the summon
+ * and `killedAt` the end of the last of them: the list still said "resume" 54 s after the raid of
+ * 2026-11-15 killed Tolapumj, and a second raid killed him again (`STANDING_KILL` in tools/iqd.mjs).
  */
 export function casinoStanding(list, reader, history) {
   return (list ?? []).filter((c) => c.status === "resume").map((c) => {
@@ -416,6 +418,7 @@ export function casinoStanding(list, reader, history) {
     const since = c.expiresAt ? c.expiresAt - STANDING_MS : 0;
     const id = killId({ source: "credit", key: c.key, who });
     const fights = history.filter((h) => h.kind === "raid" && h.id === id && h.t >= since && !/^killed /.test(h.result ?? "") && (/^(time is up|wiped|ended) /.test(h.result ?? "") || /^fight /.test(h.step ?? ""))).length;
-    return { key: c.key, name: c.name, zone: c.zone, who, credit: c.key, since, fights };
+    const killed = history.filter((h) => h.kind === "raid" && (h.endedAt ?? h.t) >= since && (h.result ?? "").startsWith(`killed ${c.name} `));
+    return { key: c.key, name: c.name, zone: c.zone, who, credit: c.key, since, fights, kills: killed.length, killedAt: killed.length ? (killed.at(-1).endedAt ?? killed.at(-1).t) : null };
   });
 }

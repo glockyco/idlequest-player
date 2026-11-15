@@ -303,7 +303,10 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
   // A raid for him that reached the fight and lost counts, and one from before his summon does not.
   const history = [{ t: 4 * DAY - 1, kind: "raid", id, result: "ended Tolapumj in 30 s" }, { t: 4 * DAY + 10, kind: "raid", id, step: "fight Tolapumj", status: "failed" }];
   const standing = casinoStanding(list, "Tagujazolu", history);
-  expect(standing).toEqual([{ key: "tolapumj", name: "Tolapumj", zone: "sebilis", who: "Domeyafun", credit: "tolapumj", since: 4 * DAY, fights: 1 }]);
+  expect(standing).toEqual([{ key: "tolapumj", name: "Tolapumj", zone: "sebilis", who: "Domeyafun", credit: "tolapumj", since: 4 * DAY, fights: 1, kills: 0, killedAt: null }]);
+  // A kill since the summon is counted with its time, which holds the next raid while the list lags.
+  const killedOnce = casinoStanding(list, "Tagujazolu", [{ t: 4 * DAY + 1000, endedAt: 4 * DAY + 61000, kind: "raid", id, result: "killed Tolapumj in 23 s with 70 of 70 standing, looted 4 items" }]);
+  expect(killedOnce[0]).toMatchObject({ kills: 1, killedAt: 4 * DAY + 61000 });
   // The reader's own boss carries no reason, so the reader resumes it.
   expect(casinoStanding([{ ...list[0], disabled: null }], "Tagujazolu", [])[0].who).toBe("Tagujazolu");
   // While he stands, his raid resumes him with a credit request, and the credit for Lady Vox waits.
