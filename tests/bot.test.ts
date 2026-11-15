@@ -439,8 +439,9 @@ test("a dead leader takes a free group resurrection, else the best one it can pa
     { percent: 90, price: 200 },
     { percent: 96, price: 1000 },
   ];
-  // 96% for 1000pp is above rezMaxPp (200), so 90% is the most it buys.
-  expect(bot.recoveryChoice(paid, 2400)).toEqual({ percent: 90, price: 200 });
+  // 96% for 1000pp is within rezMaxPp (2000), and 1,050 platinum leave 950 above the reserve: 90%.
+  expect(bot.recoveryChoice(paid, 2400)).toEqual({ percent: 96, price: 1000 });
+  expect(bot.recoveryChoice(paid, 1050)).toEqual({ percent: 90, price: 200 });
   // 260pp leaves 160 to spend above the 100pp reserve: 50% only.
   expect(bot.recoveryChoice(paid, 260)).toEqual({ percent: 50, price: 50 });
   expect(bot.recoveryChoice(paid, 140)).toBeNull();
@@ -4010,9 +4011,9 @@ test("a craft task trains a skill by its ladder, crafts what the catalog does no
         return { quantity, pp: quantity * (id === 16873 ? 170 : 34) };
       },
       craftItem: async (recipeId: number, opts: { quantity: number; batch?: number }) => {
-        const out = recipeId === 421 ? 16881 : 16876;
-        if (recipeId === 491) bank[16881] -= opts.quantity;
-        bank[out] = (bank[out] ?? 0) + opts.quantity;
+        const out = recipeId === 421 ? 16881 : recipeId === 347 ? 16873 : 16876;
+        if (recipeId === 491) for (const id of [16881, 16873]) bank[id] -= opts.quantity;
+        bank[out] = (bank[out] ?? 0) + opts.quantity * (recipeId === 347 ? 20 : 1);
         calls.push(`craft ${recipeId} x${opts.quantity} batch ${opts.batch}`);
         return { attempted: opts.quantity, successes: opts.quantity, failures: 0, newSkillValue: 153, withdrawn: 0 };
       },
@@ -4021,13 +4022,14 @@ test("a craft task trains a skill by its ladder, crafts what the catalog does no
       who: "Tagujazolu",
       skillId: 57,
       skillName: "Tinkering",
-      sell: [{ name: "Aqualung", itemId: 16873 }, { recipeId: 491, name: "Powered Gloves", itemId: 16876, pp: 8.2, attempts: 150, needs: [{ recipeId: 421, itemId: 16881, pp: 0.1 }] }],
+      sell: [{ name: "Aqualung", itemId: 16873 }, { recipeId: 491, name: "Powered Gloves", itemId: 16876, pp: 8.2, attempts: 150, needs: [{ recipeId: 421, itemId: 16881, pp: 0.1 }, { recipeId: 347, itemId: 16873, pp: 22, yield: 20 }] }],
       maxPp: 5000,
     });
     await runToEnd(h);
-    // The banked Aqualungs go first. The first hundred lacks 70 Firewater and makes 80, the last
-    // fifty lacks 40 and makes 60.
-    expect(calls).toEqual(["sell 16873 x7", "craft 421 x80 batch 100", "craft 491 x100 batch 100", "sell 16876 x100", "craft 421 x60 batch 100", "craft 491 x50 batch 100", "sell 16876 x50"]);
+    // The banked Aqualungs go first. The first hundred lacks 70 Firewater and makes 80, and 100
+    // Aqualungs, which six combines of 20 give. The last fifty lacks 40 Firewater and makes 60,
+    // and 30 Aqualungs, two combines.
+    expect(calls).toEqual(["sell 16873 x7", "craft 421 x80 batch 100", "craft 347 x6 batch 100", "craft 491 x100 batch 100", "sell 16876 x100", "craft 421 x60 batch 100", "craft 347 x2 batch 100", "craft 491 x50 batch 100", "sell 16876 x50"]);
     expect(h.bot.state.task).toMatchObject({ status: "done", soldPp: 7 * 170 + 150 * 34 });
     expect(h.bot.state.task.result).toMatch(/, sold for 6290 pp$/);
     // A task whose attempts would cost more than it may ends with what it reached.

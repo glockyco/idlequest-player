@@ -26,13 +26,16 @@ test("once the day's credit is won, one more is rolled for while the coin allows
   const won = { t: NOW - 3600000, label: "B", kind: "casino", id: "casino", status: "done", nextAt: NOW + 20 * 3600000 };
   const extra = (coin: object | null, history: object[] = [won]) => decide({ now: NOW, tabs, history, coin }).actions.filter((a) => a.kind === "casino").map((a) => [a.id, a.spec.extra, a.spec.maxPp]);
   expect(extra({ pp: 150000, credits: 0 })).toEqual([["casino:extra", true, 20000]]);
-  // Not below the reserve, not with three credits waiting, not without a read of the coin,
-  // and not within four hours of the last one.
+  // Not below the reserve, not with three credits waiting for a raid, not without a read of the
+  // coin, not within ten minutes of the last one, and not once a credit is worth under half a
+  // group-hour on average.
   expect(extra({ pp: 90000, credits: 0 })).toEqual([]);
   expect(extra({ pp: 150000, credits: 3 })).toEqual([]);
   expect(extra(null)).toEqual([]);
-  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 3600000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toEqual([]);
-  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 5 * 3600000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toHaveLength(1);
+  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 5 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toEqual([]);
+  expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 11 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toHaveLength(1);
+  expect(extra({ pp: 150000, credits: 0, creditMean: 0.3 })).toEqual([]);
+  expect(extra({ pp: 150000, credits: 0, creditMean: 2.6 })).toHaveLength(1);
   // Before the day's credit is won, the day's roll goes first.
   expect(extra({ pp: 150000, credits: 0 }, [])).toEqual([["casino", undefined, 10000]]);
 });

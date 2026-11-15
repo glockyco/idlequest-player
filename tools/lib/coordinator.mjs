@@ -33,11 +33,15 @@ export const DEFAULTS = {
   // The casino's daily boss potion (docs/plans/systems-research.md, "Boss summons and daily
   // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
-  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average, for a
-  // boss worth 4.6 hours of a group's progress on average (docs/plans/coin.md). So the account rolls
-  // for one every `extraEveryMin` while it holds `extraReservePp` and fewer than `extraHold`
-  // credits wait for their raid, and a roll stops after `extraMaxPp`.
-  casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 240, extraReservePp: 100000, extraHold: 3 },
+  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average, which
+  // crafting for a merchant earns in under a minute (docs/plans/coin.md). So what limits the
+  // credits is the time of the tab that rolls and then leads the raid, about a quarter of an hour
+  // a credit: the account rolls for one every `extraEveryMin` while it holds `extraReservePp`,
+  // fewer than `extraHold` credits wait for a raid that kills their boss, and a credit is worth
+  // `extraWorth` hours of a group's progress or more, on average over the casino's bosses with
+  // those the raid does not kill at nothing (`coin.creditMean`, from the boss pass). A roll stops
+  // after `extraMaxPp`.
+  casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 10, extraReservePp: 100000, extraHold: 3, extraWorth: 0.5 },
   // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
   // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
   questKillChance: 0.5,
@@ -439,7 +443,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const lastExtra = history.filter((h) => h.id === "casino:extra").at(-1);
   if (roller && due(lastRoll, 60, roller) && !rolling) out.push({ label: roller.label, kind: "casino", id: "casino", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss credit with ${roller.members[0].name}` });
   // One more credit while the coin allows (`casino` of DEFAULTS), once the day's is won.
-  else if (roller && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
+  else if (roller && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(coin.creditMean < cfg.casino.extraWorth) && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
     out.push({ label: roller.label, kind: "casino", id: "casino:extra", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: 9, maxPp: cfg.casino.extraMaxPp, extra: true }, why: `one more boss credit with ${roller.members[0].name}, with ${Math.round(coin.pp / 1000)}k platinum on the account and ${coin.credits} credit${coin.credits === 1 ? "" : "s"} waiting` });
 
   // A tradeskill job (`crafts`, data/crafts.json with the copies the account is short of): its

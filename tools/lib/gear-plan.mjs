@@ -53,9 +53,12 @@ const MAIN_HAND_TYPE = { rogue: PIERCING };
  * Platinum one gear pass may spend at merchants: what the account earned in the hour before it
  * (`platPerHour` of every group, the pass runs hourly), less the raid budget's share of that hour,
  * so purchases spend income and the standing coin stays for raids (`docs/plans/gear-acquisition.md`).
- * `rows` are `bun tools/groups.mjs --json` rows, `raidPpPerDay` the raid budget.
+ * `rows` are `bun tools/groups.mjs --json` rows, `raidPpPerDay` the raid budget. With the account's
+ * coin (`coinPp`) the pass may also spend what stands above `BUY_RESERVE_PP`, since crafting for a
+ * merchant brings more than the groups earn (docs/plans/coin.md).
  */
-export const buyBudget = (rows, raidPpPerDay) => Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24);
+export const BUY_RESERVE_PP = 200000;
+export const buyBudget = (rows, raidPpPerDay, coinPp = null) => Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24, (coinPp ?? 0) - BUY_RESERVE_PP);
 /**
  * How much of the party's XP rate one percent of a member's melee or spell damage is worth: the XP
  * elasticity at its level times its measured share of the party's damage (`p.shares`, from

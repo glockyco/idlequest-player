@@ -65,10 +65,6 @@ const observations = (odds) => Object.values(odds).flatMap((e) => Object.values(
 const odds = { ...before.odds };
 const db = new Database("runs/iq.db", { readonly: true });
 const targets = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'gear'").get()?.v ?? "{}").targets ?? [];
-const held = new Set(survey.map((r) => r.itemId));
-// The casino bosses of the credits on record and the standing one, which every character's read lists as "resume".
-const creditReads = Object.values(JSON.parse(db.query("SELECT v FROM meta WHERE k = 'casinoCredits'").get()?.v ?? "{}"));
-const credited = new Set(creditReads.flatMap((r) => (r.list ?? []).filter((c) => c.credits > 0 || c.status === "resume").map((c) => c.key)));
 
 // Raid bosses of the goal and gear targets no group can kill that stand in the open world and that
 // the daily list does not name, from the boss plan's watch (the db meta key `bossPlan`,
@@ -113,7 +109,8 @@ const add = (e, group) => {
   if (group) have.groups.add(group);
 };
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
-for (const c of casino) if (held.has(c.itemId) || credited.has(c.key)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
+// Every casino boss, held or not: what a further credit is worth depends on which of them the raid kills.
+for (const c of casino) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
 for (const b of openWatched) add({ ...b, raid: true }, strongest);
 for (const k of questKills.values()) add({ ...k, raid: true }, null);
 const pairs = [];

@@ -57,12 +57,18 @@
     "skillName": "Tinkering",
     "sell": [
       {
-        "recipeId": 491,
-        "name": "Powered Gloves",
-        "itemId": 16876,
-        "pp": 8.1,
+        "recipeId": 492,
+        "name": "Rebreather",
+        "itemId": 16889,
+        "pp": 383,
         "attempts": 6000,
         "needs": [
+          {
+            "recipeId": 347,
+            "itemId": 16873,
+            "pp": 22.1,
+            "yield": 20
+          },
           {
             "recipeId": 421,
             "itemId": 16881,
@@ -71,8 +77,8 @@
         ]
       }
     ],
-    "maxPp": 60000,
-    "retryMin": 240,
-    "untilPp": 500000
+    "maxPp": 2500000,
+    "retryMin": 60,
+    "untilPp": 100000000
   }
 }

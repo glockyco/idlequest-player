@@ -1037,7 +1037,7 @@ export class Daemon {
     // more credit is rolled for (`casino` of DEFAULTS in tools/lib/coordinator.mjs).
     const purse = this.db.query("SELECT t, pp FROM coin ORDER BY t DESC LIMIT 1").get();
     const lastPlan = metaGet(this.db, "bossPlan");
-    const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0) } : null;
+    const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.creditsDue ?? lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0), ...(lastPlan?.creditMean != null ? { creditMean: lastPlan.creditMean } : {}) } : null;
     const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor,
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
       raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
@@ -1513,7 +1513,14 @@ export class Daemon {
     const look = looks[0] ?? null;
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    // What one more credit is worth: the mean over the casino's bosses of what a kill brings, with
+    // a boss the simulated raid does not kill at nothing, and none while no boss is simulated. And
+    // the credits that wait for a raid that kills their boss, which hold further rolls back.
+    const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
+    const fought = casino.filter((c) => odds.odds[c.key]?.raid);
+    const creditMean = fought.length ? casino.reduce((s, c) => s + (killable(odds.odds[c.key]?.raid) ? (casinoValue[c.key] ?? 0) : 0), 0) / casino.length : null;
+    const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid)).length;
+    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";
     // A raid fights with snapshots of the characters (docs/client-internals.md, "Recruits"), so it
@@ -1766,7 +1773,7 @@ export class Daemon {
     const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
     // The class epics, which stay with the character that carries them, worn or in its bags.
     const bound = new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat());
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay, this.db.query("SELECT pp FROM coin ORDER BY t DESC LIMIT 1").get()?.pp ?? null), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's

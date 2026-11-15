@@ -130,7 +130,7 @@
     limits: { minCon: 4, maxCon: 13, maxLevelDiff: 5 },
     widenMin: 20,
     respawnAfterSec: 20, // a dead leader without a resurrection takes the free respawn at the bind point after this long (0 = leave the Resurrection window alone)
-    rezMaxPp: 200, // the most platinum one resurrection may cost (200 buys 90% of the lost XP back); 0 = only free ones
+    rezMaxPp: 2000, // the most platinum one resurrection may cost (1,000 buys 96% of the lost XP back, and a leader of 60 loses 2.4 million); 0 = only free ones
     rezReservePp: 100, // platinum a paid resurrection must leave for spells
     rezPullCoin: true, // a dead leader short of coin pulls the largest account balance with Manage Money
     coinKeepNames: [], // characters whose coin is never pulled, such as a farming leader's
@@ -3174,8 +3174,10 @@
           await step(`craft ${n} ${r.name} to sell`, async () => {
             for (const pre of r.needs ?? []) {
               // A tenth more than the bank lacks, for the attempts that fail.
+              // An attempt gives `yield` of it, an Aqualung combine 20.
               const lacks = n - (await i.bankCount(pre.itemId));
-              if (lacks > 0) await attempts(pre, { quantity: Math.ceil((lacks * 1.1) / 20) * 20, batch: SELL_BATCH });
+              const tries = Math.ceil((lacks * 1.1) / (pre.yield ?? 1));
+              if (lacks > 0) await attempts(pre, { quantity: tries >= 20 ? Math.ceil(tries / 20) * 20 : tries, batch: SELL_BATCH });
             }
             await attempts(r, { quantity: n, batch: SELL_BATCH });
           }, 300000);
