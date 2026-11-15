@@ -442,8 +442,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   const rolling = tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running");
   const lastExtra = history.filter((h) => h.id === "casino:extra").at(-1);
   if (roller && due(lastRoll, 60, roller) && !rolling) out.push({ label: roller.label, kind: "casino", id: "casino", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss credit with ${roller.members[0].name}` });
-  // One more credit while the coin allows (`casino` of DEFAULTS), once the day's is won.
-  else if (roller && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(coin.creditMean < cfg.casino.extraWorth) && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
+  // One more credit while the coin allows (`casino` of DEFAULTS), once the day's is won. A credit's
+  // raid is led by its holder, and the simulator judges the raid under the strongest group's
+  // leader, so these rolls go to a leader of the account's highest level only.
+  else if (roller && roller.members[0].level >= Math.max(...tabs.map((t) => t.members[0]?.level ?? 0)) && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(coin.creditMean < cfg.casino.extraWorth) && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
     out.push({ label: roller.label, kind: "casino", id: "casino:extra", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: 9, maxPp: cfg.casino.extraMaxPp, extra: true }, why: `one more boss credit with ${roller.members[0].name}, with ${Math.round(coin.pp / 1000)}k platinum on the account and ${coin.credits} credit${coin.credits === 1 ? "" : "s"} waiting` });
 
   // A tradeskill job (`crafts`, data/crafts.json with the copies the account is short of): its

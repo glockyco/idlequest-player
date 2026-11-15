@@ -36,6 +36,9 @@ test("once the day's credit is won, one more is rolled for while the coin allows
   expect(extra({ pp: 150000, credits: 0 }, [won, { t: NOW - 5 * 60000, label: "B", kind: "casino", id: "casino:extra", status: "done" }])).toHaveLength(1);
   expect(extra({ pp: 150000, credits: 0, creditMean: 0.05 })).toEqual([]);
   expect(extra({ pp: 150000, credits: 0, creditMean: 2.6 })).toHaveLength(1);
+  // Only a leader of the account's highest level rolls for more, since its tab leads the raid.
+  const lower = decide({ now: NOW, tabs: [{ ...tab("A", "G2", 60), task: { status: "running", kind: "hunt" } }, tab("B", "G1", 52)], history: [won], coin: { pp: 150000, credits: 0 } }).actions.filter((a) => a.kind === "casino");
+  expect(lower).toEqual([]);
   // Before the day's credit is won, the day's roll goes first.
   expect(extra({ pp: 150000, credits: 0 }, [])).toEqual([["casino", undefined, 10000]]);
 });
