@@ -3466,7 +3466,7 @@ test("a crafted gear move is made by the crafter and given on, and a leader's co
       },
     });
     const craft = { recipeId: 8411, skillId: 68, who: "Edroun" };
-    const ring = (to: string) => ({ item: "Velium Jasper Ring", itemId: 14675, from: null, to, slot: "finger", slotNum: 15, buy: { merchant: "Edroun", zone: "craft", price: 3, craft } });
+    const ring = (to: string) => ({ item: "Velium Jasper Ring", itemId: 14675, from: null, to, slot: "finger", slotNum: 15, buy: { merchant: "Edroun", zone: "craft", price: 0, craft } });
     f.bot.gear({ moves: [ring("Tagujazolu"), ring(f.me.name)], who: "Edroun", stock: [f.me.name] });
     await runToEnd(f);
     // Edroun makes both. The member's goes on at once, and the leader's stays with Edroun.

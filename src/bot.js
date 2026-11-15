@@ -1737,11 +1737,17 @@
           const c = mv.buy.craft;
           const before = i.carried(ref);
           if (mv.stock && i.bagSpace().free < 3) throw new Error(`${activeName(i)}'s bags have no room to keep it`);
-          const price = (mv.buy.price ?? 0) * 20;
-          if ((i.stores.character.getState().characterProfile?.platinum ?? 0) < price) {
-            const from = await pullCoin(i, price, { least: true }).catch((e) => `no pull (${e.message})`);
-            if (from) state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
+          // The crafter pays the catalog from its own purse. It gathers two attempts' worth, the
+          // account's largest balances first, since no single balance may cover a piece: after
+          // the account's coin was taken on 2026-11-15 the richest character held 392 platinum.
+          const need = (mv.buy.price ?? 0) * 2;
+          const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
+          for (let k = 0; k < 8 && purse() < need; k++) {
+            const from = await pullCoin(i, 1).catch(() => null);
+            if (!from) break;
+            state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
           }
+          if (purse() < (mv.buy.price ?? 0)) throw new Error(`the account's balances do not cover ${Math.ceil(mv.buy.price ?? 0)} pp of components (${Math.floor(purse())} pp gathered)`);
           const made = await step(`craft ${mv.item}`, () => i.craftItem(c.recipeId, { quantity: 20, until: 1, skillId: c.skillId, output: mv.itemId, settle: () => settleHeld(i) }), 120000);
           if (i.carried(ref) <= before) throw new Error(`${mv.item} did not come out of ${made.attempted} attempts`);
           if (mv.stock) {
