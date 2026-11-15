@@ -1051,6 +1051,10 @@ test("a kill of its caller by anyone times an enemy, and its quest goes while th
   expect(two([failed, { t: NOW - 10 * min, label: "A", kind: "quest", id: "cape", status: "failed", task: "quest-1" }], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
   const running = { label: "A0", members: tab.members, task: { id: "quest-2", kind: "quest", status: "running" } };
   expect(two([{ t: NOW - 100 * min, label: "A", kind: "quest", id: "cape", task: "quest-2" }], [running, other], timedCalls(quests, kills, NOW))).toEqual([]);
+  // Asked why, the decision names each tab's reason.
+  const asked = decide({ now: NOW, tabs: [tab, other], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, failed], called: {}, explain: "cape" });
+  expect(asked.explained.map((e: { label: string; text: string }) => [e.label, e.text.slice(0, 32)])).toEqual([["A", "a wait or a failure at step unkn"], ["B", "a wait or a failure at step unkn"]]);
+  expect(decide({ now: NOW, tabs: [tab], quests, explain: "nothing" }).explained).toEqual([{ label: "no tab", text: "the coordinator has no quest of that id" }]);
   // A run that waited his whole time out holds the chain for its retry time, also against a new call.
   const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 600 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could" };
   expect(two([waitedOut], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);

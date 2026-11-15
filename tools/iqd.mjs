@@ -1007,8 +1007,14 @@ export class Daemon {
       resumeAt,
       // When a kill of the account last called each timed enemy of the quests (`timedCalls`).
       called: timedCalls(quests, this.db.query("SELECT t, npc FROM fights WHERE outcome = 'kill' AND t >= ? ORDER BY t").all(now - 6 * 3600000), now, npcKey),
+      // A quest that `iqd why` asked about: the pass logs why each tab gets it or not, once.
+      explain: metaGet(this.db, "explain")?.id ?? null,
     };
-    const { actions, targets: targetEval } = decide(input);
+    const { actions, targets: targetEval, explained } = decide(input);
+    if (input.explain) {
+      for (const e of explained) this.log(`why ${input.explain}: ${e.label} ${e.text}`);
+      metaSet(this.db, "explain", null);
+    }
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.
     const pieceIds = new Set(opportunities.map((o) => o.id));
     const eventHolds = xpFactor > 1 ? decide({ ...input, xpFactor: 1 }).actions.filter((a) => a.kind === "quest" || (a.kind === "hunt" && pieceIds.has(a.id))).map((a) => ({ label: a.label, kind: a.kind, id: a.id, why: a.why })) : [];
@@ -2562,6 +2568,7 @@ const HELP = `iqd <command>
                                  block until a new unresolved attention item appears
   ack <id> [note]                resolve an attention item
   note <text> [--session leader] [--actor agent]
+  why <quest id>                 have the next coordinator pass log why each tab gets the quest or not
   page <group or leader> <expression> --why <reason> [--read]
                                  evaluate the expression in the group's game tab and record it as a step by
                                  hand with its reason; --read for an expression that changes nothing, unrecorded
@@ -2771,6 +2778,14 @@ async function cmdAck({ positionals, runs }) {
   console.log(`resolved #${id}`);
 }
 
+/** Ask the running collector why no tab gets a quest: its next coordinator pass logs one line for each tab. */
+async function cmdWhy({ positionals, runs }) {
+  const id = positionals[1];
+  if (!id) throw new Error("usage: iqd why <quest id>");
+  metaSet(openDb(join(runs, "iq.db")), "explain", { id });
+  console.log(`the next coordinator pass logs why each tab gets ${id} or not: grep -a "why ${id}" runs/log/iqd-$(date +%F).log`);
+}
+
 async function cmdNote({ values, positionals, runs }) {
   const text = positionals.slice(1).join(" ");
   if (!text) throw new Error("usage: iqd note <text> [--session leader]");
@@ -2888,7 +2903,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, coin: cmdCoin, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, renew: cmdRenew, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, coin: cmdCoin, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, why: cmdWhy, page: cmdPage, load: cmdLoad, renew: cmdRenew, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);

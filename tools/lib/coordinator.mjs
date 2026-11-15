@@ -383,6 +383,7 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
  * - `called`: when each timed enemy of the quests was last called (`timedCalls`).
+ * - `explain`: a quest's id, for which `explained` lists why each tab gets it or not (`iqd why`).
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
@@ -390,7 +391,8 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, called = {}, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, called = {}, explain = null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+  const explained = [];
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -447,6 +449,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
+  if (explain != null && !quests[explain]) explained.push({ label: "no tab", text: "the coordinator has no quest of that id" });
+  else if (explain != null && event) explained.push({ label: "no tab", text: "an XP event holds the quests" });
   for (const [id, q] of event ? [] : Object.entries(quests)) {
     // A quest that uses up items runs for a member when every piece it needs is at hand for him:
     // carried by himself (`own`) or a copy outside the chain's needers (`have`), each free copy
@@ -481,8 +485,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // is called meanwhile.
     const camped = history.some((h) => h.id === id && h.status === "failed" && h.nextAt > now && /did not come/.test(h.error ?? ""));
     const lastAny = history.filter((h) => h.id === id).at(-1);
+    // Why no tab gets this quest, for `iqd why` (`explain`, a quest's id): one line for each tab.
+    const no = (t, text) => void (explain === id && explained.push({ label: t.label, text }));
     for (const t of tabs) {
-      if (!free(t)) continue;
+      if (!free(t)) { no(t, "the tab is busy or has a task of this pass"); continue; }
       const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
       const begun = want.filter((n) => (started[id] ?? []).includes(n));
       // The members the spare copies still serve, in the tab's order.
@@ -505,9 +511,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);
       const who = [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
-      if (!who.length) continue;
-      if (!dueNow && !due(last, q.retryMin ?? 120, t)) continue;
-      if ((pointBound || fights) && runs()) continue;
+      if (!who.length) {
+        no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${want.map((n) => lacks(n).filter(([, l]) => l > 0).map(([p, l]) => `${l} ${p}`).join(" and ")).join("; ")}, and no free copy is left`);
+        continue;
+      }
+      if (!dueNow && !due(last, q.retryMin ?? 120, t)) { no(t, `its last run ${last?.status ?? "has not ended"}, and the next is due at ${new Date(retryTime(last, q.retryMin ?? 120, t?.code ?? code)).toTimeString().slice(0, 5)}`); continue; }
+      if ((pointBound || fights) && runs()) { no(t, "another tab runs it, and one group runs it at a time"); continue; }
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles. A
       // fight goes to the raid (`raid` on its step, `raid` in the spec) when the simulated raid kills
       // the enemy and it is of `questRaidLevel` or the group's chance is too low. Raid mode takes
@@ -519,7 +528,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // found him gone.
       const mayRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s));
       const byRaid = (s) => mayRaid(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance || Boolean(q.steps[s.calledBy]?.kill && byRaid(q.steps[s.calledBy])));
-      if (q.steps.some((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance)) continue;
+      const tooStrong = q.steps.filter((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance);
+      if (tooStrong.length) { no(t, `the group's chance against ${tooStrong.map((s) => `${s.kill} is ${Math.round(100 * chance(s))}%`).join(", ")}, and the raid does not take ${tooStrong.length > 1 ? "them" : "it"}`); continue; }
       const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
       for (const [p, n] of left) spare.set(p, n);
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(Object.keys(timed).length ? { timed } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
@@ -831,7 +841,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const xp = STONES.reduce((a, s) => a + (stock[s] ?? 0) * (stoneXp[s] ?? 0), 0);
     out.push({ label: target.label, kind: "handIn", spec: { members }, why: `${total} stones (${Math.round(xp / 1000)}k XP) to the lowest group, mean level ${mean(target).toFixed(1)}` });
   }
-  return { actions: out, targets: targetEval };
+  for (const a of out) if (a.kind === "quest" && a.id === explain) explained.push({ label: a.label, text: `gets it: ${a.why}` });
+  return { actions: out, targets: targetEval, explained };
 }
 
 const mean = (t) => t.members.reduce((a, m) => a + (m.level ?? 0), 0) / Math.max(1, t.members.length);
