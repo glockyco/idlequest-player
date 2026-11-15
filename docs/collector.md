@@ -140,7 +140,7 @@ manual ones, and the dashboard's Coordinator section shows its last pass.
 
 The roster gear plan (`tools/lib/gear-plan.mjs`) gives each carried item to the account character
 and slot where it adds most to its group's XP rate (`xpGain` in `tools/lib/gear-plan.mjs`): armor and jewelry as a set by what they add to the wearer's melee and spells (`outputValue` in `tools/lib/gear-data.mjs`: offense and haste, mana and regeneration, a little for AC and HP), weighed by the wearer's measured share of the party's damage, and by the party time they save, with the
-client's haste and regeneration caps, a weapon by its stats like armor and by `weaponRatio`
+client's haste and regeneration caps and its stat cap of 255, up to which gear counts STR, STA and the casting stat after base, buffs and AA (`statRoomInPage` in `tools/iqd.mjs` reads each character's sheet), a weapon by its stats like armor and by `weaponRatio`
 against what the hand swings now, and for a Bard the percussion instrument in its bags by the walking time its run song
 saves the group (docs/client-internals.md, Bard instruments). Merchant
 goods in the cities of `data/shop-zones.json` count as further copies with a price, and one pass
