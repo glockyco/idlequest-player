@@ -56,6 +56,10 @@ test("a task past 90 minutes is stopped, and a shorter one runs on", () => {
   const task = (min: number) => ({ task: { kind: "quest", status: "running", step: "wait for Tykar Renlin", startedAt: NOW - min * 60000 } });
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(91))] }).actions).toMatchObject([{ label: "A", kind: "stopTask" }]);
   expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, task(80))] }).actions).toEqual([]);
+  // A task that names the time it waits until, as the wait for a timed enemy does, runs to it.
+  const until = (ms: number) => ({ task: { ...task(91).task, until: NOW + ms } });
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, until(600000))] }).actions).toEqual([]);
+  expect(decide({ now: NOW, tabs: [tab("A", "G1", 40, until(-1000))] }).actions).toMatchObject([{ kind: "stopTask" }]);
 });
 
 test("a quest piece is needed once for each member of the chain's class and level who has not done it", () => {

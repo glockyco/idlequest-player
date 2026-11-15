@@ -193,8 +193,9 @@ export function stepSession({ state, obs, now, label, levels = {}, triggers = []
   }
   // A task holds its tab under a bot pause, which stops the stall clocks above, so a task that
   // runs far longer than tasks take (a wait for an NPC that never spawns) is its own condition.
+  // One that names the time it waits until, as the wait for a timed enemy does, is none before then.
   const task = snap.bot.task;
-  if (task?.status === "running" && task.startedAt && now - task.startedAt > thresholds.taskMin * 60000) {
+  if (task?.status === "running" && task.startedAt && now - task.startedAt > thresholds.taskMin * 60000 && !(task.until > now)) {
     item("act", "longtask", `longtask:${label}`, `${label}: ${task.kind} task running for ${Math.round((now - task.startedAt) / 60000)} min${task.step ? ` at "${task.step}"` : ""}`);
   }
 
@@ -314,9 +315,11 @@ export function snapshotInPage(a) {
         rotation: bot.config.rotation ?? [],
         crowdedAt: st.crowdedAt ?? {},
         errand: st.errand ? { zone: st.errand.zone, item: st.errand.item, keep: st.errand.keep, queuedAt: st.errand.queuedAt ?? st.errand.since, since: st.errand.since, until: st.errand.until } : null,
+        // A quest task's step index (`stepAt`), its calls of timed enemies (`timed`) and the time
+        // it knows it waits until (`until`) are the coordinator's, for its holds and the long-task rule.
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.stepAt != null ? { stepAt: st.task.stepAt } : {}), ...(st.task.timed ? { timed: st.task.timed } : {}), ...(st.task.until ? { until: st.task.until } : {}), ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),

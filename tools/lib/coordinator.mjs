@@ -416,7 +416,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
 
   for (const t of tabs) {
     const ms = t.task?.status === "running" && t.task.startedAt ? now - t.task.startedAt : 0;
-    if (ms > cfg.taskStopMin * 60000) out.push({ label: t.label, kind: "stopTask", id: null, spec: null, why: `${t.task.kind} task running for ${Math.round(ms / 60000)} min${t.task.step ? ` at "${t.task.step}"` : ""}` });
+    // A task that names the time it waits until (`until`, a quest's wait for a timed enemy) runs to it.
+    if (ms > cfg.taskStopMin * 60000 && !(t.task.until > now)) out.push({ label: t.label, kind: "stopTask", id: null, spec: null, why: `${t.task.kind} task running for ${Math.round(ms / 60000)} min${t.task.step ? ` at "${t.task.step}"` : ""}` });
   }
 
   // The casino's daily boss credit comes first: a day not rolled is a credit lost, and the rolls

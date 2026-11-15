@@ -2055,7 +2055,11 @@
         // Five minutes past the timer's longest run, for what delays its start: a soul carrier's
         // death reaches the Key Master 200 s later.
         const until = at == null ? 0 : at + s.after.maxSec * 1000 + 300000;
-        if (now() < until) log(`quest: ${m.name} waits in ${s.zone} for ${s.kill}, which comes between ${clock(at + s.after.minSec * 1000)} and ${clock(until)}`);
+        if (now() < until) {
+          log(`quest: ${m.name} waits in ${s.zone} for ${s.kill}, which comes between ${clock(at + s.after.minSec * 1000)} and ${clock(until)}`);
+          // The collector's long-task rules leave the task alone until the wait and its fight are over.
+          task.until = until + 900000;
+        }
         while (!enemyUp(s.kill) && now() < until) {
           // In steps of ten minutes, so the task's step says how long the wait still is. A party
           // that the guard took out of the zone comes back once its fight is over.

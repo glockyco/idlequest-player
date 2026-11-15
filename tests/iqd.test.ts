@@ -314,6 +314,9 @@ test("a task running past an hour under its bot pause raises a long-task item, a
   const res = run(() => tasked(T0 - 61 * 60 * SEC), 1, 30);
   expect(kinds(res)).toEqual(["longtask"]);
   expect(res.items[0].text).toContain("wait for Anson McBale");
+  // A task that names the time it waits until raises none before then.
+  const waits = () => ok(snap({ kills: { last: T0 }, bot: { enabled: true, pauseUntil: T0 + 7200 * SEC, task: { kind: "quest", status: "running", step: "wait in airplane for Keeper of Souls until 16:20", startedAt: T0 - 61 * 60 * SEC, until: T0 + 3600 * SEC }, alerts: [] } }));
+  expect(kinds(run(waits, 1, 30))).toEqual([]);
 });
 
 const collector = (over: Record<string, unknown> = {}) => Object.assign(new Daemon({
