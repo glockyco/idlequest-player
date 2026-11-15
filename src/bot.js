@@ -3006,6 +3006,9 @@
     task.rolls ??= 0;
     task.spentPp ??= 0;
     while (task.spentPp + price <= task.maxPp) {
+      // A roll's item prizes need room: a roll for one more credit was refused for a full
+      // inventory on 2026-11-15. The reserve acts for the leader, who rolls.
+      if (i.bagSpace().free < config.minFreeSlots) await keepReserve(i, true);
       if (coin() < price) {
         const from = await step("pull coin", () => pullCoin(i, price), 30000);
         if (!from || coin() < price) throw new TaskLater(`no balance of ${price}pp to pull for a roll`, now() + 3600000);
