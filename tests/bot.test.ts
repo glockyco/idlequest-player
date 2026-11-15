@@ -3450,27 +3450,44 @@ test("stopping a raid after the kill still collects its corpse", async () => {
   }
 });
 
-test("quest item ids leave a same-named wrong item alone and accept only the right cursor reward", async () => {
+test("a reward that comes under another id than the content names counts when its step brought it, and a same-named item carried before does not", async () => {
   vi.useFakeTimers();
   try {
-    const f = await install([10, 20]);
-    handInPage(f, {}, { ok: true });
-    const inventory = [{ name: "Shovel", id: 1 }];
-    let cursor: { name: string; id: number } | null = null;
-    Object.assign(f.iq, {
-      carried: (item: string | { name: string; id: number }) => inventory.filter((r) => typeof item === "string" ? r.name === item : r.id === item.id).length,
-      pullItem: async (item: { name: string; id: number }) => (inventory.push(item), { got: true }),
-      talkToNpc: async () => {},
-      giveToNpc: async (items: { name: string; id: number }[]) => {
-        for (const item of items) inventory.splice(inventory.findIndex((r) => r.id === item.id), 1);
-        cursor = { name: "Note", id: 3 };
-      },
-      bagSpace: () => ({ free: 30, capacity: 58, cursor: cursor?.name ?? null, cursorId: cursor?.id ?? null }),
-    });
-    f.bot.quest({ members: ["Tagujazolu"], ids: { Shovel: 2, Note: 4 }, steps: [{ zone: "guktop", npc: "Smith", give: ["Shovel"], expect: "Note" }] });
-    await runToEnd(f);
-    expect(inventory).toEqual([{ name: "Shovel", id: 1 }]);
-    expect(f.bot.state.task).toMatchObject({ status: "failed", error: expect.stringContaining("did not get Note") });
+    const run = async (before: object[], gives = true) => {
+      const f = await install([10, 20]);
+      handInPage(f, {}, { ok: true });
+      const inventory = [{ name: "Shovel", id: 1 }];
+      const bags = [...before] as { bag: number; slot: number; itemid: number; itemInstanceId: number; itemDetails: { Name: string } }[];
+      (f.me as unknown as { inventory: object[] }).inventory = bags;
+      let cursor: { name: string; id: number } | null = null;
+      Object.assign(f.iq, {
+        carried: (item: string | { name: string; id: number }) => inventory.filter((r) => typeof item === "string" ? r.name === item : r.id === item.id).length + bags.filter((r) => typeof item !== "string" && r.itemid === item.id).length,
+        pullItem: async (item: { name: string; id: number }) => (inventory.push(item), { got: true }),
+        talkToNpc: async () => {},
+        giveToNpc: async (items: { name: string; id: number }[]) => {
+          for (const item of items) inventory.splice(inventory.findIndex((r) => r.id === item.id), 1);
+          if (gives) cursor = { name: "Note", id: 3 };
+        },
+        placeCursor: async () => {
+          if (!cursor) return false;
+          bags.push({ bag: 23, slot: 5, itemid: cursor.id, itemInstanceId: 900, itemDetails: { Name: cursor.name } });
+          cursor = null;
+          return true;
+        },
+        bagSpace: () => ({ free: 30, capacity: 58, cursor: cursor?.name ?? null, cursorId: cursor?.id ?? null }),
+      });
+      f.bot.quest({ members: ["Tagujazolu"], ids: { Shovel: 2, Note: 4 }, steps: [{ zone: "guktop", npc: "Smith", give: ["Shovel"], expect: "Note" }] });
+      await runToEnd(f);
+      return { task: f.bot.state.task, inventory };
+    };
+    // The server gives the Note as item 3 where the content says 4: it counts, and the chain goes on with 3.
+    const drift = await run([]);
+    expect(drift.inventory).toEqual([{ name: "Shovel", id: 1 }]);
+    expect(drift.task).toMatchObject({ status: "done", keep: [900] });
+    expect(drift.task.members[0].ids).toMatchObject({ Note: 3 });
+    // A Note of that other id the member carried before the step is not the step's reward.
+    const old = await run([{ bag: 23, slot: 1, itemid: 3, itemInstanceId: 800, itemDetails: { Name: "Note" } }], false);
+    expect(old.task).toMatchObject({ status: "failed", error: expect.stringContaining("did not get Note") });
   } finally {
     vi.useRealTimers();
   }

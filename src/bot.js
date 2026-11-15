@@ -245,7 +245,8 @@
    * up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
    * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`,
-   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand" or "reagent".
+   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand", "reagent" or "quest" (a
+   * running quest's item under an id the demand does not name).
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -263,7 +264,9 @@
       const supply = supplyLeft[d.itemtype] > 0 && ((supplyLeft[d.itemtype] -= row.quantity), true);
       const move = config.gearKeepInstances.includes(r.itemInstanceId);
       const wanted = !move && demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true);
-      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : null;
+      // An item a running quest received under an id the demand does not know (`task.keep`).
+      const quest = state.task?.status === "running" && state.task.keep?.includes(r.itemInstanceId);
+      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : null;
       if (why) out.keep.push({ ...row, why });
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
@@ -1810,10 +1813,12 @@
     const readyParty = () => step("wait for the party to be ready", async () => {
       for (const end = now() + 240000; !i.partyFull() && now() < end; ) await sleep(3000);
     }, 260000);
+    const instances = () => new Set((i.stores.character.getState().characterProfile?.inventory ?? []).map((r) => r.itemInstanceId));
     for (const [k, s] of m.steps.entries()) {
       if (k < m.at && !redo.has(k)) continue;
       if (fresh || zoneShort(i) !== s.zone) await step(`travel to ${s.zone}`, () => i.changeZone(s.zone), 90000);
       fresh = false;
+      const had = instances();
       // The enemy a hand-in summons being up already shows that the hand-in happened earlier, so the
       // member goes on to the fight: Maligar stays gone while his doppleganger lives. Up means among
       // the enemies the party can attack, the list `directedKill` fights from. That holds only for an
@@ -2029,6 +2034,19 @@
           log(`quest: ${m.name} looked into the corpses for ${plain}: ${r.error ?? (r.looted.length ? `took ${r.looted.join(", ")}` : "not there")}`);
         }
         if (cursorHeld()) await settleHeld(i);
+        // The live server can give the item under another id than the content snapshot names: Tergon
+        // Brenclog's Sealed Letter came five times and was not found, and the reserve destroyed it.
+        // So an item of the expected name that this step brought counts, the chain goes on with
+        // its id, and the reserve keeps it while the task runs (`fates`).
+        if (!held() && m.ids?.[s.expect] != null) {
+          if (i.bagSpace().cursor === plain) await settleHeld(i);
+          const got = (i.stores.character.getState().characterProfile?.inventory ?? []).find((r) => !had.has(r.itemInstanceId) && (r.itemDetails?.Name ?? r.itemDetails?.name) === plain);
+          if (got) {
+            log(`quest: ${plain} came as item ${got.itemid}, not ${m.ids[s.expect]} as the content names it`);
+            m.ids = { ...m.ids, [s.expect]: got.itemid };
+            (task.keep ??= []).push(got.itemInstanceId);
+          }
+        }
         if (!held()) {
           // What the corpse gave instead, which tells a lost loot from a drop that is not there.
           const loot = s.kill ? (i.lootLog ?? []).filter((l) => l.t >= m.foughtAt).map((l) => l.items.join(", ") || "coin only") : null;
