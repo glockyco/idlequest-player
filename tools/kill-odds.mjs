@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // Kill chances from the raid simulator, for the coordinator's boss kills (docs/plans/raids.md) and
 // gear targets (docs/plans/gear-acquisition.md, "Kill chance"), written to runs/state/kill-odds.json.
-// - Bosses: each daily boss (runs/state/daily-bosses.json) and each casino potion boss the survey
-//   finds fights the raid of all roster characters and the strongest group's six.
+// - Bosses: each daily boss (runs/state/daily-bosses.json), each casino boss a character holds a
+//   credit for (the db meta key `casinoCredits`) or a potion of, and the account's standing casino
+//   boss fight the raid of all roster characters and the strongest group's six.
 // - Gear targets (the db meta key `gear`): the pairs of group and target with the highest expected
 //   value, the target's value per hour times the prior's chance for the pair, that have no result
 //   younger than a day at the group's current level, `--pairs` of them per run. So the simulator
@@ -59,6 +60,9 @@ const odds = { ...before.odds };
 const db = new Database("runs/iq.db", { readonly: true });
 const targets = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'gear'").get()?.v ?? "{}").targets ?? [];
 const held = new Set(survey.map((r) => r.itemId));
+// The casino bosses of the credits on record and the standing one, which every character's read lists as "resume".
+const creditReads = Object.values(JSON.parse(db.query("SELECT v FROM meta WHERE k = 'casinoCredits'").get()?.v ?? "{}"));
+const credited = new Set(creditReads.flatMap((r) => (r.list ?? []).filter((c) => c.credits > 0 || c.status === "resume").map((c) => c.key)));
 
 // Raid bosses of the goal and gear targets no group can kill that stand in the open world and that
 // the daily list does not name, from the boss plan's watch (the db meta key `bossPlan`,
@@ -97,7 +101,7 @@ const add = (e, group) => {
   if (group) have.groups.add(group);
 };
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
-for (const c of casino) if (held.has(c.itemId)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
+for (const c of casino) if (held.has(c.itemId) || credited.has(c.key)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
 for (const b of openWatched) add({ ...b, raid: true }, strongest);
 const pairs = [];
 for (const x of targets.filter((t) => t.npcLevel > 50)) {
