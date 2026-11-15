@@ -3066,11 +3066,18 @@
     }
   };
   // A raid's kills keep their loot in the RAID LOOT tab of their zone for the raid's leader. When
-  // a raid ended before it could take it, this task goes back for it.
+  // a raid ended before it could take it, this task goes back for it, as the raid does: with
+  // room made first, and once more with the party gathered for what the leader cannot hold.
   const lootTask = async (i, task, step) => {
     await step("stop", () => calm(i), 75000);
     if (zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
-    const r = await step("collect the loot", () => collectCorpseLoot(i), 120000);
+    await step("make room", () => keepReserve(i, true), 180000);
+    let r = await step("collect the loot", () => collectCorpseLoot(i), 120000);
+    if (r.left.length) {
+      await step("gather the party for the loot", () => gatherParty(i), 60000).catch((e) => log(`task loot: the party did not gather for the loot (${e?.message ?? e})`));
+      const again = await step("collect the rest", () => collectCorpseLoot(i), 120000);
+      r = { looted: [...r.looted, ...again.looted], left: again.left };
+    }
     task.result = `looted ${r.looted.length} item${r.looted.length === 1 ? "" : "s"}${r.looted.length ? `: ${r.looted.join(", ")}` : ""}${r.left.length ? `, left ${r.left.join(", ")}` : ""}`;
   };
   // The casino's Items prize wins the account a boss reset credit a day at three matches, and more
