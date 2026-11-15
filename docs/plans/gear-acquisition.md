@@ -147,9 +147,9 @@ The simulator fights one enemy, and a live fight has the ones that join. On 2026
 
 Platinum is worth little until its uses run short, of which the raid budget is the largest, and the
 account earns far more than it spends. So a gear pass, which runs hourly, may spend what the account
-earned in the hour before it (the groups' `platPerHour`) less the raid budget's share of that hour
-(`buyBudget`), and a purchase pays when its gain clears the move threshold. The standing coin stays
-for raids. A leader that carries too little for a purchase pulls the largest account balance first.
+earned from loot and sales in the hour before it (the groups' `platPerHour`) less the raid budget's
+share of that hour, but never the raid reserve (`buyBudget`), and a purchase pays when its gain
+clears the move threshold. A leader that carries too little for a purchase pulls the largest account balance first.
 
 ## Measured and assumed
 

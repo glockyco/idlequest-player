@@ -39,10 +39,10 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 
 ## Policy
 
-1. Raid time first. A summon buys its hour, since an unused summon is lost. A credit keeps, so its raid runs in paid time or buys an hour as an open-world boss's does, for kills worth an hour of a group's progress (`OPEN_BUY` in `tools/lib/boss-plan.mjs`).
+1. Raid time first. Everything below keeps 30,000 platinum, three raid hours, for raids (`RAID_RESERVE_PP` in `tools/lib/coin.mjs`). A summon buys its hour, since an unused summon is lost. A credit keeps, so its raid runs in paid time or buys an hour as an open-world boss's does, for kills worth an hour of a group's progress (`OPEN_BUY` in `tools/lib/boss-plan.mjs`).
 2. The day's casino credit, then one more every four hours while the coin allows, fewer than three credits wait for a raid that kills their boss, and a credit is worth half a group-hour on average over the casino's 30 bosses (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`, `creditMean` from the boss pass). Kill odds fights every casino boss for that.
-3. AA ranks from what is above the reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
-4. Merchant gear from the hour's income less the raid budget, or from what the coin holds above 200,000 (`buyBudget`). Crafted jewelry counts as merchant gear ([gear acquisition](gear-acquisition.md), "Ways to get a copy"), and its crafter trains when the coin covers a run of the job over the raid reserve.
+3. AA ranks from what is above the raid reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
+4. Merchant gear from the hour's loot and sales less the raid budget, or from what the coin holds above 200,000, and never from the raid reserve (`buyBudget`). Crafted jewelry counts as merchant gear ([gear acquisition](gear-acquisition.md), "Ways to get a copy"), and its crafter trains when the coin covers a run of the job over the raid reserve.
 5. A dead leader takes the resurrection that restores most for up to 200 platinum (`rezMaxPp` in `src/bot.js`).
 
 ## Open
