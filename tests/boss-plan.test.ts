@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
 
 const nextLook = (o: Parameters<typeof nextLooks>[0]) => nextLooks(o)[0] ?? null;
 
@@ -293,6 +293,37 @@ test("a summoned boss that no raid killed stands until one does, and comes befor
   expect(plan.kill).toMatchObject({ key: "lodizal", source: "standing", who: "Tagujazolu", zone: "iceclad" });
   expect(killId(plan.kill)).toBe(id);
   expect(plan.skipped.map((s) => s.key)).toEqual(["tolapumj"]);
+});
+
+test("the casino boss the server lists as resume stands for its summoner, and holds every credit until it dies", () => {
+  const DAY = 24 * 3600000;
+  const list = [
+    { key: "tolapumj", name: "Tolapumj", zone: "sebilis", credits: 0, status: "resume", expiresAt: 5 * DAY, disabled: "Resume with Domeyafun." },
+    { key: "vox", name: "Lady Vox", zone: "permafrost", credits: 2, status: "disabled", disabled: "Defeat your account's active casino boss or wait for it to expire." },
+  ];
+  const id = "boss:credit:Domeyafun:tolapumj";
+  // A raid for him that reached the fight and lost counts, and one from before his summon does not.
+  const history = [{ t: 4 * DAY - 1, kind: "raid", id, result: "ended Tolapumj in 30 s" }, { t: 4 * DAY + 10, kind: "raid", id, step: "fight Tolapumj", status: "failed" }];
+  const standing = casinoStanding(list, "Tagujazolu", history);
+  expect(standing).toEqual([{ key: "tolapumj", name: "Tolapumj", zone: "sebilis", who: "Domeyafun", credit: "tolapumj", since: 4 * DAY, fights: 1 }]);
+  // The reader's own boss carries no reason, so the reader resumes it.
+  expect(casinoStanding([{ ...list[0], disabled: null }], "Tagujazolu", [])[0].who).toBe("Tagujazolu");
+  // While he stands, his raid resumes him with a credit request, and the credit for Lady Vox waits.
+  const credits = [{ key: "vox", name: "Lady Vox", zone: "permafrost", who: "Tagujazolu" }];
+  const odds = { tolapumj: { raid: win }, vox: { raid: win } };
+  const plan = nextBossKill({ daily: daily(0, []), credits, standing, odds, value: { vox: 9 } });
+  expect(plan.kill).toMatchObject({ key: "tolapumj", source: "standing", who: "Domeyafun", credit: "tolapumj" });
+  expect(killId(plan.kill)).toBe(id);
+  expect(plan.skipped.map((s) => s.key)).toEqual(["vox"]);
+  // Once he is gone, the credit's raid goes, led by its holder.
+  const next = nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 9 } });
+  expect(next.kill).toMatchObject({ key: "vox", source: "credit", who: "Tagujazolu" });
+  expect(killId(next.kill)).toBe("boss:credit:Tagujazolu:vox");
+  // A copy a raid killed after the summon gets no raid of its own and still holds the credits.
+  const killed = casinoStanding(list, "Tagujazolu", [{ t: 4 * DAY - 60000, endedAt: 4 * DAY + 60000, kind: "raid", id: "boss:potion:990107:Domeyafun", result: "killed Tolapumj in 27 s with 71 of 71 standing, looted 3 items" }]);
+  const after = nextBossKill({ daily: daily(0, []), credits, standing: killed, odds, value: { vox: 9 } });
+  expect(after.kill).toBeNull();
+  expect(after.skipped.map((s) => s.key)).toEqual(["tolapumj", "vox"]);
 });
 
 test("held open bosses add no worth to buying an hour", () => {

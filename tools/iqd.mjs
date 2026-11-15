@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, bossParts, bossValues, canBuyHour, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -971,8 +971,6 @@ export class Daemon {
       chances.set(key, k);
       return k;
     };
-    // When each character last rolled the casino, kept past the two days of history (`rolled` of decide).
-    const rolled = metaGet(this.db, "casinoRolls") ?? {};
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded. A boss of
     // the daily list, the raid goal or the gear watch is the boss plan's kill, by raid, so no group
@@ -981,7 +979,7 @@ export class Daemon {
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
     const xpFactor = factorAt(this.xpEvents, now);
-    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, rolled, xpFactor };
+    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, xpFactor };
     const { actions, targets: targetEval } = decide(input);
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.
     const pieceIds = new Set(opportunities.map((o) => o.id));
@@ -1005,7 +1003,6 @@ export class Daemon {
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
         state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: tab.code });
         if (a.kind === "gear") this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
-        if (a.kind === "casino") metaSet(this.db, "casinoRolls", { ...rolled, [a.who]: now });
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
@@ -1317,8 +1314,22 @@ export class Daemon {
     // The survey is the last gear pass's, so a potion a raid used since then is left out (`potionSpent`).
     const surveyAt = metaGet(this.db, "gear")?.t ?? 0;
     const potions = casino.flatMap((c) => survey.filter((r) => r.itemId === c.itemId).map((r) => ({ key: c.key, name: c.name, zone: c.zone, itemId: c.itemId, who: r.characterName }))).filter((p) => !potionSpent(history, p, surveyAt));
-    // A casino boss a raid summoned and did not kill, which blocks every other potion until it is dead.
-    const standing = standingBosses(history, casino, now);
+    // Casino credits stay with their winner, and the server shows only the active character's, in
+    // the daily list (`iq.raid.bosses`). So the pass keeps each character's last read (db meta key
+    // `casinoCredits`): the reader's, and what a casino or raid task read after its win or summon
+    // (`creditsOf`). A credit a raid spent since that read is left out (`potionSpent`).
+    const creditReads = metaGet(this.db, "casinoCredits") ?? {};
+    if (st.daily?.who && Array.isArray(st.daily.credits)) creditReads[st.daily.who] = { t: now, list: st.daily.credits };
+    for (const tr of this.trackers.values()) {
+      const k = tr.snap?.bot?.task;
+      if (k?.creditsOf && Array.isArray(k.credits) && !(creditReads[k.creditsOf]?.t >= k.creditsAt)) creditReads[k.creditsOf] = { t: k.creditsAt, list: k.credits };
+    }
+    metaSet(this.db, "casinoCredits", creditReads);
+    const credits = Object.entries(creditReads).flatMap(([who, r]) => r.list.filter((c) => c.credits > 0).map((c) => ({ key: c.key, name: c.name, zone: c.zone, who, at: r.t }))).filter((c) => !potionSpent(history, { ...c, source: "credit" }, c.at));
+    // The account's casino boss, which every character's credits list as "resume" while it stands
+    // and which blocks every other summon until it dies or expires. Without the list, as under
+    // page code from before the credits, the raid history says (`standingBosses`).
+    const standing = Array.isArray(st.daily?.credits) ? casinoStanding(st.daily.credits, st.daily.who, history) : standingBosses(history, casino, now);
     // The raid bosses the tabs see in their zones' spawn lists, by name with the time of the look
     // (db meta key `bossesSeen`). One that stands alive in the open world needs no summon. After a
     // raid on it, it counts again only from a look later than that raid's end.
@@ -1362,7 +1373,7 @@ export class Daemon {
     metaSet(this.db, "bossLog", log);
     const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;
     const open = openBosses({ seen, daily: st.daily, goal, gear, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
-    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...standing, ...watch.filter((w) => !(st.daily?.bosses ?? []).some((b) => b.key === w.key))];
+    const candidates = [...(st.daily?.bosses ?? []), ...potions, ...credits, ...standing, ...watch.filter((w) => !(st.daily?.bosses ?? []).some((b) => b.key === w.key))];
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
     // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
     const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
@@ -1400,7 +1411,7 @@ export class Daemon {
       const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
-    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
+    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, credits, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
     // A look goes to every watched boss the account could kill, whether or not an hour of raid
     // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: a goal
     // boss, and another one inside paid raid time or for a kill worth an hour the coin pays.
@@ -1428,10 +1439,10 @@ export class Daemon {
     const strongestLeader = [...groupOf].find(([, g]) => g === odds.strongest)?.[0];
     const leaderTab = (name) => tabs.find((t) => t.group != null && t.group === groupOf.get(name));
     const out = [];
-    let potionRaid = raidTabs.some((t) => /^boss:potion:/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
+    let potionRaid = raidTabs.some((t) => /^boss:(potion|credit):/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
     for (const k of kills) {
       if (raidTabs.length + out.length >= (paid ? RAIDS_AT_ONCE : 1) || busyZones.has(k.zone) || !k.zone) continue;
-      const potion = k.source === "potion" || k.source === "standing";
+      const potion = k.source === "potion" || k.source === "credit" || k.source === "standing";
       if (potion && potionRaid) continue;
       const last = history.filter((h) => h.id === killId(k)).at(-1);
       // A standing boss is fought again at the next pass, three times, before its raids wait like a
@@ -1439,7 +1450,7 @@ export class Daemon {
       // boss this history does not know, and its raid would buy an hour of raid time to be refused.
       // The refusal is over once a raid has killed a casino boss after it, the one that stood.
       const casinoKill = (since) => this.db.query("SELECT data FROM progress WHERE kind = 'raid' AND t > ?").all(since).some((r) => casino.some((c) => c.name === JSON.parse(r.data ?? "{}").boss));
-      const refused = last?.status === "failed" && /^use potion /.test(last.step ?? "") && !casinoKill(last.t);
+      const refused = last?.status === "failed" && /^(use potion|summon credit) /.test(last.step ?? "") && !casinoKill(last.t);
       const retryMin = k.source === "standing" ? (k.fights < 3 ? 0 : 12 * 60) : refused ? REFUSED_RETRY_MIN : RAID_RETRY_MIN;
       const preferred = leaderTab(k.who ?? strongestLeader);
       const tab = potion ? (free(preferred) && !used.has(preferred.label) ? preferred : null) : [preferred, ...tabs.filter((t) => (t.members[0]?.level ?? 0) >= 46).sort((a, b) => (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0))].find((t) => free(t) && !used.has(t.label));
@@ -1459,8 +1470,8 @@ export class Daemon {
       const parts = bossParts(k.name);
       const nearby = k.source === "open" ? kills.filter((o) => o !== k && o.source === "open" && o.zone === k.zone).map((o) => o.name) : [];
       const also = parts.length > 1 ? parts : nearby;
-      const what = k.source === "potion" ? { target: k.name, potion: k.itemId, who: k.who } : k.source === "standing" ? { target: k.name, who: k.who } : k.source === "open" ? { target: k.name, open: true, ...(also.length ? { also } : {}) } : { bossKey: k.key, ...(also.length > 1 ? { also } : {}) };
-      const from = k.source === "potion" ? `${k.who}'s potion` : k.source === "standing" ? `${k.who}'s potion, whose boss still stands after ${k.fights} fight${k.fights === 1 ? "" : "s"}` : k.source === "open" ? `its open-world spawn in ${k.zone}${nearby.length ? `, with ${nearby.join(", ")}` : ""}` : "a free summon";
+      const what = k.source === "potion" ? { target: k.name, potion: k.itemId, who: k.who } : k.source === "credit" || (k.source === "standing" && k.credit) ? { target: k.name, credit: k.key, who: k.who } : k.source === "standing" ? { target: k.name, who: k.who } : k.source === "open" ? { target: k.name, open: true, ...(also.length ? { also } : {}) } : { bossKey: k.key, ...(also.length > 1 ? { also } : {}) };
+      const from = k.source === "potion" ? `${k.who}'s potion` : k.source === "credit" ? `${k.who}'s credit` : k.source === "standing" ? `${k.who}'s casino boss, which still stands after ${k.fights} fight${k.fights === 1 ? "" : "s"}` : k.source === "open" ? `its open-world spawn in ${k.zone}${nearby.length ? `, with ${nearby.join(", ")}` : ""}` : "a free summon";
       // A raid gets three times its simulated fights, and a quarter of an hour at least: the
       // simulator takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off
       // in many fights.

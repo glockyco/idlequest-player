@@ -54,11 +54,10 @@ starts `run` without it.
 `run --coordinate` also makes iqd the coordinator of `docs/plans/controller.md`. Every five minutes
 it reads the account's lightstones and the items of `data/opportunities.json` (epic and quest
 pieces) with Inventory Search and queues tasks through each bot's own task API
-(`tools/lib/coordinator.mjs` decides). First, a character of 46 or more rolls the casino for the
-day's boss potion (`iqBot.casino`), the one that rolled longest ago (db meta key `casinoRolls`),
-playing its tab for the roll, since a potion stays with its winner. The boss pass then queues the
-next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily summon or a held
-casino potion as a raid of all roster characters, led by the potion's holder or the strongest
+(`tools/lib/coordinator.mjs` decides). First, the highest free leader of 46 or more rolls the casino
+for the day's boss credit (`iqBot.casino`), which stays with that leader. The boss pass then queues the
+next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily summon, a held
+casino credit or potion, or the standing casino boss, as a raid of all roster characters, led by the credit's holder or the strongest
 group's leader, once the simulator kills the boss in every fight (`runs/state/kill-odds.json`, which
 `bun tools/kill-odds.mjs` refreshes in the background hourly). A raid runs as soon as one is due,
 by the worth of its loot per raid minute, and buys raid time at the server's quote. Raids fight with

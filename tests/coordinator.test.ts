@@ -8,17 +8,17 @@ const team = (prefix: string, level: number) => Array.from({ length: 6 }, (_, k)
 const tab = (label: string, group: string, level: number, extra = {}) => ({ label, group, members: team(label, level), task: null, gameHour: 12, ...extra });
 const page = { id: "p3", group: "G1", zone: "gukbottom", keep: "ghoul", item: "Page 3", retryMin: 30 };
 
-test("one character of 46 or more rolls the casino for the account at the time the last roll named, the one that rolled longest ago", () => {
+test("the highest free leader of 46 or more rolls the casino for the account at the time the last roll named", () => {
   const tabs = [tab("A", "G2", 40), tab("B", "G1", 52), tab("C", "G3", 47)];
-  const rolls = (now: number, history: object[], rolled = {}) => decide({ now, tabs, history, rolled }).actions.filter((a) => a.kind === "casino").map((a) => `${a.label} ${a.spec.who}`);
+  const rolls = (now: number, history: object[], at = tabs) => decide({ now, tabs: at, history }).actions.filter((a) => a.kind === "casino").map((a) => `${a.label} ${a.spec.who}`);
   expect(rolls(NOW, [])).toEqual(["B B0"]);
-  // Nobody rolls before the potion's cooldown ends, and then a member that has not rolled yet does,
-  // also one that is not its tab's leader.
+  // Nobody rolls before the daily credit's cooldown ends.
   const won = { t: NOW - 3600000, label: "B", kind: "casino", id: "casino", status: "done", nextAt: NOW + 60000 };
-  expect(rolls(NOW, [won], { B0: NOW - 3600000 })).toEqual([]);
-  expect(rolls(NOW + 60000, [won], { B0: NOW - 3600000 })).toEqual(["B B1"]);
-  const all = Object.fromEntries([...team("B", 52), ...team("C", 47)].map((m, k) => [m.name, NOW - 1000 * (k + 1)]));
-  expect(rolls(NOW + 60000, [won], all)).toEqual(["C C5"]);
+  expect(rolls(NOW, [won])).toEqual([]);
+  expect(rolls(NOW + 60000, [won])).toEqual(["B B0"]);
+  // With the highest leader's tab on a task, the next highest leader rolls.
+  const busy = tabs.map((t) => (t.label === "B" ? { ...t, task: { status: "running", kind: "hunt" } } : t));
+  expect(rolls(NOW + 60000, [won], busy)).toEqual(["C C0"]);
 });
 
 test("stones go to the lowest free group only once there are two a member", () => {

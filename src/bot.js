@@ -2344,8 +2344,8 @@
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
     const rt = runtime(i);
-    // The fight has to end before a switch, which the client refuses in combat. A potion raid is
-    // led by the potion's holder, since a potion never leaves the character that won it.
+    // The fight has to end before a switch, which the client refuses in combat. A potion or credit
+    // raid is led by its holder, since neither leaves the character that won it.
     await step("stop", () => calm(i), 75000);
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     if (task.zone && zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
@@ -2387,6 +2387,12 @@
       if (task.bossKey) {
         const r = await step(`summon ${task.bossKey}`, () => raid.bosses(task.bossKey), 30000);
         task.spawnInstanceId = r.spawnInstanceId;
+      }
+      // A casino credit summons its boss in the zone the task traveled to, or resumes it when it
+      // stands. The reply lists the leader's credits left, which the collector keeps (`creditsOf`).
+      if (task.credit) {
+        const r = await step(`summon credit ${task.credit}`, () => raid.bosses(task.credit, { credit: true }), 45000);
+        Object.assign(task, { spawnInstanceId: r.spawnInstanceId, credits: r.credits, creditsOf: r.who, creditsAt: now() });
       }
       // A casino potion summons its boss at the boss's own spawn point, in the zone the task traveled to.
       if (task.potion) {
@@ -2648,16 +2654,19 @@
       await loot.open(false);
     }
   };
-  // The casino's Items prize wins one boss potion per account per 24 hours (`iq.casino` of
-  // src/bridge.js). The potion stays with the character that won it: the server refuses every give
-  // of one, also to another character of the account. The task plays `who` when named, rolls `dice`
-  // dice until it wins or has spent `maxPp`, pulling a balance to the roller when its coin runs
-  // short, and ends with the time of the next potion (`nextAt`). The bot plays its leader again after.
+  // The casino's Items prize wins the account a boss reset credit a day at three matches, and more
+  // at four matches of nine dice (`iq.casino` of src/bridge.js). A credit stays with the character
+  // that won it. The task plays `who` when named and rolls only for the day's credit, since one at
+  // four matches costs about 12,500 pp at 600 pp a roll, more than a raid hour, against kills worth
+  // a few group-hours. It rolls `dice` dice until it wins or has spent `maxPp`, pulling a balance
+  // to the roller when its coin runs short, reads the roller's credits after a win (`credits`,
+  // `creditsOf`), and ends with the time of the next daily credit (`nextAt`). The bot plays its
+  // leader again after.
   const casinoTask = async (i, task, step) => {
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     const st = await step("read the casino status", () => i.casino.status(), 30000);
     if (st.disabled) throw new Error(st.disabled);
-    if (st.availableAt > now()) throw new TaskLater(`the next boss potion is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
+    if (st.availableAt > now()) throw new TaskLater(`the next daily boss credit is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
     const price = i.casino.dice().find((o) => o.dice === task.dice)?.pricePp;
     if (!price) throw new Error(`the casino offers no ${task.dice}-dice roll`);
     const coin = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
@@ -2672,15 +2681,17 @@
       const r = await step(`roll ${task.dice} dice`, () => i.casino.roll(task.dice, task.face), 45000);
       task.rolls++;
       task.spentPp += r.pricePp;
-      if (r.jackpot && r.prizeItemId) {
-        Object.assign(task, { prize: r.prize, result: `won the ${r.prize} in ${task.rolls} rolls for ${task.spentPp}pp`, nextAt: (r.availableAt ?? now() + 86400000) + 60000 });
+      if (r.credits > 0) {
+        const after = await step("read the credits", () => i.raid.bosses(), 30000).catch(() => null);
+        const held = (after?.credits ?? []).filter((c) => c.credits > 0);
+        Object.assign(task, { prize: "boss credit", credits: after?.credits ?? null, creditsOf: after?.who ?? activeName(i), creditsAt: now(), result: `won a boss credit in ${task.rolls} rolls for ${task.spentPp}pp${held.length ? `, ${activeName(i)} holds credits for ${held.map((c) => `${c.name} (${c.credits})`).join(", ")}` : ""}`, nextAt: (r.availableAt ?? now() + 86400000) + 60000 });
         log(`casino: ${task.result}`);
         return;
       }
-      // A jackpot without a prize, or a cooldown that began, means the day's potion went to another tab.
-      if (r.jackpot || r.availableAt > now()) throw new TaskLater(`the boss potion went elsewhere after ${task.rolls} rolls`, (r.availableAt ?? now() + 3600000) + 60000);
+      // A jackpot without a credit, or a cooldown that began, means the day's credit went to another tab.
+      if (r.jackpot || r.availableAt > now()) throw new TaskLater(`the daily boss credit went elsewhere after ${task.rolls} rolls`, (r.availableAt ?? now() + 3600000) + 60000);
     }
-    throw new TaskLater(`no boss potion in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
+    throw new TaskLater(`no boss credit in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
   };
   const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask };
   // A task takes a free tab only: one without a running task and without a pause, which holds the
@@ -3354,7 +3365,9 @@
      * as a task in the page (`raidTask`): `target`, a regular expression for an enemy of level 51
      * or more in `zone`, or `bossKey`, a daily boss from `iq.raid.bosses()`. With `potion`, the id of
      * a casino boss potion, the raid uses it after recruiting and fights its boss as `target`, led by
-     * `who`, the potion's holder. With `open`, `target` is a boss of the open world, and the raid
+     * `who`, the potion's holder. With `credit`, the key of a casino boss, the raid spends `who`'s
+     * credit for it in its zone after recruiting, or resumes it free when it stands summoned
+     * (`iq.raid.bosses(key, { credit: true })`), and fights it as `target`. With `open`, `target` is a boss of the open world, and the raid
      * ends before it buys anything when the zone's spawn list does not show it alive. An hour of
      * raid time is bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
@@ -3367,15 +3380,15 @@
      * `also` names them, and each that still stands after a kill gets a fight of its own. Returns a
      * copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, also = [], potion = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
+    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [] }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
-      if (potion && !target) throw new Error("a potion raid needs its boss as target");
+      if ((potion || credit) && !target) throw new Error("a potion or credit raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
-      log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], startedAt: now() };
+      log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${credit ? ` from a credit for ${credit}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
     /**
@@ -3405,7 +3418,7 @@
       return { ...runTask(state.task) };
     },
     /**
-     * Roll the casino's Items prize for the day's boss potion as a task in the page (`casinoTask`):
+     * Roll the casino's Items prize for the day's boss credit as a task in the page (`casinoTask`):
      * `dice` dice on symbol `face` until it wins or has spent `maxPp`.
      */
     casino({ who = null, dice = 9, face = 1, maxPp = 10000 } = {}) {

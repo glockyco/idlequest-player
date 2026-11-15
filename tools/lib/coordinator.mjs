@@ -321,7 +321,6 @@ export function worldHold(history, id, code = null) {
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
- * - `rolled`: when each character last rolled the casino, `{ [name]: ms }`.
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
@@ -329,7 +328,7 @@ export function worldHold(history, id, code = null) {
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, rolled = {}, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -369,15 +368,13 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     if (ms > cfg.taskStopMin * 60000) out.push({ label: t.label, kind: "stopTask", id: null, spec: null, why: `${t.task.kind} task running for ${Math.round(ms / 60000)} min${t.task.step ? ` at "${t.task.step}"` : ""}` });
   }
 
-  // The casino's boss potion comes first: the account wins at most one a day, a day not rolled is a
-  // potion lost, and the rolls take a minute. One character of `casino.minLevel` rolls for the
-  // account, and the task names when the next potion can be won. A potion stays with its winner and
-  // is LORE, so the character that rolled longest ago (`rolled`, by name) rolls, a member as well as
-  // a leader, which spreads a boss's potions over characters.
+  // The casino's daily boss credit comes first: a day not rolled is a credit lost, and the rolls
+  // take a minute. The task names when the next one can be won. A credit stays with its winner,
+  // and the server shows only the active character's credits, so a leader of `casino.minLevel`
+  // rolls, the highest first, which leads the credit's raid without a switch.
   const lastRoll = history.filter((h) => h.kind === "casino").at(-1);
-  const rollers = tabs.filter(free).flatMap((t) => t.members.filter((m) => (m.level ?? 0) >= cfg.casino.minLevel).map((m) => ({ t, name: m.name })));
-  const roller = rollers.sort((a, b) => (rolled[a.name] ?? 0) - (rolled[b.name] ?? 0))[0];
-  if (roller && due(lastRoll, 60, roller.t) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.t.label, kind: "casino", id: "casino", who: roller.name, spec: { who: roller.name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss potion with ${roller.name}` });
+  const roller = tabs.filter((t) => free(t) && (t.members[0]?.level ?? 0) >= cfg.casino.minLevel).sort((a, b) => b.members[0].level - a.members[0].level)[0];
+  if (roller && due(lastRoll, 60, roller) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.label, kind: "casino", id: "casino", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss credit with ${roller.members[0].name}` });
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks

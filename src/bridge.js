@@ -1139,7 +1139,7 @@
   const READS = {
     1004: { reply: 1005, ms: 10000 }, // a zone's NPC definitions by `zoneName`, any zone, as the client asks on entry
     1062: { reply: 1063, ms: 9000 }, // the zone's spawns, as the client asks on entry and for Spawn Camp
-    1222: { reply: 1223, ms: 10000, reads: (p) => !p.bossKey }, // the daily raid bosses: with a bossKey it summons one
+    1222: { reply: 1223, ms: 10000, reads: (p) => !p.bossKey && !p.casinoBossKey }, // the daily raid bosses: with a bossKey it summons one, with a casinoBossKey it spends a casino credit
     1225: { reply: 1225, ms: 10000, reads: (p) => p.action === "read" }, // a tradeskill bank's contents
     1237: { reply: 1238, ms: 10000, reads: (p) => p.action === "get" }, // the Alternate Advancement state
     1127: { reply: 1128, ms: 10000, reads: (p) => p.statusOnly === true }, // the casino's boss potion cooldown: without statusOnly it rolls
@@ -2047,9 +2047,10 @@
       return out;
     },
     /**
-     * Fansy's Famous Casino, whose Items prize wins at most one boss potion per account per 24 hours
-     * (GambleRoll, opcode 1127, docs/plans/systems-research.md, "Boss summons and daily allowance").
-     * The dice counts and their prices come from the client's own list of roll options.
+     * Fansy's Famous Casino, whose Items prize wins boss reset credits, saved to the character that
+     * rolls (`raid.bosses`): the day's first at three matches, and more at four matches of nine
+     * dice (GambleRoll, opcode 1127, docs/plans/systems-research.md, "Boss summons and daily
+     * allowance"). The dice counts and their prices come from the client's own list of roll options.
      */
     casino: {
       dice() {
@@ -2057,17 +2058,22 @@
         if (!options) throw new Error("the client's casino roll options were not found");
         return options.map((o) => ({ dice: o.diceCount, pricePp: o.costCopper / 1000 }));
       },
-      /** When the account can win its next boss potion, and why it cannot roll at all (below level 46). */
+      /**
+       * When the account can win its next daily credit at three matches (`availableAt`), the matches
+       * and dice a credit takes now (four of nine once the day's credit is won), and why it cannot
+       * roll at all (below level 46).
+       */
       async status() {
         const r = await query(1127, { prizeMode: "items", statusOnly: true });
         if (!r?.success || !r.status) throw new Error(r?.error || "the casino status did not load");
-        return { availableAt: r.status.availableAtMs ?? 0, disabled: r.status.disabledReason ?? null, serverTime: r.status.serverTimeMs ?? null };
+        return { availableAt: r.status.availableAtMs ?? 0, requiredMatches: r.status.requiredMatches ?? 3, requiredDice: r.status.requiredDiceCount ?? 0, disabled: r.status.disabledReason ?? null, serverTime: r.status.serverTimeMs ?? null };
       },
       /**
        * One Items roll of `dice` dice on symbol `face` (1 to 6), as the casino's ROLL button sends it.
        * A reply the server did not confirm is asked for again with the same operation, which the
        * server answers with the same roll and charges once. Resolves with the dice, the matches and
-       * the prize, a boss potion on a jackpot and a lesser potion or gem on two matches.
+       * the prize: on a jackpot the boss reset credits won (`credits`), and on two matches a lesser
+       * potion or gem (`prizeItemId`).
        */
       async roll(dice = 9, face = 1) {
         const option = this.dice().find((o) => o.dice === dice);
@@ -2081,7 +2087,7 @@
             const arrived = () => (stores.character.getState().characterProfile?.inventory ?? []).find((x) => x.itemDetails?.id === r.prizeItemId);
             for (let w = 0; r.prizeItemId && !arrived() && w < 10; w++) await pause(500);
             const prize = r.prizeItemId ? (arrived() ? itemName(arrived()) : `item ${r.prizeItemId}`) : null;
-            return { dice: r.dice ?? [], matches: r.matchingDice ?? 0, jackpot: Boolean(r.jackpot), prizeItemId: r.prizeItemId ?? null, prize, message: r.message ?? null, availableAt: r.availableAtMs ?? null, pricePp: option.pricePp };
+            return { dice: r.dice ?? [], matches: r.matchingDice ?? 0, jackpot: Boolean(r.jackpot), credits: r.prizeCreditCount ?? 0, prizeItemId: r.prizeItemId ?? null, prize, message: r.message ?? null, availableAt: r.availableAtMs ?? null, pricePp: option.pricePp };
           }
           if (!r.uncertain || k >= 2) throw new Error(r.error || "the dice did not roll");
           await pause(2000 * (k + 1));
@@ -2293,13 +2299,39 @@
         }
         throw new Error(`the ${kind} order did not start: ${stores.chat.getState().messages.at(-1)?.text ?? "no reason given"}`);
       },
-      /** The daily raid bosses of the current zone (`DailyRaidBossesRequest`), or with `bossKey` summon that boss. */
-      async bosses(bossKey) {
+      /**
+       * The Raid Resets window (`DailyRaidBossesRequest`) of the current zone: the daily raid bosses
+       * and the active character's casino credits (`credits`, with the account's casino boss as
+       * status "resume" while it stands, and "Resume with <name>." for another character's). With
+       * `bossKey` it summons that daily boss, and with `credit` it spends a casino credit for that
+       * boss in its zone, or resumes the account's casino boss free of charge, as the window's
+       * Summon and Resume buttons do: one operation id for the request and its retries, so a reply
+       * that did not arrive is asked for again without spending a second credit.
+       */
+      async bosses(bossKey, { credit = false } = {}) {
         const p = stores.character.getState().characterProfile;
-        const payload = { characterId: p.id, zoneId: stores.combat.getState().currentZone, ...(bossKey ? { bossKey } : {}) };
-        const r = bossKey ? await socket.sendCorrelatedJsonRequest(1222, 1223, payload, 10000) : await query(1222, payload);
+        const base = { characterId: p.id, zoneId: stores.combat.getState().currentZone };
+        let r;
+        if (!bossKey) r = await query(1222, base);
+        else if (!credit) r = await socket.sendCorrelatedJsonRequest(1222, 1223, { ...base, bossKey }, 10000);
+        else {
+          const payload = { ...base, casinoBossKey: bossKey, operationId: crypto.randomUUID() };
+          for (let k = 0; ; k++) {
+            r = await socket.sendCorrelatedJsonRequest(1222, 1223, payload, 10000).catch((e) => ({ success: false, uncertain: true, error: String(e?.message ?? e) }));
+            if (!r.uncertain || k >= 2) break;
+            await pause(2000 * (k + 1));
+          }
+        }
         if (!r?.success) throw new Error(r?.error || "the daily boss list did not load");
-        return { resetsRemaining: r.resetsRemaining, resetLimit: r.resetLimit, nextResetAt: r.nextResetAtMs ?? null, spawnInstanceId: r.spawnInstanceId ?? null, bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zone, zoneName: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })) };
+        return {
+          who: p.name,
+          resetsRemaining: r.resetsRemaining,
+          resetLimit: r.resetLimit,
+          nextResetAt: r.nextResetAtMs ?? null,
+          spawnInstanceId: r.spawnInstanceId ?? null,
+          bosses: (r.bosses ?? []).map((b) => ({ key: b.key, name: b.name, zone: b.zone, zoneName: b.zoneName, status: b.status, availableAt: b.availableAtMs ?? null, expiresAt: b.expiresAtMs ?? null, disabled: b.disabledReason ?? null })),
+          credits: (r.casinoCredits ?? []).map((c) => ({ key: c.key, name: c.name, zone: c.zone, credits: c.credits ?? 0, status: c.status, expiresAt: c.expiresAtMs ?? null, disabled: c.disabledReason ?? null })),
+        };
       },
       /**
        * End Raid. Out of a fight the raid store ends raid mode in the page, which needs no server

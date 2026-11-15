@@ -54,7 +54,9 @@ export function dailyCandidates(daily) {
  * reasons for the others in `skipped`.
  * - `daily`: `iq.raid.bosses()` of a leader at 46 or more: `{ resetsRemaining, resetLimit, bosses: [{ key, name, zone, status }] }`.
  * - `potions`: casino potions the survey finds, `[{ key, name, zone, itemId, who }]`, `who` the holder.
- * - `standing`: casino bosses a potion summoned that no raid has killed yet (`standingBosses`).
+ * - `credits`: casino credits the characters hold, `[{ key, name, zone, who }]`, `who` the holder.
+ * - `standing`: the casino boss that stands summoned (`casinoStanding`, or `standingBosses` from
+ *   the raid history).
  * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
  *   (`openBosses`). They need no summon and no potion.
  * - `paid`: whether raid time is running that a raid can use.
@@ -80,7 +82,7 @@ export function dailyCandidates(daily) {
  * another boss, and outside `first` it buys its hour by `OPEN_BUY`. A potion's raid is led by its
  * holder.
  */
-export function nextBossKill({ daily = null, potions = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [], waiting = () => null }) {
+export function nextBossKill({ daily = null, potions = [], credits = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [], waiting = () => null }) {
   const skipped = [];
   const ways = [];
   // `waiting(candidate, source)` names why a boss's last raid holds it, such as a kill minutes
@@ -93,7 +95,10 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
     else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
-  for (const s of standing) add(s, "standing");
+  for (const s of standing) {
+    if (s.held) skipped.push({ key: s.key, why: s.held });
+    else add(s, "standing");
+  }
   const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
   for (const o of open) {
     if (first.includes(o.key) || paid) add(o, "open");
@@ -102,9 +107,11 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
     else add(o, "open");
   }
   for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
-  for (const p of potions) {
-    if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server takes no other potion until it is dead` });
-    else add(p, "potion");
+  for (const [list, source] of [[potions, "potion"], [credits, "credit"]]) {
+    for (const p of list) {
+      if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server summons no other casino boss until it is dead` });
+      else add(p, source);
+    }
   }
   const perMinute = (w) => (value[w.key] ?? 0) / (RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60);
   const rank = (w) => (w.source === "standing" ? 0 : 1);
@@ -116,8 +123,13 @@ export function nextBossKill({ daily = null, potions = [], standing = [], open =
 // for Cazic-Thule on 2026-11-12), and the end and the loot.
 export const RAID_SETUP_MIN = 3;
 
-/** The coordinator's history id of a kill's raid task: a potion's boss with its holder, an open-world boss, or a summon's boss. */
-export const killId = (k) => (k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`);
+/**
+ * The coordinator's history id of a kill's raid task: a credit's boss with its holder (also a
+ * standing casino boss the server resumes for that holder), a potion's boss with its holder, an
+ * open-world boss, or a summon's boss. Each ends in the boss's key or holder as before.
+ */
+export const killId = (k) =>
+  k.source === "credit" || (k.source === "standing" && k.credit) ? `boss:credit:${k.who}:${k.key}` : k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`;
 
 /**
  * What an open-world boss outside the raid goal may spend on raid time: an hour for kills worth
@@ -344,18 +356,18 @@ export function watchRows({ watch = [], seen = {}, log = [], value = {}, odds = 
   });
 }
 
-// The raid task's steps before it uses its potion (`raidTask` of src/bot.js). A task that ended
-// at one of them left the potion in the bags.
+// The raid task's steps before it uses its potion or credit (`raidTask` of src/bot.js). A task
+// that ended at one of them left the potion in the bags and the credit unspent.
 const BEFORE_POTION = /^(become |stop$|travel to |raid time$|open the raid$|recruit$)/;
 
 /**
- * Whether a raid task has used potion `p` since the survey that lists it, taken at `surveyAt`: one
- * queued for it since then, unless it ended at a step before the use. The survey runs hourly, so
- * until the next one it still lists a potion a raid drank, and its holder's group would travel to
- * the boss's zone at every pass.
+ * Whether a raid task has used potion `p` (or credit, with `source` "credit") since the read that
+ * lists it, taken at `surveyAt`: one queued for it since then, unless it ended at a step before the
+ * use. The survey runs hourly, so until the next one it still lists a potion a raid drank, and its
+ * holder's group would travel to the boss's zone at every pass.
  */
 export function potionSpent(history, p, surveyAt) {
-  const id = killId({ ...p, source: "potion" });
+  const id = killId({ source: "potion", ...p });
   return history.some((h) => h.id === id && h.t >= surveyAt && !(h.status && h.status !== "done" && BEFORE_POTION.test(h.step ?? "")));
 }
 
@@ -391,4 +403,26 @@ export function standingBosses(history, bosses, now) {
     if (boss && now - s.since < STANDING_MS) out.push({ key: boss.key, name: boss.name, zone: boss.zone, itemId: s.itemId, who: s.who, since: s.since, fights: s.fights });
   }
   return out;
+}
+
+/**
+ * The account's casino boss from a character's casino credits (`iq.raid.bosses().credits` of
+ * `reader`): the entry the server lists as "resume" while the boss stands, with "Resume with
+ * <name>." when another character summoned it, as `[{ key, name, zone, who, credit, since,
+ * fights }]`. It stands until a raid kills it or a day after its summon, and blocks every other
+ * credit and potion meanwhile. `fights` counts the raids on it for that holder since the summon
+ * that reached the fight and did not kill it. One a raid killed after the summon still blocks, but
+ * gets no raid (`held`): the server listed Tolapumj as resumable for a day after the raid of
+ * 2026-11-14 killed him, and a second kill of one summon is no play the game intends.
+ */
+export function casinoStanding(list, reader, history) {
+  return (list ?? []).filter((c) => c.status === "resume").map((c) => {
+    const who = /^Resume with (.+)\.$/.exec(c.disabled ?? "")?.[1] ?? reader;
+    const since = c.expiresAt ? c.expiresAt - STANDING_MS : 0;
+    const id = killId({ source: "credit", key: c.key, who });
+    const fights = history.filter((h) => h.kind === "raid" && h.id === id && h.t >= since && !/^killed /.test(h.result ?? "") && (/^(time is up|wiped|ended) /.test(h.result ?? "") || /^fight /.test(h.step ?? ""))).length;
+    const killed = history.findLast((h) => h.kind === "raid" && (h.endedAt ?? h.t) >= since && (h.result ?? "").startsWith(`killed ${c.name} `));
+    const held = killed ? `a raid killed ${c.name} after the summon, and the server keeps the copy until ${new Date(c.expiresAt).toTimeString().slice(0, 5)}` : null;
+    return { key: c.key, name: c.name, zone: c.zone, who, credit: c.key, since, fights, ...(held ? { held } : {}) };
+  });
 }

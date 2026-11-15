@@ -3507,6 +3507,36 @@ test("resumed casino tasks retain their spending limit and hunt kill counts", as
   }
 });
 
+test("a casino roll that wins a boss credit ends the task with the roller's credits and the next daily credit", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    let rolls = 0;
+    const next = Date.now() + 86400000;
+    Object.assign(f.iq, {
+      casino: {
+        status: async () => ({ availableAt: 0, requiredMatches: 3 }),
+        dice: () => [{ dice: 9, pricePp: 600 }],
+        roll: async () => (++rolls === 2 ? { pricePp: 600, jackpot: true, credits: 1, availableAt: next } : { pricePp: 600, credits: 0 }),
+      },
+      raid: { bosses: async () => ({ who: "A", credits: [{ key: "vox", name: "Lady Vox", zone: "permafrost", credits: 1, status: "available" }] }) },
+    });
+    f.iq.stores.character.getState().characterProfile.platinum = 100000;
+    f.bot.state.task = { kind: "casino", status: "running", startedAt: Date.now(), dice: 9, maxPp: 6000 };
+    const g = globalThis as unknown as FakeGlobals;
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    const bot = g.iqBot!;
+    clearInterval(bot.timerId);
+    clearInterval(bot.fastTimerId);
+    await runToEnd({ ...f, bot });
+    expect(rolls).toBe(2);
+    expect(bot.state.task).toMatchObject({ status: "done", spentPp: 1200, creditsOf: "A", nextAt: next + 60000 });
+    expect(bot.state.task.result).toContain("Lady Vox (1)");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a reinstall settles a running raid and releases its long task pause", async () => {
   vi.useFakeTimers();
   try {
