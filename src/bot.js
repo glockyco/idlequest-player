@@ -2355,6 +2355,12 @@
       const up = await step(`find ${task.target}`, async () => (await readBosses(i, task, task.target)).some((s) => s.state === "alive" && bossKey(s.name) === bossKey(task.target)), 30000);
       if (!up) return void (task.result = `${task.target} is not up`);
     }
+    // A credit's boss can be gone by the time the raid arrives: the list still offered Tolapumj
+    // 54 s after his kill on 2026-11-15. So the raid reads its leader's list before it buys an hour.
+    if (task.credit) {
+      const c = (await step("read the credits", () => raid.bosses(), 30000)).credits?.find((x) => x.key === task.credit);
+      if (!c || !(c.status === "resume" || (c.credits > 0 && c.status !== "disabled"))) return void (task.result = `${activeName(i)} has no credit and no summoned copy of ${task.target}`);
+    }
     await step("raid time", async () => {
       const t = await raid.time();
       if (t.active) return;

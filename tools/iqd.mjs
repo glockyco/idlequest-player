@@ -426,8 +426,6 @@ const RELAY_STUCK_MS = 120000;
 const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
-// A standing casino boss the server still lists after a kill (`waiting` in `bossPass`).
-const STANDING_KILL = { waitMin: 15, kills: 2 };
 // Raids at once, each in its own zone with its own leader (`bossPass`).
 const RAIDS_AT_ONCE = 3;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
@@ -1398,11 +1396,6 @@ export class Daemon {
     // that evening that the simulator kills in four fights of four. A standing potion boss gets
     // three fights before the same twelve-hour hold applies.
     const waiting = (c, source) => {
-      // A casino boss the server still lists after a raid killed it: the list can lag the kill,
-      // so it waits `STANDING_KILL.waitMin`, and after `STANDING_KILL.kills` kills of one summon
-      // it waits for the copy to expire, since more kills would farm a copy the server failed to end.
-      if (source === "standing" && c.kills >= STANDING_KILL.kills) return `${c.kills} raids killed it since its summon and the server still lists it, so it waits for the copy to expire`;
-      if (source === "standing" && c.killedAt && now - c.killedAt < STANDING_KILL.waitMin * 60000) return `a raid killed it at ${clock(c.killedAt)}, and the server's list may not show that yet`;
       if (source === "standing" && c.fights < 3) return null;
       // Every raid on this boss counts, by summon or in the open world: Cazic-Thule's open-world
       // raid went out at 23:32 on 2026-11-12 after two lost summon raids. A raid stopped or failed
