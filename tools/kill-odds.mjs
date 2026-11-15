@@ -57,8 +57,9 @@ const leaderLevel = (g) => level.get(g.members[0]) ?? 0;
 const entriesOf = (leader, names) => rosterEntries(accountRoster(survey, { leader, names })).entries;
 
 const fresh = (o, lvl) => o && !o.error && o.sim === SIM_VERSION && Date.now() - o.t < FRESH_MS && (lvl == null || o.level === lvl);
-// A raid's result also has to be fought with the revive order the raids have now.
-const freshRaid = (o) => fresh(o) && (o.revive ?? "off") === RAID_MODES.revive;
+// A raid's result also has to be fought with the revive and rod orders the raids have now.
+const ORDERS = `${RAID_MODES.revive}/${RAID_MODES.rods}`;
+const freshRaid = (o) => fresh(o) && o.orders === ORDERS;
 // Every group result on file as an observation for the prior: the enemy's level above the leader's and its hit points.
 const observations = (odds) => Object.values(odds).flatMap((e) => Object.values(e.groups ?? {}).filter((g) => !g.error && e.level != null && e.hp != null && g.level != null).map((g) => ({ gap: e.level - g.level, hp: e.hp, kills: g.kills, fights: g.fights, deaths: g.deathsPerFight, leaderDeaths: g.leaderDeathsPerFight ?? 0, sec: g.meanSec ?? null })));
 const odds = { ...before.odds };
@@ -145,8 +146,8 @@ if (opt.refit) {
 // One raid fight of every roster character against NPC `npc`, as `result` gives it.
 const raidFight = async (npc) => {
   const boss = await bossSpec(await findBoss(String(npc)));
-  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive });
-  return { ...result(r.summary), revive: RAID_MODES.revive };
+  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods });
+  return { ...result(r.summary), orders: ORDERS };
 };
 for (const e of enemies.values()) {
   const old = odds[e.key] ?? {};
@@ -166,7 +167,7 @@ for (const e of enemies.values()) {
         const fights = [];
         for (const id of ids) fights.push(await raidFight(id));
         const sum = (k) => fights.reduce((s, f) => s + (f[k] ?? 0), 0);
-        entry.raid = { t: Date.now(), sim: SIM_VERSION, revive: RAID_MODES.revive, kills: Math.min(...fights.map((f) => f.kills)), fights: Math.min(...fights.map((f) => f.fights)), meanSec: sum("meanSec"), deathsPerFight: sum("deathsPerFight"), leaderDeathsPerFight: sum("leaderDeathsPerFight"), hpLeft: Math.max(...fights.map((f) => f.hpLeft ?? 0)) };
+        entry.raid = { t: Date.now(), sim: SIM_VERSION, orders: ORDERS, kills: Math.min(...fights.map((f) => f.kills)), fights: Math.min(...fights.map((f) => f.fights)), meanSec: sum("meanSec"), deathsPerFight: sum("deathsPerFight"), leaderDeathsPerFight: sum("leaderDeathsPerFight"), hpLeft: Math.max(...fights.map((f) => f.hpLeft ?? 0)) };
       } catch (error) {
         entry.raid = { t: Date.now(), sim: SIM_VERSION, error: error.message };
       }
@@ -191,10 +192,10 @@ for (const e of enemies.values()) {
     try {
       const entries = entriesOf(variant.leader, variant.names);
       const boss = await bossSpec(await findBoss(String(npc)));
-      // A group's fight has no raid window to order a revive in.
-      const revive = variant.label === "raid" ? RAID_MODES.revive : "off";
-      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive });
-      outcome = { ...result(r.summary), ...(variant.label === "raid" ? { revive } : {}) };
+      // A group's fight has no raid window to order a revive or a rod in.
+      const raid = variant.label === "raid";
+      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: raid ? RAID_MODES.revive : "off", rods: raid ? RAID_MODES.rods : "off" });
+      outcome = { ...result(r.summary), ...(raid ? { orders: ORDERS } : {}) };
     } catch (error) {
       outcome = { t: Date.now(), sim: SIM_VERSION, error: error.message };
     }

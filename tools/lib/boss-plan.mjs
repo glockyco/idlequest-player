@@ -123,12 +123,14 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
   return { kill: kills[0] ?? null, kills, skipped };
 }
 
-// The orders a raid fights with: the nuke order, the heal mode and which fallen members it revives
-// (`iq.raid.nuke`, `iq.raid.heal`, `iq.raid.revive`). Kill odds simulates with them and the boss
-// pass orders them, so a raid fights as it was judged. Revives by spell too ("all"): with them the
-// simulated raid kills The Avatar of War in 2 fights of 2 after 432 s, and without them it had 67
-// of 72 dead when 900 s ran out in 3 of 3. Cazic-Thule's fight is the same either way.
-export const RAID_MODES = { nuke: "dps-all-out", heal: "all-balanced", revive: "all" };
+// The orders a raid fights with: the nuke order, the heal mode, which fallen members it revives and
+// whose Mod Rods it orders (`iq.raid.nuke`, `iq.raid.heal`, `iq.raid.revive`, `iq.raid.rods`). Kill
+// odds simulates with them and the boss pass orders them, so a raid fights as it was judged.
+// Revives by spell too ("all"): with them the simulated raid kills The Avatar of War in 2 fights of
+// 2 after 432 s, and without them it had 67 of 72 dead when 900 s ran out in 3 of 3. Rods for the
+// pure casters ("casters"): they bring that fight to 358 s and Cazic-Thule's from 248 s to 226 s,
+// and rods for the healers as well were slower in both (372 s and 236 s).
+export const RAID_MODES = { nuke: "dps-all-out", heal: "all-balanced", revive: "all", rods: "casters" };
 
 // The minutes a raid takes besides its fight: from the task's start to the engagement (two minutes
 // for Cazic-Thule on 2026-11-12), and the end and the loot.

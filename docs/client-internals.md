@@ -880,7 +880,10 @@ run once.
   `iq.raid.position()` is Run To Target (`positionAtTarget`). `iq.raid.revive()` opens Heal &
   Revive (`toggleCommandPanel("heal")`), picks a revive in the panel's Revive group, a free one
   first, and then `raid-member-player`, the steps a person takes in the window, and with a roster
-  id the row of that fallen member. `iq.raid.state().leader`
+  id the row of that fallen member. `iq.raid.rods(group)` presses the same panel's "Casters Only:
+  Mod Rod x 3" or "Healers Only: Mod Rod x 3", which turn hit points into mana for every living
+  member of the group at once and stop at full mana or before 10% HP (`WGe` in the release of
+  2026-11-12, which the raid simulator calls). `iq.raid.state().leader`
   holds the leader's order, auto attack, casting and navigation, which decide whether his frame
   loop moves him.
 - The leader himself follows the raid's orders through the raid player controller (`YEi`,
