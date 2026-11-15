@@ -3015,7 +3015,11 @@
   const collectCorpseLoot = async (i, only = null) => {
     const loot = i.raid.loot;
     if (!(await settleHeld(i))) throw new Error(`${i.bagSpace().cursor} is on the cursor`);
-    if (!(await loot.open(true))) throw new Error("the RAID LOOT tab did not open");
+    // The tab can take longer than the bridge's three seconds right after a raid's end: a quest's
+    // raid on Zordak Ragefire failed here with the kill made (2026-11-15).
+    let shown = false;
+    for (let k = 0; k < 4 && !(shown = await loot.open(true)); k++) await sleep(3000);
+    if (!shown) throw new Error("the RAID LOOT tab did not open");
     try {
       await loot.coin();
       const looted = [];
