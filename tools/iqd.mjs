@@ -1002,7 +1002,7 @@ export class Daemon {
     const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0) } : null;
     const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor,
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
-      raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke },
+      raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive },
       raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
       resumeAt,
     };
@@ -1518,7 +1518,7 @@ export class Daemon {
       const keyOf = (name) => kills.find((o) => o.name === name)?.key ?? npcKey(name);
       const sec = [k.key, ...nearby.map(keyOf)].reduce((s, key) => s + (odds.odds?.[key]?.raid?.meanSec ?? 0), 0);
       const minutes = Math.min(45, Math.max(15, Math.ceil((3 * sec) / 60)));
-      out.push({ label: tab.label, kind: "raid", id: killId(k), spec: { members, zone: k.zone, maxPp: st.time?.pricePp ?? 0, minutes, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, ...what }, why: `${k.name} by ${k.way} from ${from}` });
+      out.push({ label: tab.label, kind: "raid", id: killId(k), spec: { members, zone: k.zone, maxPp: st.time?.pricePp ?? 0, minutes, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, ...what }, why: `${k.name} by ${k.way} from ${from}` });
       used.add(tab.label);
       busyZones.add(k.zone);
       if (potion) potionRaid = true;

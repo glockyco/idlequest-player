@@ -123,9 +123,12 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
   return { kill: kills[0] ?? null, kills, skipped };
 }
 
-// The orders a raid fights with: the nuke order and the heal mode (`iq.raid.nuke`, `iq.raid.heal`).
-// Kill odds simulates with them and the boss pass orders them, so a raid fights as it was judged.
-export const RAID_MODES = { nuke: "dps-all-out", heal: "all-balanced" };
+// The orders a raid fights with: the nuke order, the heal mode and which fallen members it revives
+// (`iq.raid.nuke`, `iq.raid.heal`, `iq.raid.revive`). Kill odds simulates with them and the boss
+// pass orders them, so a raid fights as it was judged. Revives by spell too ("all"): with them the
+// simulated raid kills The Avatar of War in 2 fights of 2 after 432 s, and without them it had 67
+// of 72 dead when 900 s ran out in 3 of 3. Cazic-Thule's fight is the same either way.
+export const RAID_MODES = { nuke: "dps-all-out", heal: "all-balanced", revive: "all" };
 
 // The minutes a raid takes besides its fight: from the task's start to the engagement (two minutes
 // for Cazic-Thule on 2026-11-12), and the end and the loot.
