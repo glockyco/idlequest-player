@@ -437,6 +437,9 @@ const LOOKS_AFTER_RESET = 10;
 const RESET_RUSH_MS = 30 * 60000;
 // How long after a raid its tab still goes back for loot the raid left on the corpse.
 const LOOT_BACK_MS = 2 * 3600000;
+// A casino boss is watched in the open world when its kill is worth this many hours of a group's
+// progress: a look costs a group about a minute, and Quillmane's drops were worth 36 seconds.
+const WATCH_WORTH = 0.1;
 // How old a leader's read of its casino credits may get before the boss pass reads it again.
 const CREDIT_READ_MS = 3600000;
 // The gear plan offers what a crafter makes at this chance an attempt or better.
@@ -1475,11 +1478,12 @@ export class Daemon {
     // pass), which the raid can (docs/plans/gear-acquisition.md, "Ways to get a copy"), and those the
     // watch holds already, which the coordinator lists "by raid" from then on. One leaves once the
     // gear plan no longer wants its drops. A casino boss is no group's target, so it counts by
-    // what its kill is worth to the gear plan: Lord Yelinak and Vulak`Aerr stand in the open world.
+    // what its kill is worth to the gear plan, from `WATCH_WORTH` on: Lord Yelinak and Vulak`Aerr
+    // stand in the open world.
     const status = metaGet(this.db, "targetStatus")?.targets ?? {};
     const watchedGear = new Set((metaGet(this.db, "bossPlan")?.watch ?? []).filter((w) => w.gear).map((w) => npcKey(w.name)));
     const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
-    const gear = [...new Set([...(this.targetWants ?? []).filter((x) => x.npcLevel > 50 && (status[targetId(x)]?.state === "tooStrong" || watchedGear.has(npcKey(x.npc)))).map((x) => x.npc), ...casino.filter((c) => (casinoValue[c.key] ?? 0) > 0).map((c) => c.name)])];
+    const gear = [...new Set([...(this.targetWants ?? []).filter((x) => x.npcLevel > 50 && (status[targetId(x)]?.state === "tooStrong" || watchedGear.has(npcKey(x.npc)))).map((x) => x.npc), ...casino.filter((c) => (casinoValue[c.key] ?? 0) >= WATCH_WORTH).map((c) => c.name)])];
     // The bosses of the daily list and the gear that the open world puts up, from the
     // content snapshot, read once for their names.
     const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...gear])];

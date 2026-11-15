@@ -16,11 +16,11 @@ All groups at level 58 to 60. Platinum a day, from the tabs' event lines.
 | Casino | 1,800 | 1,200 |
 
 - The account held 123,000 on 2026-11-13 around noon and 212,186 on 2026-11-15 at 08:40. So of about 326,000 earned in those 44 hours, 237,000 were spent, 130,000 of them on the lines above. The other 107,000, about 58,000 a day, went to spells at level-ups, merchant gear and quest hand-ins, which the logs of those days do not separate. The ledger does from 2026-11-15.
-- The Tradeskill Bank holds 39,674 ingredients of 331 kinds, worth about 148,000 at merchants, and the Spell Bank 910 scrolls of 119 kinds, worth about 44,000. No party member of 55 read lacked a banked scroll its class can scribe at its level. The ingredients stay for tradeskill training, so the courier's fee is the price of keeping them.
+- The Tradeskill Bank holds 39,674 ingredients of 331 kinds, worth about 148,000 at merchants, and the Spell Bank 910 scrolls of 119 kinds, worth about 44,000. No party member of 55 read lacked a banked scroll its class can scribe at its level. The ingredients stay for tradeskill training, so the courier's fee is the price of keeping them. Since the evening of 2026-11-15 the Tradeskill Bank holds 5,054 items of 317 kinds, no stack above 27, and the account about 2,000 platinum ("Crafting for a merchant").
 
 ## Crafting for a merchant
 
-Crafting for a merchant is not played. The game's developer treats loops that sell crafted items above the price of their components as exploits, and wrote that exploits which are not reported may be treated more harshly. So a craft task sells nothing (`craftTask` in `src/bot.js`), and what training leaves stays in the Tradeskill Bank. Ask before selling crafted items.
+Crafting for a merchant is not played. The game's developer treats loops that sell crafted items above the price of their components as exploits, and wrote that exploits which are not reported may be treated more harshly. The account's coin and most of its Tradeskill Bank were taken back for it once. So a craft task sells nothing (`craftTask` in `src/bot.js`), and what training leaves stays in the Tradeskill Bank. Ask before selling crafted items.
 
 ## What a platinum buys
 
