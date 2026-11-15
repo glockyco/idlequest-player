@@ -1371,8 +1371,14 @@ export class Daemon {
     // content snapshot, read once for their names.
     const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...gear])];
     if (this.bossSpawns?.key !== names.join("|")) {
-      const { namedSpawns } = await import("./lib/content.mjs");
-      this.bossSpawns = { key: names.join("|"), spawns: await namedSpawns(names, npcKey).catch((e) => (this.log(`boss spawns: ${e.message}`), new Map())) };
+      const { contentRoot, namedSpawns } = await import("./lib/content.mjs");
+      // Only spawn points in zones the game has: the content also lists Weyen Stonetrader in
+      // "kaelshard", which the client's Travel window does not know, and a look there failed.
+      const { liveZoneNames } = await import("./lib/gear-data.mjs");
+      const live = await liveZoneNames(contentRoot()).catch(() => null);
+      const spawns = await namedSpawns(names, npcKey).catch((e) => (this.log(`boss spawns: ${e.message}`), new Map()));
+      if (live) for (const [name, list] of spawns) spawns.set(name, list.filter((p) => live.has(p.zone)));
+      this.bossSpawns = { key: names.join("|"), spawns };
     }
     const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns });
     // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
