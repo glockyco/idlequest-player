@@ -74,7 +74,7 @@ const addWay = (ways, id, way) => id > 0 && (ways.get(id) ?? ways.set(id, []).ge
  * - `forage`: Forage in `zone` (data/forage.json), by a class with the skill (`FORAGERS`);
  * - `combine` and `cast`: a tradeskill recipe or a summoning spell (`inputs`).
  */
-export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new Map(), edges = [], catalog = new Map(), sources = [] }) {
+export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new Map(), edges = [], catalog = new Map(), sources = [], withheld = [] }) {
   const npcs = new Map();
   const idsOfName = new Map();
   const rawName = new Map();
@@ -104,8 +104,9 @@ export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new
   const spawners = new Map();
   for (const b of branches) {
     for (const a of b.actions) {
-      // A branch that gives back an item its trade takes hands it back rather than making one.
-      if (a.give) for (const id of a.give) if (!(String(id) in b.inputs)) addWay(ways, id, { kind: "script", branch: b, chance: 1 / a.give.length });
+      // A branch that gives back an item its trade takes hands it back rather than making one. A
+      // give the live server does not make (`withheld`, data/withheld-gives.json) is no way.
+      if (a.give) for (const id of a.give) if (!(String(id) in b.inputs) && !withheld.some((w) => w.item === id && String(b.file ?? "").endsWith(w.file))) addWay(ways, id, { kind: "script", branch: b, chance: 1 / a.give.length });
       if (a.spawn) {
         (spawners.get(a.spawn) ?? spawners.set(a.spawn, []).get(a.spawn)).push(b);
         // A script spawns its NPC in its own zone.
@@ -216,7 +217,8 @@ export async function loadEpicModel(root) {
   const foraged = JSON.parse(await readFile(new URL("../../data/forage.json", import.meta.url), "utf8")).items;
   for (const [item, f] of Object.entries(foraged)) sources.push({ item: Number(item), way: { kind: "forage", zone: f.zone } });
   for await (const g of rows("ground_spawns", root)) if (enabled.has(g.id)) sources.push({ item: g.item, way: { kind: "ground", zone: zoneById.get(g.zoneid) ?? String(g.zoneid), respawn: g.respawn_timer } });
-  const model = buildEpicModel({ scripts, npcs, spawns, loot, edges, catalog, sources });
+  const withheld = JSON.parse(await readFile(new URL("../../data/withheld-gives.json", import.meta.url), "utf8")).gives;
+  const model = buildEpicModel({ scripts, npcs, spawns, loot, edges, catalog, sources, withheld });
   const addStatic = async (itemIds) => {
     const { sources: drops, sellers } = await loadSources(root, { itemIds: new Set(itemIds), zoneName: live });
     for (const [item, list] of drops) for (const s of list) addWay(model.ways, item, { kind: "drop", npcId: s.npcId, npc: s.npc, zone: s.zoneShort, level: s.level, hp: s.hp, drop: s.drop, spawn: s.spawn, points: s.points, respawn: s.respawn, when: s.when });
