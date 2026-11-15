@@ -455,6 +455,11 @@ export async function searchInPage(a) {
   return (r?.matches ?? []).map((m) => ({ item: m.itemName, itemId: m.itemId, who: m.characterName, n: m.quantity ?? 1 }));
 }
 
+/** How many of item `a.itemId` the account's Tradeskill Bank holds, through the bridge's `bankCount`. Read-only. */
+export async function bankCountInPage(a) {
+  return window.iq.bankCount(a.itemId);
+}
+
 /** Queue a task with the bot's own API (`iqBot.handIn`, `iqBot.hunt`, `iqBot.errand`), which checks it and runs it in the page. `stopErrand` ends the errand and `stopTask` the running task. */
 export async function queueInPage(a) {
   const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : a.kind === "stopTask" ? window.iqBot.stopTask() : window.iqBot[a.kind](a.spec));
@@ -975,8 +980,13 @@ export class Daemon {
       const make = [];
       for (const m of job.make) {
         const held = (await search(m.item)).filter((r) => r.itemId === m.itemId);
-        const short = (need[m.itemId] ?? 0) - held.reduce((s, r) => s + r.n, 0);
-        if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + short });
+        // What the Tradeskill Bank holds counts too: a craft's results lie there until they are
+        // taken out, and a quest's pull takes them from it. A pass that cannot read the bank makes nothing.
+        const reader = tabs.find((t) => this.trackers.get(t.targetId)?.usable);
+        const banked = reader ? await this.relay.evaluate(reader.targetId, call(bankCountInPage, { itemId: m.itemId }), { timeout: 20000 }).catch(() => null) : null;
+        if (banked == null) continue;
+        const short = (need[m.itemId] ?? 0) - banked - held.reduce((s, r) => s + r.n, 0);
+        if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + banked + short });
       }
       if (make.length) crafts.push({ id, ...job, make });
     }
