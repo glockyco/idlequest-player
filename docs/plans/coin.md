@@ -18,6 +18,16 @@ All groups at level 58 to 60. Platinum a day, from the tabs' event lines.
 - The account held 123,000 on 2026-11-13 around noon and 212,186 on 2026-11-15 at 08:40. So of about 326,000 earned in those 44 hours, 237,000 were spent, 130,000 of them on the lines above. The other 107,000, about 58,000 a day, went to spells at level-ups, merchant gear and quest hand-ins, which the logs of those days do not separate. The ledger does from 2026-11-15.
 - The Tradeskill Bank holds 39,674 ingredients of 331 kinds, worth about 148,000 at merchants, and the Spell Bank 910 scrolls of 119 kinds, worth about 44,000. No party member of 55 read lacked a banked scroll its class can scribe at its level. The ingredients stay for tradeskill training, so the courier's fee is the price of keeping them.
 
+## Crafting for a merchant
+
+A merchant pays 85% of an item's price, and the crafting catalog sells components for less than that for 170 of the 741 recipes it supplies in full (`runs/tmp/profit.mjs` on 2026-11-15, from the content snapshot). Sold on 2026-11-15 with the bank window's Sell Stack: Powered Gloves at 34 platinum, Spyglasses at 16.8 and Aqualungs at 170.
+
+- Powered Gloves (Tinkering recipe 491, trivial 122) cost 8.1 in components. A hundred attempts at Tinkering 153 gave 95 and 96 pairs, about 3,250 platinum for 820, and took about 9 s with the recipe window's x100 buy and craft. That is about 16,000 platinum a minute of one tab.
+- The largest plain profits are Fletching's bows at a trivial of 215 to 282, 115 to 148 platinum an attempt, and Smithing's Block Of Medium Quality Ore at a trivial of 21, 16 an attempt. Neither skill is trained.
+- An Aqualung combine (recipe 347) costs 22 and gives 20 Aqualungs, 3,400 platinum. It is the one recipe whose count is an item's charges, so it is left out of crafting for coin. The 2,046 that the Tinkering training left were sold for about 348,000.
+
+The coin job of `data/crafts.json` crafts 6,000 Powered Gloves every four hours in Edroun's tab while the account holds under 500,000 platinum (`crafts` in `tools/lib/coordinator.mjs`, `craftTask` in `src/bot.js`).
+
 ## What a platinum buys
 
 The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.mjs`), as the boss plan values kills.
@@ -39,9 +49,11 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 2. The day's casino credit, then more while the account's coin allows and few credits wait for their raid (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`).
 3. AA ranks from what is above the reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
 4. Merchant gear from the hour's income less the raid budget (`buyBudget`).
+5. Below 500,000 platinum the coin job crafts for a merchant ("Crafting for a merchant").
 
 ## Open
 
+- With crafting for a merchant a platinum costs a tab far less time than the prices under "What a platinum buys" assume. Set the spacing of extra casino credits, the reserve a quest's raid waits for and the gear budget anew once a few days of the ledger show what the coin job brings.
 - Weigh ranks against credits once coin limits the ranks.
 - The Spell Bank's scrolls: sell the copies nobody can use, or stop banking them.
 - The courier came at every cleanup, about 87 times a day for each group. Ingredients stack and take few slots, so it now comes once enough stacks wait (`bankAtStacks` in `src/bot.js`), and the reserve sells no ingredient meanwhile. Read the ledger's courier line after a day.
