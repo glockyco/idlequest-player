@@ -428,6 +428,8 @@ const RELAY_STUCK_MS = 120000;
 const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
+// The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
+const AA_STAT_FIELD = { 50001: "astr", 50002: "asta", 50005: "aint", 50006: "awis" };
 // Raids at once, each in its own zone with its own leader (`bossPass`).
 const RAIDS_AT_ONCE = 3;
 // The raid budget a gear pass leaves untouched: an hour of raid time at the server's last quote
@@ -981,7 +983,12 @@ export class Daemon {
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...(this.itemModel?.bosses ?? []).map((c) => c.name), ...this.raidGoal()].map(npcKey));
     const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
     const xpFactor = factorAt(this.xpEvents, now);
-    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, xpFactor };
+    // The account's coin at its last read and the casino bosses that wait for a raid, by which one
+    // more credit is rolled for (`casino` of DEFAULTS in tools/lib/coordinator.mjs).
+    const purse = this.db.query("SELECT t, pp FROM coin ORDER BY t DESC LIMIT 1").get();
+    const lastPlan = metaGet(this.db, "bossPlan");
+    const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0) } : null;
+    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor };
     const { actions, targets: targetEval } = decide(input);
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.
     const pieceIds = new Set(opportunities.map((o) => o.id));
@@ -1048,7 +1055,9 @@ export class Daemon {
     let plan = { orders: {}, wanted: 0, budget: 0, totalPp: null };
     if (pointed.length && idle.length) {
       const money = await this.relay.evaluate(idle[0].targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`coordinator: the account's coin: ${e.message}`), null));
-      if (money) plan = { ...aaPlan({ characters: pointed.map((s) => ({ ...s, class: classOf.get(s.name) })), totalPp: money.totalPp }), totalPp: money.totalPp };
+      // What a rank adds to each character, from the last gear pass (`aaGain`).
+      const aaGain = metaGet(this.db, "aaGain") ?? {};
+      if (money) plan = { ...aaPlan({ characters: pointed.map((s) => ({ ...s, class: classOf.get(s.name), gain: aaGain[s.name] })), totalPp: money.totalPp }), totalPp: money.totalPp };
     }
     metaSet(this.db, "aaPlan", { t: now, wanted: plan.wanted, budget: plan.budget, totalPp: plan.totalPp, reservePp: AA_POLICY.reservePp, rankPp: AA_POLICY.rankPp });
     for (const t of idle) {
@@ -1427,7 +1436,7 @@ export class Daemon {
     const look = looks[0] ?? null;
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
-    const plan = { t: now, kill, skipped, value, first, next, open, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";
     // A raid fights with snapshots of the characters (docs/client-internals.md, "Recruits"), so it
@@ -1524,7 +1533,7 @@ export class Daemon {
     // while a watched boss's respawn is near, which a look has to meet (`nextLook`).
     if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
-    const { buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
+    const { ARMOR_SLOTS, buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, setValue, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
     // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
     // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
     // the middle of a character switch, is tried once more.
@@ -1637,6 +1646,15 @@ export class Daemon {
     }
     const bodiesOf = killBodies(this.db, (npc) => this.npcBodies.get(npc) ?? null, { now });
     const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, room: statRoom[p.name], walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
+    // What a rank of a stat ability adds to its character: two points of the stat by the gear
+    // score, inside the room the stat cap leaves, for the order of the AA ranks (`aaPlan`).
+    const aaGain = {};
+    for (const p of people) {
+      const worn = survey.filter((r) => r.characterName === p.name && r.location === "Equipped" && ARMOR_SLOTS.includes(r.slot)).map((r) => this.items.get(r.itemId)).filter(Boolean);
+      const base = setValue(worn, p);
+      aaGain[p.name] = Object.fromEntries(Object.entries(AA_STAT_FIELD).map(([id, field]) => [id, Math.max(0, setValue([...worn, { [field]: 2 }], p) - base)]));
+    }
+    metaSet(this.db, "aaGain", aaGain);
     const { copyValue } = await import("./lib/acquire.mjs");
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));

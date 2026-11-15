@@ -2662,9 +2662,9 @@
   };
   // The casino's Items prize wins the account a boss reset credit a day at three matches, and more
   // at four matches of nine dice (`iq.casino` of src/bridge.js). A credit stays with the character
-  // that won it. The task plays `who` when named and rolls only for the day's credit, since one at
-  // four matches costs about 12,500 pp at 600 pp a roll, more than a raid hour, against kills worth
-  // a few group-hours. It rolls `dice` dice until it wins or has spent `maxPp`, pulling a balance
+  // that won it. The task plays `who` when named and rolls for the day's credit, or with `extra`
+  // for one more at four matches, about 12,500 pp at 600 pp a roll, which the coordinator orders
+  // while the account's coin allows (docs/plans/coin.md). It rolls `dice` dice until it wins or has spent `maxPp`, pulling a balance
   // to the roller when its coin runs short, reads the roller's credits after a win (`credits`,
   // `creditsOf`), and ends with the time of the next daily credit (`nextAt`). The bot plays its
   // leader again after.
@@ -2672,7 +2672,7 @@
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     const st = await step("read the casino status", () => i.casino.status(), 30000);
     if (st.disabled) throw new Error(st.disabled);
-    if (st.availableAt > now()) throw new TaskLater(`the next daily boss credit is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
+    if (!task.extra && st.availableAt > now()) throw new TaskLater(`the next daily boss credit is at ${new Date(st.availableAt).toTimeString().slice(0, 5)}`, st.availableAt + 60000);
     const price = i.casino.dice().find((o) => o.dice === task.dice)?.pricePp;
     if (!price) throw new Error(`the casino offers no ${task.dice}-dice roll`);
     const coin = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
@@ -2690,12 +2690,12 @@
       if (r.credits > 0) {
         const after = await step("read the credits", () => i.raid.bosses(), 30000).catch(() => null);
         const held = (after?.credits ?? []).filter((c) => c.credits > 0);
-        Object.assign(task, { prize: "boss credit", credits: after?.credits ?? null, creditsOf: after?.who ?? activeName(i), creditsAt: now(), result: `won a boss credit in ${task.rolls} rolls for ${task.spentPp}pp${held.length ? `, ${activeName(i)} holds credits for ${held.map((c) => `${c.name} (${c.credits})`).join(", ")}` : ""}`, nextAt: (r.availableAt ?? now() + 86400000) + 60000 });
+        Object.assign(task, { prize: "boss credit", credits: after?.credits ?? null, creditsOf: after?.who ?? activeName(i), creditsAt: now(), result: `won a boss credit in ${task.rolls} rolls for ${task.spentPp}pp${held.length ? `, ${activeName(i)} holds credits for ${held.map((c) => `${c.name} (${c.credits})`).join(", ")}` : ""}`, ...(task.extra ? {} : { nextAt: (r.availableAt ?? now() + 86400000) + 60000 }) });
         log(`casino: ${task.result}`);
         return;
       }
       // A jackpot without a credit, or a cooldown that began, means the day's credit went to another tab.
-      if (r.jackpot || r.availableAt > now()) throw new TaskLater(`the daily boss credit went elsewhere after ${task.rolls} rolls`, (r.availableAt ?? now() + 3600000) + 60000);
+      if (!task.extra && (r.jackpot || r.availableAt > now())) throw new TaskLater(`the daily boss credit went elsewhere after ${task.rolls} rolls`, (r.availableAt ?? now() + 3600000) + 60000);
     }
     throw new TaskLater(`no boss credit in ${task.rolls} rolls for ${task.spentPp}pp`, now() + 3600000);
   };
@@ -3425,12 +3425,13 @@
     },
     /**
      * Roll the casino's Items prize for the day's boss credit as a task in the page (`casinoTask`):
-     * `dice` dice on symbol `face` until it wins or has spent `maxPp`.
+     * `dice` dice on symbol `face` until it wins or has spent `maxPp`. With `extra` it rolls for a
+     * credit beyond the day's, which takes four matches of nine dice.
      */
-    casino({ who = null, dice = 9, face = 1, maxPp = 10000 } = {}) {
+    casino({ who = null, dice = 9, face = 1, maxPp = 10000, extra = false } = {}) {
       takeTab();
       if (who) accountCharacter(iq(), who);
-      state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), who, dice, face, maxPp };
+      state.task = { id: `casino-${now().toString(36)}`, kind: "casino", startedAt: now(), who, dice, face, maxPp, extra: Boolean(extra) };
       log(`task casino: ${who ?? "the active character"}, ${dice} dice, up to ${maxPp}pp`);
       return { ...runTask(state.task) };
     },

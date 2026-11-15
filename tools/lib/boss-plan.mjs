@@ -55,6 +55,7 @@ export function dailyCandidates(daily) {
  * - `daily`: `iq.raid.bosses()` of a leader at 46 or more: `{ resetsRemaining, resetLimit, bosses: [{ key, name, zone, status }] }`.
  * - `potions`: casino potions the survey finds, `[{ key, name, zone, itemId, who }]`, `who` the holder.
  * - `credits`: casino credits the characters hold, `[{ key, name, zone, who }]`, `who` the holder.
+ *   A credit keeps, so its raid runs in paid time or buys an hour as an open-world boss's does.
  * - `standing`: the casino boss that stands summoned (`casinoStanding`, or `standingBosses` from
  *   the raid history).
  * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
@@ -104,9 +105,15 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     else add(o, "open");
   }
   for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
+  // A credit does not expire, so outside paid time its raid buys an hour like an open-world boss's:
+  // for a boss of `first`, or when the credits' kills and the open-world kills are worth it together.
+  const creditWorth = credits.filter((c) => killable(odds[c.key]?.raid) && !waiting(c, "credit")).reduce((s, c) => s + (value[c.key] ?? 0), 0);
   for (const [list, source] of [[potions, "potion"], [credits, "credit"]]) {
     for (const p of list) {
       if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server summons no other casino boss until it is dead` });
+      else if (source === "potion" || paid || first.includes(p.key)) add(p, source);
+      else if (!canBuy) skipped.push({ key: p.key, why: `its credit waits for paid raid time, and the account's coin does not pay an hour and ${OPEN_BUY.reserveHours} more for the summons` });
+      else if (creditWorth + worth < OPEN_BUY.worth) skipped.push({ key: p.key, why: `its credit waits for paid raid time: an hour would bring kills worth ${(creditWorth + worth).toFixed(2)} h, under the ${OPEN_BUY.worth} h it has to bring` });
       else add(p, source);
     }
   }

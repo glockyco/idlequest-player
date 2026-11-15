@@ -72,6 +72,17 @@ test("the account's coin above its reserve buys ranks, every character's first s
   expect(capped).toEqual([STA, 50004, 50004]);
 });
 
+test("with measured gains the rank that adds most goes first, on a character and across the account", () => {
+  const characters = [
+    // A Monk gains more from strength than from stamina, the first ability of its class's order.
+    { name: "Monk", class: "Monk", points: 2, spent: 0, ranks: {}, gain: { 50001: 0.32, [STA]: 0.1 } },
+    { name: "Cle", class: "Cleric", points: 1, spent: 0, ranks: {}, gain: { [WIS]: 0.09, [STA]: 0.1 } },
+  ];
+  expect(aaPlan({ characters, totalPp: 100000 }).orders).toEqual({ Monk: [50001, 50001], Cle: [STA] });
+  // Coin for one rank buys the Monk's strength, not the Cleric's first ability.
+  expect(aaPlan({ characters, totalPp: 22000 }).orders).toEqual({ Monk: [50001] });
+});
+
 test("the planned ranks are trained a rank a request, for the leader and the members, from the leader's coin", async () => {
   const chars = { 1: { name: "Tagujazolu", level: 60, points: 2, ranks: { [STA]: 4 } }, 2: { name: "Ewbanaqoa", level: 60, points: 1, ranks: {} }, 3: { name: "Qigaa", level: 59, points: 0, ranks: {} } };
   const purse = { pp: 9000 };

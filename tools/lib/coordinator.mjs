@@ -27,7 +27,11 @@ export const DEFAULTS = {
   // The casino's daily boss potion (docs/plans/systems-research.md, "Boss summons and daily
   // allowance"): a leader from `minLevel` rolls `dice` dice, which win it in about six rolls for the
   // same mean price as fewer dice, and stops after `maxPp`, about three potions' mean price.
-  casino: { minLevel: 46, dice: 9, maxPp: 10000 },
+  // Beyond the day's credit, one more takes four matches of nine dice, 12,500 pp on average, for a
+  // boss worth 4.6 hours of a group's progress on average (docs/plans/coin.md). So the account rolls
+  // for one every `extraEveryMin` while it holds `extraReservePp` and fewer than `extraHold`
+  // credits wait for their raid, and a roll stops after `extraMaxPp`.
+  casino: { minLevel: 46, dice: 9, maxPp: 10000, extraMaxPp: 20000, extraEveryMin: 240, extraReservePp: 100000, extraHold: 3 },
   // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
   // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
   questKillChance: 0.5,
@@ -65,29 +69,33 @@ const aaRanks = (id) => (id >= AA.run ? 3 : 5);
  * The ranks the account trains in a pass: `{ orders, wanted, budget }`, where `orders` gives each
  * character the abilities to train, in order, `wanted` counts the ranks its points could buy and
  * `budget` the ranks the coin allows, `totalPp` above the reserve. `characters` are
- * `{ name, class, points, spent, ranks, capped }`, at most a level's worth of points each a pass,
+ * `{ name, class, points, spent, ranks, capped, gain }`, at most a level's worth of points each a pass,
  * with `capped` the stat abilities whose stat stands at its cap, which come after every other
- * ability, because their ranks raise nothing until gear or buffs change. A rank goes before
+ * ability, because their ranks raise nothing until gear or buffs change. `gain` is what a rank of
+ * an ability adds to the character's group, by ability id, in the gear plan's unit (`aaGain` of
+ * the gear pass): coin limits the ranks, so the rank that adds most goes first, on the character
+ * and across the account. Among equal gains, and for abilities without one, a rank goes before
  * another by its place in its class's order, so every character's first stat comes before
- * anyone's second, and among equals to the character with fewer ranks.
+ * anyone's second, and then to the character with fewer ranks.
  */
 export function aaPlan({ characters, totalPp, policy = AA_POLICY }) {
   const budget = Math.max(0, Math.floor((totalPp - policy.reservePp) / policy.rankPp));
   const wanted = [];
   for (const c of characters) {
     const capped = new Set(c.capped ?? []);
-    const full = aaOrder(c.class);
+    const gain = (id) => c.gain?.[id] ?? 0;
+    const full = [...aaOrder(c.class)].sort((x, y) => gain(y) - gain(x));
     const order = [...full.filter((id) => !capped.has(id)), ...full.filter((id) => capped.has(id))];
     const ranks = { ...(c.ranks ?? {}) };
     let spent = c.spent ?? 0;
     for (let k = 0; k < Math.min(c.points ?? 0, 12); k++) {
       const place = order.findIndex((id) => (ranks[id] ?? 0) < aaRanks(id));
       if (place < 0) break;
-      wanted.push({ name: c.name, id: order[place], place, spent: spent++ });
+      wanted.push({ name: c.name, id: order[place], place, spent: spent++, gain: gain(order[place]) });
       ranks[order[place]] = (ranks[order[place]] ?? 0) + 1;
     }
   }
-  wanted.sort((a, b) => a.place - b.place || a.spent - b.spent);
+  wanted.sort((a, b) => b.gain - a.gain || a.place - b.place || a.spent - b.spent);
   const orders = {};
   for (const w of wanted.slice(0, budget)) (orders[w.name] ??= []).push(w.id);
   return { orders, wanted: wanted.length, budget };
@@ -328,7 +336,7 @@ export function worldHold(history, id, code = null) {
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -372,9 +380,14 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // take a minute. The task names when the next one can be won. A credit stays with its winner,
   // and the server shows only the active character's credits, so a leader of `casino.minLevel`
   // rolls, the highest first, which leads the credit's raid without a switch.
-  const lastRoll = history.filter((h) => h.kind === "casino").at(-1);
+  const lastRoll = history.filter((h) => h.kind === "casino" && h.id === "casino").at(-1);
   const roller = tabs.filter((t) => free(t) && (t.members[0]?.level ?? 0) >= cfg.casino.minLevel).sort((a, b) => b.members[0].level - a.members[0].level)[0];
-  if (roller && due(lastRoll, 60, roller) && !tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running")) out.push({ label: roller.label, kind: "casino", id: "casino", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss credit with ${roller.members[0].name}` });
+  const rolling = tabs.some((t) => t.task?.kind === "casino" && t.task.status === "running");
+  const lastExtra = history.filter((h) => h.id === "casino:extra").at(-1);
+  if (roller && due(lastRoll, 60, roller) && !rolling) out.push({ label: roller.label, kind: "casino", id: "casino", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: cfg.casino.dice, maxPp: cfg.casino.maxPp }, why: `the day's boss credit with ${roller.members[0].name}` });
+  // One more credit while the coin allows (`casino` of DEFAULTS), once the day's is won.
+  else if (roller && !rolling && lastRoll?.nextAt > now && coin && coin.pp >= cfg.casino.extraReservePp && coin.credits < cfg.casino.extraHold && !(now - lastExtra?.t < cfg.casino.extraEveryMin * 60000))
+    out.push({ label: roller.label, kind: "casino", id: "casino:extra", who: roller.members[0].name, spec: { who: roller.members[0].name, dice: 9, maxPp: cfg.casino.extraMaxPp, extra: true }, why: `one more boss credit with ${roller.members[0].name}, with ${Math.round(coin.pp / 1000)}k platinum on the account and ${coin.credits} credit${coin.credits === 1 ? "" : "s"} waiting` });
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks

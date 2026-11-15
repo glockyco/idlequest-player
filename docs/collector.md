@@ -56,7 +56,7 @@ starts `run` without it.
 it reads the account's lightstones and the items of `data/opportunities.json` (epic and quest
 pieces) with Inventory Search and queues tasks through each bot's own task API
 (`tools/lib/coordinator.mjs` decides). First, the highest free leader of 46 or more rolls the casino
-for the day's boss credit (`iqBot.casino`), which stays with that leader. The boss pass then queues the
+for the day's boss credit (`iqBot.casino`), which stays with that leader, and for more while the account's coin allows (`docs/plans/coin.md`). The boss pass then queues the
 next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily summon, a held
 casino credit or potion, or the standing casino boss, as a raid of all roster characters, led by the credit's holder or the strongest
 group's leader, once the simulator kills the boss in every fight (`runs/state/kill-odds.json`, which

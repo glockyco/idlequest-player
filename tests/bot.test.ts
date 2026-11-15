@@ -3532,6 +3532,18 @@ test("a casino roll that wins a boss credit ends the task with the roller's cred
     expect(rolls).toBe(2);
     expect(bot.state.task).toMatchObject({ status: "done", spentPp: 1200, creditsOf: "A", nextAt: next + 60000 });
     expect(bot.state.task.result).toContain("Lady Vox (1)");
+    // A roll for one more credit goes on through the day's cooldown and names no next daily credit.
+    rolls = 0;
+    f.iq.casino.status = async () => ({ availableAt: next, requiredMatches: 4, requiredDice: 9 });
+    bot.state.task = { kind: "casino", status: "running", startedAt: Date.now(), dice: 9, maxPp: 6000, extra: true };
+    eval(await Bun.file(new URL("../src/bot.js", import.meta.url)).text());
+    const again = g.iqBot!;
+    clearInterval(again.timerId);
+    clearInterval(again.fastTimerId);
+    await runToEnd({ ...f, bot: again });
+    expect(rolls).toBe(2);
+    expect(again.state.task).toMatchObject({ status: "done", extra: true, spentPp: 1200 });
+    expect(again.state.task.nextAt).toBeUndefined();
   } finally {
     vi.useRealTimers();
   }

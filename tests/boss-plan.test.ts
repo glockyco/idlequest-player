@@ -317,6 +317,13 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
   const next = nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 9 } });
   expect(next.kill).toMatchObject({ key: "vox", source: "credit", who: "Tagujazolu" });
   expect(killId(next.kill)).toBe("boss:credit:Tagujazolu:vox");
+  // A credit keeps: outside paid time its raid waits unless its kill is worth an hour and the coin pays it.
+  const wait = (value: number, canBuy: boolean) => nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: value }, paid: false, canBuy }).kill;
+  expect(wait(0.4, true)).toBeNull();
+  expect(wait(9, false)).toBeNull();
+  expect(wait(9, true)).toMatchObject({ key: "vox", source: "credit" });
+  // A boss of the raid goal that no raid has killed goes also outside paid time.
+  expect(nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 0 }, paid: false, first: ["vox"] }).kill).toMatchObject({ key: "vox" });
 });
 
 test("held open bosses add no worth to buying an hour", () => {
