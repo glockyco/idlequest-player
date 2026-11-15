@@ -2605,6 +2605,7 @@
         let dead = false;
         let reviveAt = 0;
         let memberReviveAt = 0;
+        let reviveFails = 0;
         let healSeq = 0;
         const healers = new Set();
         let progress = null;
@@ -2696,11 +2697,18 @@
           // minutes that way. "all" also takes a spell's revive for mana, and "off" none. Without
           // such an item among the living the window is looked into again only after a minute.
           const fallen = (task.revive ?? "free") === "off" ? [] : s.roster.filter((m) => !m.alive && m.id !== "player").sort((a, b) => REVIVE_FIRST.indexOf(b.role) - REVIVE_FIRST.indexOf(a.role));
-          if (s.combat && fallen.length && now() >= memberReviveAt) {
+          if (s.combat && fallen.length && now() >= memberReviveAt && reviveFails < 3) {
             memberReviveAt = now() + 5000;
-            const r = await raid.revive(fallen[0].id, { free: task.revive !== "all" }).catch((e) => (log(`task raid: revive of ${fallen[0].name} failed: ${e?.message ?? e}`), { queued: false }));
+            const r = await raid.revive(fallen[0].id, { free: task.revive !== "all" }).catch((e) => (log(`task raid: revive of ${fallen[0].name} failed: ${e?.message ?? e}`), { failed: true }));
             if (r === null) memberReviveAt = now() + 60000;
-            else if (r.queued) task.fight.memberRevives = (task.fight.memberRevives ?? 0) + 1;
+            else if (r.queued) {
+              task.fight.memberRevives = (task.fight.memberRevives ?? 0) + 1;
+              reviveFails = 0;
+            } else if (r.failed) {
+              // An order the window did not take is tried again after half a minute, three times a fight.
+              reviveFails++;
+              memberReviveAt = now() + 30000;
+            }
           }
           if (s.combat) continue;
           // The kill line can come a moment after the fight's end, as Lodizal's did.
