@@ -38,7 +38,8 @@ export const DEFAULTS = {
   // A quest's enemy of this level or more is the raid's when the simulated raid kills it, whatever
   // the group's chance says: the chance for Ixiblat Fer (62) sent group 1 twice, which loses that
   // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
-  questRaidLevel: 55,
+  // Groups have won the fights at 55 (Jaeil the Insane, a plasmatic priest), which cost no raid time.
+  questRaidLevel: 57,
 };
 
 /**

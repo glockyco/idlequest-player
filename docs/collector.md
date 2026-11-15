@@ -91,7 +91,7 @@ reach the point together and all but the first find it held. A failure that name
 leader's party could not clear, holds the chain for all groups until that time, or until the next deploy unless
 it repeated the failure before it at its step (`worldHold` in
 `tools/lib/coordinator.mjs`). A step gives the NPC `give`, hands in `each`, buys `buy` from a merchant, or fights
-`kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or as a raid led by the member when the step carries `raid` (an enemy above level 50 that the simulated raid kills and the group should not fight, `questRaidLevel` in `tools/lib/coordinator.mjs`), or
+`kill` with the group gathered around the member, waiting up to `waitSec` for a script spawn, or as a raid led by the member when the step carries `raid` (an enemy above level 50 that the simulated raid kills and the group should not fight, by `questRaidLevel` in `tools/lib/coordinator.mjs`), or
 crafts `craft`: up to `quantity` attempts until one succeeds, each buying into the Tradeskill Bank the
 catalog ingredients one set lacks, with one of each of its `inputs` (the components the catalog does
 not sell) pulled per attempt and the result withdrawn into the bags (`craftItem` in `src/bridge.js`). A

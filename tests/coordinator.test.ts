@@ -157,11 +157,11 @@ test("a quest's fight goes to the raid when the simulated raid kills an enemy th
   const cleric = (level: number) => ({ ...tab("A", "G1", level), members: [{ name: "A0", level, class: "Cleric" }] });
   const raid = { members: ["A0", "B0"], maxPp: 10000, heal: "all-balanced", nuke: "dps-all-out" };
   const run = (level: number, opts: object, leader = 59) => decide({ now: NOW, tabs: [cleric(leader)], quests: { sceptre: { class: "Cleric", minLevel: 1, reward: "Sceptre of Ixiblat Fer", steps: fight(level) } }, history: [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }], ...opts }).actions.filter((a) => a.kind === "quest");
-  // An enemy of 55 or more that the raid kills is the raid's, whatever the group's chance says.
+  // An enemy of 57 or more that the raid kills is the raid's, whatever the group's chance says.
   const [a] = run(62, { raid, raidKill: () => true, killChance: () => ({ p: 0.9 }) });
   expect(a.spec.raid).toEqual(raid);
   expect(a.spec.steps.map((s: { raid?: boolean }) => Boolean(s.raid))).toEqual([false, true]);
-  // Below 55 the group fights while its chance is good, and the raid takes over when it is not.
+  // Below 57 the group fights while its chance is good, and the raid takes over when it is not.
   expect(run(52, { raid, raidKill: () => true, killChance: () => ({ p: 0.9 }) })[0].spec.raid).toBeUndefined();
   expect(run(52, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) })[0].spec.steps[1].raid).toBe(true);
   // An enemy the raid does not kill either still waits for the group's chance.
