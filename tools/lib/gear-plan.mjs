@@ -427,9 +427,18 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // by their own gain are each paired with the off hand that adds most beside them, from the
   // copies the account carries, and the best pair is offered as one (`also` is the off hand).
   const PAIR_TOP = 6;
+  // The swings of a main hand and an off hand together, in `weaponRatio`'s unit.
+  const swingsOf = (p, first, offItem) => {
+    const chance = offhandChance(p.cls, p.level);
+    const fist = fists(p.cls, p.level, p.race);
+    const off = { primary: false, bodies: p.bodies };
+    const beside = offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(first?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0;
+    return weaponRatio(first ?? fist, p.cls, p.level, { bodies: p.bodies }) + beside;
+  };
   const pairOffer = (p) => {
     const mine = worn.get(p.name);
     if (!TWO_HANDED.has(mine.get(PRIMARY)?.itemtype)) return [];
+    const now = swingsOf(p, mine.get(PRIMARY), null);
     const live = free.filter((r) => !spent.has(key(r)));
     const oneHander = (i) => i && i.damage > 0 && !TWO_HANDED.has(i.itemtype) && fits(i, p, PRIMARY);
     const mains = live.flatMap((r) => (oneHander(items.get(r.itemId)) ? offer(r, p, { min: -Infinity }).filter((o) => o.slot === PRIMARY) : [])).sort((a, b) => b.gain - a.gain).slice(0, PAIR_TOP);
@@ -439,8 +448,17 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
       if (a.gain >= minGain) continue;
       const withMain = new Map([...mine, [PRIMARY, items.get(a.r.itemId)]]);
       const lore = isLore(items.get(a.r.itemId));
-      const off = live.flatMap((r) => (key(r) === key(a.r) || (lore && r.itemId === a.r.itemId) || !fits(items.get(r.itemId), p, SECONDARY) ? [] : offer(r, p, { mine: withMain }).filter((o) => o.slot === SECONDARY))).reduce((x, o) => (!x || o.gain > x.gain ? o : x), null);
-      if (off && a.gain + off.gain >= minGain && (!best || a.gain + off.gain > best.gain)) best = { ...a, gain: a.gain + off.gain, own: a.gain, also: off };
+      // The pair's gain is that of the whole set against the two-hander. The gains of its halves
+      // do not add up to it, since the off hand's is a share of the weaker set in between.
+      const whole = (o) => {
+        const both = new Map([...withMain, [SECONDARY, items.get(o.r.itemId)]]);
+        return value(p, both) - value(p, mine) + meleeGain(swingsOf(p, both.get(PRIMARY), both.get(SECONDARY)) - now, now, p);
+      };
+      const off = live
+        .flatMap((r) => (key(r) === key(a.r) || (lore && r.itemId === a.r.itemId) || !fits(items.get(r.itemId), p, SECONDARY) ? [] : offer(r, p, { mine: withMain, min: -Infinity }).filter((o) => o.slot === SECONDARY)))
+        .map((o) => ({ ...o, total: whole(o) }))
+        .reduce((x, o) => (!x || o.total > x.total ? o : x), null);
+      if (off && off.total >= minGain && (!best || off.total > best.gain)) best = { ...a, gain: off.total, own: a.gain, also: { ...off, gain: off.total - a.gain } };
     }
     return best ? [best] : [];
   };

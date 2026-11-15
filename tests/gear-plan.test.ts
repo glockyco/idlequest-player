@@ -1,7 +1,7 @@
 // Checks the roster gear plan (tools/lib/gear-plan.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
-import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
+import { dualWieldSkill, offhandChance, weaponRatio } from "../tools/lib/gear-data.mjs";
 import { damageShares, fists, gainParts, hitShares, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
@@ -96,6 +96,14 @@ test("a character that holds a two-hander is offered a main hand and an off hand
   // Neither half alone is a move.
   expect(planGear({ survey: [worn, wand], items: set, people }).moves).toEqual([]);
   expect(planGear({ survey: [worn, shield], items: set, people }).moves).toEqual([]);
+  // A pair counts as a whole against the two-hander. The Great Axe swings harder than the Long
+  // Sword with the Twin Dagger beside it, though the dagger adds much to the sword alone, so a
+  // Warrior keeps the axe.
+  const war = [{ name: "War", cls: "warrior", level: 30, race: "" }];
+  const axe = weaponRatio(items.get(5)!, "warrior", 30);
+  const pair = weaponRatio(items.get(3)!, "warrior", 30) + offhandChance("warrior", 30) * weaponRatio(items.get(7)!, "warrior", 30, { primary: false });
+  expect(pair).toBeLessThan(axe);
+  expect(planGear({ survey: [row("War", 5, "Equipped", 13, 1), row("Holder", 3, "Carried", 25, 2), row("Holder", 7, "Carried", 26, 3)], items, people: war }).moves).toEqual([]);
 });
 
 test("a weapon for either hand that replaces a worn one is marked to be placed, and no other move is", () => {
