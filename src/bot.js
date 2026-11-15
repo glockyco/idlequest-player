@@ -2017,11 +2017,24 @@
         // the hammer it dropped (2026-11-12).
         // An enemy that does not come up is not up for any group, so the next try waits an hour,
         // which holds the chain for every tab (`worldHold` in tools/lib/coordinator.mjs).
+        let skipped = false;
         for (let r = null; r !== "killed" && !killedSince(i, wanted, since); ) {
+          // The caller of a timed enemy is gone while that enemy stands: a soul carrier died at
+          // 09:47 on 2026-11-15 under page code that kept no time of it, and the next run looked
+          // for a soul carrier while Keeper of Souls was due.
+          if (r === "none" && timedNext && enemyUp(timedNext.kill)) {
+            log(`quest: no ${s.kill} is up and ${timedNext.kill} stands, so ${m.name} goes on to it`);
+            skipped = true;
+            break;
+          }
           if (r === "none" && now() > end) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
           if (r && r !== "fighting" && now() > end) throw new Error(`the fight with ${s.kill} was lost (${fightState(i)})`);
           if (r && r !== "fighting") await sleep(2000);
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
+        }
+        if (skipped) {
+          m.at = Math.max(m.at, k + 1);
+          continue;
         }
         m.foughtAt = since;
         called(k);
