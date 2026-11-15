@@ -532,9 +532,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // the enemy and it is of `questRaidLevel` or the group's chance is too low. Raid mode takes
       // enemies above level 50 and a leader of 46.
       // A kill's chance is its worst fight's: the enemy's, and those its death sets on the party
-      // (`adds`). Groups killed 32 of 40 soul carriers and then left 48 of 60 fights with the essence
-      // carriers, which takes the member out of the zone before the Key Master hears of the death.
-      const chance = (s) => Math.min(...[{ npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null }, ...(s.adds ?? []).map((x) => ({ npc: x.name, npcLevel: x.level, npcHp: x.hp ?? null }))].map((x) => killChance(t, { zone: s.zone, ...x })?.p ?? 1));
+      // (`adds`), which come all at once, so the party has to beat each of them: the chance against
+      // one to the power of their number. Groups killed 32 of 40 soul carriers and then left 48 of
+      // 60 fights with the two essence carriers, which takes the member out of the zone before the
+      // Key Master hears of the death. Group 4 at 60 had 56% against one and left three fights
+      // with the pair in four minutes (2026-11-15).
+      const chance = (s) => Math.min(killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1, ...(s.adds ?? []).map((x) => (killChance(t, { zone: s.zone, npc: x.name, npcLevel: x.level, npcHp: x.hp ?? null })?.p ?? 1) ** (x.n ?? 1)));
       const leads = who.every((n) => (t.members.find((m) => m.name === n)?.level ?? 0) >= 46);
       // An enemy that a raid's kill calls is the raid's as well, also below `questRaidLevel`: Zordakalicus
       // Ragefire (54) comes up when Zordak Ragefire (60) dies, and the group that followed the raid

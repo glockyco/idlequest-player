@@ -1114,7 +1114,8 @@ test("a timed enemy is its caller's: the member goes back for it, and the raid t
   expect(run([{ ...failed, timed: { [key]: NOW - 80 * min } }])).toEqual([]);
   // The group kills soul carriers and loses to the essence carriers their death brings, so the
   // raid takes the kill, and without a raid the quest waits.
-  const killChance = (_t: object, x: { npc: string }) => ({ p: x.npc === "an essence carrier" ? 0.2 : 0.9 });
+  // Against one essence carrier the group wins 6 fights of 10, and the death brings two at once.
+  const killChance = (_t: object, x: { npc: string }) => ({ p: x.npc === "an essence carrier" ? 0.6 : 0.9 });
   const raid = { members: ["A0", "B0"], maxPp: 10000 };
   const [byRaid] = two([], [tab], { killChance, raid, raidKill: () => true });
   expect(byRaid.spec.steps.map((s: { raid?: boolean }) => Boolean(s.raid))).toEqual([true, true]);

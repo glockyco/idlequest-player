@@ -2152,11 +2152,17 @@
         }
         m.foughtAt = since;
         called(k);
-        // What the death sets on the party is fought to its end, for up to five minutes.
-        for (const add of s.adds ?? []) {
-          for (const stop = now() + 300000; enemyUp(add.name) && now() < stop; ) {
-            const r = await step(`kill ${add.name}`, () => directedKill(i, enemyPattern(add.name)), 200000);
-            if (r !== "killed") await sleep(2000);
+        // What the death sets on the party is fought once each. A fight the guard left is not
+        // taken up again: group 4 went back to two essence carriers three times in four minutes
+        // with its healers out of mana (2026-11-15).
+        adds: for (const add of s.adds ?? []) {
+          for (let n = 0; n < (add.n ?? 1) && enemyUp(add.name); n++) {
+            let r = null;
+            for (const stop = now() + 240000; now() < stop && (r == null || r === "fighting" || r === "approaching"); ) {
+              if (r) await sleep(2000);
+              r = await step(`kill ${add.name}`, () => directedKill(i, enemyPattern(add.name)), 200000);
+            }
+            if (r !== "killed") break adds;
           }
         }
       }
