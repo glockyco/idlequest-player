@@ -67,6 +67,8 @@ export function dailyCandidates(daily) {
  * - `open`: raid bosses a tab saw alive at their open-world spawn point, `[{ key, name, zone }]`
  *   (`openBosses`). They need no summon and no potion.
  * - `paid`: whether raid time is running that a raid can use.
+ * - `affordable`: whether the account's coin pays one hour of raid time, which every raid outside
+ *   paid time buys. Without it nothing is planned outside paid time.
  * - `canBuy`: whether the account's coin pays an hour for the open world (`canBuyHour`). An
  *   open-world boss is killed in paid time, or buys an hour when `canBuy` holds and the
  *   open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
@@ -86,7 +88,7 @@ export function dailyCandidates(daily) {
  * its use. A boss that stands in the open world is killed there, which leaves its summon for
  * another boss, and it buys its hour by `OPEN_BUY`. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], credits = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, waiting = () => null }) {
+export function nextBossKill({ daily = null, potions = [], credits = [], standing = [], open = [], paid = true, affordable = true, canBuy = false, odds = {}, value = {}, waiting = () => null }) {
   const skipped = [];
   const ways = [];
   // `waiting(candidate, source)` names why a boss's last raid holds it, such as a kill minutes
@@ -96,6 +98,7 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     const o = odds[c.key] ?? {};
     const held = waiting(c, source);
     if (held) skipped.push({ key: c.key, why: held });
+    else if (!paid && !affordable) skipped.push({ key: c.key, why: "no raid time runs, and the account's coin does not pay an hour" });
     else if (killable(o.raid)) ways.push({ ...c, source, way: "raid" });
     else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };

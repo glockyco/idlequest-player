@@ -399,3 +399,13 @@ test("a reset keeps the time of its first boss found up early, however many foll
   // A boss found up early a day later is another reset.
   expect(spawnReset([...log, up("c", T + 25 * H)])).toBe(T + 25 * H);
 });
+
+test("outside paid raid time nothing is raided while the coin does not pay an hour", () => {
+  const d = daily(2, [boss("vox")]);
+  const odds = { vox: { raid: { ...win, meanSec: 21 } } };
+  expect(nextBossKill({ daily: d, odds, value: { vox: 2 }, paid: false, affordable: true }).kill).toMatchObject({ key: "vox", source: "summon" });
+  const r = nextBossKill({ daily: d, odds, value: { vox: 2 }, paid: false, affordable: false });
+  expect(r.kill).toBeNull();
+  expect(r.skipped).toEqual([{ key: "vox", why: "no raid time runs, and the account's coin does not pay an hour" }]);
+  expect(nextBossKill({ daily: d, odds, value: { vox: 2 }, paid: true, affordable: false }).kill).toMatchObject({ key: "vox" });
+});

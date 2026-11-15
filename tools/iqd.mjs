@@ -1540,7 +1540,9 @@ export class Daemon {
       const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
-    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, credits, standing, open, paid, canBuy, odds: odds.odds, value, waiting });
+    // Unknown when the price or the coin is unread.
+    const affordable = !(st.time?.pricePp > 0) || coinPp == null || coinPp >= st.time.pricePp;
+    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, credits, standing, open, paid, affordable, canBuy, odds: odds.odds, value, waiting });
     // A look goes to every watched boss the account could kill, whether or not an hour of raid
     // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: inside
     // paid raid time, or for a kill worth an hour the coin pays.
