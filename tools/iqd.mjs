@@ -437,6 +437,8 @@ const LOOKS_AFTER_RESET = 10;
 const RESET_RUSH_MS = 30 * 60000;
 // How long after a raid its tab still goes back for loot the raid left on the corpse.
 const LOOT_BACK_MS = 2 * 3600000;
+// How old a leader's read of its casino credits may get before the boss pass reads it again.
+const CREDIT_READ_MS = 3600000;
 // The gear plan offers what a crafter makes at this chance an attempt or better.
 const CRAFT_GEAR_CHANCE = 0.5;
 // The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
@@ -472,6 +474,12 @@ export async function bankCountInPage(a) {
 export async function queueInPage(a) {
   const t = await (a.kind === "stopErrand" ? window.iqBot.errand(null) : a.kind === "stopTask" ? window.iqBot.stopTask() : window.iqBot[a.kind](a.spec));
   return { id: t?.id ?? null, status: t?.status ?? String(t) };
+}
+
+/** The active character's casino credits, `{ who, credits }`, from the Raid Resets window's read-only request. */
+export async function creditsInPage() {
+  const daily = await window.iq.raid.bosses();
+  return { who: daily.who, credits: daily.credits };
 }
 
 /** The daily boss list and the raid time quote of the tab's leader, both read-only requests. */
@@ -1432,6 +1440,12 @@ export class Daemon {
     this.keepCreditReads();
     const creditReads = metaGet(this.db, "casinoCredits") ?? {};
     if (st.daily?.who && Array.isArray(st.daily.credits) && !(creditReads[st.daily.who]?.t >= now)) creditReads[st.daily.who] = { t: now, list: st.daily.credits };
+    // The other leaders' credits are read too, two tabs a pass, each once in `CREDIT_READ_MS`, so
+    // a credit whose read the collector missed is found within the hour.
+    for (const t of tabs.filter((x) => x !== reader && (x.members[0]?.level ?? 0) >= 46 && !(now - (creditReads[x.members[0].name]?.t ?? 0) < CREDIT_READ_MS)).slice(0, 2)) {
+      const r = await this.relay.evaluate(t.targetId, call(creditsInPage, {}), { timeout: 20000 }).catch(() => null);
+      if (r?.who && Array.isArray(r.credits)) creditReads[r.who] = { t: now, list: r.credits };
+    }
     metaSet(this.db, "casinoCredits", creditReads);
     const credits = Object.entries(creditReads).flatMap(([who, r]) => r.list.filter((c) => c.credits > 0).map((c) => ({ key: c.key, name: c.name, zone: c.zone, who, at: r.t }))).filter((c) => !potionSpent(history, { ...c, source: "credit" }, c.at));
     // The account's casino boss, which every character's credits list as "resume" while it stands
