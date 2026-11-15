@@ -1691,8 +1691,10 @@ export class Daemon {
     const prev = metaGet(this.db, "gear") ?? {};
     if (now < (prev.next ?? (prev.t ?? 0) + GEAR_EVERY_MIN * 60000)) return null;
     // A survey holds the pass for minutes, and the boss pass comes after it. So the survey waits
-    // while a watched boss's respawn is near, which a look has to meet (`nextLook`).
-    if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
+    // while the respawn of a watched boss is near that a look has to meet (`nextLook`): one whose
+    // kill is worth an hour of raid time. The Skyshrine Crusaders come back every ten minutes at
+    // 0.6 hours each, and their respawns held the survey of 19:36 on 2026-11-15 back for a pass and more.
+    if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => (w.value ?? 0) >= OPEN_BUY.worth && w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
     const { ARMOR_SLOTS, buyBudget, damageShares, hitShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, setValue, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
     // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
