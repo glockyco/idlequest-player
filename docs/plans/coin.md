@@ -45,4 +45,4 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 - Weigh ranks against credits once coin limits the ranks.
 - The Spell Bank's scrolls: sell the copies nobody can use, or stop banking them.
 - The courier came at every cleanup, about 87 times a day for each group. Ingredients stack and take few slots, so it now comes once enough stacks wait (`bankAtStacks` in `src/bot.js`), and the reserve sells no ingredient meanwhile. Read the ledger's courier line after a day.
-- 10-slot bags for the leaders: White Cauldron, 90 platinum, Firiona Vie, weight 20, and Bag of the Tinkerers, 5,000 platinum, Solusek's Eye, weightless.
+- Larger bags for the leaders are not bought. The reserve sells surplus from where the leader stands, the courier comes by gathered stacks and not by free slots, and the only loot left on corpses is a container, which needs a free general slot whatever the bags hold. So more slots save neither coin nor trips.
