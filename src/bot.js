@@ -2379,7 +2379,11 @@
           // and what came into the bags during the step.
           const loot = s.kill ? (i.lootLog ?? []).filter((l) => l.t >= m.foughtAt).map((l) => l.items.join(", ") || "coin only") : null;
           const came = (i.stores.character.getState().characterProfile?.inventory ?? []).filter((r) => !had.has(r.itemInstanceId)).map((r) => r.itemDetails?.Name ?? r.itemDetails?.name ?? r.itemid);
-          throw new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}; new in the bags: ${came.join(", ") || "nothing"}`);
+          const error = new Error(`${m.name} did not get ${s.expect} from ${s.npc ?? s.kill}${loot ? `, and the loot since the fight began was ${loot.length ? loot.join(" | ") : "none"}` : ""}; new in the bags: ${came.join(", ") || "nothing"}`);
+          // A hand-in that brought nothing into bags with room is the server's answer, the same
+          // for every member, so its hold keeps the quest's other tabs away too (`holdStep`).
+          if (s.give?.length && !s.kill && !came.length && i.bagSpace().free > 0) error.retryAfterMs = 6 * 3600000;
+          throw error;
         }
       }
       m.at = Math.max(m.at, k + 1);
