@@ -1040,4 +1040,14 @@ test("a kill of its caller by anyone times an enemy, and its quest goes while th
   const [a] = run([failed], timedCalls(quests, kills, NOW));
   expect(a.spec.timed).toEqual({ "airplane|Keeper of Souls": NOW - 80 * min });
   expect(run([failed, { ...failed, t: NOW - 10 * min }], timedCalls(quests, kills, NOW))).toEqual([]);
+  // Nor does another tab go once one has gone inside his time, and while that run is still on,
+  // under its member's name, nobody else is sent either.
+  const other = { label: "B", members: [{ name: "B0", level: 59, class: "Necromancer" }], task: null };
+  const two = (history: object[], tabs: object[], called: object) => decide({ now: NOW, tabs, quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, ...history], called }).actions.filter((a) => a.kind === "quest");
+  expect(two([failed, { t: NOW - 10 * min, label: "A", kind: "quest", id: "cape", status: "failed", task: "quest-1" }], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
+  const running = { label: "A0", members: tab.members, task: { id: "quest-2", kind: "quest", status: "running" } };
+  expect(two([{ t: NOW - 100 * min, label: "A", kind: "quest", id: "cape", task: "quest-2" }], [running, other], timedCalls(quests, kills, NOW))).toEqual([]);
+  // A run that waited his whole time out holds the chain for its retry time, also against a new call.
+  const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 600 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could" };
+  expect(two([waitedOut], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
 });

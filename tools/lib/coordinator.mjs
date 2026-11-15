@@ -473,7 +473,14 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // made the call, or a kill of the calling enemy by anyone on the account (`called`, from the
     // fight records), such as a hunt's.
     const timed = Object.assign({}, ...q.steps.filter((s) => s.after && called[`${s.zone}|${s.kill}`] != null).map((s) => ({ [`${s.zone}|${s.kill}`]: called[`${s.zone}|${s.kill}`] })), ...history.filter((h) => h.id === id && h.timed && now - h.t < 3 * 3600000).map((h) => h.timed));
-    const runs = () => out.some((o) => o.kind === "quest" && o.id === id) || tabs.some((t) => t.task?.status === "running" && history.some((h) => h.id === id && h.label === t.label && h.task === t.task.id));
+    // A tab is known by its active character, which is the quest's member while the quest runs,
+    // so a running quest is found by its task and not by the leader's name it was given under:
+    // five groups waited for Keeper of Souls at once on 2026-11-15.
+    const runs = () => out.some((o) => o.kind === "quest" && o.id === id) || tabs.some((t) => t.task?.status === "running" && history.some((h) => h.id === id && h.task === t.task.id));
+    // A run that waited a timed enemy's whole time out holds the chain for its retry time, whatever
+    // is called meanwhile.
+    const camped = history.some((h) => h.id === id && h.status === "failed" && h.nextAt > now && /did not come/.test(h.error ?? ""));
+    const lastAny = history.filter((h) => h.id === id).at(-1);
     for (const t of tabs) {
       if (!free(t)) continue;
       const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
@@ -487,12 +494,13 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       });
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       // An enemy that a timer brings (a step's `after`) can stand from `minSec` after its call until
-      // half an hour past `maxSec`. A run goes inside that time whatever an earlier failure or wait
-      // holds, unless this tab has already gone inside it: Keeper of Souls was due from 10:51 to
-      // 11:46 on 2026-11-15 while the chain waited until 12:10 for a soul carrier.
-      const dueNow = q.steps.some((s) => {
+      // half an hour past `maxSec`. One run goes inside that time whatever an earlier failure or
+      // wait holds, and waits there for it: Keeper of Souls was due from 10:51 to 11:46 on
+      // 2026-11-15 while the chain waited until 12:10 for a soul carrier. No second run goes in
+      // that time, from any tab.
+      const dueNow = !camped && q.steps.some((s) => {
         const at = s.after ? timed[`${s.zone}|${s.kill}`] : null;
-        return at != null && now >= at + s.after.minSec * 1000 && now < at + (s.after.maxSec + TIMED_UP_SEC) * 1000 && !(last?.t >= at + s.after.minSec * 1000);
+        return at != null && now >= at + s.after.minSec * 1000 && now < at + (s.after.maxSec + TIMED_UP_SEC) * 1000 && !(lastAny?.t >= at + s.after.minSec * 1000);
       });
       // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);

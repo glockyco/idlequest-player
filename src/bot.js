@@ -1987,11 +1987,17 @@
         const at = pending(s);
         const clock = (t) => new Date(t).toTimeString().slice(0, 5);
         if (at != null && now() < at + s.after.minSec * 1000) throw new TaskLater(`${s.kill} comes between ${clock(at + s.after.minSec * 1000)} and ${clock(at + s.after.maxSec * 1000)}`, at + s.after.minSec * 1000 + 30000);
-        const until = at == null ? 0 : at + s.after.maxSec * 1000 + 60000;
+        // Five minutes past the timer's longest run, for what delays its start: a soul carrier's
+        // death reaches the Key Master 200 s later.
+        const until = at == null ? 0 : at + s.after.maxSec * 1000 + 300000;
         if (now() < until) {
           await step(`wait for ${s.kill}`, async () => {
             while (!enemyUp(s.kill) && now() < until) await sleep(5000);
           }, until - now() + 60000);
+          // A wait to the end without the enemy: it did not come from this call, or others killed
+          // it. The chain tries again a day later (`camped` in tools/lib/coordinator.mjs), since
+          // Keeper of Souls came in none of the windows of 30 soul carriers the account killed.
+          if (!enemyUp(s.kill)) throw Object.assign(new Error(`${s.kill} did not come by ${clock(until)}, the last minute it could (${fightState(i)})`), { retryAfterMs: 24 * 3600000 });
         }
       }
       // An enemy the group does not beat is the raid's (`raid` on the step, the coordinator's): the
