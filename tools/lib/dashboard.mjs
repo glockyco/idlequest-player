@@ -11,6 +11,9 @@ import { factor, xpAt, xpStart } from "./xp.mjs";
 import { progressCounts } from "./progress.mjs";
 import { cardsFor } from "./cards.mjs";
 import { OPEN_BUY } from "./boss-plan.mjs";
+import { coinDays } from "./coin.mjs";
+import { AA_POLICY, DEFAULTS } from "./coordinator.mjs";
+import { BUY_RESERVE_PP } from "./gear-plan.mjs";
 
 const DAY = 86400000;
 /** Actors whose interventions a person or an agent started by hand, as the SDK and `iqd note` log them. */
@@ -893,4 +896,40 @@ export function coordinatorView(db, now, { catalog, rows, groupOf }) {
   const ex = state.experiments ?? {};
   const experiments = Object.entries(ex.running ?? {}).map(([name, x]) => ({ name, sinceMs: ex.started?.[name] ? now - ex.started[name] : null, a: x.a ?? [], b: x.b ?? [] }));
   return { running, experiments, outcomes, retries };
+}
+
+/**
+ * The account's coin for the Coin panel: its total now and over the last day (the boss pass's
+ * reads, db table `coin`), what came in and went out by kind on the last `days` days (`coinDays`,
+ * with `other` the change no ledger line explains), the income per hour of today so far, and what
+ * the coin pays for by the spending rules: an hour of raid time with its reserve (`OPEN_BUY`), one
+ * more casino credit, AA ranks above their reserve and gear purchases above `BUY_RESERVE_PP`.
+ */
+export function coinView(db, now, { days = 3, rows = [] } = {}) {
+  const reads = db.query("SELECT t, pp FROM coin WHERE t >= ? ORDER BY t").all(now - 86400000);
+  const last = db.query("SELECT t, pp FROM coin ORDER BY t DESC LIMIT 1").get() ?? null;
+  const ledger = coinDays(db, days, now);
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const today = ledger.find((d) => d.day === new Date(now).toLocaleDateString("sv-SE")) ?? null;
+  const hoursToday = (now - midnight) / 3600000;
+  const price = metaRow(db, "bossPlan")?.price ?? null;
+  const pp = last?.pp ?? null;
+  const pays = pp == null ? null : {
+    raidHour: price ? { price, needs: price * (1 + OPEN_BUY.reserveHours), ok: pp >= price * (1 + OPEN_BUY.reserveHours) } : null,
+    credit: { needs: DEFAULTS.casino.extraReservePp, ok: pp >= DEFAULTS.casino.extraReservePp },
+    aaRanks: Math.max(0, Math.floor((pp - AA_POLICY.reservePp) / AA_POLICY.rankPp)),
+    gearAboveReserve: Math.max(0, pp - BUY_RESERVE_PP),
+  };
+  // The coin the groups looted in the last hour, by their own report (tools/groups.mjs), which the ledger's day does not show yet.
+  const groupsPerHour = rows.reduce((a, r) => a + (r.platPerHour ?? 0), 0) || null;
+  const step = Math.max(1, Math.ceil(reads.length / 144));
+  return {
+    now: last,
+    dayAgo: reads[0] ?? null,
+    series: reads.filter((_, k) => k % step === 0 || k === reads.length - 1),
+    ledger,
+    today: today ? { income: today.income, spent: today.spent, perHour: hoursToday > 0.5 ? today.income / hoursToday : null } : null,
+    groupsPerHour,
+    pays,
+  };
 }

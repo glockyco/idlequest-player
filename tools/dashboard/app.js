@@ -408,6 +408,54 @@ function renderRoster(s) {
   $("roster").innerHTML = `<div class="roster">${cells}</div>`;
 }
 
+// The ledger's kinds (tools/lib/coin.mjs) as the Coin panel names them, income first.
+const COIN_KINDS = { loot: "Coin looted", sales: "Sales to merchants", "hand-ins": "Quest hand-ins", "raid time": "Raid time", casino: "Casino rolls", "AA ranks": "AA ranks", courier: "Courier fees", spells: "Spells", purchases: "Purchases", crafts: "Crafting components", resurrection: "Resurrections" };
+
+/**
+ * The account's coin: what it holds now and over the last day, what came in and went out by kind
+ * on the last days, and what the spending rules let the coin pay for.
+ */
+function renderCoin(s) {
+  const C = s.coin;
+  if (!C?.now) return void ($("coin-body").innerHTML = `<p class="muted">The boss pass has not read the account's coin yet.</p>`);
+  const pp = (n) => (n == null ? "-" : `${Math.round(n).toLocaleString("en-US")} pp`);
+  const signed = (n) => (n == null ? "" : `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}${Math.round(Math.abs(n)).toLocaleString("en-US")}</span>`);
+  // The account's coin over the last day as a line, one point per read of the boss pass.
+  const S = C.series;
+  const W = 1000, H = 140, L = 4, T = 14, B = 18;
+  const t0 = S[0]?.t ?? s.now - 86400000;
+  const max = Math.max(...S.map((p) => p.pp), 1);
+  const x = (t) => L + ((W - 2 * L) * (t - t0)) / Math.max(1, s.now - t0);
+  const y = (v) => H - B - ((H - B - T) * v) / max;
+  const line = S.map((p, k) => `${k ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.pp).toFixed(1)}`).join("");
+  const chart = S.length > 1 ? `<svg viewBox="0 0 ${W} ${H}" width="100%"><line class="grid" x1="${L}" x2="${W - L}" y1="${H - B}" y2="${H - B}"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/><text x="${L}" y="${T + 4}">${esc(big(max))} pp</text><text x="${L}" y="${H - 3}">${hhmm(t0)}</text><text x="${W - L}" y="${H - 3}" text-anchor="end">now</text></svg>` : "";
+  const head = [
+    `<b>${pp(C.now.pp)}</b> on the account, read ${ago(s.now, C.now.t)}`,
+    C.dayAgo ? `${signed(C.now.pp - C.dayAgo.pp)} since ${new Date(C.dayAgo.t).toDateString() === new Date(s.now).toDateString() ? "" : `${dayName(C.dayAgo.t)} `}${hhmm(C.dayAgo.t)}` : "",
+    C.today?.perHour != null ? `Today ${pp(C.today.perHour)} an hour came in by the ledger` : "",
+    C.groupsPerHour != null ? `In the last hour the groups looted ${pp(C.groupsPerHour)} of coin, before sales` : "",
+  ].filter(Boolean).join(". ") + ".";
+  const P = C.pays;
+  const can = (ok) => (ok ? ` <span class="pill accent">pays now</span>` : ` <span class="pill">not yet</span>`);
+  const pays = P ? `<ul class="small">${[
+    P.raidHour ? `<li>An hour of raid time for an open-world boss costs ${pp(P.raidHour.price)} and is bought while the account holds ${pp(P.raidHour.needs)}.${can(P.raidHour.ok)} A free summon or a potion buys its hour regardless.</li>` : "",
+    `<li>One more casino credit is rolled for while the account holds ${pp(P.credit.needs)}.${can(P.credit.ok)}</li>`,
+    `<li>AA ranks: ${P.aaRanks ? `${P.aaRanks} the coin above the reserve pays for` : "none, the coin is under the reserve"}.</li>`,
+    `<li>Gear purchases: the hour's income less the raid budget${P.gearAboveReserve ? `, or ${pp(P.gearAboveReserve)} above the reserve` : ""}, never more than the account holds.</li>`,
+  ].join("")}</ul>` : "";
+  const L3 = C.ledger;
+  const kinds = [...new Set(L3.flatMap((d) => Object.keys(d.kinds)))].sort((a, b) => Math.max(...L3.map((d) => d.kinds[b]?.pp ?? 0)) - Math.max(...L3.map((d) => d.kinds[a]?.pp ?? 0)) || (L3.at(-1).kinds[a]?.pp ?? 0) - (L3.at(-1).kinds[b]?.pp ?? 0));
+  const cell = (v) => (v == null ? "" : signed(v));
+  const rows = [
+    ...kinds.map((k) => [esc(COIN_KINDS[k] ?? k), ...L3.map((d) => cell(d.kinds[k]?.pp))]),
+    ["<b>In</b>", ...L3.map((d) => cell(d.income))],
+    ["<b>Out</b>", ...L3.map((d) => cell(d.spent))],
+    [`<span title="The change of the account's coin over the day that no ledger line explains: coin a tab did not export, or coin the game took away. It needs a read of the coin before the day.">Not in the ledger</span>`, ...L3.map((d) => (d.other == null ? `<span class="muted">-</span>` : cell(d.other)))],
+    ["<b>At the day's end</b>", ...L3.map((d) => (d.purse == null ? "" : esc(Math.round(d.purse).toLocaleString("en-US"))))],
+  ];
+  $("coin-body").innerHTML = `<p>${head}</p>${chart}<h3>What the coin pays for now</h3>${pays}<h3>Coin in and out by day</h3><div class="scroll">${table(["", ...L3.map((d) => esc(dayName(d.day)))], rows, L3.map((_, k) => k + 1))}</div>`;
+}
+
 /**
  * The raid bosses that stand in the open world: whether each is up, when it comes back, when
  * someone killed it and how long it had stood, what a kill is worth and what the raid simulator
@@ -579,6 +627,7 @@ async function refresh() {
     renderProgress(s);
     renderGear(s);
     renderCoordinator(s);
+    renderCoin(s);
     renderBosses(s);
     renderEpics(s);
     renderTime(s);

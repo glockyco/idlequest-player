@@ -306,3 +306,6 @@ table.totals td.down { color: var(--bad); }
 .gain { font-size: 12px; font-weight: 600; color: var(--good); }
 .drop { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-right: 12px; }
 .drop > * { flex: none; }
+
+/* A negative amount, as in the Coin panel's ledger. */
+.down { color: var(--bad); white-space: nowrap; }

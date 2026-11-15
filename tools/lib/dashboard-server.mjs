@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rosterGroups } from "../iqd.mjs";
 import { rows as contentRows } from "./content.mjs";
-import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, itemIdsOf, jobsView, levelTrends, makeCatalog, minuteTotals, mostWantedView, needsYouView, progressView, rosterView, statusView, xpRate } from "./dashboard.mjs";
+import { attentionView, coordinatorView, engineeringView, epicsView, gearSheetView, gearView, goalView, groupRowsView, hourlyView, itemIdsOf, jobsView, levelTrends, makeCatalog, minuteTotals, mostWantedView, needsYouView, progressView, rosterView, statusView, xpRate, coinView } from "./dashboard.mjs";
 import { cardsFor } from "./cards.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
@@ -122,6 +122,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           coordinatorOn: Boolean(daemon?.coordinate),
           roster,
           gear: { ...gearView(db, { roster }), wanted },
+          coin: coinView(db, now, { rows: Array.isArray(report.value) ? report.value : [] }),
           // The card of every item the page names (tools/lib/cards.mjs), by item id.
           cards: cardsFor(db, [...itemIdsOf(progress.rows), ...rows.flatMap((g) => itemIdsOf(g.details?.progress ?? [])), ...wanted.flatMap((t) => t.items.map((w) => w.itemId))]),
           epics: epicsView(meta("coordinator")),
