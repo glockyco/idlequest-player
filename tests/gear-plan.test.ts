@@ -50,7 +50,7 @@ test("a move of a lore item names the other characters that carry one, which a g
   expect(planGear({ survey, items: lore, people }).moves).toMatchObject([{ item: "Lore Cloak", from: "Holder", to: "Pal", loreHolders: ["Lead"] }]);
 });
 
-test("a main hand moves by damage over delay, to a Monk too, and a two-hander only beside an empty off hand", () => {
+test("a main hand moves by damage over delay, to a Monk too, and a two-hander is weighed against both hands", () => {
   const people = [
     { name: "War", cls: "warrior", level: 30, race: "" },
     { name: "Mnk", cls: "monk", level: 30, race: "" },
@@ -61,12 +61,41 @@ test("a main hand moves by damage over delay, to a Monk too, and a two-hander on
   // Dual Wield cap of 215. The Long Sword's melee is 143% over the Rusty Sword, the Great Axe's 13% over the Monk's two fists, and an
   // unmeasured member's melee counts for one sixth of the party's damage at the XP elasticity.
   const weight = elasticity(30) / 6;
+  // The two-hander swings hardest for the Warrior, also against the sword and the Buckler it has
+  // to take off first, and the Monk takes the sword.
   const plan = planGear({ survey, items, people }).moves;
-  expect(plan.map((m) => [m.item, m.to])).toEqual([["Long Sword", "War"], ["Great Axe", "Mnk"]]);
-  expect(plan.map((m) => m.gain / weight)).toEqual([expect.closeTo(1427, 0), expect.closeTo(132.5, 0)]);
-  // Without the shield the two-hander swings hardest for the Warrior, and the Monk takes the sword.
-  const bare = survey.filter((r) => r.itemId !== 6);
-  expect(planGear({ survey: bare, items, people }).moves.map((m) => [m.item, m.to])).toEqual([["Great Axe", "War"], ["Long Sword", "Mnk"]]);
+  expect(plan.map((m) => [m.item, m.to, m.clears ?? null, Boolean(m.exact)])).toEqual([["Great Axe", "War", "Buckler", true], ["Long Sword", "Mnk", null, false]]);
+  // Without the shield the same moves gain the Warrior more, by what the Buckler was worth.
+  const bare = planGear({ survey: survey.filter((r) => r.itemId !== 6), items, people }).moves;
+  expect(bare.map((m) => [m.item, m.to, m.clears ?? null])).toEqual([["Great Axe", "War", null], ["Long Sword", "Mnk", null]]);
+  expect(bare[0].gain).toBeGreaterThan(plan[0].gain);
+  // A shield worth more than the swings keeps the two-hander off, and the sword goes on instead.
+  const wall = new Map([...items, item(30, "Tower Shield", { slots: 1 << 14, ac: 60, attack: 400, itemtype: 8 })]);
+  const guarded = planGear({ survey: [row("War", 4, "Equipped", 13, 1), { ...row("War", 6, "Equipped", 14, 2), itemId: 30, itemName: "Tower Shield" }, row("Holder", 3, "Carried", 25, 3), row("Holder", 5, "Carried", 26, 4)], items: wall, people }).moves;
+  expect(guarded.map((m) => [m.item, m.to])).toEqual([["Long Sword", "War"], ["Great Axe", "Mnk"]]);
+  expect(weight).toBeGreaterThan(0);
+});
+
+test("a character that holds a two-hander is offered a main hand and an off hand together", () => {
+  // The wand alone adds less than the staff, and the shield cannot go on beside the staff. As a
+  // pair they beat it, so both moves are made, each placed, the wand at its own loss.
+  const set = new Map([
+    ...items,
+    item(40, "Great Staff", { slots: 1 << 13, damage: 9, delay: 36, itemtype: 4, mana: 40 }),
+    item(41, "Wand", { slots: 1 << 13, damage: 5, delay: 25, itemtype: 3, mana: 30 }),
+    item(42, "Orb Shield", { slots: 1 << 14, mana: 60, itemtype: 8 }),
+  ]);
+  const people = [{ name: "Wiz", cls: "wizard", level: 30, race: "" }];
+  const worn = { ...row("Wiz", 4, "Equipped", 13, 1), itemId: 40, itemName: "Great Staff" };
+  const wand = { ...row("Holder", 4, "Carried", 25, 2), itemId: 41, itemName: "Wand" };
+  const shield = { ...row("Holder", 4, "Carried", 26, 3), itemId: 42, itemName: "Orb Shield" };
+  const moves = planGear({ survey: [worn, wand, shield], items: set, people }).moves;
+  expect(moves.map((m) => [m.item, m.slot, Boolean(m.exact)])).toEqual([["Wand", "primary", true], ["Orb Shield", "secondary", true]]);
+  expect(moves[0].gain).toBeLessThan(0);
+  expect(moves[0].gain + moves[1].gain).toBeGreaterThan(0);
+  // Neither half alone is a move.
+  expect(planGear({ survey: [worn, wand], items: set, people }).moves).toEqual([]);
+  expect(planGear({ survey: [worn, shield], items: set, people }).moves).toEqual([]);
 });
 
 test("a weapon for either hand that replaces a worn one is marked to be placed, and no other move is", () => {
@@ -446,4 +475,20 @@ test("AC and HP count by the share of the party's hits their wearer takes, and a
   expect(Object.keys(parts).sort()).toEqual(["rest", "survival"]);
   expect(parts.rest).toBeGreaterThan(0);
   expect(parts.survival).toBeLessThan(0);
+});
+
+test("a shield and an off-hand weapon replace each other by what each adds", () => {
+  // A Ranger of 30 swings an off-hand weapon about half the time. The Twin Dagger's swings beat
+  // the Buckler's AC, mana and attack, and a shield with enough attack beats the dagger's swings.
+  const set = new Map([...items, item(50, "Spiked Shield", { slots: 1 << 14, ac: 20, attack: 400, itemtype: 8 })]);
+  const people = [{ name: "Rng", cls: "ranger", level: 30, race: "" }];
+  const sword = row("Rng", 3, "Equipped", 13, 1);
+  const dagger = (who: string, location: string, slot: number, inst: number) => row(who, 7, location, slot, inst);
+  const overShield = planGear({ survey: [sword, row("Rng", 6, "Equipped", 14, 2), dagger("Holder", "Carried", 25, 3)], items: set, people }).moves;
+  expect(overShield.map((m) => [m.item, m.slot, m.replaces])).toEqual([["Twin Dagger", "secondary", "Buckler"]]);
+  const spiked = { ...row("Holder", 6, "Carried", 25, 3), itemId: 50, itemName: "Spiked Shield" };
+  const overDagger = planGear({ survey: [sword, dagger("Rng", "Equipped", 14, 2), spiked], items: set, people }).moves;
+  expect(overDagger.map((m) => [m.item, m.slot, m.replaces])).toEqual([["Spiked Shield", "secondary", "Twin Dagger"]]);
+  // The Buckler does not replace the dagger, whose swings are worth more than it adds.
+  expect(planGear({ survey: [sword, dagger("Rng", "Equipped", 14, 2), row("Holder", 6, "Carried", 25, 3)], items: set, people }).moves).toEqual([]);
 });

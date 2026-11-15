@@ -1713,7 +1713,9 @@
         }
         const place = Boolean(mv.exact) && !self && inParty(to.id);
         const give = () => step(`give ${mv.item} to ${mv.to}`, () => i.giveItem(mv.item, Number(to.id), { equip: mv.slot !== "bags" && !place, settle: () => settleHeld(i) }), 30000);
-        let r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum), 30000)), lines: [] } : await give();
+        // A two-hander over a full off hand (`clears`) goes on once that hand is empty.
+        const clear = mv.clears ? { clear: 14 } : {};
+        let r = self ? { ...(await step(`equip ${mv.item}`, () => i.equipOwn(mv.item, mv.slotNum, clear), 30000)), lines: [] } : await give();
         // A give needs a free slot in the receiver's bags, for the item itself or for the one it
         // replaces. On that refusal the task pulls spare gear out of the receiver's bags, enough
         // for its remaining moves to that receiver, and gives once more.
@@ -1742,7 +1744,7 @@
       }
       for (const mv of mine) {
         try {
-          const r = await step(`equip ${mv.item} on ${name}`, () => i.equipOwn(mv.item, mv.slotNum), 30000);
+          const r = await step(`equip ${mv.item} on ${name}`, () => i.equipOwn(mv.item, mv.slotNum, mv.clears ? { clear: 14 } : {}), 30000);
           if (!r.ok) throw new Error(`${name}'s ${mv.slot} slot does not hold it`);
           Object.assign(mv, { done: true, placed: true, lines: [] });
           log(`gear: ${name} wears ${mv.item} in the ${mv.slot} slot, placed with ${name} active`);

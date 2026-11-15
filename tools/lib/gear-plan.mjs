@@ -9,14 +9,17 @@
 // its measured share of the party's damage, and what they save the party, with the client's caps on haste and
 // regeneration. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
 // the client's flat main-hand bonus and proc damage), for Monks too, whose fists a weapon replaces (docs/client-internals.md,
-// Melee damage). A Rogue's main hand stays a piercer for Backstab, and a two-handed weapon is
-// offered only to a character with nothing in the off hand.
+// Melee damage). A Rogue's main hand stays a piercer for Backstab.
 //
 // The off hand (docs/client-internals.md, Off hand and dual wield) takes a shield for its stats, or
 // for a class with Dual Wield at its level a one-hander that swings with the chance `offhandChance`,
-// so its worth is that chance times the weapon's ratio. Never beside a two-hander. A weapon never
-// replaces a shield or an instrument, whose worth is in stat points and not comparable, and a
-// shield never replaces a weapon.
+// so its worth is that chance times the weapon's ratio. Never beside a two-hander. A shield and
+// an off-hand weapon replace each other when the stats of the one outweigh the swings of the
+// other, and nothing but another instrument replaces an instrument.
+//
+// A two-hander and a pair of hands are compared as sets. A two-hander is weighed against the main
+// hand and the off hand it would empty (`clears`), and a character that holds a two-hander is
+// offered a main hand together with an off hand (`pairOffer`), since neither half has to pay alone.
 import { copyHours, elasticity } from "./acquire.mjs";
 import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
 
@@ -358,7 +361,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // bags, speeds up.
   const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s) || s === PRIMARY || s === SECONDARY).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
-  const offer = (r, p, epic = false) => {
+  const offer = (r, p, { mine = worn.get(p.name), min = minGain } = {}) => {
     const item = items.get(r.itemId);
     if (unworn.has(r.itemId)) return [];
     // A class epic stays with the character that earned it (`bound`, the epic rewards' ids): the
@@ -367,18 +370,17 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     if (bound.has(r.itemId) && r.characterName && r.characterName !== p.name) return [];
     // A lore item is one per character, so a second copy is refused.
     if (isLore(item) && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
-    const mine = worn.get(p.name);
     const out = [];
     const gainIn = (slot) => value(p, new Map([...mine, [slot, item]])) - value(p, mine);
     for (const slot of ARMOR_SLOTS) {
       if (!fits(item, p, slot) || item.damage > 0) continue;
       const gain = gainIn(slot);
-      if (gain >= minGain) out.push({ r, p, slot, gain });
+      if (gain >= min) out.push({ r, p, slot, gain });
     }
     // A Bard carries an instrument for the party supply in its bags, where it costs no hand.
     if (p.cls === "bard" && bagInstrument(item) && r.characterName !== p.name) {
       const gain = value(p, mine, [...(bags.get(p.name) ?? []), item]) - value(p, mine);
-      if (gain >= minGain) out.push({ r, p, slot: "bags", gain });
+      if (gain >= min) out.push({ r, p, slot: "bags", gain });
     }
     const held = mine.get(PRIMARY) ?? null;
     const offHeld = mine.get(SECONDARY) ?? null;
@@ -391,39 +393,66 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     const offSwing = (first, offItem) => (offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(first?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0);
     // Beside a two-hander the off hand stays empty.
     if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY)) {
-      // A shield counts for its stats and replaces no weapon.
-      if (item.itemtype === SHIELD && !(offHeld?.damage > 0)) {
-        const gain = gainIn(SECONDARY);
-        if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain });
+      // A shield counts for its stats, less the swings of an off-hand weapon it replaces.
+      if (item.itemtype === SHIELD && !bagInstrument(offHeld)) {
+        const gain = gainIn(SECONDARY) + (offHeld?.damage > 0 ? meleeGain(-offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p) : 0);
+        if (gain >= min) out.push({ r, p, slot: SECONDARY, gain });
       }
-      // A one-hander counts for its stats and its swings, with the chance that they happen, and
-      // replaces only a weapon or nothing.
-      if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0)) {
+      // A one-hander counts for its stats and its swings, with the chance that they happen,
+      // against the weapon or the shield it replaces. It never replaces an instrument, whose
+      // worth to the party's songs the set score does not hold.
+      if (chance > 0 && OFFHAND_WEAPONS.has(item.itemtype) && item.damage > 0 && item.delay > 0 && (!offHeld || offHeld.damage > 0 || offHeld.itemtype === SHIELD)) {
         const gain = gainIn(SECONDARY) + meleeGain(chance * weaponRatio(item, p.cls, p.level, off) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p);
-        if (gain >= minGain) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
+        if (gain >= min) out.push({ r, p, slot: SECONDARY, gain, weapon: true });
       }
     }
     // A main hand counts for its stats and its swings against the one it replaces, so a caster
-    // keeps a main hand worn for its stats unless the new one's stats and swings beat it.
-    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !offHeld || epic)) {
+    // keeps a main hand worn for its stats unless the new one's stats and swings beat it. A
+    // two-hander empties the off hand, so it is weighed against both hands (`clears`).
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls])) {
       const after = new Map([...mine, [PRIMARY, item]]);
       const newOff = TWO_HANDED.has(item.itemtype) ? null : offHeld;
       if (!newOff) after.delete(SECONDARY);
       const gain = value(p, after) - value(p, mine) + meleeGain(weaponRatio(item, p.cls, p.level, main) + offSwing(item, newOff) - weaponRatio(held ?? fist, p.cls, p.level, main) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p);
-      if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
+      if (gain >= min) out.push({ r, p, slot: PRIMARY, gain, weapon: true, ...(offHeld && !newOff ? { clears: true } : {}) });
     }
     return out;
   };
   const sources = () => [...free, ...goods];
+  const spent = new Set();
+  const key = (r) => `${r.characterName}:${r.itemInstanceId}`;
+  // A character that holds a two-hander can take a main hand and an off hand, which the offers
+  // above never reach while the main hand alone does not beat the two-hander: a Ranger's two
+  // one-handers or a caster's staff against a wand and a shield. So the best `PAIR_TOP` main hands
+  // by their own gain are each paired with the off hand that adds most beside them, from the
+  // copies the account carries, and the best pair is offered as one (`also` is the off hand).
+  const PAIR_TOP = 6;
+  const pairOffer = (p) => {
+    const mine = worn.get(p.name);
+    if (!TWO_HANDED.has(mine.get(PRIMARY)?.itemtype)) return [];
+    const live = free.filter((r) => !spent.has(key(r)));
+    const oneHander = (i) => i && i.damage > 0 && !TWO_HANDED.has(i.itemtype) && fits(i, p, PRIMARY);
+    const mains = live.flatMap((r) => (oneHander(items.get(r.itemId)) ? offer(r, p, { min: -Infinity }).filter((o) => o.slot === PRIMARY) : [])).sort((a, b) => b.gain - a.gain).slice(0, PAIR_TOP);
+    let best = null;
+    for (const a of mains) {
+      // A main hand that pays alone is offered alone, and its off hand follows by itself.
+      if (a.gain >= minGain) continue;
+      const withMain = new Map([...mine, [PRIMARY, items.get(a.r.itemId)]]);
+      const lore = isLore(items.get(a.r.itemId));
+      const off = live.flatMap((r) => (key(r) === key(a.r) || (lore && r.itemId === a.r.itemId) || !fits(items.get(r.itemId), p, SECONDARY) ? [] : offer(r, p, { mine: withMain }).filter((o) => o.slot === SECONDARY))).reduce((x, o) => (!x || o.gain > x.gain ? o : x), null);
+      if (off && a.gain + off.gain >= minGain && (!best || a.gain + off.gain > best.gain)) best = { ...a, gain: a.gain + off.gain, own: a.gain, also: off };
+    }
+    return best ? [best] : [];
+  };
   // What each character wears before the moves, for the per-character report.
   const wornNow = new Map(people.map((p) => [p.name, new Map(worn.get(p.name))]));
   const wornRows = new Map(people.map((p) => [p.name, new Map(survey.filter((r) => r.location === "Equipped" && r.characterName === p.name).map((r) => [r.slot, { itemId: r.itemId, name: r.itemName }]))]));
   const scoreNow = new Map(people.map((p) => [p.name, value(p, wornNow.get(p.name))]));
 
-  let offers = sources().flatMap((r) => people.flatMap((p) => offer(r, p)));
+  let offers = [...sources().flatMap((r) => people.flatMap((p) => offer(r, p))), ...people.flatMap(pairOffer)];
   // The items the account holds that are an upgrade for someone, whose demand is checked again
   // after the moves.
-  const candidates = new Set(offers.filter((o) => !o.r.buy).map((o) => o.r.itemId));
+  const candidates = new Set(offers.filter((o) => !o.r.buy).flatMap((o) => [o.r.itemId, ...(o.also ? [o.also.r.itemId] : [])]));
   const bought = new Map();
   const keepInstances = new Set();
 
@@ -433,29 +462,31 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   // a merchant's, and a merchant's copies never run out, while the platinum and the one zone of a
   // pass do.
   const moves = [];
-  const spent = new Set();
   let budget = buyPp;
   let zone = null;
-  const key = (r) => `${r.characterName}:${r.itemInstanceId}`;
   const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (zone == null || o.r.buy.zone === zone));
   const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy) ? o : a), null);
-  for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
-    const best = top(offers);
-    const { r, p, slot, gain } = best;
+  // One move of the plan: the copy and the receiver's slot are spent. `placed` says that the
+  // receiver has to wear it while it is the active character, as a pair of hands does.
+  const take = ({ r, p, slot, gain, clears }, placed = false) => {
     const toBags = slot === "bags";
     const replaced = toBags ? null : (worn.get(p.name).get(slot) ?? null);
+    // A two-hander goes on only once the off hand is empty (docs/client-internals.md, Off hand and
+    // dual wield), so the move names the item the receiver takes off first.
+    const cleared = clears ? (worn.get(p.name).get(SECONDARY) ?? null) : null;
     // A gear task pulls the item to its tab's leader first, which a leader carrying a lore copy
     // already refuses, so the move names the characters that carry one.
     const loreHolders = isLore(items.get(r.itemId)) ? [...owned].filter(([n, ids]) => n !== r.characterName && ids.has(r.itemId)).map(([n]) => n) : [];
     // A weapon for either hand that replaces a worn one has to be placed (`exact`): a give that
     // equips carries no slot, and the server puts such a weapon into the empty hand, else over the
     // weapon it ranks lower, whatever the plan meant (docs/client-internals.md, "Account-wide sharing
-    // rules"). The receiver wears it in the planned hand while it is the active character.
-    const exact = !toBags && Boolean(replaced) && [PRIMARY, SECONDARY].includes(slot) && Boolean(fits(items.get(r.itemId), p, PRIMARY) && fits(items.get(r.itemId), p, SECONDARY));
+    // rules"). The receiver wears it in the planned hand while it is the active character. So do
+    // a two-hander over a full off hand and both halves of a pair that replaces a two-hander.
+    const exact = placed || Boolean(cleared) || (!toBags && Boolean(replaced) && [PRIMARY, SECONDARY].includes(slot) && Boolean(fits(items.get(r.itemId), p, PRIMARY) && fits(items.get(r.itemId), p, SECONDARY)));
     // What the armor of the move changes by channel, for a reader who sees stats leave (`gainParts`).
     const armorOf = (set) => [...set].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i);
     const parts = toBags || !ARMOR_SLOTS.includes(slot) ? null : gainParts(p, armorOf(worn.get(p.name)), armorOf(new Map([...worn.get(p.name), [slot, items.get(r.itemId)]])));
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, ...(parts && Object.keys(parts).length > 1 ? { parts } : {}), replaces: replaced?.Name ?? null, ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, ...(parts && Object.keys(parts).length > 1 ? { parts } : {}), replaces: replaced?.Name ?? null, ...(cleared ? { clears: cleared.Name } : {}), ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;
@@ -470,10 +501,19 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     }
     if (toBags) bags.get(p.name).push(items.get(r.itemId));
     else worn.get(p.name).set(slot, items.get(r.itemId));
+    if (cleared) worn.get(p.name).delete(SECONDARY);
     owned.get(p.name).add(r.itemId);
-    const changed = new Set([p.name, r.characterName]);
+    return [p.name, r.characterName];
+  };
+  for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
+    const best = top(offers);
+    // A pair goes as two moves, the main hand at its own gain, which alone may be a loss.
+    const changed = new Set(best.also ? [...take({ ...best, gain: best.own }, true), ...take(best.also, true)] : take(best));
+    // A pair that lost one of its halves to another move is weighed again.
+    for (const o of offers) if (o.also && (spent.has(key(o.r)) || spent.has(key(o.also.r)))) changed.add(o.p.name);
     offers = offers.filter((o) => !spent.has(key(o.r)) && !changed.has(o.p.name));
     for (const f of sources()) if (!spent.has(key(f))) for (const n of changed) if (byName.has(n)) offers.push(...offer(f, byName.get(n)));
+    for (const n of changed) if (byName.has(n)) offers.push(...pairOffer(byName.get(n)));
   }
   // Slots that would still take a virtual copy after the moves mean the account is short of the
   // item. A lore item serves at most one slot per character.
@@ -537,7 +577,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   for (const e of epics) {
     const p = people.find((x) => x.name === e.to);
     if (!p || !items.has(e.rewardId) || !e.pieces.length) continue;
-    const gain = Math.max(0, ...offer(virtual(e.rewardId), p, true).map((o) => o.gain));
+    const gain = Math.max(0, ...offer(virtual(e.rewardId), p).map((o) => o.gain));
     if (gain < 2 * minGain) continue;
     addPieces(e.pieces, gain, p, "epic");
   }

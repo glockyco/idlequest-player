@@ -1810,13 +1810,30 @@
    * Equip a carried `item` on the active character in worn slot `slotNum`, since a transfer to
    * oneself is refused. As the client's own equip does, an occupied slot swaps with the item's bag
    * slot, so the worn item lands where the new one was, and an empty slot takes a move. Resolves
-   * with `{ ok }`, whether the slot holds the item afterwards.
+   * with `{ ok }`, whether the slot holds the item afterwards. `clear` names a worn slot to empty
+   * into the bags first: a two-hander goes on only beside an empty off hand.
    */
-  const equipOwn = async (item, slotNum) => {
+  const equipOwn = async (item, slotNum, { clear = null } = {}) => {
     const ch = () => stores.character.getState();
     const inv = () => ch().characterProfile?.inventory ?? [];
     const row = inv().find((x) => inBags(x) && matchesItem(x, item));
     if (!row) throw new Error(`no ${refName(item)} in the bags`);
+    const inWay = clear == null ? null : inv().find((x) => x.bag === 0 && x.slot === clear);
+    if (inWay) {
+      // A free general slot, or a free slot of a bag there that is large enough for the item.
+      const size = inWay.itemDetails?.size ?? 0;
+      let free = null;
+      for (let g = 22; g <= 29 && !free; g++) {
+        const held = inv().find((x) => x.bag === 0 && x.slot === g);
+        if (!held) free = { bag: 0, slot: g };
+        else if ((held.itemDetails?.bagsize ?? 0) >= size) for (let s = 0; s < (held.itemDetails?.bagslots ?? 0) && !free; s++) if (!inv().some((x) => x.bag === g + 1 && x.slot === s)) free = { bag: g + 1, slot: s };
+      }
+      if (!free) throw new Error(`no room in the bags for the ${inWay.itemDetails?.Name ?? inWay.itemDetails?.name ?? "item"} in slot ${clear}`);
+      await ch().moveItemToSlot({ bag: 0, slot: clear }, free);
+      await pause(900);
+      if (cursorItem()) throw new Error(`${cursorItem()} is on the cursor`);
+      if (inv().some((x) => x.bag === 0 && x.slot === clear)) throw new Error(`slot ${clear} did not come free`);
+    }
     const from = { bag: row.bag, slot: row.slot };
     const to = { bag: 0, slot: slotNum };
     await (inv().some((x) => x.bag === 0 && x.slot === slotNum) ? ch().swapItems(from, to) : ch().moveItemToSlot(from, to));
