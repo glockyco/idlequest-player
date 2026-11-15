@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, releaseWaits, retryTime, settleErrands, settleHistory, worldHold } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, releaseWaits, retryTime, settleErrands, settleHistory, timedCalls, worldHold } from "../tools/lib/coordinator.mjs";
 import { ACQUIRE } from "../tools/lib/acquire.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -1015,4 +1015,29 @@ test("a spawn reset ends the quest waits from before it and leaves the others", 
   expect(history.map((h) => h.nextAt)).toEqual([reset, NOW + 4 * 3600000, NOW + 4 * 3600000, NOW + 4 * 3600000]);
   expect(releaseWaits(history, reset)).toBe(false);
   expect(releaseWaits(history, 0)).toBe(false);
+});
+
+test("a kill of its caller by anyone times an enemy, and its quest goes while the enemy can stand", () => {
+  const steps = [
+    { zone: "airplane", kill: "a soul carrier", level: 52 },
+    { zone: "airplane", kill: "Keeper of Souls", level: 60, calledBy: 0, after: { minSec: 3600, maxSec: 5100 }, expect: "Black Silk Cape" },
+  ];
+  const quests = { cape: { class: "Necromancer", minLevel: 1, reward: "Black Silk Cape", steps } };
+  const min = 60000;
+  // The kill 62 minutes after the first starts no timer, since the Keeper can still come.
+  const kills = [{ t: NOW - 80 * min, npc: "a soul carrier" }, { t: NOW - 18 * min, npc: "a soul carrier" }, { t: NOW - 5 * min, npc: "an essence carrier" }];
+  expect(timedCalls(quests, kills, NOW)).toEqual({ "airplane|Keeper of Souls": NOW - 80 * min });
+  // Past the last minute he can stand the call is over, and the kill inside his time started none.
+  expect(timedCalls(quests, kills, NOW + 40 * min)).toEqual({});
+  expect(timedCalls(quests, [...kills, { t: NOW + 39 * min, npc: "a soul carrier" }], NOW + 40 * min)).toEqual({ "airplane|Keeper of Souls": NOW + 39 * min });
+  expect(timedCalls(quests, [], NOW)).toEqual({});
+  // The chain waits an hour for a soul carrier that did not come up. The Keeper is due, so it goes,
+  // with the time of the call, and not again once this tab has gone inside his time.
+  const tab = { label: "A", members: [{ name: "A0", level: 59, class: "Necromancer" }], task: null };
+  const failed = { t: NOW - 85 * min, label: "A", kind: "quest", id: "cape", status: "failed", repeats: 2, nextAt: NOW + 50 * min, error: "no a soul carrier came up" };
+  const run = (history: object[], called: object) => decide({ now: NOW, tabs: [tab], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, ...history], called }).actions.filter((a) => a.kind === "quest");
+  expect(run([failed], {})).toEqual([]);
+  const [a] = run([failed], timedCalls(quests, kills, NOW));
+  expect(a.spec.timed).toEqual({ "airplane|Keeper of Souls": NOW - 80 * min });
+  expect(run([failed, { ...failed, t: NOW - 10 * min }], timedCalls(quests, kills, NOW))).toEqual([]);
 });
