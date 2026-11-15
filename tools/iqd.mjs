@@ -1551,14 +1551,17 @@ export class Daemon {
     let potionRaid = raidTabs.some((t) => /^boss:(potion|credit):/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
     // A raid that killed its boss and failed while it collected the loot left the loot on the
     // corpse, which only its leader can take. That tab goes back for it before anything else, up
-    // to three times, five minutes apart, while a try failed or left an item behind: the client's patch of 2026-11-15 broke the collecting
+    // to three times for the page code it runs, five minutes apart, while a try failed or left an item behind: the client's patch of 2026-11-15 broke the collecting
     // for every raid until the page code was repaired, Lord Yelinak's among them.
     const zoneOf = new Map(watch.map((w) => [w.key, w.zone]));
     for (const h of history.filter((h) => h.kind === "raid" && h.status === "failed" && h.step === "collect the loot" && /^killed /.test(h.result ?? "") && now - (h.endedAt ?? 0) < LOOT_BACK_MS)) {
       const tries = history.filter((x) => x.id === `loot:${h.task}`);
       const zone = h.zone ?? zoneOf.get(String(h.id).split(":").slice(2).join(":"));
       const t = tabs.find((x) => x.label === h.label);
-      if (!zone || !free(t) || used.has(t.label) || tries.some((x) => (x.status === "done" && !/, left /.test(x.result ?? "")) || !x.endedAt) || tries.length >= 3 || now - (tries.at(-1)?.t ?? 0) < 5 * 60000) continue;
+      if (!zone || !free(t) || used.has(t.label) || tries.some((x) => (x.status === "done" && !/, left /.test(x.result ?? "")) || !x.endedAt) || now - (tries.at(-1)?.t ?? 0) < 5 * 60000) continue;
+      // A raid that failed for a function the client no longer has fails the same way until the
+      // tab gets other page code, so the way back waits for that, and the three tries count per code.
+      if ((/^client function \w+ not found/.test(h.error ?? "") && h.code === t.code) || tries.filter((x) => x.code === t.code).length >= 3) continue;
       out.push({ label: t.label, kind: "loot", id: `loot:${h.task}`, spec: { zone }, why: `the loot of ${h.result.replace(/^killed (.+?) in \d+ s.*$/, "$1")} lies in ${zone}, where the raid could not collect it (${h.error})` });
       used.add(t.label);
     }
