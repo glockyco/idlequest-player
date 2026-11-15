@@ -23,6 +23,7 @@ bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
 bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention by hand
 bun tools/iqd.mjs page G10 'window.iqBot.stopTask()' --why "stands without a route"   # act in a group's tab by hand, recorded
 bun tools/iqd.mjs why epic-enchanter-10650-10604   # the next coordinator pass logs why each tab gets this quest or not
+bun tools/iqd.mjs why all                          # the same for every quest a member still needs, one line each
 bun tools/iqd.mjs load G7 G11 --seconds 8    # how busy each group's page is, and with --stacks 100 what one page was doing
 bun tools/iqd.mjs renew G4 G6 --why "three days old"   # give each group's tab a new browser process, a minute apart
 bun tools/iqd.mjs job add --purpose "predict level 36" --cmd "bun tools/predict.mjs --level 36" --out runs/p36.txt

@@ -456,8 +456,8 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
   // camp mostly finds its spawn down. They run for every member of their class who has the level and lacks
   // the reward, one quest task per tab for all such members of it, and come back after `retryMin`
   // when one failed.
-  if (explain != null && !quests[explain]) explained.push({ label: "no tab", text: "the coordinator has no quest of that id" });
-  else if (explain != null && event) explained.push({ label: "no tab", text: "an XP event holds the quests" });
+  if (explain != null && explain !== "all" && !quests[explain]) explained.push({ id: explain, label: "no tab", text: "the coordinator has no quest of that id" });
+  else if (explain != null && event) explained.push({ id: explain, label: "no tab", text: "an XP event holds the quests" });
   for (const [id, q] of event ? [] : Object.entries(quests)) {
     // A quest that uses up items runs for a member when every piece it needs is at hand for him:
     // carried by himself (`own`) or a copy outside the chain's needers (`have`), each free copy
@@ -492,10 +492,11 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // is called meanwhile.
     const camped = history.some((h) => h.id === id && h.status === "failed" && h.nextAt > now && /did not come/.test(h.error ?? ""));
     const lastAny = history.filter((h) => h.id === id).at(-1);
-    // Why no tab gets this quest, for `iqd why` (`explain`, a quest's id): one line for each tab.
-    const no = (t, text) => void (explain === id && explained.push({ label: t.label, text }));
+    // Why no tab gets this quest, for `iqd why` (`explain`, a quest's id or "all"): one line for
+    // each tab, `idle` for a tab whose reason says nothing about the quest.
+    const no = (t, text, idle = false) => void ((explain === id || explain === "all") && explained.push({ id, label: t.label, text, ...(idle ? { idle } : {}) }));
     for (const t of tabs) {
-      if (!free(t)) { no(t, "the tab is busy or has a task of this pass"); continue; }
+      if (!free(t)) { no(t, "the tab is busy or has a task of this pass", !t.members.some((m) => needers.includes(m.name))); continue; }
       const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
       const begun = want.filter((n) => (started[id] ?? []).includes(n));
       // The members the spare copies still serve, in the tab's order.
@@ -519,7 +520,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);
       const who = [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
       if (!who.length) {
-        no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${want.map((n) => lacks(n).filter(([, l]) => l > 0).map(([p, l]) => `${l} ${p}`).join(" and ")).join("; ")}, and no free copy is left`);
+        no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${want.map((n) => lacks(n).filter(([, l]) => l > 0).map(([p, l]) => `${l} ${p}`).join(" and ")).join("; ")}, and no free copy is left`, !want.length);
         continue;
       }
       if (!dueNow && !due(last, q.retryMin ?? 120, t)) { no(t, `its last run ${last?.status ?? "has not ended"}, and the next is due at ${new Date(retryTime(last, q.retryMin ?? 120, t?.code ?? code)).toTimeString().slice(0, 5)}`); continue; }
@@ -848,7 +849,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const xp = STONES.reduce((a, s) => a + (stock[s] ?? 0) * (stoneXp[s] ?? 0), 0);
     out.push({ label: target.label, kind: "handIn", spec: { members }, why: `${total} stones (${Math.round(xp / 1000)}k XP) to the lowest group, mean level ${mean(target).toFixed(1)}` });
   }
-  for (const a of out) if (a.kind === "quest" && a.id === explain) explained.push({ label: a.label, text: `gets it: ${a.why}` });
+  for (const a of out) if (a.kind === "quest" && (a.id === explain || explain === "all")) explained.push({ id: a.id, label: a.label, text: `gets it: ${a.why}` });
   return { actions: out, targets: targetEval, explained };
 }
 

@@ -1036,7 +1036,11 @@ export class Daemon {
     };
     const { actions, targets: targetEval, explained } = decide(input);
     if (input.explain) {
-      for (const e of explained) this.log(`why ${input.explain}: ${e.label} ${e.text}`);
+      // For every quest at once, one line each of the tabs that have a needer of it.
+      if (input.explain === "all") {
+        const by = Map.groupBy(explained.filter((e) => !e.idle), (e) => e.id);
+        for (const [id, rows] of by) this.log(`why ${id}: ${rows.map((e) => `${e.label} ${e.text}`).join(" | ")}`);
+      } else for (const e of explained) this.log(`why ${input.explain}: ${e.label} ${e.text}`);
       metaSet(this.db, "explain", null);
     }
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.
@@ -2802,12 +2806,15 @@ async function cmdAck({ positionals, runs }) {
   console.log(`resolved #${id}`);
 }
 
-/** Ask the running collector why no tab gets a quest: its next coordinator pass logs one line for each tab. */
+/**
+ * Ask the running collector why no tab gets a quest: its next coordinator pass logs one line for
+ * each tab, or with `all` one line for each quest that a member of some tab still needs.
+ */
 async function cmdWhy({ positionals, runs }) {
   const id = positionals[1];
-  if (!id) throw new Error("usage: iqd why <quest id>");
+  if (!id) throw new Error("usage: iqd why <quest id | all>");
   metaSet(openDb(join(runs, "iq.db")), "explain", { id });
-  console.log(`the next coordinator pass logs why each tab gets ${id} or not: grep -a "why ${id}" runs/log/iqd-$(date +%F).log`);
+  console.log(`the next coordinator pass logs why each tab gets ${id === "all" ? "each quest" : id} or not: grep -a "why ${id === "all" ? "" : id}" runs/log/iqd-$(date +%F).log`);
 }
 
 async function cmdNote({ values, positionals, runs }) {

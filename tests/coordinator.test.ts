@@ -1062,7 +1062,11 @@ test("a kill of its caller by anyone times an enemy, and its quest goes while th
   // Asked why, the decision names each tab's reason.
   const asked = decide({ now: NOW, tabs: [tab, other], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, failed], called: {}, explain: "cape" });
   expect(asked.explained.map((e: { label: string; text: string }) => [e.label, e.text.slice(0, 32)])).toEqual([["A", "a wait or a failure at step unkn"], ["B", "a wait or a failure at step unkn"]]);
-  expect(decide({ now: NOW, tabs: [tab], quests, explain: "nothing" }).explained).toEqual([{ label: "no tab", text: "the coordinator has no quest of that id" }]);
+  expect(decide({ now: NOW, tabs: [tab], quests, explain: "nothing" }).explained).toEqual([{ id: "nothing", label: "no tab", text: "the coordinator has no quest of that id" }]);
+  // Asked for every quest, a tab without a needer is marked as saying nothing about the quest.
+  const idler = { label: "C", members: [{ name: "C0", level: 59, class: "Warrior" }], task: null };
+  const all = decide({ now: NOW, tabs: [tab, idler], quests, history: [failed], called: {}, explain: "all" }).explained;
+  expect(all.map((e: { id: string; label: string; idle?: boolean }) => [e.id, e.label, Boolean(e.idle)])).toEqual([["cape", "A", false], ["cape", "C", true]]);
   // A run that waited his whole time out holds the chain for its retry time, also against a new call.
   const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 600 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could" };
   expect(two([waitedOut], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
