@@ -207,6 +207,108 @@ export const CLIENTS = {
       bq: ["MO", "vO", "yO", "WO", "XO", "JO", "Ve", "ub", "_P"],
     },
   },
+  "20261115T163149-19b3c6e3": {
+    "dir": ".re/releases/20261115T163149-19b3c6e3/",
+    "files": {
+      "main": "CZ7kMGwm.js",
+      "bq": "DwnuzZR6.js",
+      "engine": "CX1s1ji6.js"
+    },
+    "names": {
+      "main": {
+        "spellStore": "b2",
+        "npcSpellBuilder": "BV",
+        "eventRecorder": "f8",
+        "characterStore": "F1",
+        "defaultProfile": "Rb",
+        "spellbookStore": "EV",
+        "gameStore": "ot",
+        "raidTimeStore": "T5",
+        "raidTimeScope": "Cd",
+        "hydrateSpells": "tA1",
+        "skillNames": "sEe",
+        "resolveBosses": "fCe",
+        "memberFromSnapshot": "a8e",
+        "petsForRoster": "om",
+        "socket": "f1"
+      },
+      "bq": {
+        "combatStartRequest": "gB",
+        "sceneStandIn": "Qz",
+        "encounterClass": "$z"
+      },
+      "engine": {
+        "runtime": "tt",
+        "raidStore": "re",
+        "raidTick": "Tr",
+        "setAutoHeal": "M_",
+        "setAutoDps": "TH",
+        "requestSpell": "b1",
+        "spellOptions": "xr",
+        "modRod": "bH",
+        "livingMembers": "Ei",
+        "raidClock": "nn"
+      }
+    },
+    "counted": {
+      "main": [
+        "a8e",
+        "C$1",
+        "tMe",
+        "Cj1",
+        "bg",
+        "nj1",
+        "Sg",
+        "ax",
+        "ou",
+        "VS",
+        "VU",
+        "fMe",
+        "Gs2",
+        "zs2",
+        "Hs2",
+        "v$1"
+      ],
+      "bq": [
+        "AO",
+        "TO",
+        "vO",
+        "QO",
+        "az",
+        "nz",
+        "_e",
+        "xh",
+        "iP"
+      ],
+      "engine": [
+        "Tr",
+        "EH",
+        "PH",
+        "aa",
+        "hH",
+        "wl",
+        "NUe",
+        "FR",
+        "LR",
+        "BR",
+        "YUe",
+        "XUe",
+        "bUe",
+        "_Ue",
+        "KUe",
+        "ZUe",
+        "HUe",
+        "UUe",
+        "jUe",
+        "AUe",
+        "CUe",
+        "cm",
+        "EUe",
+        "kUe",
+        "OUe"
+      ]
+    }
+  },
 };
 
 // Without a reference the newest saved release with a client table is used. A reference is a
