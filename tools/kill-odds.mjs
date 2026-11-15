@@ -131,16 +131,18 @@ for (const { e, g } of pairs.sort((a, b) => b.priority - a.priority).slice(0, Nu
 
 // Leader deaths count apart from companions', because only the leader's death costs XP (`deathHours` in tools/lib/acquire.mjs).
 const result = (s) => ({ t: Date.now(), sim: SIM_VERSION, kills: s.kills, fights: s.fights, meanSec: s.killSec.mean, deathsPerFight: s.deathsPerFight, leaderDeathsPerFight: (s.members.find((m) => m.leader)?.deaths ?? 0) / s.fights, hpLeft: s.bossHpLeftMean });
-const save = async () => {
+// `t` is when a run last finished: a run cut short keeps the time before it, so the collector
+// starts the next one soon and it fights only what this one left.
+const save = async (finished = false) => {
   const temp = `${OUT}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify({ t: Date.now(), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
+  await writeFile(temp, JSON.stringify({ t: finished ? Date.now() : (before.t ?? 0), seeds: Number(opt.seeds), strongest: strongest.id, prior: fitPrior(observations(odds)), odds }, null, 1));
   await rename(temp, OUT);
 };
 
 console.log(`${enemies.size} enemies, ${pairs.length} open pairs of group and target, prior ${prior ? `fitted to ${prior.fights} fights` : "not fitted yet"}`);
 // `--refit` only writes the prior fitted again to the results on file, as after a change to its model.
 if (opt.refit) {
-  await save();
+  await save(true);
   process.exit(0);
 }
 // One raid fight of every roster character against NPC `npc`, as `result` gives it.
@@ -207,4 +209,4 @@ for (const e of enemies.values()) {
   const said = Object.entries(entry.groups).map(([id, o]) => `${id} ${o.error ?? `${o.kills}/${o.fights}`}`).join(", ");
   console.log(`${e.key} (${npc}, level ${entry.level}): ${entry.raid ? `raid ${entry.raid.error ?? `${entry.raid.kills}/${entry.raid.fights}`}${said ? ", " : ""}` : ""}${said}`);
 }
-await save();
+await save(true);

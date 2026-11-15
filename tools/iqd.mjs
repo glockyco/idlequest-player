@@ -1390,7 +1390,7 @@ export class Daemon {
       this.oddsJob = null;
       await rm(pidFile, { force: true }).catch(() => {});
     }
-    if ((!odds || now - odds.t > 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
+    if (!(now - (odds?.t ?? 0) <= 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
       const job = this.oddsJob = Bun.spawn(["bash", "-c", "trap '' INT; set -m; bun tools/kill-odds.mjs & wait $!"], { cwd: REPO, stdout: "ignore", stderr: Bun.file(errFile) });
       await writeFile(pidFile, JSON.stringify({ pid: job.pid, at: now })).catch(() => {});
