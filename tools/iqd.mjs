@@ -435,6 +435,8 @@ const LOOKS_A_PASS = 4;
 // on their way, so a pass sends up to `LOOKS_AFTER_RESET` looks.
 const LOOKS_AFTER_RESET = 10;
 const RESET_RUSH_MS = 30 * 60000;
+// How long after a raid its tab still goes back for loot the raid left on the corpse.
+const LOOT_BACK_MS = 2 * 3600000;
 // The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
 const AA_STAT_FIELD = { 50001: "astr", 50002: "asta", 50005: "aint", 50006: "awis" };
 // Raids at once, each in its own zone with its own leader (`bossPass`).
@@ -1081,7 +1083,7 @@ export class Daemon {
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
         // A trip for pieces no trip pays for counts against its group's time for them (`piece`).
-        state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), ...(a.piece ? { piece: true } : {}), task: r?.id ?? null, code: tab.code });
+        state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), ...(a.piece ? { piece: true } : {}), ...(a.kind === "raid" && a.spec?.zone ? { zone: a.spec.zone } : {}), task: r?.id ?? null, code: tab.code });
         if (a.kind === "gear") this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
@@ -1541,6 +1543,19 @@ export class Daemon {
     const leaderTab = (name) => tabs.find((t) => t.group != null && t.group === groupOf.get(name));
     const out = [];
     let potionRaid = raidTabs.some((t) => /^boss:(potion|credit):/.test(history.findLast((h) => h.label === t.label && h.kind === "raid")?.id ?? ""));
+    // A raid that killed its boss and failed while it collected the loot left the loot on the
+    // corpse, which only its leader can take. That tab goes back for it before anything else, up
+    // to three times, five minutes apart: the client's patch of 2026-11-15 broke the collecting
+    // for every raid until the page code was repaired, Lord Yelinak's among them.
+    const zoneOf = new Map(watch.map((w) => [w.key, w.zone]));
+    for (const h of history.filter((h) => h.kind === "raid" && h.status === "failed" && h.step === "collect the loot" && /^killed /.test(h.result ?? "") && now - (h.endedAt ?? 0) < LOOT_BACK_MS)) {
+      const tries = history.filter((x) => x.id === `loot:${h.task}`);
+      const zone = h.zone ?? zoneOf.get(String(h.id).split(":").slice(2).join(":"));
+      const t = tabs.find((x) => x.label === h.label);
+      if (!zone || !free(t) || used.has(t.label) || tries.some((x) => x.status === "done" || !x.endedAt) || tries.length >= 3 || now - (tries.at(-1)?.t ?? 0) < 5 * 60000) continue;
+      out.push({ label: t.label, kind: "loot", id: `loot:${h.task}`, spec: { zone }, why: `the loot of ${h.result.replace(/^killed (.+?) in \d+ s.*$/, "$1")} lies in ${zone}, where the raid could not collect it (${h.error})` });
+      used.add(t.label);
+    }
     for (const k of kills) {
       if (raidTabs.length + out.length >= (paid ? RAIDS_AT_ONCE : 1) || busyZones.has(k.zone) || !k.zone) continue;
       const potion = k.source === "potion" || k.source === "credit" || k.source === "standing";

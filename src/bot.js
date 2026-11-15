@@ -3043,6 +3043,14 @@
       await loot.open(false);
     }
   };
+  // A raid's kills keep their loot in the RAID LOOT tab of their zone for the raid's leader. When
+  // a raid ended before it could take it, this task goes back for it.
+  const lootTask = async (i, task, step) => {
+    await step("stop", () => calm(i), 75000);
+    if (zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
+    const r = await step("collect the loot", () => collectCorpseLoot(i), 120000);
+    task.result = `looted ${r.looted.length} item${r.looted.length === 1 ? "" : "s"}${r.looted.length ? `: ${r.looted.join(", ")}` : ""}${r.left.length ? `, left ${r.left.join(", ")}` : ""}`;
+  };
   // The casino's Items prize wins the account a boss reset credit a day at three matches, and more
   // at four matches of nine dice (`iq.casino` of src/bridge.js). A credit stays with the character
   // that won it. The task plays `who` when named and rolls for the day's credit, or with `extra`
@@ -3193,7 +3201,7 @@
     }
     task.result = line();
   };
-  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask, craft: craftTask };
+  const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask, craft: craftTask, loot: lootTask };
   // A task takes a free tab only: one without a running task and without a pause, which holds the
   // tab for a script's work by hand or the upkeep. The coordinator decides from a snapshot up to a
   // cycle old, and a raid it queued over a pause took the tab from a trip for loot.
@@ -3211,7 +3219,7 @@
   const taskSummary = (task) =>
     task.kind === "hunt"
       ? `${task.kills ?? 0} kills of ${task.keep} in ${task.zone}${task.result ? `, ${task.result}` : ""}`
-      : task.kind === "raid" || task.kind === "gear" || task.kind === "casino" || task.kind === "look"
+      : task.kind === "raid" || task.kind === "gear" || task.kind === "casino" || task.kind === "look" || task.kind === "loot"
         ? (task.result ?? `${task.target ?? task.bossKey ?? "no moves"}, not run`)
         : (task.members ?? []).map((m) => `${m.name} ${m.done ? (m.xp != null ? `${m.items} items ${m.xp} XP` : "done") : `not done after ${m.at ?? 0} of ${m.steps.length} steps`}`).join(", ");
   /**
@@ -3909,6 +3917,18 @@
       if (!zone || !name) throw new Error("a look needs zone and name");
       state.task = { id: `look-${now().toString(36)}`, kind: "look", zone, name, until, startedAt: now() };
       log(`task look: ${name} in ${zone}${until > now() ? `, until ${new Date(until).toTimeString().slice(0, 5)}` : ""}`);
+      return { ...runTask(state.task) };
+    },
+    /**
+     * Take what the corpses in `zone` hold for the leader, as a task in the page (`lootTask`): the
+     * party travels there and collects from the RAID LOOT tab, as a raid does after its kill.
+     * Returns a copy of the task.
+     */
+    loot({ zone }) {
+      takeTab();
+      if (!zone) throw new Error("a loot task needs its zone");
+      state.task = { id: `loot-${now().toString(36)}`, kind: "loot", zone, startedAt: now() };
+      log(`task loot: the corpses in ${zone}`);
       return { ...runTask(state.task) };
     },
     /**
