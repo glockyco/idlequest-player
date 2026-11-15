@@ -1898,6 +1898,12 @@
       state.coinBack = state.coinBack.slice(1);
       state.coinBackAt = 0;
     } catch (e) {
+      // A member that spent all it took has nothing left to give back.
+      if (/no money to transfer/i.test(e.message ?? "")) {
+        state.coinBack = state.coinBack.slice(1);
+        log(`coin: ${name} has no coin left to take back`);
+        return;
+      }
       state.coinBackAt = now() + 60000;
       log(`coin: taking back ${name}'s coin failed: ${e.message}`);
     }
