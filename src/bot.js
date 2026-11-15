@@ -3136,6 +3136,12 @@
       }
       for (const r of task.make ?? []) {
         const ref = { name: r.item, id: r.itemId };
+        // What an earlier task made and left in the bank comes out first.
+        const banked = Math.min(r.n - i.carried(ref), await i.bankCount(r.itemId));
+        if (banked > 0) {
+          await step(`take ${banked} ${r.item} out of the bank`, () => i.bankWithdraw(r.itemId, banked, () => settleHeld(i)), 120000);
+          task.made[r.item] = i.carried(ref);
+        }
         for (let dry = 0; task.status === "running" && i.carried(ref) < r.n; ) {
           const have = i.carried(ref);
           const out = await step(`make ${r.item} (${have} of ${r.n})`, () => attempts(r, { quantity: Math.min(CRAFT_BATCH, 2 * (r.n - have)), until: r.n - have, output: r.itemId, settle: () => settleHeld(i) }), 600000);

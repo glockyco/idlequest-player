@@ -1777,16 +1777,40 @@
       done.skillUp = r.skillUp ?? done.skillUp;
       done.newSkillValue = r.newSkillValue ?? done.newSkillValue;
     }
-    let withdrawn = 0;
-    if (output != null && done.successes > 0) {
-      const bank = await query(1225, { characterId: p().id, kind: "ingredients", action: "read" });
-      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: p().id, kind: "ingredients", action: "withdrawToCursor", itemId: output, quantity: done.successes, revision: bank?.revision }, 10000);
-      if (!w?.success) throw new Error(`withdrawing the result failed: ${w?.error ?? "no reply"}`);
+    const withdrawn = output != null && done.successes > 0 ? await bankWithdraw(output, done.successes, settle) : 0;
+    return { ...done, withdrawn };
+  };
+  /** How many of item `itemId` the account's Tradeskill Bank holds. */
+  const bankCount = async (itemId) => {
+    const bank = await query(1225, { characterId: stores.character.getState().characterProfile.id, kind: "ingredients", action: "read" });
+    return (bank?.bankUpdate?.entries ?? []).filter((e) => e.itemId === itemId).reduce((s, e) => s + (e.quantity ?? 1), 0);
+  };
+  /**
+   * Take `quantity` of item `itemId` out of the Tradeskill Bank, each withdrawal onto the cursor
+   * and where `settle` puts it. The cursor takes a whole stack of a stackable item and one of any
+   * other, and the server's refusal names that limit ("Choose between 1 and 1 items for the
+   * cursor"), which then sizes the withdrawals. Resolves with the number taken.
+   */
+  const bankWithdraw = async (itemId, quantity, settle) => {
+    const id = () => stores.character.getState().characterProfile.id;
+    let taken = 0;
+    for (let most = quantity; taken < quantity; ) {
+      const n = Math.min(most, quantity - taken);
+      const bank = await query(1225, { characterId: id(), kind: "ingredients", action: "read" });
+      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: id(), kind: "ingredients", action: "withdrawToCursor", itemId, quantity: n, revision: bank?.revision }, 10000);
+      if (!w?.success) {
+        const limit = Number(/Choose between 1 and (\d+) items/.exec(w?.error ?? "")?.[1]);
+        if (limit >= 1 && limit < n) {
+          most = limit;
+          continue;
+        }
+        throw new Error(`withdrawing from the bank failed: ${w?.error ?? "no reply"}`);
+      }
       await pause(700);
       await settled(settle);
-      withdrawn = w.quantity ?? done.successes;
+      taken += w.quantity ?? n;
     }
-    return { ...done, withdrawn };
+    return taken;
   };
   /**
    * Give a carried `item` to account character `characterId`, in the party or not, equipped when
@@ -2005,6 +2029,8 @@
     worldPort,
     walkTo,
     craftItem,
+    bankCount,
+    bankWithdraw,
     combineInContainer,
     sellCursor,
     placeCursor,
