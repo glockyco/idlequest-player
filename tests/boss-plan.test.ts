@@ -88,18 +88,18 @@ test("a raid boss that stands in the open world is killed there, without a summo
   expect(unpaid.skipped.map((s) => s.key)).toEqual(["phinigel"]);
 });
 
-test("an open-world boss outside the goal buys an hour the account's coin pays, for kills worth one", () => {
+test("an open-world boss outside the goal buys an hour the account's coin pays, for kills worth the raid", () => {
   // Cazic-Thule and Trakanon come back two minutes apart on 2026-11-13: one hour for both.
   const open = [{ key: "trakanon", name: "Trakanon", zone: "sebilis" }, { key: "venril", name: "Venril Sathir", zone: "karnor" }];
   const odds = { trakanon: { raid: win }, venril: { raid: win } };
-  const buys = nextBossKill({ open, paid: false, canBuy: true, odds, value: { trakanon: 1.05, venril: 0.16 } });
+  const buys = nextBossKill({ open, paid: false, canBuy: true, odds, value: { trakanon: 1.05, venril: 0.06 } });
   expect(buys.kill).toMatchObject({ key: "trakanon", source: "open" });
   // Venril Sathir alone is worth too little, and a boss the raid loses adds nothing to the hour.
-  const cheap = nextBossKill({ open, paid: false, canBuy: true, odds: { ...odds, trakanon: { raid: lose } }, value: { trakanon: 1.05, venril: 0.16 } });
+  const cheap = nextBossKill({ open, paid: false, canBuy: true, odds: { ...odds, trakanon: { raid: lose } }, value: { trakanon: 1.05, venril: 0.06 } });
   expect(cheap.kill).toBeNull();
   expect(cheap.skipped.map((s) => s.key)).toContain("venril");
   // In an hour that is paid already, every one of them is killed.
-  expect(nextBossKill({ open: [open[1]], paid: true, odds, value: { venril: 0.16 } }).kill).toMatchObject({ key: "venril" });
+  expect(nextBossKill({ open: [open[1]], paid: true, odds, value: { venril: 0.06 } }).kill).toMatchObject({ key: "venril" });
 
   // The coin has to pay the hour and one more, which the next summon needs. An unread coin buys nothing.
   expect(canBuyHour({ coinPp: 20000, pricePp: 10000 })).toBe(true);
@@ -317,11 +317,13 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
   const next = nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 9 } });
   expect(next.kill).toMatchObject({ key: "vox", source: "credit", who: "Tagujazolu" });
   expect(killId(next.kill)).toBe("boss:credit:Tagujazolu:vox");
-  // A credit keeps: outside paid time its raid waits unless its kill is worth the quarter of an
-  // hour the raid takes its leader's tab, and the coin pays the hour.
-  const wait = (value: number, canBuy: boolean) => nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: value }, paid: false, canBuy }).kill;
-  expect(wait(0.2, true)).toBeNull();
+  // A credit keeps: its raid waits unless its kill is worth the tenth of an hour the raid takes
+  // its leader's tab, in paid time too, and outside paid time the coin has to pay the hour.
+  const wait = (value: number, canBuy: boolean, paid = false) => nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: value }, paid, canBuy }).kill;
+  expect(wait(0.05, true)).toBeNull();
+  expect(wait(0.05, true, true)).toBeNull();
   expect(wait(0.4, true)).toMatchObject({ key: "vox", source: "credit" });
+  expect(wait(0.4, false, true)).toMatchObject({ key: "vox", source: "credit" });
   expect(wait(9, false)).toBeNull();
   expect(wait(9, true)).toMatchObject({ key: "vox", source: "credit" });
   // A boss of the raid goal that no raid has killed goes also outside paid time.
@@ -330,7 +332,7 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
 
 test("held open bosses add no worth to buying an hour", () => {
   const open = [boss("held"), boss("cheap")];
-  expect(nextBossKill({ open, paid: false, canBuy: true, odds: { held: { raid: win }, cheap: { raid: win } }, value: { held: 2, cheap: 0.2 }, waiting: (c) => c.key === "held" ? "held" : null }).kill).toBeNull();
+  expect(nextBossKill({ open, paid: false, canBuy: true, odds: { held: { raid: win }, cheap: { raid: win } }, value: { held: 2, cheap: 0.05 }, waiting: (c) => c.key === "held" ? "held" : null }).kill).toBeNull();
 });
 
 test("a failed simulation is no kill evidence even with winning counts", () => {

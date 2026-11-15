@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, creditPays, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1515,11 +1515,11 @@ export class Daemon {
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     // What one more credit is worth: the mean over the casino's bosses of what a kill brings, with
     // a boss the simulated raid does not kill at nothing, and none while no boss is simulated. And
-    // the credits that wait for a raid that kills their boss, which hold further rolls back.
+    // the credits that wait for a raid that kills their boss and pays, which hold further rolls back.
     const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
     const fought = casino.filter((c) => odds.odds[c.key]?.raid);
     const creditMean = fought.length ? casino.reduce((s, c) => s + (killable(odds.odds[c.key]?.raid) ? (casinoValue[c.key] ?? 0) : 0), 0) / casino.length : null;
-    const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid)).length;
+    const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid) && creditPays(c, value, first)).length;
     const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";

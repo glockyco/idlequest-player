@@ -105,16 +105,15 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     else add(o, "open");
   }
   for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
-  // A credit does not expire, so outside paid time its raid buys an hour like an open-world boss's:
-  // for a boss of `first`, or when the credits' kills and the open-world kills are worth it together.
-  const creditWorth = credits.filter((c) => killable(odds[c.key]?.raid) && !waiting(c, "credit")).reduce((s, c) => s + (value[c.key] ?? 0), 0);
+  // A credit does not expire, so its raid runs only for a kill worth the raid (`creditPays`), and
+  // outside paid time it buys its hour while the coin pays it.
   for (const [list, source] of [[potions, "potion"], [credits, "credit"]]) {
     for (const p of list) {
       if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server summons no other casino boss until it is dead` });
-      else if (source === "potion" || paid || first.includes(p.key)) add(p, source);
-      else if (!canBuy) skipped.push({ key: p.key, why: `its credit waits for paid raid time, and the account's coin does not pay an hour and ${OPEN_BUY.reserveHours} more for the summons` });
-      else if (creditWorth + worth < OPEN_BUY.worth) skipped.push({ key: p.key, why: `its credit waits for paid raid time: an hour would bring kills worth ${(creditWorth + worth).toFixed(2)} h, under the ${OPEN_BUY.worth} h it has to bring` });
-      else add(p, source);
+      else if (source === "potion" || first.includes(p.key)) add(p, source);
+      else if (!creditPays(p, value, first)) skipped.push({ key: p.key, why: `its credit keeps: the kill is worth ${(value[p.key] ?? 0).toFixed(2)} h, under the ${OPEN_BUY.worth} h a raid costs its leader's tab` });
+      else if (paid || canBuy) add(p, source);
+      else skipped.push({ key: p.key, why: `its credit waits for paid raid time, and the account's coin does not pay an hour and ${OPEN_BUY.reserveHours} more for the summons` });
     }
   }
   const minutes = (w) => RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60;
@@ -148,12 +147,17 @@ export const killId = (k) =>
  * What an open-world boss outside the raid goal may spend on raid time: an hour for kills worth
  * `worth` hours of a group's progress together, while the account's coin pays that hour and
  * `reserveHours` more, which the next summon needs. `worth` is what the raid costs in the time of
- * its leader's tab, a quarter of an hour with its travel: an hour's 10,000 platinum are a few
- * seconds of crafting for a merchant (docs/plans/coin.md), so the coin no longer prices it. The
- * coin is the only limit on the hours: a count of two a day left Lord Nagafen and Talendor without
- * a look for eight hours on 2026-11-13, with 123,000 platinum on the account.
+ * its leader's tab: the three credit raids of 2026-11-15 took 132 to 141 s, and a tenth of an hour
+ * leaves room for a longer fight. An hour's 10,000 platinum are a few seconds of crafting for a
+ * merchant (docs/plans/coin.md), so the coin no longer prices it. A credit's raid has to be worth
+ * that much in paid time too, since a credit keeps and half the casino's bosses drop nothing the
+ * account wants. The coin is the only limit on the hours: a count of two a day left Lord Nagafen
+ * and Talendor without a look for eight hours on 2026-11-13, with 123,000 platinum on the account.
  */
-export const OPEN_BUY = { worth: 0.25, reserveHours: 1 };
+export const OPEN_BUY = { worth: 0.1, reserveHours: 1 };
+
+/** Whether a credit's raid is worth its leader's time: a boss of `first`, or a kill worth `OPEN_BUY.worth`. */
+export const creditPays = (c, value = {}, first = []) => first.includes(c.key) || (value[c.key] ?? 0) >= OPEN_BUY.worth;
 
 /** Whether the account's coin (`coinPp`, null when unread) pays an open-world hour at `pricePp`. */
 export const canBuyHour = ({ coinPp = null, pricePp = null }) => coinPp != null && pricePp > 0 && coinPp >= pricePp * (1 + OPEN_BUY.reserveHours);
