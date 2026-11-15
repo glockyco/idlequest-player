@@ -3636,14 +3636,16 @@
     },
     /**
      * Carry out gear moves `[{ item, from, to, slot }]` from the roster gear plan as a task in the
-     * page (`gearTask`): pull each item from its holder and give it equipped to its receiver.
+     * page (`gearTask`): pull each item from its holder and give it equipped to its receiver. A
+     * move with `exact` is placed with its receiver active, and one with `clears` (a two-hander
+     * over a full off hand) takes the off hand off first.
      * `spare` maps a receiver to the gear the task may pull out of its bags when they are full
      * (`makeRoom`). Returns a copy of the task, which `state.task` keeps up to date.
      */
     gear({ moves, spare = {} }) {
       takeTab();
       if (!moves?.length) throw new Error("a gear task needs moves");
-      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), spare, moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
+      state.task = { id: `gear-${now().toString(36)}`, kind: "gear", startedAt: now(), spare, moves: moves.map((m) => ({ item: m.item, from: m.from, to: m.to, slot: m.slot ?? null, slotNum: m.slotNum ?? null, ...(m.exact ? { exact: true } : {}), ...(m.clears ? { clears: m.clears } : {}), ...(m.buy ? { buy: { merchant: m.buy.merchant, zone: m.buy.zone, price: m.buy.price } } : {}) })) };
       log(`task gear: ${moves.length} moves`);
       return { ...runTask(state.task) };
     },

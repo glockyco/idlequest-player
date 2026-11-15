@@ -3287,7 +3287,7 @@ test("a move that has to be placed goes into the member's bags and into its slot
       carried: () => 0,
       pullItem: async (item: string, { from }: { from: string }) => (log.push(`pull ${item} from ${from}`), { got: true, from, reply: "Transferred." }),
       giveItem: async (item: string, id: number, { equip }: { equip: boolean }) => (log.push(`give ${item} to ${id}${equip ? " equipped" : " into the bags"}`), { ok: true, lines: [] }),
-      equipOwn: async (item: string, slot: number) => (log.push(`${f.sheet.characterProfile.name} wears ${item} in ${slot}`), { ok: true }),
+      equipOwn: async (item: string, slot: number, opts: { clear?: number } = {}) => (log.push(`${f.sheet.characterProfile.name} wears ${item} in ${slot}${opts.clear != null ? ` after emptying ${opts.clear}` : ""}`), { ok: true }),
     });
     f.bot.gear({ moves: [
       { item: "Revultant Whip", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true },
@@ -3313,6 +3313,17 @@ test("a move that has to be placed goes into the member's bags and into its slot
     f.bot.gear({ moves: [{ item: "Revultant Whip", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true }] });
     await runToEnd(f);
     expect(log).toEqual(["pull Revultant Whip from Ugfeu", "give Revultant Whip to 10 equipped"]);
+    // A two-hander over a full off hand, for the leader itself and for a member: the equip takes
+    // the off hand off first (`clears`).
+    f.party.companions = [{ companionType: 2, characterId: 10, name: "Tagujazolu", curHp: 100, maxHp: 100 }];
+    log.length = 0;
+    f.sheet.characterProfile = { ...f.me };
+    f.bot.gear({ moves: [
+      { item: "Great Axe", from: "Ugfeu", to: f.me.name, slot: "primary", slotNum: 13, exact: true, clears: "Buckler" },
+      { item: "Great Staff", from: "Ugfeu", to: "Tagujazolu", slot: "primary", slotNum: 13, exact: true, clears: "Buckler" },
+    ] });
+    await runToEnd(f);
+    expect(log.filter((l) => / wears /.test(l))).toEqual([`${f.me.name} wears Great Axe in 13 after emptying 14`, "Tagujazolu wears Great Staff in 13 after emptying 14"]);
   } finally {
     vi.useRealTimers();
   }
