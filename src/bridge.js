@@ -2282,6 +2282,21 @@
         return { queued: true, free: isFree(spell) };
       },
       /**
+       * Mod Rod for a group of the raid, as the Heal & Revive panel's "Casters Only" and "Healers
+       * Only" buttons with three uses: every living member of the group turns hit points into mana
+       * at once and stops at full mana or before 10% HP. Resolves with whether the button took it.
+       */
+      async rods(group = "Casters Only") {
+        if (!stores.raid.getState().raidModeActive) throw new Error("raid mode is off");
+        const panel = await raidPanel("heal");
+        const label = `${group}: Mod Rod x 3`;
+        const button = [...panel.querySelectorAll("button")].find((b) => (b.textContent ?? "").trim() === label);
+        if (!button) throw new Error(`the raid window shows no "${label}" button`);
+        if (button.disabled) return false;
+        button.click();
+        return true;
+      },
+      /**
        * A Slow, Mez, Debuff or Snare order against the running fight's target, as in the raid
        * window: the strongest spell of the panel's group for `kind` that a living member can cast
        * (`strength` of RAID_EFFECTS), the first of equals, kept up for "slow" and "mez" (KEEP SLOWED

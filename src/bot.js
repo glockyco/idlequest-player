@@ -2632,6 +2632,8 @@
         let reviveAt = 0;
         let memberReviveAt = 0;
         let reviveFails = 0;
+        let rodAt = now() + 30000;
+        let rodFails = 0;
         let healSeq = 0;
         const healers = new Set();
         let progress = null;
@@ -2734,6 +2736,17 @@
               // An order the window did not take is tried again after half a minute, three times a fight.
               reviveFails++;
               memberReviveAt = now() + 30000;
+            }
+          }
+          // Mod Rods every half minute (`rods`: "casters" for "Casters Only", "all" also for
+          // "Healers Only"), which turn hit points into mana: the simulated raid kills Cazic-Thule
+          // an eighth sooner with them. An order the window refuses twice ends them for the fight.
+          if (s.combat && (task.rods ?? "off") !== "off" && now() >= rodAt && rodFails < 2) {
+            rodAt = now() + 30000;
+            for (const group of task.rods === "all" ? ["Casters Only", "Healers Only"] : ["Casters Only"]) {
+              const ok = await raid.rods(group).catch((e) => (log(`task raid: Mod Rod for ${group} failed: ${e?.message ?? e}`), null));
+              if (ok === null) rodFails++;
+              else if (ok) task.fight.rods = (task.fight.rods ?? 0) + 1;
             }
           }
           if (s.combat) continue;
@@ -3558,7 +3571,9 @@
      * raid time is bought only when none is left and it costs at most `maxPp`. `heal` is the heal mode, `nuke`
      * the nuke order and `effects` the effect orders (`iq.raid.heal`, `iq.raid.nuke` and
      * `iq.raid.effect`), null or empty for none. `revive` says which fallen members the raid
-     * brings back: "free" with a revive that costs no mana, "all" also with a spell's, "off" none. No effect is ordered unless a caller names one:
+     * brings back: "free" with a revive that costs no mana, "all" also with a spell's, "off" none.
+     * `rods` orders Mod Rods every half minute: "casters" for the pure casters, "all" also for the
+     * healers, "off" none. No effect is ordered unless a caller names one:
      * in all four fights of 2026-11-11 that ordered a slow and a debuff, the page stopped taking
      * the server's messages the second the orders began and reconnected 31 to 49 s later, which
      * ended the fight with the boss alive, and the three fights without the orders were kills. The
@@ -3567,14 +3582,14 @@
      * `also` names them, and each that still stands after a kill gets a fight of its own. Returns a
      * copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [], revive = "free" }) {
+    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [], revive = "free", rods = "off" }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if ((potion || credit) && !target) throw new Error("a potion or credit raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], revive, startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], revive, rods, startedAt: now() };
       log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${credit ? ` from a credit for ${credit}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },
