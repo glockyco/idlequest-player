@@ -116,6 +116,10 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
   return { kill: kills[0] ?? null, kills, skipped };
 }
 
+// The orders a raid fights with: the nuke order and the heal mode (`iq.raid.nuke`, `iq.raid.heal`).
+// Kill odds simulates with them and the boss pass orders them, so a raid fights as it was judged.
+export const RAID_MODES = { nuke: "dps-all-out", heal: "all-balanced" };
+
 // The minutes a raid takes besides its fight: from the task's start to the engagement (two minutes
 // for Cazic-Thule on 2026-11-12), and the end and the loot.
 export const RAID_SETUP_MIN = 3;

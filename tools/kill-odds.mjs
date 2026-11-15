@@ -20,7 +20,7 @@
 import { Database } from "bun:sqlite";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { bossParts } from "./lib/boss-plan.mjs";
+import { RAID_MODES, bossParts } from "./lib/boss-plan.mjs";
 import { casinoBosses } from "./lib/client-tables.mjs";
 import { liveSpawnRows, rows } from "./lib/content.mjs";
 import { npcKey } from "./lib/fight-record.mjs";
@@ -133,7 +133,7 @@ if (opt.refit) {
 // One raid fight of every roster character against NPC `npc`, as `result` gives it.
 const raidFight = async (npc) => {
   const boss = await bossSpec(await findBoss(String(npc)));
-  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: "dps-all-out", healMode: "all-balanced" });
+  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal });
   return result(r.summary);
 };
 for (const e of enemies.values()) {
@@ -179,7 +179,7 @@ for (const e of enemies.values()) {
     try {
       const entries = entriesOf(variant.leader, variant.names);
       const boss = await bossSpec(await findBoss(String(npc)));
-      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: "dps-all-out", healMode: "all-balanced" });
+      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal });
       outcome = result(r.summary);
     } catch (error) {
       outcome = { t: Date.now(), sim: SIM_VERSION, error: error.message };

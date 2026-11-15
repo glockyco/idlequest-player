@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1482,7 +1482,7 @@ export class Daemon {
       const keyOf = (name) => kills.find((o) => o.name === name)?.key ?? npcKey(name);
       const sec = [k.key, ...nearby.map(keyOf)].reduce((s, key) => s + (odds.odds?.[key]?.raid?.meanSec ?? 0), 0);
       const minutes = Math.min(45, Math.max(15, Math.ceil((3 * sec) / 60)));
-      out.push({ label: tab.label, kind: "raid", id: killId(k), spec: { members, zone: k.zone, maxPp: st.time?.pricePp ?? 0, minutes, ...what }, why: `${k.name} by ${k.way} from ${from}` });
+      out.push({ label: tab.label, kind: "raid", id: killId(k), spec: { members, zone: k.zone, maxPp: st.time?.pricePp ?? 0, minutes, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, ...what }, why: `${k.name} by ${k.way} from ${from}` });
       used.add(tab.label);
       busyZones.add(k.zone);
       if (potion) potionRaid = true;
