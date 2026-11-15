@@ -72,16 +72,14 @@ export function dailyCandidates(daily) {
  *   (`openBosses`). They need no summon and no potion.
  * - `paid`: whether raid time is running that a raid can use.
  * - `canBuy`: whether the account's coin pays an hour for the open world (`canBuyHour`). An
- *   open-world boss outside `first` is killed in paid time, or buys an hour when `canBuy` holds and
- *   the open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
+ *   open-world boss is killed in paid time, or buys an hour when `canBuy` holds and the
+ *   open-world kills the hour would bring are worth `OPEN_BUY.worth` hours together.
  * - `odds`: kill chances by boss key (runs/state/kill-odds.json), `{ raid: { kills, fights }, groups: { [group]: { kills, fights } } }`.
  * - `value`: worth of a kill by boss key, in hours of a group's progress from its loot (`bossValues`), 0 when unknown.
- * - `first`: the raid goal's bosses that no raid has killed yet (data/raid-goal.json): the account
- *   has to kill each of them once, whatever they drop, so they are planned also outside paid time.
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
  * already has a summoned casino boss"), so the other potions wait for it. The others go by their
- * worth, the gear upgrades their drops bring, also a boss of `first`, since a free summon or a
+ * worth, the gear upgrades their drops bring, since a free summon or a
  * credit is a scarce currency and the raid's minutes are not: up to three raids run at once and
  * most fights take seconds. Of two bosses of equal worth, the one with the shorter raid goes
  * first (the simulator's fight and `RAID_SETUP_MIN` together). Every kill is a raid's:
@@ -90,10 +88,9 @@ export function dailyCandidates(daily) {
  * Autropos, who beat it twice beside his seahorses (docs/plans/raids.md, Schedule). A raid on a
  * summon or a potion runs as soon as one is due, because a free summon comes back 24 hours after
  * its use. A boss that stands in the open world is killed there, which leaves its summon for
- * another boss, and outside `first` it buys its hour by `OPEN_BUY`. A potion's raid is led by its
- * holder.
+ * another boss, and it buys its hour by `OPEN_BUY`. A potion's raid is led by its holder.
  */
-export function nextBossKill({ daily = null, potions = [], credits = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, first = [], waiting = () => null }) {
+export function nextBossKill({ daily = null, potions = [], credits = [], standing = [], open = [], paid = true, canBuy = false, odds = {}, value = {}, waiting = () => null }) {
   const skipped = [];
   const ways = [];
   // `waiting(candidate, source)` names why a boss's last raid holds it, such as a kill minutes
@@ -107,21 +104,21 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
-  const worth = open.filter((o) => !first.includes(o.key) && killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
+  const worth = open.filter((o) => killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
   for (const o of open) {
-    if (first.includes(o.key) || paid) add(o, "open");
+    if (paid) add(o, "open");
     else if (!canBuy) skipped.push({ key: o.key, why: `it stands in the open world, and the account's coin does not pay an hour of raid time and ${OPEN_BUY.reserveHours} more for the summons` });
     else if (worth < OPEN_BUY.worth) skipped.push({ key: o.key, why: `it stands in the open world, and an hour of raid time would bring kills worth ${worth.toFixed(2)} h, under the ${OPEN_BUY.worth} h it has to bring` });
     else add(o, "open");
   }
   for (const b of dailyCandidates(daily)) if (!open.some((o) => o.key === b.key)) add(b, "summon");
-  // A credit does not expire, so outside paid time its raid buys an hour like an open-world boss's:
-  // for a boss of `first`, or when the credits' kills and the open-world kills are worth it together.
+  // A credit does not expire, so outside paid time its raid buys an hour like an open-world boss's,
+  // when the credits' kills and the open-world kills are worth it together.
   const creditWorth = credits.filter((c) => killable(odds[c.key]?.raid) && !waiting(c, "credit")).reduce((s, c) => s + (value[c.key] ?? 0), 0);
   for (const [list, source] of [[potions, "potion"], [credits, "credit"]]) {
     for (const p of list) {
       if (standing.length) skipped.push({ key: p.key, why: `${standing[0].name} stands summoned, and the server summons no other casino boss until it is dead` });
-      else if (source === "potion" || paid || first.includes(p.key)) add(p, source);
+      else if (source === "potion" || paid) add(p, source);
       else if (!canBuy) skipped.push({ key: p.key, why: `its credit waits for paid raid time, and the account's coin does not pay an hour and ${OPEN_BUY.reserveHours} more for the summons` });
       else if (creditWorth + worth < OPEN_BUY.worth) skipped.push({ key: p.key, why: `its credit waits for paid raid time: an hour would bring kills worth ${(creditWorth + worth).toFixed(2)} h, under the ${OPEN_BUY.worth} h it has to bring` });
       else add(p, source);
@@ -155,7 +152,7 @@ export const killId = (k) =>
   k.source === "credit" || (k.source === "standing" && k.credit) ? `boss:credit:${k.who}:${k.key}` : k.source === "potion" || k.source === "standing" ? `boss:potion:${k.itemId}:${k.who}` : k.source === "open" ? `boss:open:${k.key}` : `boss:summon:${k.key}`;
 
 /**
- * What an open-world boss outside the raid goal may spend on raid time: an hour for kills worth
+ * What an open-world boss may spend on raid time: an hour for kills worth
  * `worth` hours of a group's progress together, while the account's coin pays that hour and
  * `reserveHours` more, which the next summon needs. `worth` is an assumed price, since nothing
  * measures yet what else the platinum would buy. The coin is the only limit on the hours: a count
@@ -189,45 +186,44 @@ const OPEN_SEEN_MS = 30 * 60000;
  * The raid bosses that stand in the open world, from what the tabs see in their zones' spawn lists
  * (`seen`, by name key: `{ name, zone, level, state, seenAt }`, the enemies the client keeps out of
  * AutoLevel): those alive at a look within `OPEN_SEEN_MS` whose name is on the daily list
- * (`daily.bosses`, which gives the key and the zone the look has to be from), among the raid
- * goal's bosses (`goal`, names) or among the gear targets no group can kill (`gear`, names), as
- * `[{ key, name, zone }]`. A boss off the daily list goes by its name key.
+ * (`daily.bosses`, which gives the key and the zone the look has to be from) or among the bosses
+ * whose drops the gear plan wants (`gear`, names), as `[{ key, name, zone }]`. A boss off the
+ * daily list goes by its name key.
  */
-export function openBosses({ seen = {}, daily = null, goal = [], gear = [], now }) {
+export function openBosses({ seen = {}, daily = null, gear = [], now }) {
   const out = [];
   for (const [key, s] of Object.entries(seen)) {
     if (s.state !== "alive" || now - s.seenAt > OPEN_SEEN_MS) continue;
     const listed = (daily?.bosses ?? []).find((b) => npcKey(b.name) === key);
-    if (listed ? listed.zone !== s.zone : ![...goal, ...gear].some((g) => npcKey(g) === key)) continue;
+    if (listed ? listed.zone !== s.zone : !gear.some((g) => npcKey(g) === key)) continue;
     out.push({ key: listed?.key ?? key, name: listed?.name ?? String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone });
   }
   return out;
 }
 
 /**
- * The bosses the account watches in the open world: those of the daily list, of the raid goal
- * (`goal`, names) and the gear targets no group can kill (`gear`, names, docs/plans/gear-
- * acquisition.md, "Ways to get a copy") that a live spawn point puts up (`spawns`, `namedSpawns`
- * of tools/lib/content.mjs for their names), as `[{ key, name, zone, respawnMs, varianceMs, goal,
- * gear }]`, `gear` true for a gear boss. A boss of the daily list goes by the list's key and counts at a point in the list's
+ * The bosses the account watches in the open world: those of the daily list and those whose
+ * drops the gear plan wants (`gear`, names: the gear targets no group can kill, docs/plans/gear-
+ * acquisition.md, "Ways to get a copy", and the casino's bosses whose kill is worth something)
+ * that a live spawn point puts up (`spawns`, `namedSpawns` of tools/lib/content.mjs for their
+ * names), as `[{ key, name, zone, respawnMs, varianceMs, gear }]`, `gear` true for a boss off the
+ * daily list, which has none. A boss of the daily list goes by the list's key and counts at a point in the list's
  * zone. The server draws each respawn from `respawnMs` less `varianceMs` to `respawnMs` plus
  * `varianceMs`: the raids of 2026-11-12 killed Lady Vox, Innoruuk and Trakanon 60.4, 66.3 and
  * 78.6 hours before the respawn times the server then gave, with 72 hours and 12, 21.6 and 7.2
  * hours in the content. The two free summons a day bring two kills, and each of these is one more.
- * Lord Yelinak and Vulak`Aerr are on no list, so the open world is the only place the account
- * kills them, and so are the gear bosses.
+ * Lord Yelinak and Vulak`Aerr are on no daily list, so the open world and a casino credit are the
+ * only places the account kills them.
  */
-export function watchedBosses({ daily = null, goal = [], gear = [], spawns = new Map() }) {
+export function watchedBosses({ daily = null, gear = [], spawns = new Map() }) {
   const out = [];
-  const add = (name, key, zone, isGoal, isGear = false) => {
+  const add = (name, key, zone, isGear = false) => {
     const points = (spawns.get(name) ?? []).filter((p) => !zone || p.zone === zone);
-    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), varianceMs: Math.max(...points.map((p) => p.varianceMs ?? 0)), goal: isGoal, ...(isGear ? { gear: true } : {}) });
+    if (points.length && !out.some((w) => w.key === key)) out.push({ key, name, zone: points[0].zone, respawnMs: Math.min(...points.map((p) => p.respawnMs)), varianceMs: Math.max(...points.map((p) => p.varianceMs ?? 0)), ...(isGear ? { gear: true } : {}) });
   };
-  const isGoal = (name) => goal.some((g) => npcKey(g) === npcKey(name));
   const onList = (name) => (daily?.bosses ?? []).some((b) => npcKey(b.name) === npcKey(name));
-  for (const b of daily?.bosses ?? []) add(b.name, b.key, b.zone, isGoal(b.name));
-  for (const g of goal) if (!onList(g)) add(g, npcKey(g), null, true);
-  for (const g of gear) if (!onList(g) && !isGoal(g)) add(g, npcKey(g), null, false, true);
+  for (const b of daily?.bosses ?? []) add(b.name, b.key, b.zone);
+  for (const g of gear) if (!onList(g)) add(g, npcKey(g), null, true);
   return out;
 }
 
@@ -307,7 +303,7 @@ export function worldOutage(prev, { inWorld, answered, now }) {
  * - `worth(w)`: what the boss's kill is worth, by which bosses due at the same time are ordered.
  * A due respawn and a sighting from before the server's reset go first, the earliest of them
  * and of those after a reset the one worth most, then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
- * has seen, a goal boss before the others, then a boss that stood and the plan would not raid.
+ * has seen, then a boss that stood and the plan would not raid.
  */
 export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0, worth = () => 0 }) {
   const due = [];
@@ -328,7 +324,7 @@ export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, look
       if (now >= s.respawnAt - LOOK.leadMs) due.push({ rank: 0, at: s.respawnAt, w, until: Math.max(0, s.respawnAt + LOOK.waitMs), why: `its respawn ${now < s.respawnAt ? "is" : "was"} due at ${clock(s.respawnAt)}` });
     } else if (now - s.seenAt > LOOK.staleMs) due.push({ rank: 2, at: s.seenAt, w, until: 0, why: `it was down at ${clock(s.seenAt)} with no respawn time` });
   }
-  due.sort((a, b) => a.rank - b.rank || Number(b.w.goal) - Number(a.w.goal) || a.at - b.at || worth(b.w) - worth(a.w));
+  due.sort((a, b) => a.rank - b.rank || a.at - b.at || worth(b.w) - worth(a.w));
   return due.map((d) => ({ key: d.w.key, name: d.w.name, zone: d.w.zone, until: d.until > now ? d.until : 0, why: d.why }));
 }
 
@@ -384,7 +380,7 @@ function killWindow(w, s, log) {
 }
 
 /**
- * The watched bosses as a reader sees them: `[{ key, name, zone, goal, state, seenAt, respawnAt,
+ * The watched bosses as a reader sees them: `[{ key, name, zone, gear, state, seenAt, respawnAt,
  * killed, lived, value, raid }]`. `state` is "alive", "down" until `respawnAt`, "due" when that
  * time has passed with no look since, "stale" when the server has put bosses up ahead of their
  * timers since the sighting (`resetAt`, `spawnReset`), or "unknown" for a boss no tab has seen. A
@@ -398,7 +394,7 @@ export function watchRows({ watch = [], seen = {}, log = [], value = {}, odds = 
     const down = s && s.state !== "alive";
     const state = !s ? "unknown" : !down ? "alive" : s.seenAt < resetAt ? "stale" : s.respawnAt && s.respawnAt <= now ? "due" : "down";
     const { killed, lived } = down && s.respawnAt ? killWindow(w, s, log) : { killed: null, lived: null };
-    return { key: w.key, name: w.name, zone: w.zone, goal: w.goal, ...(w.gear ? { gear: true } : {}), state, seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killed, lived, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
+    return { key: w.key, name: w.name, zone: w.zone, ...(w.gear ? { gear: true } : {}), state, seenAt: s?.seenAt ?? null, respawnAt: down ? (s.respawnAt ?? null) : null, killed, lived, value: value[w.key] ?? null, raid: odds[w.key]?.raid ?? null };
   });
 }
 

@@ -208,7 +208,7 @@ test("rank correlation", () => {
   expect(spearman([1, 2], [1, 2])).toBeNull();
 });
 
-test("the goal boss closest to a kill is the one with the best outcome, by share of hit points left", () => {
+test("the hard boss closest to a kill is the one with the best outcome, by share of hit points left", () => {
   const row = (boss: string, kills: number, killMean: number | null, hpLeft: number, max: number) => ({ boss, summary: { ...summary(kills, killMean, hpLeft), bossMaxHp: max } });
   // A kill beats any miss, a faster kill beats a slower one, and among misses the smaller share left wins whatever the boss's size.
   expect(closestToKill([row("big", 0, null, 700_000, 900_000), row("small", 0, null, 190_000, 200_000), row("mid", 0, null, 300_000, 500_000)]).boss).toBe("mid");

@@ -534,7 +534,6 @@ test("boss planning ignores stale raids and holds looks and retries with each ta
     trackers: new Map([["gone", { usable: false, state: {}, snap: { raid: true } }]]),
     bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
   });
-  d.raidGoal = () => ["Boss"];
   const tabs = [{ targetId: "tab", label: "A", group: "g1", code: "canary", members: [{ name: "A", level: 50 }] }];
   const groupOf = new Map([["A", "g1"]]);
   const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };
@@ -547,14 +546,13 @@ test("boss planning ignores stale raids and holds looks and retries with each ta
 });
 
 test("bosses whose respawn has passed get looks while no hour of raid time can be bought", async () => {
-  // Lord Nagafen and Talendor on 2026-11-13: off the goal, their respawns hours past, no raid time running.
+  // Lord Nagafen and Talendor on 2026-11-13: their respawns hours past, no raid time running.
   const boss = (key: string) => ({ key, name: key, zone: `${key}zone`, status: "limit" });
   const d = collector({
     runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
     relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [boss("naga"), boss("tal")] }, time: { active: false, pricePp: 10000 } }) },
     bossSpawns: { key: "naga|tal", spawns: new Map([["naga", [{ zone: "nagazone", respawnMs: 3600000 }]], ["tal", [{ zone: "talzone", respawnMs: 3600000 }]]]) },
   });
-  d.raidGoal = () => [];
   const down = (key: string, respawnAt: number) => ({ name: key, zone: `${key}zone`, state: "respawning", respawnAt, seenAt: T0 - 9 * 3600000 });
   meta(d.db, "bossesSeen", { naga: down("naga", T0 - 8 * 3600000), tal: down("tal", T0 - 4 * 3600000) });
   const tab = (label: string, group: string, rest: object = {}) => ({ targetId: label, label, group, members: [{ name: label, level: 50 }], ...rest });
@@ -577,10 +575,9 @@ test("bosses whose respawn has passed get looks while no hour of raid time can b
 test("inside paid raid time standing bosses of two zones get two raids at once, and a zone's second boss goes with its raid", async () => {
   const d = collector({
     runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [] },
-    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: { active: true, expiresAt: T0 + 30 * 60000, pricePp: 10000 } }) },
+    relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: ["x1", "x2", "y1"].map((n) => ({ key: n, name: n, zone: n[0] === "x" ? "xzone" : "yzone", status: "limit" })) }, time: { active: true, expiresAt: T0 + 30 * 60000, pricePp: 10000 } }) },
     bossSpawns: { key: "x1|x2|y1", spawns: new Map(["x1", "x2", "y1"].map((n) => [n, [{ zone: n[0] === "x" ? "xzone" : "yzone", respawnMs: 3600000 }]])) },
   });
-  d.raidGoal = () => ["x1", "x2", "y1"];
   const up = (zone: string) => ({ name: "", zone, state: "alive", seenAt: T0 - 60000 });
   meta(d.db, "bossesSeen", { x1: { ...up("xzone"), name: "x1" }, x2: { ...up("xzone"), name: "x2" }, y1: { ...up("yzone"), name: "y1" } });
   const tabs = ["A", "B", "C"].map((l, k) => ({ targetId: l, label: l, group: `g${k + 1}`, members: [{ name: l, level: 50 }] }));
@@ -594,9 +591,10 @@ test("inside paid raid time standing bosses of two zones get two raids at once, 
   expect(raids[0].label).toBe("A");
   const x = raids.find((r: { spec: { zone: string } }) => r.spec.zone === "xzone");
   expect([x.spec.target, ...x.spec.also].sort()).toEqual(["x1", "x2"]);
-  // Without paid time only one raid starts, since each would buy an hour.
-  d.relay.evaluate = async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: { active: false, pricePp: 10000 } });
-  expect((await d.bossPass(T0, tabs, [], groupOf, odds)).filter((a: { kind: string }) => a.kind === "raid")).toHaveLength(1);
+  // Without paid time none starts, since the bosses' drops are worth no hour of raid time.
+  const before = await d.relay.evaluate();
+  d.relay.evaluate = async () => ({ ...before, time: { active: false, pricePp: 10000 } });
+  expect((await d.bossPass(T0, tabs, [], groupOf, odds)).filter((a: { kind: string }) => a.kind === "raid")).toHaveLength(0);
 });
 
 test("a standing casino boss gets three fights, then the twelve-hour loss hold", async () => {
@@ -604,9 +602,8 @@ test("a standing casino boss gets three fights, then the twelve-hour loss hold",
   const d = collector({
     runs: "/__iqd_fixture_missing__", targetWants: [], itemModel: { bosses: [boss] },
     relay: { evaluate: async () => ({ daily: { resetsRemaining: 0, bosses: [] }, time: null }) },
-    bossSpawns: { key: "Boss", spawns: new Map([["Boss", [{ zone: "z", respawnMs: 3600000 }]]]) },
+    bossSpawns: { key: "", spawns: new Map() },
   });
-  d.raidGoal = () => ["Boss"];
   const tabs = [{ targetId: "tab", label: "A", group: "g1", members: [{ name: "A", level: 50 }] }];
   const groupOf = new Map([["A", "g1"]]);
   const odds = { strongest: "g1", odds: { boss: { raid: { kills: 1, fights: 1 } } } };

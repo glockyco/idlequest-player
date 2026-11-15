@@ -80,20 +80,13 @@ function barRow(title, share, bar, text, after = null) {
 const delta = (n, unit) => (n > 0 ? ` <span class="up" title="in the last 24 hours, listed under Progress">+${n} ${unit}</span>` : "");
 
 /**
- * The raid bar's line: the goal's bosses killed, the one a raid goes for next with its simulated
- * fights and when it can be summoned, and the other bosses killed in the last day, which do not
- * move the bar.
+ * The raid row's line: what the boss plan kills next and how many bosses the raid killed in all.
+ * Raid kills have no bar, since a boss counts for the gear its kill brings.
  */
 function raidNote(R) {
-  const next = R.next[0];
-  const when = !next ? "" : R.resets > 0 ? ", at the next raid" : R.resetAt ? `, when the free summons return at ${hhmm(R.resetAt)}` : "";
-  // A raid goes only to a boss the simulated raid kills in every fight (`killable` in tools/lib/boss-plan.mjs).
-  const unsure = next?.raid && !next.raid.error && next.raid.kills < next.raid.fights;
-  return [
-    R.killed.length ? `Killed: ${R.killed.map(esc).join(", ")}.` : R.reached < R.characters ? `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.` : "None of them yet.",
-    !next ? "" : unsure ? `Next: ${esc(next.name)}. The simulated raid kills it in ${next.raid.kills} of ${next.raid.fights} fights, and a raid goes once it wins every one.` : `Next: ${esc(next.name)}${next.raid?.fights ? `, killed in all ${next.raid.fights} simulated fights` : ""}${when}.`,
-    R.others ? `${R.others} other boss${R.others === 1 ? "" : "es"} killed in the last 24 hours.` : "",
-  ].filter(Boolean).join(" ");
+  if (R.reached < R.characters && !R.kills) return `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`;
+  const from = { open: "where it stands in the open world", summon: "by a free summon", credit: "by a casino credit", potion: "by a casino potion", standing: "where it stands summoned" };
+  return [R.next ? `Next: ${esc(R.next.name)}, ${from[R.next.source] ?? "by raid"}.` : "No boss is due for a raid now.", `${R.kills} kills in all. The bosses are listed under Bosses.`].join(" ");
 }
 
 function renderGoal(s) {
@@ -121,9 +114,7 @@ function renderGoal(s) {
     g.epics.share == null
       ? barRow("Epics", null, none(), "Waiting for the coordinator's chain summary.")
       : barRow("Epics", g.epics.share, `${g.epics.holders} of ${g.epics.holders + g.epics.needers} chain parts${delta(r.chain, "parts")}`, `${g.epics.held != null ? `${g.epics.held} of ${g.epics.characters} characters hold their epic. ` : ""}A part is a stretch of an epic's quest that one character runs, and ${g.epics.needers} are still to run. ${g.epics.missingCopies} dropped pieces to find.`),
-    R.share == null
-      ? barRow("Raid kills", null, none(), `Raids open at ${R.level}: ${R.reached} of ${R.characters} characters there.`)
-      : barRow("Raid kills", R.share, `${R.killed.length} of ${R.goal.length} bosses${delta(R.recent, "kills")}`, raidNote(R)),
+    `<div class="goalrow"><div class="gl"><span class="gt">Raid kills</span><span class="gv">${R.recent} in the last 24 hours</span></div><div class="gx">${raidNote(R)}</div></div>`,
     latest ? `<p class="gx latest">Latest milestone ${ago(s.now, latest.t)}: ${latest.group ? `<span class="grp">${esc(latest.group)}</span> ` : ""}${esc(latest.text)}</p>` : "",
   ].join("");
 }
@@ -460,24 +451,24 @@ function renderBosses(s) {
     table(
       ["Boss", "Zone", "Now", "Killed", "Last seen", "A kill is worth", "Raid simulator"],
       sorted.map((w) => [
-        `${esc(w.name)}${w.goal ? ` <span class="pill task" title="One of the goal's nine bosses">goal</span>` : ""}`,
+        esc(w.name),
         esc(w.zone),
         state(w),
         killed(w),
         w.seenAt ? ago(s.now, w.seenAt) : "",
-        w.value ? `<span title="Hours of a group's progress from the gear its drops give the account's characters">${w.value.toFixed(1)} h</span>` : `<span class="muted">${w.goal ? "the goal" : "nothing wanted"}</span>`,
+        w.value ? `<span title="Hours of a group's progress from the gear its drops give the account's characters">${w.value.toFixed(1)} h</span>` : `<span class="muted">nothing wanted</span>`,
         w.raid ? `${w.raid.kills} of ${w.raid.fights} fights` : `<span class="muted">not run</span>`,
       ]),
     ) +
-    othersTable(s, R.others ?? []);
+    offWatchTable(s, R.offWatch ?? []);
 }
 
 /**
- * The goal's and the casino's bosses that the table above lacks: most come only by a casino
- * credit, and one the raid leaves alone. With the credits held, the raid's last kill, what a kill
- * is worth and what the simulator says.
+ * The casino's bosses that the table above lacks: most come only by a casino credit, and one the
+ * raid leaves alone. With the credits held, the raid's last kill, what a kill is worth and what
+ * the simulator says.
  */
-function othersTable(s, rows) {
+function offWatchTable(s, rows) {
   if (!rows.length) return "";
   const how = (o) =>
     o.raid?.error
@@ -487,17 +478,17 @@ function othersTable(s, rows) {
         : o.seen && o.seen.state !== "disabled"
           ? `${o.seen.state === "alive" ? "stood" : "down"} in its zone <span class="muted">${ago(s.now, o.seen.seenAt)}</span>`
           : `<span class="muted">only by a casino credit, none held</span>`;
-  const sorted = rows.slice().sort((a, b) => Number(b.goal) - Number(a.goal) || b.credits.length - a.credits.length || (b.value ?? 0) - (a.value ?? 0));
+  const sorted = rows.slice().sort((a, b) => b.credits.length - a.credits.length || (b.value ?? 0) - (a.value ?? 0));
   return (
-    `<p class="muted small">The goal's and the casino's other bosses. Most have no place in the open world: a casino credit summons them for the character that won it.</p>` +
+    `<p class="muted small">The casino's other bosses. Most have no place in the open world: a casino credit summons them for the character that won it.</p>` +
     table(
       ["Boss", "Zone", "Now", "Killed by the raid", "A kill is worth", "Raid simulator"],
       sorted.map((o) => [
-        `${esc(o.name)}${o.goal ? ` <span class="pill task" title="One of the goal's nine bosses">goal</span>` : ""}`,
+        esc(o.name),
         esc(o.zone ?? ""),
         how(o),
         o.killedAt ? ago(s.now, o.killedAt) : "",
-        o.value ? `${o.value.toFixed(1)} h` : `<span class="muted">${o.goal ? "the goal" : "nothing wanted"}</span>`,
+        o.value ? `${o.value.toFixed(1)} h` : `<span class="muted">nothing wanted</span>`,
         o.raid ? `${o.raid.kills} of ${o.raid.fights} fights` : `<span class="muted">not run</span>`,
       ]),
     )

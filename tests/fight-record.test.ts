@@ -27,7 +27,7 @@ test("a defeat line is a kill, a guard escape naming its enemy is an escape, and
 });
 
 test("an enemy has one key however the game spells its name", () => {
-  // The simulator found no "Cazic-Thule" of the daily list among the content's NPCs, so the goal boss had no kill chance.
+  // The simulator found no "Cazic-Thule" of the daily list among the content's NPCs, so the boss had no kill chance.
   expect(["Cazic-Thule", "#Cazic_Thule", "Cazic Thule"].map(npcKey)).toEqual(["cazic thule", "cazic thule", "cazic thule"]);
 });
 

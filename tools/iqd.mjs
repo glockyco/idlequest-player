@@ -25,7 +25,7 @@ import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
 import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, recordPurse } from "./lib/coin.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
-import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
+import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
 import { PAGE, pageStep } from "./lib/page.mjs";
 import { commitFor, deployed, readDeploy, reverted, writeDeploy } from "../src/deploy.mjs";
@@ -1040,10 +1040,10 @@ export class Daemon {
     };
     // Gear targets skip zones any tab found crowded by other players in the last 45 minutes, after
     // group 1 idled a whole errand in a Temple of Solusek Ro it had just left as crowded. A boss of
-    // the daily list, the raid goal or the gear watch is the boss plan's kill, by raid, so no group
+    // the daily list, the casino or the gear watch is the boss plan's kill, by raid, so no group
     // hunts it: group 1 set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
-    this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...(this.itemModel?.bosses ?? []).map((c) => c.name), ...this.raidGoal()].map(npcKey));
+    this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...(this.itemModel?.bosses ?? []).map((c) => c.name)].map(npcKey));
     // An enemy whose death starts a quest's timer for its killer is left to that quest while a
     // character still needs it: a soul carrier comes back after four hours, and six of the ten
     // killed on 2026-11-15 went to gear hunts, whose leaders Keeper of Souls is of no use to.
@@ -1464,17 +1464,18 @@ export class Daemon {
       if (k?.seenAt && k.zone) for (const s of k.seen ?? []) if (!(seen[npcKey(s.name)]?.seenAt >= k.seenAt)) seen[npcKey(s.name)] = { ...s, zone: k.zone, seenAt: k.seenAt };
     }
     metaSet(this.db, "bossesSeen", seen);
-    const goal = this.raidGoal();
     // The gear targets above level 50 that no group can kill (state `tooStrong` of the coordinator
     // pass), which the raid can (docs/plans/gear-acquisition.md, "Ways to get a copy"), and those the
     // watch holds already, which the coordinator lists "by raid" from then on. One leaves once the
-    // gear plan no longer wants its drops.
+    // gear plan no longer wants its drops. A casino boss is no group's target, so it counts by
+    // what its kill is worth to the gear plan: Lord Yelinak and Vulak`Aerr stand in the open world.
     const status = metaGet(this.db, "targetStatus")?.targets ?? {};
     const watchedGear = new Set((metaGet(this.db, "bossPlan")?.watch ?? []).filter((w) => w.gear).map((w) => npcKey(w.name)));
-    const gear = [...new Set((this.targetWants ?? []).filter((x) => x.npcLevel > 50 && (status[targetId(x)]?.state === "tooStrong" || watchedGear.has(npcKey(x.npc)))).map((x) => x.npc))];
-    // The bosses of the daily list, the goal and the gear that the open world puts up, from the
+    const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
+    const gear = [...new Set([...(this.targetWants ?? []).filter((x) => x.npcLevel > 50 && (status[targetId(x)]?.state === "tooStrong" || watchedGear.has(npcKey(x.npc)))).map((x) => x.npc), ...casino.filter((c) => (casinoValue[c.key] ?? 0) > 0).map((c) => c.name)])];
+    // The bosses of the daily list and the gear that the open world puts up, from the
     // content snapshot, read once for their names.
-    const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...goal, ...gear])];
+    const names = [...new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...gear])];
     if (this.bossSpawns?.key !== names.join("|")) {
       const { contentRoot, namedSpawns } = await import("./lib/content.mjs");
       // Only spawn points in zones the game has: the content also lists Weyen Stonetrader in
@@ -1489,10 +1490,10 @@ export class Daemon {
     // content has it, and stays off the watch while the history holds that look, two days: eight
     // such bosses took 34 looks in two days.
     const noPoint = (w) => history.some((h) => h.id === `look:${w.key}` && /has no spawn point in/.test(h.result ?? ""));
-    const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns }).filter((w) => !noPoint(w));
-    // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
+    const watch = watchedBosses({ daily: st.daily, gear, spawns: this.bossSpawns.spawns }).filter((w) => !noPoint(w));
+    // No group hunts a boss the raid kills: those of the daily list and the casino, and the gear
     // bosses the watch holds, since a gear target without a live spawn point stays a group's target.
-    this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...casino.map((c) => c.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
+    this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...casino.map((c) => c.name), ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
     // A raid that killed an open-world boss is a sighting of it down at the raid's end, until a look
     // or the raid's own read of the spawn list after the kill says when it comes back.
     for (const w of watch) {
@@ -1504,17 +1505,14 @@ export class Daemon {
     const log = noteSightings(metaGet(this.db, "bossLog") ?? [], watch, seen);
     metaSet(this.db, "bossLog", log);
     const raidedAt = (o) => history.findLast((h) => h.id === killId({ ...o, source: "open" }))?.endedAt ?? 0;
-    const open = openBosses({ seen, daily: st.daily, goal, gear, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
+    const open = openBosses({ seen, daily: st.daily, gear, now }).filter((o) => seen[npcKey(o.name)].seenAt > raidedAt(o));
     const candidates = [...(st.daily?.bosses ?? []), ...potions, ...credits, ...standing, ...watch.filter((w) => !(st.daily?.bosses ?? []).some((b) => b.key === w.key))];
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
-    // The raid goal's bosses that no raid has killed yet go before the others (data/raid-goal.json).
-    const killedGoal = new Set(this.db.query("SELECT data FROM progress WHERE kind = 'raid'").all().map((r) => JSON.parse(r.data ?? "{}").goal).filter(Boolean));
-    const first = candidates.filter((b) => goalBoss(b.name, goal) && !killedGoal.has(goalBoss(b.name, goal))).map((b) => b.key);
     // Raid time that still runs for five minutes carries one more raid without a new hour.
     const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
     const hours = raidHours(metaGet(this.db, "raidHours") ?? [], st.time, now);
     metaSet(this.db, "raidHours", hours);
-    // The account's coin decides whether an open-world boss outside the goal buys an hour. Every
+    // The account's coin decides whether an open-world boss buys an hour. Every
     // pass reads it, as the Manage Money panel does, and keeps it for the ledger (tools/lib/coin.mjs).
     const money = await this.relay.evaluate(reader.targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`boss pass: the account's coin: ${e.message}`), null));
     const coinPp = money?.totalPp ?? null;
@@ -1543,37 +1541,33 @@ export class Daemon {
       const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
-    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, credits, standing, open, paid, canBuy, odds: odds.odds, value, first, waiting });
+    const { kill, kills, skipped } = nextBossKill({ daily: st.daily, potions, credits, standing, open, paid, canBuy, odds: odds.odds, value, waiting });
     // A look goes to every watched boss the account could kill, whether or not an hour of raid
-    // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: a goal
-    // boss, and another one inside paid raid time or for a kill worth an hour the coin pays.
+    // time can be bought now. `wanted` is a boss the plan would raid at once if it stood: inside
+    // paid raid time, or for a kill worth an hour the coin pays.
     const raidOdds = (w) => odds.odds[w.key]?.raid;
     const could = (w) => !waiting(w, "open") && killable(raidOdds(w));
-    const wanted = (w) => (w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth);
+    const wanted = (w) => paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth);
     const spawnsResetAt = Math.max(spawnReset(log), metaGet(this.db, "serverRestartAt") ?? 0);
     const looks = nextLooks({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt, worth: (w) => value[w.key] ?? 0 });
     const look = looks[0] ?? null;
-    // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
-    const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
     // What one more credit is worth: the mean over the casino's bosses of what a kill brings, with
     // a boss the simulated raid does not kill at nothing, and none while no boss is simulated. And
     // the credits that wait for a raid that kills their boss, which hold further rolls back.
-    const casinoValue = bossValues({ bosses: casino, targets: this.targetWants, hoursPerLevel });
     const fought = casino.filter((c) => odds.odds[c.key]?.raid);
     const creditMean = fought.length ? casino.reduce((s, c) => s + (killable(odds.odds[c.key]?.raid) ? (casinoValue[c.key] ?? 0) : 0), 0) / casino.length : null;
     const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid)).length;
-    // The goal's and the casino's bosses the watch does not hold, for the dashboard: those only a
-    // credit summons, which their zone's spawn list shows as disabled or not at all, and one the
-    // raid leaves alone (`SIM_BLIND`). Each with the credits held for it and what its zone last showed.
-    const offWatch = [...new Map([...goal.map((name) => [npcKey(name), name]), ...casino.map((c) => [npcKey(c.name), c.name])]).entries()]
-      .filter(([k]) => !watch.some((w) => npcKey(w.name) === k))
-      .map(([k, name]) => {
-        const c = casino.find((x) => npcKey(x.name) === k);
-        const key = c?.key ?? k;
-        const s = seen[k];
-        return { key, name, zone: c?.zone ?? s?.zone ?? null, goal: Boolean(goalBoss(name, goal)), seen: s ? { state: s.state, seenAt: s.seenAt } : null, credits: credits.filter((x) => x.key === key).map((x) => x.who), value: value[key] ?? casinoValue[key] ?? 0, raid: odds.odds[key]?.raid ?? null };
+    // The casino's bosses the watch does not hold, for the dashboard: those only a credit summons,
+    // which their zone's spawn list shows as disabled or not at all, and one the raid leaves alone
+    // (`SIM_BLIND`). Each with the credits held for it and what its zone last showed.
+    const offWatch = casino
+      .filter((c) => !watch.some((w) => npcKey(w.name) === npcKey(c.name)))
+      .map((c) => {
+        const { key, name } = c;
+        const s = seen[npcKey(name)];
+        return { key, name, zone: c.zone ?? s?.zone ?? null, seen: s ? { state: s.state, seenAt: s.seenAt } : null, credits: credits.filter((x) => x.key === key).map((x) => x.who), value: value[key] ?? casinoValue[key] ?? 0, raid: odds.odds[key]?.raid ?? null };
       });
-    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, others: offWatch, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    const plan = { t: now, kill, skipped, value, open, credits: credits.length, creditsDue, creditMean, offWatch, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";
     // A raid fights with snapshots of the characters (docs/client-internals.md, "Recruits"), so it
@@ -2121,8 +2115,8 @@ export class Daemon {
     tr.state = res.state;
 
     if (usable) {
-      // What this look shows of the goal's progress: level-ups and raid kills.
-      const seen = snapshotProgress({ snap, levels, now, goal: this.raidGoal() });
+      // What this look shows of the account's progress: level-ups and raid kills.
+      const seen = snapshotProgress({ snap, levels, now });
       const kills = seen.filter((e) => e.kind === "raid" && !this.db.query("SELECT 1 FROM progress WHERE key = ?").get(e.key));
       recordProgress(this.db, seen, this.groups());
       for (const e of kills) void this.killPicture(tr, e).catch((err) => this.log(`raid kill picture: ${err.message}`));
@@ -2367,18 +2361,6 @@ export class Daemon {
     const file = existsSync(first) ? join(dir, `${day}-${slug}-kill-${at.toTimeString().slice(0, 5).replace(":", "")}.jpg`) : first;
     await writeFile(file, await this.relay.screenshot(tr.targetId));
     this.log(`raid kill: ${e.data.boss}, picture in ${relative(REPO, file)}`);
-  }
-
-  /** The bosses of the raid goal (data/raid-goal.json), read once. */
-  raidGoal() {
-    if (!this.raidBosses) {
-      try {
-        this.raidBosses = JSON.parse(readFileSync(join(REPO, "data/raid-goal.json"), "utf8")).bosses ?? [];
-      } catch {
-        this.raidBosses = [];
-      }
-    }
-    return this.raidBosses;
   }
 
   /**

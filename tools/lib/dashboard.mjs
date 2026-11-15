@@ -616,12 +616,12 @@ export function statusView({ now, daemon, rows, needs, xp24 }) {
 /**
  * One entry per success criterion of the goal (docs/plans/leveling-plan.md): `share` is its bar
  * from 0 to 1 and null where nothing measures it yet, with the numbers the collector has. `recent`
- * is what moved the bars in the last 24 hours (`progressCounts`). The raid bar is the share of the
- * goal's bosses (`raidGoal`, data/raid-goal.json) that a raid task has killed. `levels.event` is
+ * is what moved the bars in the last 24 hours (`progressCounts`). Raid kills have no bar: a boss
+ * counts for the gear its kill brings, which the gear bar holds. `levels.event` is
  * the XP event that runs at `now` (the collector's meta key `xpEvents`), `{ factor, since }`, whose
  * XP the estimate to the target counts at its normal worth.
  */
-export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [] }) {
+export function goalView(db, { now, roster, plan, groupOf, catalog }) {
   const members = roster.groups.flatMap((g) => g.members);
   const eta = (plan?.groups ?? []).filter((g) => g.eta?.[roster.target]).map((g) => ({ group: groupOf.get(g.leader) ?? null, leader: g.leader, ...g.eta[roster.target], slowest: g.slowest }));
   const slowest = eta.sort((a, b) => b.hours - a.hours)[0] ?? null;
@@ -635,11 +635,8 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
   const wanted = questPieces.filter((o) => (missing[o.id] ?? 0) > 0);
   const reached = members.filter((m) => (m.level ?? 0) >= AA_LEVEL).length;
   const kills = db.query("SELECT t, name, text, data FROM progress WHERE kind = 'raid' ORDER BY t").all().map((r) => ({ t: r.t, by: r.name, text: r.text, ...JSON.parse(r.data ?? "{}") }));
-  const killed = [...new Set(kills.map((k) => k.goal).filter(Boolean))];
   const bosses = metaRow(db, "bossPlan");
   const lately = kills.filter((k) => k.t > now - DAY);
-  const firstKills = new Map();
-  for (const k of kills) if (k.goal && !firstKills.has(k.goal)) firstKills.set(k.goal, k.t);
   return {
     recent: progressCounts(db, now - DAY),
     levels: { share: roster.progress, atTarget: roster.atTarget, characters: roster.characters, target: roster.target, minLevel: roster.minLevel, meanLevel: roster.meanLevel, maxLevel: roster.maxLevel, slowest, noEstimate: (plan?.idle ?? []).map((leader) => groupOf.get(leader) ?? leader), planWindowMin: plan?.windowMin ?? null, event: span ? { factor: span.factor, since: span.from, holds: (coordinator?.last?.eventHolds ?? []).map((h) => ({ group: groupOf.get(h.label) ?? h.label, kind: h.kind, why: h.why })) } : null },
@@ -647,12 +644,12 @@ export function goalView(db, { now, roster, plan, groupOf, catalog, raidGoal = [
     aa: aaView(metaRow(db, "aa") ?? {}, { reached, characters: roster.characters, plan: metaRow(db, "aaPlan") }),
     epics: { share: epics?.share ?? null, holders: epics?.holders ?? null, needers: epics?.needers ?? null, started: epics?.started ?? null, chains: epics?.chains.length ?? 0, held: coordinator?.last?.epicHolders?.filter((n) => members.some((m) => m.name === n)).length ?? null, characters: roster.characters, missingCopies: wanted.reduce((a, o) => a + missing[o.id], 0), missingPieces: wanted.length, passT: coordinator?.last?.t ?? null },
     raids: {
-      share: raidGoal.length ? killed.length / raidGoal.length : null, goal: raidGoal, killed, kills: kills.length, recent: [...firstKills.values()].filter((t) => t > now - DAY).length, others: lately.filter((k) => !k.goal).length, next: bosses?.next ?? [], resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
+      kills: kills.length, recent: lately.length, next: bosses?.kill ? { name: bosses.kill.name, source: bosses.kill.source } : null, resets: bosses?.resets ?? null, resetAt: bosses?.resetAt ?? null, last: kills.at(-1) ?? null, level: AA_LEVEL, reached, characters: roster.characters,
       // The bosses the open world puts up (`watchRows` of tools/lib/boss-plan.mjs), the look the
       // plan sends next, the raid hours of the last day and what an hour for the open world needs.
       watch: (bosses?.watch ?? []).map((w) => ({ ...w, zone: zoneName(catalog, w.zone) })),
-      // The goal's and the casino's bosses off the watch, each with the raid's last kill of it.
-      others: (bosses?.others ?? []).map((o) => ({ ...o, zone: zoneName(catalog, o.zone), killedAt: kills.findLast((k) => k.boss === o.name)?.t ?? null })),
+      // The casino's bosses off the watch, each with the raid's last kill of it.
+      offWatch: (bosses?.offWatch ?? []).map((o) => ({ ...o, zone: zoneName(catalog, o.zone), killedAt: kills.findLast((k) => k.boss === o.name)?.t ?? null })),
       look: bosses?.look ? { ...bosses.look, zone: zoneName(catalog, bosses.look.zone), others: Math.max(0, (bosses.looks ?? 1) - 1) } : null,
       hours: bosses?.hours ?? null,
       coinPp: bosses?.coinPp ?? null,
@@ -793,7 +790,7 @@ function tradeOf(slots) {
 
 /**
  * The detail a row of one event shows beside its text: for gear, the planned gain in the group's
- * XP rate and the set score before and after, and for a raid kill whether the boss is one of the goal's.
+ * XP rate and the set score before and after.
  */
 function detailOf(kind, data) {
   if (kind === "gear") {
@@ -801,7 +798,6 @@ function detailOf(kind, data) {
     const score = data.score?.target > 0 ? `set ${Math.round((100 * data.score.before) / data.score.target)}% to ${Math.round((100 * data.score.after) / data.score.target)}% of target` : null;
     return [gain > 0 ? `group XP rate +${gainPercent(gain)}%${tradeOf(data.slots ?? [])}` : null, score].filter(Boolean).join(", ") || null;
   }
-  if (kind === "raid") return data.goal ? "a boss of the goal" : null;
   return null;
 }
 

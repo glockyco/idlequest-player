@@ -267,8 +267,8 @@ export function spearman(xs, ys) {
   return da && db ? num / Math.sqrt(da * db) : null;
 }
 
-// The goal bosses of docs/plans/raid-roster.md by npc_types id.
-export const GOAL_BOSSES = [
+// The raid's hardest bosses (docs/plans/raid-roster.md) by npc_types id.
+export const HARD_BOSSES = [
   { name: "Cazic-Thule", npc: 72003 },
   { name: "Tunare", npc: 127098 },
   { name: "The Avatar of War", npc: 113457 },

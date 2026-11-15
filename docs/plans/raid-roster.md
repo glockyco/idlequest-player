@@ -1,6 +1,6 @@
 # Raid roster plan
 
-Which characters the raid goal needs, how to split them into leveling groups, and what is still unknown. The rules for building and running a group are in the [progression guide](../guide.md). Raid access, resets and Raid Resolve are described in [systems-research.md](systems-research.md), the epic ranking in [epics.md](epics.md).
+Which characters the hardest raids need, how to split them into leveling groups, and what is still unknown. The rules for building and running a group are in the [progression guide](../guide.md). Raid access, resets and Raid Resolve are described in [systems-research.md](systems-research.md), the epic ranking in [epics.md](epics.md).
 
 `C/` is the content snapshot (`~/src/github.com/brynnb/idlequest-content`), `.re/js/` the downloaded client. Boss numbers are snapshot fields, not measured fights. Every character is one roster member. No class holds a slot because of the bot or because of who leads group 1. Claims carry one of three labels: a file and line or a measurement (verified), "assumption" (a number this plan chose) or "inference" (reasoning from outside the client, such as P99 or EQEmu knowledge).
 

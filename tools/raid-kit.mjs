@@ -6,7 +6,7 @@
 //     [--max-sec 900] [--screen-sec 90] [--screen-seeds 6] [--margin 1] [--validate] [--out <file>]
 //     [--heal-mode all-balanced] [--dps-mode dps-all-out] [--jobs N] [--seed-base 1] [--pick-seeds 2]
 //
-//   --boss          npc_types id or name. Without it the goal boss closest to a kill (kill chance, then
+//   --boss          npc_types id or name. Without it the hard boss closest to a kill (kill chance, then
 //                   mean kill time, then boss hit points left) of `--pick-seeds` fights each
 //   --seeds         fights of every full evaluation (default 6)
 //   --leader        the roster's leader, a character of data/roster.json (default the first one)
@@ -49,7 +49,7 @@ import { DEFAULT_JOBS } from "./raidsim/pool.mjs";
 import { DPS_MODES, HEAL_MODES, simulate } from "./raidsim/run.mjs";
 import { SLOT_BY_NUM } from "./lib/gear-data.mjs";
 import {
-  GOAL_BOSSES,
+  HARD_BOSSES,
   buildBatch,
   candidates,
   closestToKill,
@@ -138,7 +138,7 @@ try {
   if (opt("boss") !== undefined) boss = await bossSpec(await findBoss(opt("boss")));
   else {
     const scored = [];
-    for (const g of GOAL_BOSSES) {
+    for (const g of HARD_BOSSES) {
       const spec = await bossSpec(await findBoss(g.npc));
       const [r] = await run(spec, [{ label: g.name, entries }], { seeds: pickSeeds, onProgress: progress(g.name) });
       log(`${g.name}: ${r.summary.kills}/${r.summary.fights} kills, boss hit points left ${r.summary.bossHpLeftMean}`);

@@ -41,7 +41,7 @@ Removed: the fixed criteria table, the separate hours-to-level table (the estima
 
 ## Progress
 
-iqd records observed progress in the `progress` table (`tools/lib/progress.mjs`). The feed includes every recorded boss kill, including repeats and bosses outside the raid goal. The raid goal bar instead measures distinct goal bosses killed.
+iqd records observed progress in the `progress` table (`tools/lib/progress.mjs`). The feed includes every recorded boss kill, including repeats. Raid kills have no bar, since a boss counts for the gear its kill brings: the goal row shows the kills of the last 24 hours and what the boss plan kills next.
 
 | Kind | Source | Milestone |
 | --- | --- | --- |
@@ -50,14 +50,14 @@ iqd records observed progress in the `progress` table (`tools/lib/progress.mjs`)
 | item | A loot line of an item the account still wants: a chain piece its needers lack copies of, an opportunity item with copies missing, or a gear target. | None. |
 | chain | Two coordinator passes: a character became a holder of a chain's reward, or started a chain. | A finished chain. Starting one is a minor step. |
 | aa | Two AA states of a character: a trained rank, or earned points. | None. Earned points are a minor step. |
-| raid | The bot's raid alert of a kill. | A boss of `data/raid-goal.json`, whose count the raid bar shows. |
+| raid | The bot's raid alert of a kill. | None. |
 
 - An item counts from its loot line, because Inventory Search cannot tell a new copy from a search that missed one. A copy beyond what the account lacks is surplus and does not count: of a gear target's item the first copy since the gear pass is for the character the row names, each further one for one of the other characters that can use it, and one beyond those is not listed. A copy that goes back into the loot window, as a second copy of a lore item does, was not looted.
 - A character whose party a gear pass cannot read keeps its last worn items (docs/collector.md, Gear), so a party that reappears is not counted as new gear.
 - A group's ordinary level-ups of one day share a row, and so do the upgrades of one gear task or one gear pass, because twelve parties level about hourly and a task upgrades a dozen characters. A click opens the row's events. A group's level-ups to one milestone share a row within half an hour.
 - An item shows as its icon and name with the game's item window on hover, and an upgrade shows the replaced item's icon before the new one, or an empty box for a slot that was empty. Rows record item ids, the loot line's from its loot packet, and the cards come from the card store (`tools/lib/cards.mjs`), which the sheet and Most wanted read too.
-- The bars' green numbers count levels, gear slots, wanted items, finished chains and AA ranks over the last 24 hours. The raid bar's green number counts goal bosses whose first recorded kill was within that window, not every raid kill. Minor steps do not count.
-- `iqd status` prints the Progress 24-hour counts and the latest milestone. Its raid count includes repeat kills and bosses outside the goal, unlike the raid bar's green count.
+- The bars' green numbers count levels, gear slots, wanted items, finished chains and AA ranks over the last 24 hours. Minor steps do not count.
+- `iqd status` prints the Progress 24-hour counts and the latest milestone. Its raid count includes repeat kills.
 - Gear gains in Progress and the character sheet, and drop gains in Most wanted, are percentages of the group's XP rate, not percentages of an item's score. Gear score bars separately compare the worn set with its target.
 
 ## Text on the page

@@ -29,9 +29,6 @@ export const MILESTONE_LEVELS = [46, 50, 55, 60];
 /** A name for matching across the client's spellings: lowercase letters only, without a leading "the". */
 export const looseName = (s) => String(s ?? "").toLowerCase().replace(/^the[\s_]+/, "").replace(/[^a-z]/g, "");
 
-/** The boss of the raid goal (`goal`, names from data/raid-goal.json) that `name` is, or null. */
-export const goalBoss = (name, goal = []) => goal.find((g) => looseName(g) === looseName(name)) ?? null;
-
 /**
  * Store `events`, each once by its `key`, with the roster group of its character from `groupOf`
  * (name to group) unless the event names one. Returns how many were new.
@@ -73,17 +70,16 @@ export function levelEvents(ups, t) {
 
 /**
  * The progress a tab snapshot shows: level-ups against `levels`, and raid kills from the bot's
- * alerts (`killed`). `goal` is the raid goal's boss list.
+ * alerts (`killed`).
  */
-export function snapshotProgress({ snap, levels, now, goal = [] }) {
+export function snapshotProgress({ snap, levels, now }) {
   const out = levelEvents(levelUps(snap, levels), now);
   const by = snap.leader?.name ?? null;
   // A bridge reinstalled by a code update starts a new page session and the snapshot sends the
   // bot's last quarter hour of alerts again, so an alert's key is its leader and time, not its seq.
   for (const a of snap.bot?.alerts ?? []) {
     if (!a.killed) continue;
-    const boss = goalBoss(a.killed, goal);
-    out.push({ t: a.t, kind: "raid", sig: boss ? 2 : 1, name: by, text: `${by ?? "A raid"}'s raid killed ${a.killed}`, data: { boss: a.killed, goal: boss }, key: `raid:${by}:${a.t}` });
+    out.push({ t: a.t, kind: "raid", sig: 1, name: by, text: `${by ?? "A raid"}'s raid killed ${a.killed}`, data: { boss: a.killed }, key: `raid:${by}:${a.t}` });
   }
   return out;
 }

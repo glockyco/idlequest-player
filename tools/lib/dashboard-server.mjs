@@ -114,7 +114,7 @@ export function startDashboard({ db, port = DEFAULT_PORT, log = console.log }) {
           page: Math.max(...Object.values(files).map(([f]) => statSync(join(PAGE, f)).mtimeMs)),
           status: statusView({ now, daemon, rows, needs, xp24: xpRate(minutes, now) }),
           needs,
-          goal: goalView(db, { now, roster, plan: plan.value, groupOf, catalog, raidGoal: readJson("data/raid-goal.json", { bosses: [] }).bosses }),
+          goal: goalView(db, { now, roster, plan: plan.value, groupOf, catalog }),
           progress,
           groups: rows,
           hourly: hourlyView(minutes, now),

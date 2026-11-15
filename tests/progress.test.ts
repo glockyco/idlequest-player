@@ -2,11 +2,10 @@
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
 import { aaChanges, chainChanges, equipProgress, gearChanges, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "../tools/lib/progress.mjs";
-import { goalView, itemIdsOf, makeCatalog, progressRows, progressView } from "../tools/lib/dashboard.mjs";
+import { itemIdsOf, makeCatalog, progressRows, progressView } from "../tools/lib/dashboard.mjs";
 
 const leader = (level: number) => ({ id: 1, name: "Tank", level, class: "Warrior" });
 const snap = (level: number, extra: Record<string, unknown> = {}) => ({ pageSession: 7, leader: leader(level), party: [], ...extra });
-const GOAL = ["The Avatar of War", "Vulak`Aerr"];
 
 test("a level-up is one event per level gained, a first look is none, and a repeat counts once", () => {
   const db = openDb(":memory:");
@@ -22,20 +21,20 @@ test("a level-up is one event per level gained, a first look is none, and a repe
   expect(db.query("SELECT grp FROM progress").all()).toEqual([{ grp: "G1" }, { grp: "G1" }]);
 });
 
-test("a raid kill counts once across a bridge reinstall, and a boss of the goal is a milestone", () => {
+test("a raid kill counts once across a bridge reinstall", () => {
   const db = openDb(":memory:");
   const alerts = [
     { seq: 4, t: 5000, kind: "raid", killed: "the Avatar of War" },
     { seq: 5, t: 6000, kind: "raid", killed: "an unkempt fanatic" },
   ];
-  const first = snapshotProgress({ snap: snap(50, { bot: { alerts } }), levels: {}, now: 7000, goal: GOAL });
-  expect(first.map((e) => [e.text, e.sig, e.data.goal])).toEqual([
-    ["Tank's raid killed the Avatar of War", 2, "The Avatar of War"],
-    ["Tank's raid killed an unkempt fanatic", 1, null],
+  const first = snapshotProgress({ snap: snap(50, { bot: { alerts } }), levels: {}, now: 7000 });
+  expect(first.map((e) => [e.text, e.data.boss])).toEqual([
+    ["Tank's raid killed the Avatar of War", "the Avatar of War"],
+    ["Tank's raid killed an unkempt fanatic", "an unkempt fanatic"],
   ]);
   expect(recordProgress(db, first)).toBe(2);
   // A code update reinstalls the bridge: a new page session sends the same alerts with new seqs.
-  const again = snapshotProgress({ snap: snap(50, { pageSession: 8, bot: { alerts: alerts.map((a) => ({ ...a, seq: a.seq + 100 })) } }), levels: {}, now: 8000, goal: GOAL });
+  const again = snapshotProgress({ snap: snap(50, { pageSession: 8, bot: { alerts: alerts.map((a) => ({ ...a, seq: a.seq + 100 })) } }), levels: {}, now: 8000 });
   expect(recordProgress(db, again)).toBe(0);
 });
 
@@ -192,16 +191,4 @@ test("the progress window keeps rows beyond 150 and finds its milestone independ
   const view = progressView(db, now);
   expect(view.rows.length).toBe(200);
   expect(view.latest?.t).toBe(now - 199 * 60000);
-});
-
-test("raid bar progress counts first goal kills, not repeat kills", () => {
-  const db = openDb(":memory:");
-  const now = 1_800_000_000_000;
-  const insert = db.query("INSERT INTO progress (t, kind, sig, name, text, data, key) VALUES (?, 'raid', 2, 'Tank', 'kill', ?, ?)");
-  insert.run(now - 2 * 86400000, JSON.stringify({ goal: "Old" }), "old");
-  insert.run(now - 60000, JSON.stringify({ goal: "Old" }), "repeat");
-  insert.run(now - 30000, JSON.stringify({ goal: "New" }), "new");
-  const view = goalView(db, { now, roster: { groups: [], characters: 0, target: 60 }, plan: null, groupOf: new Map(), catalog: makeCatalog(), raidGoal: ["Old", "New"] });
-  expect(view.raids.recent).toBe(1);
-  expect(view.raids.killed).toEqual(["Old", "New"]);
 });

@@ -33,17 +33,17 @@ test("a raid runs as soon as one is due, the most valuable first, potions includ
   expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds }).kill).toMatchObject({ key: "lodizal" });
 });
 
-test("bosses go by the worth of their drops, a goal boss among them, ties by the shorter raid, and a goal boss the simulator does not kill waits", () => {
+test("bosses go by the worth of their drops, ties by the shorter raid, and a boss the simulator does not kill waits", () => {
   // A free summon is the scarce currency, not the raid's minutes: Cazic-Thule's ten-minute fight
   // for loot worth 1.7 hours goes before Lady Vox's 21 s for 1.2, and after her 21 s for 2.69.
   const d = daily(2, [boss("vox"), boss("cazic")]);
   const odds = { vox: { raid: { ...win, meanSec: 21 } }, cazic: { raid: { ...win, meanSec: 589 } } };
-  expect(nextBossKill({ daily: d, odds, value: { vox: 2.69, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
-  expect(nextBossKill({ daily: d, odds, value: { vox: 1.2, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
+  expect(nextBossKill({ daily: d, odds, value: { vox: 2.69, cazic: 1.7 } }).kill).toMatchObject({ key: "vox" });
+  expect(nextBossKill({ daily: d, odds, value: { vox: 1.2, cazic: 1.7 } }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
   // Of equal worth, the shorter raid goes first.
   expect(nextBossKill({ daily: d, odds, value: { vox: 1.7, cazic: 1.7 } }).kill).toMatchObject({ key: "vox" });
-  // A goal boss the simulator does not kill in every fight still waits.
-  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value: { vox: 2.69, cazic: 1.7 }, first: ["cazic"] }).kill).toBeNull();
+  // A boss the simulator does not kill in every fight waits, whatever its worth.
+  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value: { vox: 2.69, cazic: 1.7 } }).kill).toBeNull();
 });
 
 test("a boss whose last raid is not due stands aside for the next one", () => {
@@ -69,7 +69,7 @@ test("a raid boss that stands in the open world is killed there, without a summo
     "master yael": { name: "Master_Yael", zone: "hole", level: 56, state: "alive", seenAt: NOW - 60000 },
   };
   const d = daily(0, [{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge", status: "limit" }, { key: "innoruuk", name: "Innoruuk", zone: "hateplane", status: "limit" }, { key: "vox", name: "Lady Vox", zone: "permafrost", status: "limit" }]);
-  const open = openBosses({ seen, daily: d, goal: ["Lord Yelinak"], now: NOW });
+  const open = openBosses({ seen, daily: d, gear: ["Lord Yelinak"], now: NOW });
   // The dead one, the one last seen three hours ago and the one on no list are left out.
   expect(open).toEqual([{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge" }, { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine" }]);
   const odds = { phinigel: { raid: win, groups: { G1: win } }, "lord yelinak": { raid: lose } };
@@ -77,18 +77,20 @@ test("a raid boss that stands in the open world is killed there, without a summo
   expect(r.kill).toMatchObject({ key: "phinigel", zone: "kedge", way: "raid", source: "open" });
   expect(killId(r.kill)).toBe("boss:open:phinigel");
   expect(r.skipped.map((s) => s.key)).toEqual(["lord yelinak"]);
-  // A goal boss that stands is planned, and a boss that stands is not summoned.
-  const goal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2, "lord yelinak": 21 }, first: ["lord yelinak"] });
-  expect(goal.kill).toMatchObject({ key: "lord yelinak", source: "open" });
+  // The boss worth most goes first, and a boss that stands is not summoned.
+  const best = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open, odds: { ...odds, "lord yelinak": { raid: win }, innoruuk: { raid: win } }, value: { phinigel: 0.17, innoruuk: 1.2, "lord yelinak": 21 } });
+  expect(best.kill).toMatchObject({ key: "lord yelinak", source: "open" });
   const noGoal = nextBossKill({ daily: daily(2, [...d.bosses.map((b) => ({ ...b, status: "available" }))]), open: [open[0]], odds: { ...odds, innoruuk: { raid: win } }, value: { phinigel: 5, innoruuk: 1.2 } });
   expect(noGoal.kill).toMatchObject({ key: "phinigel", source: "open" });
-  // Without raid time that is paid, a goal boss buys its hour and the others wait for the budget.
-  const unpaid = nextBossKill({ daily: d, open, paid: false, odds: { ...odds, "lord yelinak": { raid: win } }, value: { phinigel: 0.17 }, first: ["lord yelinak"] });
-  expect(unpaid.kill).toMatchObject({ key: "lord yelinak", source: "open" });
-  expect(unpaid.skipped.map((s) => s.key)).toEqual(["phinigel"]);
+  // Without raid time that is paid, the bosses that stand wait for an hour the coin pays.
+  const unpaid = nextBossKill({ daily: d, open, paid: false, odds: { ...odds, "lord yelinak": { raid: win } }, value: { phinigel: 0.17, "lord yelinak": 21 } });
+  expect(unpaid.kill).toBeNull();
+  expect(unpaid.skipped.map((s) => s.key)).toEqual(["phinigel", "lord yelinak"]);
+  // With coin for the hour, kills worth one buy it together.
+  expect(nextBossKill({ daily: d, open, paid: false, canBuy: true, odds: { ...odds, "lord yelinak": { raid: win } }, value: { phinigel: 0.17, "lord yelinak": 21 } }).kill).toMatchObject({ key: "lord yelinak", source: "open" });
 });
 
-test("an open-world boss outside the goal buys an hour the account's coin pays, for kills worth one", () => {
+test("an open-world boss buys an hour the account's coin pays, for kills worth one", () => {
   // Cazic-Thule and Trakanon come back two minutes apart on 2026-11-13: one hour for both.
   const open = [{ key: "trakanon", name: "Trakanon", zone: "sebilis" }, { key: "venril", name: "Venril Sathir", zone: "karnor" }];
   const odds = { trakanon: { raid: win }, venril: { raid: win } };
@@ -123,7 +125,6 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
   const NOW = 1_800_000_000_000;
   const H = 3600000;
   const d = daily(0, [{ key: "cazic", name: "Cazic-Thule", zone: "fearplane", status: "limit" }, { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", status: "limit" }, { key: "vox", name: "Lady Vox", zone: "permafrost", status: "limit" }]);
-  const goal = ["Cazic-Thule", "Lord Yelinak", "Tunare"];
   const spawns = new Map([
     ["Cazic-Thule", [{ zone: "fearplane", point: 13816, respawnMs: 72 * H, varianceMs: 7.2 * H }]],
     ["Phinigel Autropos", [{ zone: "kedge", point: 4685, respawnMs: 12 * H }]],
@@ -132,21 +133,20 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
     ["Lord Yelinak", [{ zone: "skyshrine", point: 24841, respawnMs: 72 * H }]],
     ["Tunare", []],
   ]);
-  const watch = watchedBosses({ daily: d, goal, spawns });
+  // A boss whose drops the gear plan wants joins the daily list's, where a spawn point puts it up.
+  const watch = watchedBosses({ daily: d, gear: ["Lord Yelinak", "Tunare", "Cazic-Thule"], spawns });
   expect(watch).toEqual([
-    { key: "cazic", name: "Cazic-Thule", zone: "fearplane", respawnMs: 72 * H, varianceMs: 7.2 * H, goal: true },
-    { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", respawnMs: 12 * H, varianceMs: 0, goal: false },
-    { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", respawnMs: 72 * H, varianceMs: 0, goal: true },
+    { key: "cazic", name: "Cazic-Thule", zone: "fearplane", respawnMs: 72 * H, varianceMs: 7.2 * H },
+    { key: "phinigel", name: "Phinigel Autropos", zone: "kedge", respawnMs: 12 * H, varianceMs: 0 },
+    { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", respawnMs: 72 * H, varianceMs: 0, gear: true },
   ]);
-  // A gear target no group can kill joins the watch as a non-goal boss, and one that is also a goal
-  // boss stays a goal boss.
-  const withGear = watchedBosses({ daily: d, goal, gear: ["Narandi the Wretched", "Lord Yelinak"], spawns: new Map([...spawns, ["Narandi the Wretched", [{ zone: "greatdivide", point: 7, respawnMs: 72 * H }]]]) });
-  expect(withGear.filter((w) => w.gear || w.key === "lord yelinak").map((w) => [w.key, w.goal, w.gear ?? false])).toEqual([["lord yelinak", true, false], ["narandi the wretched", false, true]]);
+  const withGear = watchedBosses({ daily: d, gear: ["Narandi the Wretched", "Lord Yelinak"], spawns: new Map([...spawns, ["Narandi the Wretched", [{ zone: "greatdivide", point: 7, respawnMs: 72 * H }]]]) });
+  expect(withGear.filter((w) => w.gear).map((w) => w.key)).toEqual(["narandi the wretched", "lord yelinak"]);
   // Seen standing, it is an open-world boss for the raid, and an unlisted name is not.
   const standing = { "narandi the wretched": { name: "Narandi_the_Wretched", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 }, "a frost giant": { name: "a_frost_giant", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 } };
   expect(openBosses({ seen: standing, gear: ["Narandi the Wretched"], now: NOW })).toEqual([{ key: "narandi the wretched", name: "Narandi the Wretched", zone: "greatdivide" }]);
 
-  // Nobody has seen any of them: the goal's bosses first.
+  // Nobody has seen any of them.
   expect(nextLook({ watch, seen: {}, now: NOW })).toMatchObject({ key: "cazic", zone: "fearplane", until: 0, why: "no tab has seen it yet" });
   const seen = {
     "cazic thule": { name: "Cazic_Thule", zone: "fearplane", state: "respawning", respawnAt: NOW + 20 * 60000, seenAt: NOW - H },
@@ -175,7 +175,7 @@ test("a boss seen alive ahead of its timer voids the older sightings of bosses t
   // respawn time, and Lord Nagafen kept the respawn time of a look at noon.
   const H = 3600000;
   const T = 1_800_000_000_000;
-  const watch = [{ key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H, goal: false }, { key: "nagafen", name: "Lord Nagafen", zone: "soldungb", respawnMs: 72 * H, goal: false }];
+  const watch = [{ key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H }, { key: "nagafen", name: "Lord Nagafen", zone: "soldungb", respawnMs: 72 * H }];
   const nagafen = { name: "Lord_Nagafen", zone: "soldungb", state: "respawning", seenAt: T, respawnAt: T + 22 * H };
   const vox = (state: string, seenAt: number, respawnAt: number | null = null) => ({ name: "Lady_Vox", zone: "permafrost", state, seenAt, respawnAt });
   const before = { "lady vox": vox("respawning", T, T + 43 * H), "lord nagafen": nagafen };
@@ -198,7 +198,7 @@ test("a boss seen alive ahead of its timer voids the older sightings of bosses t
 test("the sightings keep each kill and respawn, and a boss that is down shows when it died and how long it stood", () => {
   const H = 3600000;
   const T = 1_800_000_000_000;
-  const watch = [{ key: "trakanon", name: "Trakanon", zone: "sebilis", respawnMs: 72 * H, goal: false }, { key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H, goal: false }];
+  const watch = [{ key: "trakanon", name: "Trakanon", zone: "sebilis", respawnMs: 72 * H }, { key: "vox", name: "Lady Vox", zone: "permafrost", respawnMs: 72 * H }];
   const at = (state: string, seenAt: number, respawnAt: number | null = null) => ({ trakanon: { name: "Trakanon", zone: "sebilis", state, seenAt, respawnAt } });
   // Down with a respawn at T, seen twice: one row. Then up, then down again 25 minutes after T.
   let log = noteSightings([], watch, at("respawning", T - 10 * H, T));
@@ -209,8 +209,8 @@ test("the sightings keep each kill and respawn, and a boss that is down shows wh
   expect(log.map((r) => [r.state, r.respawnAt, r.seenAt, r.lastAt])).toEqual([["respawning", T, T - 10 * H, T - 5 * H], ["alive", null, T + 60000, T + 60000], ["respawning", T + 25 * 60000 + 72 * H, T + H, T + H]]);
   const m25 = 25 * 60000;
   expect(watchRows({ watch, seen: down, log, value: { trakanon: 1.05 }, odds: { trakanon: { raid: win } }, now: T + 2 * H })).toEqual([
-    { key: "trakanon", name: "Trakanon", zone: "sebilis", goal: false, state: "down", seenAt: T + H, respawnAt: T + m25 + 72 * H, killed: { from: T + m25, to: T + m25 }, lived: { from: m25, to: m25 }, value: 1.05, raid: win },
-    { key: "vox", name: "Lady Vox", zone: "permafrost", goal: false, state: "unknown", seenAt: null, respawnAt: null, killed: null, lived: null, value: null, raid: null },
+    { key: "trakanon", name: "Trakanon", zone: "sebilis", state: "down", seenAt: T + H, respawnAt: T + m25 + 72 * H, killed: { from: T + m25, to: T + m25 }, lived: { from: m25, to: m25 }, value: 1.05, raid: win },
+    { key: "vox", name: "Lady Vox", zone: "permafrost", state: "unknown", seenAt: null, respawnAt: null, killed: null, lived: null, value: null, raid: null },
   ]);
   // The server draws the respawn inside its variance, so the respawn time alone dates the kill to
   // twice the variance, and the sightings narrow it: after the boss was last seen alive, and
@@ -324,8 +324,6 @@ test("the casino boss the server lists as resume stands for its summoner, and ho
   expect(wait(1.2, true)).toMatchObject({ key: "vox", source: "credit" });
   expect(wait(9, false)).toBeNull();
   expect(wait(9, true)).toMatchObject({ key: "vox", source: "credit" });
-  // A boss of the raid goal that no raid has killed goes also outside paid time.
-  expect(nextBossKill({ daily: daily(0, []), credits, standing: [], odds, value: { vox: 0 }, paid: false, first: ["vox"] }).kill).toMatchObject({ key: "vox" });
 });
 
 test("held open bosses add no worth to buying an hour", () => {
@@ -374,8 +372,8 @@ test("after a restart every boss gets a look at once, the one worth most first, 
   const T = 1_700_000_000_000;
   const H = 3600000;
   const watch = [
-    { key: "nagafen", name: "Lord Nagafen", zone: "soldungb", goal: false },
-    { key: "yelinak", name: "Lord Yelinak", zone: "skyshrine", goal: false },
+    { key: "nagafen", name: "Lord Nagafen", zone: "soldungb" },
+    { key: "yelinak", name: "Lord Yelinak", zone: "skyshrine" },
   ];
   const seen = {
     "lord nagafen": { name: "Lord_Nagafen", zone: "soldungb", state: "respawning", seenAt: T, respawnAt: T + 40 * H },
