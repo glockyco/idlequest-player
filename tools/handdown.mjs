@@ -41,7 +41,9 @@ await attachEffects(items, opt.content);
 
 const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
 const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
-const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: Number(opt["buy-pp"]) });
+// The class epics stay with whoever carries them, as in the coordinator's plan.
+const bound = new Set(Object.values(JSON.parse(await readFile(new URL("../data/epics.json", import.meta.url), "utf8"))).flat());
+const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: Number(opt["buy-pp"]), bound });
 if (opt.json) console.log(JSON.stringify(moves.map((m) => ({ ...m, fromGroup: groupOf.get(m.from) ?? "--", toGroup: groupOf.get(m.to) }))));
 else {
   const byGroup = Map.groupBy(moves, (m) => groupOf.get(m.to));
