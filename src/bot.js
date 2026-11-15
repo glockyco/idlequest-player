@@ -1664,6 +1664,35 @@
     if (full) (state.fullBags ??= {})[activeName(i)] = now();
     throw Object.assign(new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`), full ? { retryAfterMs: 10 * 60000 } : {});
   };
+  // How many items a member hands to the leader when a pull finds its bags full.
+  const SHED_ITEMS = 4;
+  /**
+   * The active member `m` hands up to `SHED_ITEMS` items from its bags to the tab's leader: the
+   * gear plan's spare items first (`m.spare`), then others, never a container, a class epic
+   * (`keepIds`), an item its quest takes or gives (`m.keepItems`) or one a running quest received.
+   * Returns the number handed over.
+   */
+  const shedLoad = async (i, m) => {
+    const leader = config.leaderId == null ? null : findCharacter(i, Number(config.leaderId));
+    if (!leader || leader.name === activeName(i)) return 0;
+    const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
+    const keep = m.keepItems?.() ?? { names: new Set(), ids: new Set() };
+    const spare = new Set((m.spare ?? []).map((x) => x.id));
+    const rows = inv
+      .filter((r) => r.bag >= 23 && r.bag <= 30 && r.itemDetails && !((r.itemDetails.bagslots || 0) > 0))
+      .filter((r) => !config.keepIds.includes(r.itemid) && !keep.ids.has(r.itemid) && !keep.names.has(r.itemDetails.Name ?? r.itemDetails.name) && !state.task?.keep?.includes(r.itemInstanceId))
+      .sort((a, b) => Number(spare.has(b.itemid)) - Number(spare.has(a.itemid)));
+    let moved = 0;
+    for (const r of rows) {
+      if (moved >= SHED_ITEMS) break;
+      const name = r.itemDetails.Name ?? r.itemDetails.name;
+      const g = await i.giveItem({ name, id: r.itemid }, Number(leader.id), { equip: false, settle: () => settleHeld(i) }).catch(() => ({ ok: false }));
+      if (!g.ok) break;
+      moved++;
+    }
+    if (moved) log(`made room in ${m.name}'s bags: handed ${moved} item(s) to ${leader.name}`);
+    return moved;
+  };
   // A gear task carries out moves of the roster gear plan (tools/lib/gear-plan.mjs): each pulls an
   // item from the account character that holds it, which Inventory Search does for NO DROP items
   // too, or buys it from the merchant its `buy` names after travelling to that zone, and gives it
@@ -1830,6 +1859,12 @@
       const r = await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(ref(item), s.buy.merchant, n - i.carried(ref(item))), 240000);
       if (i.carried(ref(item)) < n) throw new Error(`${s.buy.merchant} sold too little ${item} (${r.platinum ?? i.stores.character.getState().characterProfile?.platinum ?? 0} pp carried)`);
     };
+    // What the member's quest takes or gives, which stays in its bags when it makes room.
+    const questItems = () => {
+      const names = m.steps.flatMap((x) => [...(x.give ?? []), ...(x.hold ?? []), ...Object.keys(x.each ?? {}), ...(x.buy?.items ?? []), ...(x.craft?.inputs ?? []), x.craft?.output?.item, x.craft?.container?.item, x.expect]).filter(Boolean);
+      return { names: new Set(names.map((n) => String(ref(n)?.name ?? ref(n)))), ids: new Set(names.map((n) => ref(n)?.id).filter((id) => id != null)) };
+    };
+    m.keepItems = questItems;
     if (m.done) return;
     const t0 = now();
     await step(`stop for ${m.name}`, () => calm(i), 75000);
@@ -1915,11 +1950,27 @@
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
       // An item the NPC wants carried (`hold`, such as Jeb's Seal for Nadia's sack) stays with the member.
       for (const item of s.hold ?? []) need[item] = (need[item] ?? 0) + 1;
-      try {
+      const gather = async () => {
         for (const [item, n] of Object.entries(need)) {
           if (s.buy?.items?.includes(item)) await buy(s, item, n);
           // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
           while (i.carried(ref(item)) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
+        }
+      };
+      try {
+        try {
+          await gather();
+        } catch (e) {
+          // The member's bags are full. The reserve keeps only the leader's bags, so the member
+          // hands what its quest does not use to the leader, who has room and whose reserve decides
+          // what is surplus, and pulls again. Without this, 16 quest runs failed here in a day,
+          // three or four in a row for the Bard's, the Monk's and the Paladin's epics.
+          if (!BAGS_FULL.test(e?.message ?? "") || m.shed) throw e;
+          m.shed = true;
+          const moved = await step(`make room in ${m.name}'s bags`, () => shedLoad(i, m), 120000);
+          if (!moved) throw e;
+          delete state.fullBags?.[m.name];
+          await gather();
         }
       } catch (e) {
         // A hand-in whose item is gone was made by an earlier run that then lost a fight: Ewbanaqoa

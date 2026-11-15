@@ -1484,6 +1484,54 @@ test("a hand-in task serves each member in turn and then gives the tab back to t
   }
 });
 
+test("a member whose bags are full hands what its quest does not use to the leader and pulls again", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    f.bot.config.keepIds = [5532];
+    // Ivelugias on 2026-11-15: three runs of the Paladin's hand-in failed at the pull, 13 to 17
+    // minutes apart, before a fourth got through.
+    const bag = (slot: number, itemid: number, name: string) => ({ bag: 23, slot, itemid, itemInstanceId: 900 + slot, quantity: 1, itemDetails: { Name: name, price: 0, nodrop: 0, norent: 1, bagslots: 0, itemtype: 10 } });
+    const inv = [bag(0, 5532, "Water Sprinkler of Nem Ankh"), bag(1, 601, "Testimony"), bag(2, 602, "Worn Boots"), bag(3, 603, "Bent Ring")];
+    const held: Record<string, number> = {};
+    const handed: string[] = [];
+    let pulls = 0;
+    Object.assign(f.iq, {
+      carried: (item: string | { name: string }) => held[typeof item === "string" ? item : item.name] ?? 0,
+      pullItem: async (item: string) => {
+        pulls++;
+        // Full until two items have left the bags.
+        if (handed.length < 2) return { got: false, from: "Tagujazolu", reply: "Your inventory is full. Make room before transferring." };
+        held[item] = 1;
+        return { got: true, from: "Tagujazolu", reply: "Transferred." };
+      },
+      giveItem: async (item: { name: string }, id: number) => {
+        // The leader takes two and is full itself after that.
+        if (handed.length >= 2) return { ok: false, lines: [] };
+        handed.push(`${item.name} to ${id}`);
+        return { ok: true, lines: [] };
+      },
+      giveToNpc: async () => ({ ok: true, lines: [], reply: "thanks" }),
+      talkToNpc: async () => {},
+    });
+    const steps = [{ zone: "sro", npc: "Brother Hayle", give: ["Glowing Sword Hilt", "Testimony"] }];
+    f.bot.quest({ members: ["Edroun"], steps });
+    // The member's inventory is the active character's once the task has switched to it.
+    for (let k = 0; k < 400 && f.bot.state.task?.status === "running"; k++) {
+      if (f.sheet.characterProfile.name === "Edroun") (f.sheet.characterProfile as unknown as { inventory: unknown[] }).inventory = inv;
+      vi.advanceTimersByTime(500);
+      await flush();
+    }
+    // The epic and the Testimony the hand-in takes stay, and the two others go to the leader.
+    expect(handed).toEqual(["Worn Boots to 1", "Bent Ring to 1"]);
+    expect(pulls).toBeGreaterThanOrEqual(2);
+    expect(held["Glowing Sword Hilt"]).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a hand-in step that fails twice ends the task, wakes a script and gives the tab back", async () => {
   vi.useFakeTimers();
   try {
