@@ -468,7 +468,40 @@ function renderBosses(s) {
         w.value ? `<span title="Hours of a group's progress from the gear its drops give the account's characters">${w.value.toFixed(1)} h</span>` : `<span class="muted">${w.goal ? "the goal" : "nothing wanted"}</span>`,
         w.raid ? `${w.raid.kills} of ${w.raid.fights} fights` : `<span class="muted">not run</span>`,
       ]),
-    );
+    ) +
+    othersTable(s, R.others ?? []);
+}
+
+/**
+ * The goal's and the casino's bosses that the table above lacks: most come only by a casino
+ * credit, and one the raid leaves alone. With the credits held, the raid's last kill, what a kill
+ * is worth and what the simulator says.
+ */
+function othersTable(s, rows) {
+  if (!rows.length) return "";
+  const how = (o) =>
+    o.raid?.error
+      ? `no raid <span class="muted">${esc(o.raid.error)}</span>`
+      : o.credits.length
+        ? `<span class="pill accent">credit</span> held by ${esc(o.credits.join(", "))}`
+        : o.seen && o.seen.state !== "disabled"
+          ? `${o.seen.state === "alive" ? "stood" : "down"} in its zone <span class="muted">${ago(s.now, o.seen.seenAt)}</span>`
+          : `<span class="muted">only by a casino credit, none held</span>`;
+  const sorted = rows.slice().sort((a, b) => Number(b.goal) - Number(a.goal) || b.credits.length - a.credits.length || (b.value ?? 0) - (a.value ?? 0));
+  return (
+    `<p class="muted small">The goal's and the casino's other bosses. Most have no place in the open world: a casino credit summons them for the character that won it.</p>` +
+    table(
+      ["Boss", "Zone", "Now", "Killed by the raid", "A kill is worth", "Raid simulator"],
+      sorted.map((o) => [
+        `${esc(o.name)}${o.goal ? ` <span class="pill task" title="One of the goal's nine bosses">goal</span>` : ""}`,
+        esc(o.zone ?? ""),
+        how(o),
+        o.killedAt ? ago(s.now, o.killedAt) : "",
+        o.value ? `${o.value.toFixed(1)} h` : `<span class="muted">${o.goal ? "the goal" : "nothing wanted"}</span>`,
+        o.raid ? `${o.raid.kills} of ${o.raid.fights} fights` : `<span class="muted">not run</span>`,
+      ]),
+    )
+  );
 }
 
 /** The epic chains someone still needs, and how many every eligible character has finished. */

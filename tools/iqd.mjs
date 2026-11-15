@@ -1562,7 +1562,18 @@ export class Daemon {
     const fought = casino.filter((c) => odds.odds[c.key]?.raid);
     const creditMean = fought.length ? casino.reduce((s, c) => s + (killable(odds.odds[c.key]?.raid) ? (casinoValue[c.key] ?? 0) : 0), 0) / casino.length : null;
     const creditsDue = credits.filter((c) => killable(odds.odds[c.key]?.raid)).length;
-    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
+    // The goal's and the casino's bosses the watch does not hold, for the dashboard: those only a
+    // credit summons, which their zone's spawn list shows as disabled or not at all, and one the
+    // raid leaves alone (`SIM_BLIND`). Each with the credits held for it and what its zone last showed.
+    const offWatch = [...new Map([...goal.map((name) => [npcKey(name), name]), ...casino.map((c) => [npcKey(c.name), c.name])]).entries()]
+      .filter(([k]) => !watch.some((w) => npcKey(w.name) === k))
+      .map(([k, name]) => {
+        const c = casino.find((x) => npcKey(x.name) === k);
+        const key = c?.key ?? k;
+        const s = seen[k];
+        return { key, name, zone: c?.zone ?? s?.zone ?? null, goal: Boolean(goalBoss(name, goal)), seen: s ? { state: s.state, seenAt: s.seenAt } : null, credits: credits.filter((x) => x.key === key).map((x) => x.who), value: value[key] ?? casinoValue[key] ?? 0, raid: odds.odds[key]?.raid ?? null };
+      });
+    const plan = { t: now, kill, skipped, value, first, next, open, credits: credits.length, creditsDue, creditMean, others: offWatch, look, looks: looks.length, watch: watchRows({ watch, seen, log, value, odds: odds.odds, now, resetAt: spawnsResetAt }), hours: hoursLastDay(hours, now), coinPp, spawnsResetAt, resets: st.daily?.resetsRemaining ?? null, resetAt: st.daily?.nextResetAt ?? null, raiding, standing, price: st.time?.pricePp ?? null };
     metaSet(this.db, "bossPlan", plan);
     const free = (t) => t && !t.stale && t.task?.status !== "running";
     // A raid fights with snapshots of the characters (docs/client-internals.md, "Recruits"), so it
