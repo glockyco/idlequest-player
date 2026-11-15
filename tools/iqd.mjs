@@ -23,7 +23,7 @@ import { OPEN_BUY, RAID_MODES, SIM_BLIND, bossParts, bossValues, canBuyHour, cas
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
-import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, recordPurse, spendable } from "./lib/coin.mjs";
+import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, HELD_CREDITS, recordPurse, spendable } from "./lib/coin.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -319,7 +319,7 @@ export function snapshotInPage(a) {
         // it knows it waits until (`until`) are the coordinator's, for its holds and the long-task rule.
         // A gear task's purchases a merchant refused, by not standing in the Path To list or not
         // selling the item, so the gear pass leaves those goods out for a day (`refusedGoods`).
-        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.stepAt != null ? { stepAt: st.task.stepAt } : {}), ...(st.task.timed ? { timed: st.task.timed } : {}), ...(st.task.until ? { until: st.task.until } : {}), ...(st.task.kind === "craft" ? { who: st.task.who ?? null, skillId: st.task.skillId, skill: st.task.skill ?? null } : {}), ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
+        task: st.task ? { id: st.task.id, kind: st.task.kind, status: st.task.status, step: st.task.step ?? null, startedAt: st.task.startedAt, result: st.task.result ?? null, error: st.task.error ?? null, nextAt: st.task.nextAt ?? null, endedAt: st.task.endedAt ?? null, ...(st.task.stepAt != null ? { stepAt: st.task.stepAt } : {}), ...(st.task.timed ? { timed: st.task.timed } : {}), ...(st.task.until ? { until: st.task.until } : {}), ...(st.task.kind === "craft" ? { who: st.task.who ?? null, skillId: st.task.skillId, skill: st.task.skill ?? null } : {}), ...(st.task.creditsOf ? { creditsOf: st.task.creditsOf, credits: st.task.credits, creditsAt: st.task.creditsAt } : {}), ...(st.task.kills != null ? { kills: st.task.kills } : {}), ...(st.task.up ? { up: st.task.up } : {}), ...(st.task.seenAt ? { zone: st.task.zone, seen: st.task.seen ?? [], seenAt: st.task.seenAt } : {}), ...(st.task.kind === "gear" ? { refusedBuys: (st.task.moves ?? []).filter((m) => m.buy && !m.done && /is not in the Path To list|sold no /.test(m.error ?? "")).map((m) => ({ merchant: m.buy.merchant, item: m.item })) } : {}) } : null,
         // Past the 50 alerts that fit, the cursor stops at the last one returned.
         alertSeq: wake.length > 50 ? wake[49].seq : st.alertSeq,
         alerts: wake.slice(0, 50).map((x) => ({ seq: x.seq, t: x.t, kind: x.kind, wake: x.wake, text: String(x.text).slice(0, 400), killed: x.killed ?? null })),
@@ -1324,6 +1324,25 @@ export class Daemon {
   }
 
   /**
+   * Keeps the casino credits a casino or raid task read for its character (`creditsOf`, db meta
+   * key `casinoCredits`). The read lives in the tab's task until the next task replaces it, so it
+   * is taken at every cycle. The tab's snapshot carries it (`creditsOf`, `credits`, `creditsAt`
+   * of its task): it did not before, so the credits Ibaegrix and Tagujazolu won at 17:24 and
+   * 17:29 on 2026-11-15 were never recorded.
+   */
+  keepCreditReads() {
+    const reads = metaGet(this.db, "casinoCredits") ?? {};
+    let changed = false;
+    for (const tr of this.trackers.values()) {
+      const k = tr.snap?.bot?.task;
+      if (!k?.creditsOf || !Array.isArray(k.credits) || reads[k.creditsOf]?.t >= k.creditsAt) continue;
+      reads[k.creditsOf] = { t: k.creditsAt, list: k.credits };
+      changed = true;
+    }
+    if (changed) metaSet(this.db, "casinoCredits", reads);
+  }
+
+  /**
    * The simulator's kill chances (runs/state/kill-odds.json), read once a pass, with
    * tools/kill-odds.mjs started in the background once they are an hour old. The tool fights only
    * what is new or older than a day, so a refresh after a gear pass covers its new targets and the
@@ -1409,14 +1428,13 @@ export class Daemon {
     // the daily list (`iq.raid.bosses`). So the pass keeps each character's last read (db meta key
     // `casinoCredits`): the reader's, and what a casino or raid task read after its win or summon
     // (`creditsOf`). A credit a raid spent since that read is left out (`potionSpent`).
+    // A task's read is taken at every cycle (`keepCreditReads`), since the next task replaces it.
+    this.keepCreditReads();
     const creditReads = metaGet(this.db, "casinoCredits") ?? {};
-    if (st.daily?.who && Array.isArray(st.daily.credits)) creditReads[st.daily.who] = { t: now, list: st.daily.credits };
-    for (const tr of this.trackers.values()) {
-      const k = tr.snap?.bot?.task;
-      if (k?.creditsOf && Array.isArray(k.credits) && !(creditReads[k.creditsOf]?.t >= k.creditsAt)) creditReads[k.creditsOf] = { t: k.creditsAt, list: k.credits };
-    }
+    if (st.daily?.who && Array.isArray(st.daily.credits) && !(creditReads[st.daily.who]?.t >= now)) creditReads[st.daily.who] = { t: now, list: st.daily.credits };
     metaSet(this.db, "casinoCredits", creditReads);
-    const credits = Object.entries(creditReads).flatMap(([who, r]) => r.list.filter((c) => c.credits > 0).map((c) => ({ key: c.key, name: c.name, zone: c.zone, who, at: r.t }))).filter((c) => !potionSpent(history, { ...c, source: "credit" }, c.at));
+    // The credits the held platinum bought get no raid (`HELD_CREDITS` of tools/lib/coin.mjs).
+    const credits = Object.entries(creditReads).flatMap(([who, r]) => r.list.filter((c) => c.credits > 0).map((c) => ({ key: c.key, name: c.name, zone: c.zone, who, at: r.t }))).filter((c) => !potionSpent(history, { ...c, source: "credit" }, c.at) && !HELD_CREDITS.some((h) => h.who === c.who && h.name === c.name));
     // The account's casino boss, which every character's credits list as "resume" while it stands
     // and which blocks every other summon until it dies or expires. Without the list, as under
     // page code from before the credits, the raid history says (`standingBosses`).
@@ -1912,6 +1930,7 @@ export class Daemon {
     const polled = [...this.trackers.values()];
     const outage = worldOutage(metaGet(this.db, "worldOut"), { inWorld: polled.filter((tr) => tr.usable && tr.snap?.leader).length, answered: polled.filter((tr) => tr.snap && !tr.snap.error).length, now });
     metaSet(this.db, "worldOut", { since: outage.since });
+    this.keepCreditReads();
     // A crafter's skill as its craft task last read it, which the client keeps nowhere.
     const crafting = polled.map((tr) => tr.snap?.bot?.task).filter((k) => k?.kind === "craft" && k.skillId && k.skill != null);
     if (crafting.length) metaSet(this.db, "craftSkills", { ...metaGet(this.db, "craftSkills"), ...Object.fromEntries(crafting.map((k) => [k.skillId, { who: k.who, skill: k.skill, t: now }])) });

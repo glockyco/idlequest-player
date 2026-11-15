@@ -9,6 +9,14 @@
  * earned by play. Set it to what is left of that platinum once its fate is decided.
  */
 export const HELD_PP = 512000;
+/**
+ * Casino credits the held platinum bought, which get no raid while it is held: by the character
+ * that won them and the boss's name.
+ */
+export const HELD_CREDITS = [
+  { who: "Ibaegrix", name: "Dain Frostreaver IV" },
+  { who: "Tagujazolu", name: "Tukaarak the Warder" },
+];
 /** The coin a decision may count on: `pp` less `HELD_PP`, null when the coin is unread. */
 export const spendable = (pp) => (pp == null ? null : Math.max(0, pp - HELD_PP));
 
