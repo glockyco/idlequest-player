@@ -416,8 +416,25 @@ test("unserved releases are recorded and checker crashes are throttled without r
     const calls = spawn.mock.calls.length;
     await d.checkRelease(T0 + 3599999);
     expect(spawn.mock.calls.length).toBe(calls);
+    // A release on file is checked without fetching it again.
     await d.checkRelease(T0 + 3600000);
-    expect(spawn.mock.calls.length).toBe(calls + 2);
+    expect(spawn.mock.calls.length).toBe(calls + 1);
+    // A release that lacked a part is checked again once other page code is deployed, and its
+    // item closes when the bridge finds everything.
+    const open = () => d.db.query("SELECT COUNT(*) AS n FROM attention WHERE kind = 'client' AND resolved IS NULL").get().n;
+    meta(d.db, "clientChecks", { "../..": { t: T0, fails: ["fn.autoPlace"], commit: "broken" } });
+    raiseItem(d.db, { t: T0, severity: "act", kind: "client", key: "client:../..", text: "The client update lacks fn.autoPlace." });
+    d.clientRetryAt = new Map();
+    d.deploy = { commit: "broken" };
+    spawn.mockImplementation(() => processResult(0, "114 of 114 PASS\n"));
+    const before = spawn.mock.calls.length;
+    await d.checkRelease(T0 + 2 * 3600000);
+    expect(spawn.mock.calls.length).toBe(before);
+    expect(open()).toBe(1);
+    d.deploy = { commit: "repaired" };
+    await d.checkRelease(T0 + 2 * 3600000);
+    expect(meta(d.db, "clientChecks")["../.."]).toMatchObject({ fails: [], commit: "repaired" });
+    expect(open()).toBe(0);
   } finally {
     spawn.mockRestore();
   }

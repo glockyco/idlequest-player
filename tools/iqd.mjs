@@ -2042,11 +2042,16 @@ export class Daemon {
    * Check a client release the first time a page runs it: save it (tools/client-snapshot.mjs) and
    * run tools/check-client.mjs on it, and raise an item only for the parts it lacks, because a
    * release with everything the bot uses needs nobody. The meta key `clientChecks` keeps the results.
+   * A release that lacked something is checked again once another commit of page code is deployed,
+   * and its item closes when the check passes: the item for the release of 2026-11-15 stayed in
+   * "Needs you" for two hours after the bridge was repaired.
    */
   async checkRelease(now) {
     if (this.checkingRelease) return;
     const done = metaGet(this.db, "clientChecks") ?? {};
-    const release = [...this.trackers.values()].map((tr) => tr.snap?.release).find((r) => r && !done[r] && !(now < this.clientRetryAt?.get(r)));
+    const commit = this.deploy?.commit ?? null;
+    const repaired = (r) => done[r]?.fails?.length > 0 && (done[r].commit ?? null) !== commit;
+    const release = [...this.trackers.values()].map((tr) => tr.snap?.release).find((r) => r && (!done[r] || repaired(r)) && !(now < this.clientRetryAt?.get(r)));
     if (!release) return;
     this.checkingRelease = true;
     try {
@@ -2055,7 +2060,8 @@ export class Daemon {
         const [out, error, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
         return { out, error, code };
       };
-      const snapshot = await run(["tools/client-snapshot.mjs"]);
+      // A release on file is not fetched again, since the site may serve a newer one by now.
+      const snapshot = (await readdir(join(REPO, ".re/releases", release)).catch(() => null)) ? { code: 0 } : await run(["tools/client-snapshot.mjs"]);
       if (snapshot.code !== 0) {
         (this.clientRetryAt ??= new Map()).set(release, now + 3600000);
         return this.log(`client snapshot failed for ${release}: ${snapshot.error.trim().split("\n").slice(-10).join("\n")}`);
@@ -2072,9 +2078,10 @@ export class Daemon {
         (this.clientRetryAt ??= new Map()).set(release, now + 3600000);
         return this.log(`client check crashed for ${release}: ${checked.error.trim().split("\n").slice(-10).join("\n")}`);
       }
-      metaSet(this.db, "clientChecks", { ...done, [release]: { t: now, fails } });
+      metaSet(this.db, "clientChecks", { ...done, [release]: { t: now, fails, commit } });
       this.log(`client check: ${release} ${fails.length ? `lacks ${fails.join(", ")}` : "has everything the bot uses"}`);
       if (fails.length) raiseItem(this.db, { t: now, severity: "act", kind: "client", key: `client:${release}`, text: `The client update ${release} lacks ${fails.join(", ")}, which the bot uses. Fix them in CLIENT_SURFACE (src/bridge.js).` });
+      else for (const item of this.db.query("SELECT id FROM attention WHERE kind = 'client' AND dedupe = ? AND resolved IS NULL").all(`client:${release}`)) resolveItem(this.db, item.id, "the bridge finds everything in this release now", now);
     } finally {
       this.checkingRelease = false;
     }
