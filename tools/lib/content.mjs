@@ -14,24 +14,33 @@ export async function* rows(table, root) {
   }
 }
 
-// The expansion the live server plays, Classic through Velious: a spawn row or a recipe that needs
-// a later expansion does not exist there. -1 bounds a range on neither side.
+// The expansion the live server plays, Classic through Velious: a recipe that needs a later
+// expansion does not exist there. -1 bounds a range on neither side.
 export const LIVE_EXPANSION = 2;
 const inLiveExpansion = (r) => !(r.min_expansion > LIVE_EXPANSION || (r.max_expansion >= 0 && r.max_expansion < LIVE_EXPANSION));
 
 /**
- * The rows of spawn table `table` (`spawn2` or `spawnentry`) the live server uses: inside the live
- * expansion's range, for spawn points the zone's base version, since a higher version belongs to an
- * instanced copy of the zone, and for spawn entries a weight above 0, since an entry at weight 0
- * counts as never spawning (docs/plans/epics.md, rule 11). A spawn point's zone comes in lower
- * case, since the server's database compares zone names without case and Everfrost's points name it
- * "Everfrost". Every reader of the spawn tables goes through this.
+ * The rows of spawn table `table` (`spawn2` or `spawnentry`) the live server uses. Spawn points of
+ * the zone's base version only, since a higher version is an instanced copy, whatever their
+ * expansion range: the live spawn lists show NPCs whose only rows carry a later expansion (all of
+ * Highpass, most of the Lost Temple of Cazic-Thule). A spawn entry at weight 0 spawns when every
+ * entry of its group has weight 0 (Kael Drakkel's, the Kithicor V`ghera), so those entries come with
+ * weight 1 each, and in a group with weighted entries it never does. Zones come in lower case,
+ * since the server compares zone names without case.
  */
 export async function* liveSpawnRows(table, root) {
+  if (table === "spawnentry") {
+    const byGroup = new Map();
+    for await (const r of rows(table, root)) (byGroup.get(r.spawngroupID) ?? byGroup.set(r.spawngroupID, []).get(r.spawngroupID)).push(r);
+    for (const list of byGroup.values()) {
+      const weighted = list.some((r) => r.chance > 0);
+      for (const r of list) if (r.chance > 0) yield r;
+      else if (!weighted) yield { ...r, chance: 1 };
+    }
+    return;
+  }
   for await (const r of rows(table, root)) {
     if (r.version > 0) continue;
-    if (table === "spawnentry" && !(r.chance > 0)) continue;
-    if (!inLiveExpansion(r)) continue;
     yield typeof r.zone === "string" && r.zone !== r.zone.toLowerCase() ? { ...r, zone: r.zone.toLowerCase() } : r;
   }
 }

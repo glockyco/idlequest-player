@@ -510,7 +510,7 @@ The Ranger section of the Pre-Planar gear page lists items that can be bought, c
 
 | Quest | Status | Evidence | Source |
 | --- | --- | --- | --- |
-| Class epic: Earthcaller and Swiftwind | `different` | Earthcaller needs no foraged item but Swiftwind needs the Druid's Hardened Mixture, which has no source (docs/plans/epics.md) | [Ranger Epic Quest](https://wiki.project1999.com/Ranger_Epic_Quest) |
+| Class epic: Earthcaller and Swiftwind | `different` | Earthcaller needs no foraged item, and Swiftwind needs the Druid's Hardened Mixture from foraged items (docs/plans/epics.md) | [Ranger Epic Quest](https://wiki.project1999.com/Ranger_Epic_Quest) |
 | Ivy Etched Armor Quests: Ivy Etched Tunic, Ivy Etched Helm, Ivy Etched Bracer and 4 more | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Ivy Etched Armor Quests](https://wiki.project1999.com/Ivy_Etched_Armor_Quests) |
 | Trueshot Longbow Quest: Trueshot Longbow | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Trueshot Longbow Quest](https://wiki.project1999.com/Trueshot_Longbow_Quest) |
 | Rain Caller Quest: Mane Attraction, Rain Caller | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Rain Caller Quest](https://wiki.project1999.com/Rain_Caller_Quest) |
@@ -563,7 +563,7 @@ The Rogue section of the Pre-Planar gear page lists items that can be bought, ca
 
 | Quest | Status | Evidence | Source |
 | --- | --- | --- | --- |
-| Class epic: Ragebringer | `unchecked` | Scripts exist with spawn blockers for Anson and the Kithicor aides (docs/plans/epics.md) | [Rogue Epic Quest](https://wiki.project1999.com/Rogue_Epic_Quest) |
+| Class epic: Ragebringer | `unchecked` | Anson McBale and the Kithicor V`ghera stand in the live game (docs/plans/epics.md) | [Rogue Epic Quest](https://wiki.project1999.com/Rogue_Epic_Quest) |
 | Scouts Leggings: Silvermesh Leggings | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Scouts Leggings](https://wiki.project1999.com/Scouts_Leggings) |
 | Rogue Redemption: Burning Rapier | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Rogue Redemption](https://wiki.project1999.com/Rogue_Redemption) |
 | Burning Rapier | `unchecked` | The page lists no item reward. It gives a spell, skill or experience | [Burning Rapier](https://wiki.project1999.com/Burning_Rapier) |
@@ -774,7 +774,7 @@ The Druid section of the Pre-Planar gear page lists items that can be bought, ca
 
 | Quest | Status | Evidence | Source |
 | --- | --- | --- | --- |
-| Class epic: Nature Walkers Scimitar | `different` | Five ingredients have no source in the snapshot (docs/plans/epics.md) | [Druid Epic Quest](https://wiki.project1999.com/Druid_Epic_Quest) |
+| Class epic: Nature Walkers Scimitar | `different` | Five ingredients come from Forage, as in the community guides (docs/plans/epics.md) | [Druid Epic Quest](https://wiki.project1999.com/Druid_Epic_Quest) |
 | Paw of Opolla Quest: Paw of Opolla | `different` | 0 of 1 listed item ids appear in snapshot quest scripts. Missing: Paw of Opolla | [Paw of Opolla Quest](https://wiki.project1999.com/Paw_of_Opolla_Quest) |
 | Testament of Vanear Quest: Testament of Vanear | `unchecked` | All listed item ids appear in snapshot quest scripts (a loose id search of effective/quests, no quest was played) | [Testament of Vanear Quest](https://wiki.project1999.com/Testament_of_Vanear_Quest) |
 | Beguile Plants Quest | `unchecked` | The page lists no item reward. It gives a spell, skill or experience | [Beguile Plants Quest](https://wiki.project1999.com/Beguile_Plants_Quest) |

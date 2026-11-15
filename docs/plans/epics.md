@@ -20,7 +20,7 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 
 ## Rules that hold for every epic
 
-1. All fourteen 1.0 epics have a script for every NPC step (`Q`). Two kinds of gap remain. The Druid's four foraged items and the Rose of Firiona have no source in the snapshot, and the Ranger's Swiftwind needs the same Hardened Mixture. The Rogue and the Monk have spawn blockers listed in their sections (`S`). The 1.5 and 2.0 continuations need zones or items that the Velious-era snapshot lacks and are out of scope (`Q`, `S`).
+1. All fourteen 1.0 epics have a script for every NPC step (`Q`). The Druid's four foraged items and the Rose of Firiona come from Forage (data/forage.json), which the Ranger's Swiftwind needs too. The Monk has spawn blockers listed in its section (`S`). The 1.5 and 2.0 continuations need zones or items that the Velious-era snapshot lacks and are out of scope (`Q`, `S`).
 2. No 1.0 script checks the player's level. The wiki says epic steps can be completed at any level, and the server policy records the same (`W` overview, `T` `content_exclusions.json`). Real limits are zone minimums (Plane of Hate, Plane of Fear and Plane of Sky need level 46 in `S`) and mob strength.
 3. Quest-only faction checks always pass (`W` overview, `T` `faction_policy.go`: `GetFaction` returns Ally and `GetCharacterFactionLevel` returns the maximum). Class, item and quest-flag checks still apply.
 4. Only the active (logged-in) character hands items in. The Give window offers the active character's inventory slots to the targeted NPC (`K` `engine.pretty.js` `QGe`: `characterProfile.inventory`, NPC id, current zone). A companion cannot hand in. Hostile actors that a hand-in spawns attack the hand-in character (`Q`, for example Rak, Lhranc, the Necromancer's golem). The window's Cancel returns the offered items to the bags when they fit (`K` the handler `B` beside `quest-give-window` in `BHfVSHXB.js` of release 20261110T154736), so a trade cut short before Give leaves nothing in the window.
@@ -30,7 +30,7 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 8. Hand-in scripts with no class check accept the hand-in from any leader, and `SummonItem` puts the reward into that leader's inventory (`Q`). A Magician leader could therefore run the class-free steps of another class and give the finished item on. Whether the server refuses a class-locked reward for another class is untested (`inf`). Class-gated steps are listed per class below.
 9. Options > General > Keep Epic Quest Items (on by default) protects epic items, intermediates and ingredients for all fourteen classes from selling and decluttering, including duplicates and items held for another class (`W`).
 10. Hand-in XP is large and goes only to the hand-in character, for example Kargek 1,000,000 and Jeb Lumsed 1,500,000 (`Q`). Level 30 costs about 5.3M XP and level 31 about 3.1M at race and class factor 1.0 (the measured level model). Whether IdleQuest caps `AddEXP` is unknown.
-11. Several quest NPCs and bosses have no static spawn because a script spawns them (`Q`). A spawn group with a sole entry at weight 0 (the seven Kithicor aides, Echo of Nortlav, `#Brother_Hayle` in southkarana) appears in the snapshot, but whether the server spawns it is not visible. `tools/drops.mjs` counts it as spawning. `leveling-plan.md` treats zero weight as unsupported. This plan does not count such sources.
+11. Several quest NPCs and bosses have no static spawn because a script spawns them (`Q`). A spawn group whose entries all have weight 0 spawns them in the live game, as the Kithicor V`ghera and Kael Drakkel's NPCs show, and spawn rows of a later expansion spawn too (`liveSpawnRows` in tools/lib/content.mjs).
 12. Two zones exist in two copies. `hateplane` and `hateplaneb` (Plane of Hate) both have minimum level 46, and `citymist` has spawn rows for version 0 and version 1 whose placeholder rates differ. This plan names `hateplane` and gives both citymist versions where they differ. Which copy IdleQuest offers is not checked (`S`).
 
 ## Summary by class
@@ -44,9 +44,9 @@ Zone names are short names. Zones named `freeporteast`, `freeportwest`, `highpas
 | Bard (5) | Singing Short Sword (20542) | Yes, 13 scripts | None | Mechanical Doll hand-in (soldunga, 26 to 37), Serra hand-in (unrest, 26 to 30) | Phinigel, Amygdalan, Drolvarg Warlord, two dragon scales, Undead Bard then Trakanon L65 | Very high | `Q` `S` |
 | Shaman (8) | Spear of Fate (10651) | Yes. The last script needs only an Iksar Scale | None | None | Lord Rak L54 (or Child's Tear from Fear golems) | High | `Q` `S` |
 | Enchanter (5) | Staff of the Serpent (10650) | Yes, no class or level check | None | Lost Scroll (dalnir, 28 to 30) | Prince Selrach L61, Vessel Drozlin, Verina Tomb, Wraith of a Shissar, Tangrin, Thrackin L55 | Very high | `Q` `S` `T` |
-| Rogue (4) | Ragebringer (11057) | Yes, with spawn blockers (Anson, Kithicor aides) | Anson needs a Rogue | None | Renux L51, General V`ghera L65, Book of Souls in Hate | High | `Q` `S` `T` |
+| Rogue (4) | Ragebringer (11057) | Yes. Anson McBale and the Kithicor V`ghera stand in the live game | Anson needs a Rogue | None | Renux L51, General V`ghera L65, Book of Souls in Hate | High | `Q` `S` `T` |
 | Monk (4) | Celestial Fists (10652) | Yes. 36224 is not given by any script | Class check in nine scripts | None | Eejag, Gwan, Trunt, Vorash, Xenevorash L65, Robe of the Whistling Fists sub-quest | Very high | `Q` `S` `T` |
-| Druid (5) | Nature Walkers Scimitar (20490) | Scripts yes. Five ingredients have no source in the snapshot | None | None (Antonica spirit set is errands) | Venril Sathir, Faydedar, Ulump Pujluk, many L46 to 55 corrupted fights | Very high | `Q` `S` `T` |
+| Druid (5) | Nature Walkers Scimitar (20490) | Yes. Five ingredients come from Forage | None | None (Antonica spirit set is errands) | Venril Sathir, Faydedar, Ulump Pujluk, many L46 to 55 corrupted fights | Very high | `Q` `S` `T` |
 | Necromancer (7) | Scythe of the Shadowed Soul (20544) | Yes, Plane of Sky parts simplified | None (dialogue only) | None | Silver Disc, Spiroc Feathers, Cape (Sky), Eye (Hate), Slime Blood (Fear) | Very high | `Q` `S` `T` |
 | Paladin (4) | Fiery Defender (10099) | Yes, every step scripted | Only the peasant woman | Ghoulbane (guktop, 22 to 30), Brother Hayle hand-in (paw, 26 to 37) | Keeper of the Tombs, Kirak Vil, dragon-dropped book halves, Miragul L53, Plane of Hate banshee | Very high | `Q` `S` `T` |
 | Shadow Knight (4) | Innoruuk's Curse (14383) | Yes. Reward drops from the hostile #Lhranc | Teydar greeting only | Ghoulbane (guktop, 22 to 30) | Fear golems, Blade of Abrogation, Hole chain L55, Lhranc L60 | Very high | `Q` `S` `T` |
@@ -70,7 +70,7 @@ Kills the account needs for the late steps, sorted by how many epics use them (`
 | Plane of Sky (zone minimum 46) | Magician Crown (drakes, sphinx and undine spirit L53 to 60, 3.8 to 12.4%, 86,400 s), Ranger Swirling Sphere (essence tamer L56, 100%, script-spawned), Warrior Spiroc Wingblade (Spiroc Lord L63, 50.4%, 14,400 s), Enchanter Charm and Sacrifice (ground pickup), Monk Gwan, Necromancer Disc (azarack L53, 6.5%) and Feathers (7.5 to 10%), Shadow Knight Blade of Abrogation (8.7% best) |
 | Venril Sathir (karnor, L55, 18,325 hp) | Wizard Gnarled Staff 50% from the static #Venril_Sathir (259,200 s). The script-spawned Venril Sathir of the Druid chain drops the Pulsing Green Stone 100% |
 
-Echo of Nortlav (Red Scales 35%) has weight 0 in its only spawn group and is not counted (`S`, rule 11).
+Echo of Nortlav (Red Scales 35%) has weight 0 in its only spawn group, which spawns (rule 11).
 
 ## Collect while leveling
 
@@ -135,7 +135,7 @@ Everything else is raid or late.
 
 No Monk, Druid or Ranger chain exists. Their first steps need L44 or higher drops (Immortals, the Corruptor's tome) or a timed ceremony with script-spawned fights (the Telin to Teloa relay). The Freeport guild armor quests (`freportw/Klom_Jysun`, `Shana_Liskia`) need dozens of dropped pelts and shells that nothing farms.
 
-The Rogue parchment chain (`kaladimb/Founy_Jestands`, `neriakc/Tani_N-Mar`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor`) is not in `data/quests.json`: Anson McBale's spawn row has `min_expansion` 12, so he does not appear in IdleQuest, and four groups that waited for him lost their hunting time. Add it back once a game update makes him spawn.
+The Rogue parchment chain (`kaladimb/Founy_Jestands`, `neriakc/Tani_N-Mar`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor`) is generated by the epic model now that Anson McBale counts as spawning.
 
 ## Ranking by value and effort
 
@@ -145,7 +145,7 @@ Value is what the finished item adds to the account that nothing else supplies, 
 | ---: | --- | --- | --- | --- |
 | 1 | Cleric (8), Water Sprinkler of Nem Ankh | High. Click is Reviviscence, a 96% resurrection. The click skips mana and uses the item's own 10 s cast time (`K` `engine.pretty.js:15129-15176`, `W`). The spell itself casts in 7 s with a 15 s recast and costs 600 mana (`S`). Clerics can be set to epic-only combat rez (`W`). The click needs level 50 (`S`) | Very high, but the late fights are script-spawned on demand. Only Bathezid has a 2 h timer. Add 4 to 5 h for Bergurgle | The only combat resurrection that costs no mana, which matters in the long boss fights in raid-roster.md (`inf`) |
 | 2 | Warrior (5), Jagged Blade of War | High for the main tank. 36/41 two-hander, hp +100, STR +20, +10 to each resist, proc 175 fire and 500 hate (`S`) | Very high. Six late kills, four of them with 3-day lockouts (two dragon scales, Hand of the Maestro, Fear golem), Tinkering for Rebreathers | The scales and the Fear golem drop are shared with the Bard, Necromancer and Shadow Knight |
-| 3 | Rogue (4), Ragebringer | Medium to high. Haste 40%, attack +40, hp +100, backstab +15 (`S`) | High. Two script-spawned fights (Renux L51, V`ghera L65), no lockout kills. Blocked until a live check shows that Anson and the Kithicor aides spawn | Each Rogue needs its own copy |
+| 3 | Rogue (4), Ragebringer | Medium to high. Haste 40%, attack +40, hp +100, backstab +15 (`S`) | High. Two script-spawned fights (Renux L51, V`ghera L65), no lockout kills. Anson and the Kithicor V`ghera stand in the live game | Each Rogue needs its own copy |
 | 4 | Ranger (5), Earthcaller | Medium. 14/24 one-hander, hp +50, STR +15, STA +5, DEX +10, resists +5, proc Earthcall (`S`) | High. Two script-spawned Sky fights, Jaeil the Insane (the Wretched respawns every 6.5 h), a Corruptor L45 for the Druid-start bowl, a Shattered Emerald from L55 to 58 Plane of Hate bosses (20%, 1,920 s). No multi-day lockout | Independent of the Druid's foraged items. Swiftwind is blocked by them |
 | 5 | Bard (5), Singing Short Sword | Medium. Hp +100, CHA +20, resists +10, proc Dance of the Blade (group target, attack speed +55%, STR +30, attack +30, proc level 46) (`S`) | Very high. Phinigel, two dragon scales, Fear Amygdalans, Warlord, Undead Bard then Trakanon L65 | Needed for only one Bard in the raid (`inf`) |
 | 6 | Enchanter (5), Staff of the Serpent | Medium. Click Speed of the Shissar: haste +66%, 30 minutes, single target, level 50. Clicks do not expire in IdleQuest, so one click holds (`S`, `W`). Stacking with the Enchanter's own haste is unknown | Very high. Six named kills, three with 3-day lockouts and one with 16 h, 12 to 14 h of errands | The Lower Guk camps are the longest non-raid part |
@@ -153,7 +153,7 @@ Value is what the finished item adds to the account that nothing else supplies, 
 | 8 | Magician (4), Orb of Mastery | Medium. The click summons a level 49 pet with 4,000 hp and 52 to 67 damage every 1.7 s, about twice the raw melee of the level 60 Water pet (22 to 81 every 2.8 s, `npc_types` 598 and 612). The Orb adds INT 20, STR 15, STA 10, DEX 5 and mana 100. It has one charge, and recasting does not refill it (`S`, `W`), so whether a lost epic pet can be replaced is unverified | Very high. Phinigel, Captain Rottgrime, Magi P`Tasa in Plane of Hate, the Crown in Plane of Sky, Neh, Undertow, Slixin, Tarbul | Most late targets are shared with the Warrior, Bard, Necromancer, Ranger and Wizard chains. The cheap pieces are already in the bags |
 | 9 | Monk (4), Celestial Fists | Medium. Hp +100, AC +15, click 40% haste, attack +40, AC +40 for 3 ticks (`S`) | Very high. Five boss kills, a robe sub-quest of about 6 h | |
 | 10 | Paladin (4), Fiery Defender, and Shadow Knight (4), Innoruuk's Curse | Medium. Tank weapons with procs (Holy Shock 155 magic and a stun, Soul Consumption 50 magic) (`S`) | Very high. Many 3-day lockouts and L55 to 60 kills | Raid Resolve makes tank count the lever, not one weapon |
-| 11 | Druid (5), Nature Walkers Scimitar | Low. Mana 90, WIS 20, click Wrath of Nature (55 damage per tick, up to 30 ticks) (`S`) | Very high, plus five ingredients with no source in the snapshot | Possibly impossible from data alone |
+| 11 | Druid (5), Nature Walkers Scimitar | Low. Mana 90, WIS 20, click Wrath of Nature (55 damage per tick, up to 30 ticks) (`S`) | Very high, plus five foraged ingredients | Open |
 | 12 | Necromancer (7), Scythe | Low to medium. Click about 1,200 damage over 16 ticks (`S`) | Very high. Three planes, Slime Blood about 11 days expected | |
 | 13 | Wizard (4), Staff of the Four | Low to medium. INT 25, mana 100, 800-point absorb rune (`S`) | Very high. 175,000 hp golem, 12 h and 72 h targets, about 1,850 pp | |
 
@@ -344,8 +344,8 @@ Scripts: `qcat/Malka_Rale`, `highpass/Anson_McBale`, `highpass/Stanos_Herkanor`,
 
 Blockers (`S`, `inf`):
 
-1. The classic Anson's spawn row (`spawn2` 2265, highpass, group 1973) has `min_expansion` 12. Anson is L61 with 32,000 hp, spawn 25% and a 1,320 s respawn. If the server filters spawns by expansion, Anson never appears, and only Anson spawns Stanos. The later `highpasshold` copy has Anson at 50% with a 215 s respawn.
-2. All seven Kithicor aides have weight 0 in sole-entry groups. The audit tested them only with spawned fixtures (`T`).
+1. Anson McBale's only spawn row (`spawn2` 2265, highpass) has `min_expansion` 12, and he stands in the live game. He is L61 with 32,000 hp, spawn 25% and a 1,320 s respawn, and only he spawns Stanos.
+2. All seven Kithicor aides have weight 0 in sole-entry groups. Ioltos and Tasi V`ghera stand in the live game.
 3. Malka Rale spawns on 34% of respawns at one point, 640 s.
 
 | Step | NPC, zone, level | Hand in | Receive | Source | Party |
@@ -391,14 +391,14 @@ Turn-in: nine scripts check the class: Danl, a_presence, Deep, the lakeofillomen
 
 Reward: one-hand slash 20/30, hp +10, mana +90, STR +15, STA +15, WIS +20, click Wrath of Nature (55 damage, click level 50), classes Druid (`S`). Staff of Living Brambles is the 2.0 epic and is not in the snapshot.
 
-Five items have no source in the snapshot. The four foraged items (Ripened Heartfruit [20464], Sweetened Mudroot [20465], Speckled Molded Mushroom [20466], Chilled Tundra Root [20467]) and the Rose of Firiona [12774] have no drop, merchant, ground spawn, quest or recipe source, and the snapshot has no forage table. Whether Forage yields them in the game is unknown (`S`, `inf`). The server audit does not mark the Druid chain P99-aligned (`T`).
+The four foraged items (Ripened Heartfruit [20464], Sweetened Mudroot [20465], Speckled Molded Mushroom [20466], Chilled Tundra Root [20467]) and the Rose of Firiona [12774] come from Forage in their zones (data/forage.json). A Druid at Forage 50 got the Chilled Tundra Root in Everfrost Peaks. The server audit does not mark the Druid chain P99-aligned (`T`).
 
 Scripts (44 steps) are grouped here (`Q`):
 
 | Group | NPCs and zones | Hand in and receive | Source of each item | Party |
 | --- | --- | --- | --- | --- |
 | Start (1 to 9) | Telin Darkforest (burningwood), Faelin (gfaydark), Giz X`Tin (kithicor), Althele, Sionae, Nuien, Teloa (eastkarana), Ella Foodcrafter (misty) | Worn Note to Earth Stained Note [18959] and Shiny Tin Bowl [17860] | Corruptor L45 drops Fleshbound Tome 100%. Telin needs a Kindly faction, which always passes | 45 to 48 |
-| Bowl (10) | Combine four foraged items in the Shiny Tin Bowl | Hardened Mixture [20473] | no source found | Unknown |
+| Bowl (10) | Combine four foraged items in the Shiny Tin Bowl | Hardened Mixture [20473] | Forage (data/forage.json) | Druid or Ranger |
 | Pattern chain (11 to 21) | Alrik (timorous), Farios (felwitheb), Nora (felwithea), Merdan, Niera (qrg), skeleton (frontiermtns), Kinlo (kaladimb), Pottery Wheel combine | Runecrested Bowl [20460], Softly Glowing Stone [20462] | Jade Reaver [5664] from black reavers L50 citymist, 7 to 10% on 12 spawn rows (6 in each citymist version), 7,200 s. Rose: no source | 48 |
 | Venril (22 to 26) | Dance of the Fireflies (Druid spell) to Firefly Globe [10295], Venril Sathirs remains (karnor), Spirit, Venril L55 18,325 hp, Foloal Stormforest (firiona) | Warmly Glowing Stone [20468], then Elaborate Scimitar [20440] at Ella | Resurrection scroll: merchants in rathemtn, freportn, qeynos | Raid |
 | Antonica (28 to 32) | tainted mammoth (everfrost), aquagoblin (lakerathe), hill giant (rathemtn), then corrupted versions, Withered Treant (northkarana), Yeka Ias (southkarana) | Chunk of Tundra [20690], Clean Lakewater [20689], Ancient Rock [20688] to Cleansed Spirit of Antonica [20698] | Corrupted mobs L30 to 40 drop at 100%. Tainted mammoth L25 spawn 8%, tainted aquagoblin L36 spawn 20%, tainted hill giant L37 spawn 10% | 25 to 40 |
@@ -507,13 +507,11 @@ Scripts: `burningwood/Telin_Darkforest`, `burningwood/Faelin_Bloodbriar`, `kithi
 | 7 | none (drop) | none | Shattered Emerald of Corruption [20484] | Plane of Hate: Lord of Loathing, Avatar of Abhorrence, Magi P`Tasa, Mistress of Scorn and Master of Spite (spawn 100%), Ashenbone Broodmaster, Grandmaster R`Tal and Coercer T`vala (spawn 50%), all L55 to 58, drop 20%, 1,920 s. Maestro of Rancor and Innoruuk (259,200 s) also drop it at 20% | Raid, zone 46 |
 | 8 | Xanuusus, northkarana, L50 | Refined Mithril Blade, Shattered Emerald | Earthcaller, 2,500,000 XP | steps 6, 7 | After all |
 
-Swiftwind follows the Druid chain's Hardened Mixture and Runecrested Bowl (four foraged items without a source, see the Druid section), the Venril Sathir stone, and then Telin (Ancient Longsword, 1,000,000 XP), Usbak, Telin again and Faelin (Swiftwind, 1,000,000 XP). It is blocked by the foraged items (`Q`, `S`).
+Swiftwind follows the Druid chain's Hardened Mixture and Runecrested Bowl (four foraged items, see the Druid section), the Venril Sathir stone, and then Telin (Ancient Longsword, 1,000,000 XP), Usbak, Telin again and Faelin (Swiftwind, 1,000,000 XP).
 
 ## Not verified
 
 - No chain was played. The audit docs say the Enchanter, Druid and Ranger chains are not yet P99-aligned end to end, and that the Cleric chain approximates its spawned combat (`T`).
-- Whether the live server filters spawn rows by `min_expansion` (Anson) or spawns sole zero-weight groups (Kithicor aides, Echo of Nortlav, `#Brother_Hayle`). The spawning code is not in the exported server (`S`, `T`).
 - Whether a class-locked reward can be summoned into another class's inventory (rule 8), whether `AddEXP` is capped (rule 10), and whether a hostile NPC accepts a trade without a charm (Enchanter).
-- Whether the Druid's four foraged items and the Rose of Firiona can be obtained in the game.
 - Which copy of Plane of Hate (`hateplane` or `hateplaneb`) and of the City of Mist (version 0 or 1) the game uses.
 - All minute estimates and all party-level estimates.
