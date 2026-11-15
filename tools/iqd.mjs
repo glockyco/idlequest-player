@@ -1618,6 +1618,9 @@ export class Daemon {
       out.push({ label: t.label, kind: "look", id: `look:${l.key}`, spec: { zone: l.zone, name: l.name, until: l.until }, why: `${l.name} in ${l.zone}: ${l.why}` });
     }
     if (look && !out.length) metaSet(this.db, "bossPlan", { ...plan, look: { ...look, waits: "every group with a leader of 46 or more is on a task" } });
+    // After a reset the next pass follows at once while a boss waits for a look or a raid, since
+    // a pass every five minutes leaves a boss a tab has just seen standing to other players.
+    if (now - spawnsResetAt < RESET_RUSH_MS && (looks.length || kills.length)) this.passAgain = true;
     return out;
   }
 

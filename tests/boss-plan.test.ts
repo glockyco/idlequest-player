@@ -392,3 +392,14 @@ test("after a restart every boss gets a look at once, the one worth most first, 
   // A look sent after the restart holds the next one back as before.
   expect(nextLooks({ watch, seen, now: T + H, lookTimes: () => [T + 58 * 60000], worth, resetAt: T + 55 * 60000 })).toEqual([]);
 });
+
+test("a reset keeps the time of its first boss found up early, however many follow", () => {
+  const T = 1_700_000_000_000;
+  const H = 3600000;
+  const down = (key: string) => ({ key, state: "respawning", respawnAt: T + 40 * H, seenAt: T, lastAt: T });
+  const up = (key: string, at: number) => ({ key, state: "alive", respawnAt: null, seenAt: at, lastAt: at });
+  const log = [down("a"), down("b"), down("c"), up("a", T + H), up("b", T + H + 10 * 60000)];
+  expect(spawnReset(log)).toBe(T + H);
+  // A boss found up early a day later is another reset.
+  expect(spawnReset([...log, up("c", T + 25 * H)])).toBe(T + 25 * H);
+});

@@ -245,20 +245,26 @@ const RESET_EARLY_MS = 10 * 60000;
 
 /**
  * When the server last put bosses up ahead of their timers, from the sightings on record
- * (`noteSightings`): the latest sighting of a boss alive before the respawn time its row before
- * gave, 0 for none. After the server's restart at 21:15 on 2026-11-12 six bosses of seven the tabs
+ * (`noteSightings`): the first sighting, of the latest run of them less than `RESET_SPAN_MS`
+ * apart, of a boss alive before the respawn time its row before gave, 0 for none. The first and
+ * not the last, because the tabs find the bosses of one reset over the next quarter of an hour,
+ * and a look sent in between must still count. After the server's restart at 21:15 on 2026-11-12 six bosses of seven the tabs
  * saw stood one to two days early. A sighting of a boss down that is older than this says nothing
  * about now: Lord Nagafen, Talendor, Gorenaire and Faydedar kept their respawn times of the
  * morning, and nobody looked at them that evening.
  */
+const RESET_SPAN_MS = 2 * 3600000;
 export function spawnReset(log = []) {
   const last = new Map();
-  let at = 0;
+  const early = [];
   for (const r of log) {
     const p = last.get(r.key);
-    if (p && p.state !== "alive" && p.respawnAt && r.state === "alive" && r.seenAt < p.respawnAt - RESET_EARLY_MS) at = Math.max(at, r.seenAt);
+    if (p && p.state !== "alive" && p.respawnAt && r.state === "alive" && r.seenAt < p.respawnAt - RESET_EARLY_MS) early.push(r.seenAt);
     last.set(r.key, r);
   }
+  early.sort((a, b) => a - b);
+  let at = early.at(-1) ?? 0;
+  for (let k = early.length - 2; k >= 0 && at - early[k] < RESET_SPAN_MS; k--) at = early[k];
   return at;
 }
 
