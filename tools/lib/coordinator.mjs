@@ -48,8 +48,10 @@ export const DEFAULTS = {
   // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
   // Groups have won the fights at 55 (Jaeil the Insane, a plasmatic priest), which cost no raid time.
   questRaidLevel: 57,
-  // The account's coin below which no quest starts a raid, which buys raid time.
-  questRaidReservePp: 100000,
+  // The account's coin below which no quest starts a raid, which buys raid time: two hours at the
+  // server's price and one in reserve, since a Necromancer's try for the Black Silk Cape can buy
+  // one hour for the soul carrier and one for the Keeper an hour or more later.
+  questRaidReservePp: 30000,
 };
 
 /**

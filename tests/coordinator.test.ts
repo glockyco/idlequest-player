@@ -69,8 +69,8 @@ test("a tradeskill job goes to its crafter's tab when that is free and the coin 
   // Not while the crafter's tab is busy, the account is under the job's cost over the reserve,
   // an XP event runs, or the job failed within its retry time.
   expect(decide({ now: NOW, tabs: [{ ...tabs[0], task: { status: "running" } }, tabs[1]], crafts: [job] }).actions.filter((x) => x.kind === "craft")).toEqual([]);
-  expect(crafts({ coin: { pp: 110000, credits: 3 } })).toEqual([]);
-  expect(crafts({ coin: { pp: 120000, credits: 3 } })).toHaveLength(1);
+  expect(crafts({ coin: { pp: 40000, credits: 3 } })).toEqual([]);
+  expect(crafts({ coin: { pp: 50000, credits: 3 } })).toHaveLength(1);
   expect(crafts({ xpFactor: 2 })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 60 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 400 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toHaveLength(1);
@@ -1145,7 +1145,7 @@ test("a timed enemy is its caller's: the member goes back for it, and the raid t
   expect(two([], [tab], { killChance, raidKill: () => true })).toEqual([]);
   // A raid buys raid time, so it waits for the account's reserve. Above it tab A rolls for one
   // more casino credit, and tab B gets the quest.
-  expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 60000, credits: 0 } })).toEqual([]);
+  expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 20000, credits: 0 } })).toEqual([]);
   expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 160000, credits: 0 } }).map((x) => x.label)).toEqual(["B"]);
   // A run that waited his whole time out holds the chain for its retry time.
   const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 100 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could", timed: { [key]: { at: NOW - 95 * min, who: "A0" } } };
