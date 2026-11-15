@@ -18,6 +18,7 @@ bun tools/iqd.mjs serve --port 4791          # only the dashboard, for work on i
 bun tools/iqd.mjs minutes --hours 336        # rebuild the per-minute totals from runs/live samples, with run stopped
 bun tools/iqd.mjs wait --severity act --max-minutes 60   # background shell job, returns on the next item
 bun tools/iqd.mjs status                     # under 40 lines, also written to runs/status.md every cycle
+bun tools/iqd.mjs coin --days 7              # the account's coin by day: income and spends by kind, and its total (docs/plans/coin.md)
 bun tools/iqd.mjs ack 12 "tightened the limits"   # resolve an item
 bun tools/iqd.mjs note "moved group 2 to Crushbone" --session Pivorandel   # record an intervention by hand
 bun tools/iqd.mjs page G10 'window.iqBot.stopTask()' --why "stands without a route"   # act in a group's tab by hand, recorded

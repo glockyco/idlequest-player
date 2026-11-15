@@ -23,6 +23,7 @@ import { OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastD
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
+import { COIN_SCHEMA, coinDays, coinEntries, recordCoin, recordPurse } from "./lib/coin.mjs";
 import { FIGHTS_SCHEMA, fightOutcomes, killBodies, npcKey, recordCounts, recordFights } from "./lib/fight-record.mjs";
 import { PROGRESS_SCHEMA, aaChanges, chainChanges, equipProgress, gearChanges, goalBoss, levelUps, lootProgress, progressCounts, recordProgress, snapshotProgress, wornSheets } from "./lib/progress.mjs";
 import { CARDS_SCHEMA, missingCards, putCards } from "./lib/cards.mjs";
@@ -96,6 +97,7 @@ export function openDb(path) {
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
   db.run(WEAR_SCHEMA);
+  db.run(COIN_SCHEMA);
   db.run(PROGRESS_SCHEMA);
   db.run(FIGHTS_SCHEMA);
   db.run(CARDS_SCHEMA);
@@ -1054,6 +1056,8 @@ export class Daemon {
       for (const s of [r?.state, ...(r?.members ?? [])].filter(Boolean)) aa[s.name] = { ...s, t: now };
       for (const name of r?.refused ?? []) this.aaRefused.set(name, now);
       if (!r?.done?.length) continue;
+      const ranks = r.done.filter((d) => / trained /.test(d)).length;
+      if (ranks) recordCoin(this.db, Array.from({ length: ranks }, () => ({ t: now, kind: "AA ranks", pp: -AA_POLICY.rankPp })), t.group ?? t.label);
       this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, t.label, `aa: ${r.done.join("; ")}`);
       this.log(`coordinator: ${t.label} aa: ${r.done.join("; ")}`);
     }
@@ -1382,11 +1386,11 @@ export class Daemon {
     const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
     const hours = raidHours(metaGet(this.db, "raidHours") ?? [], st.time, now);
     metaSet(this.db, "raidHours", hours);
-    // The account's coin decides whether an open-world boss outside the goal buys an hour, so it
-    // is read only while no hour runs and such a boss stood at its last sighting.
-    const stood = watch.some((w) => !first.includes(w.key) && seen[npcKey(w.name)]?.zone === w.zone && seen[npcKey(w.name)].state === "alive");
-    const money = !paid && stood ? await this.relay.evaluate(reader.targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`boss pass: the account's coin: ${e.message}`), null)) : null;
+    // The account's coin decides whether an open-world boss outside the goal buys an hour. Every
+    // pass reads it, as the Manage Money panel does, and keeps it for the ledger (tools/lib/coin.mjs).
+    const money = await this.relay.evaluate(reader.targetId, call(moneyInPage), { timeout: 30000 }).catch((e) => (this.log(`boss pass: the account's coin: ${e.message}`), null));
     const coinPp = money?.totalPp ?? null;
+    if (coinPp != null) recordPurse(this.db, now, coinPp);
     const canBuy = canBuyHour({ coinPp, pricePp: st.time?.pricePp });
     const { retryTime } = await import("./lib/coordinator.mjs");
     // A boss whose last raid is not due again stands aside for the next one. A killed boss waits
@@ -2087,6 +2091,8 @@ export class Daemon {
           await appendFile(join(dir, "events.jsonl"), got.events.map((r) => JSON.stringify(r)).join("\n") + "\n");
           cur.e = { ses: got.events.at(-1).ses ?? 0, seq: got.events.at(-1).seq };
           const who = snap.leader.name;
+          // The coin these lines gained and spent, for the ledger (tools/lib/coin.mjs).
+          recordCoin(this.db, coinEntries(got.events), this.groups().get(who) ?? who);
           const looted = lootProgress({ events: got.events, name: who, itemFor: (item, nth) => this.itemFor(item, nth), unloot: (item, t) => this.unloot(who, item, t) });
           recordProgress(this.db, looted, this.groups());
           this.keepCards(looted.map((r) => r.data.itemId));
@@ -2499,6 +2505,7 @@ const HELP = `iqd <command>
   serve [--port 4790]            only the dashboard, on the database as it is
   minutes [--hours 336]          rebuild the minute totals of the last hours from the recorded samples, for the
                                  time before the collector wrote them (run it while the collector is stopped)
+  coin [--days 7]                the account's coin by day: income and spends by kind, and its total
   status                         sessions, characters, open attention items and jobs
   wait [--severity act|decide|info] [--max-minutes 60]
                                  block until a new unresolved attention item appears
@@ -2522,7 +2529,7 @@ function parse(argv) {
     args: argv,
     allowPositionals: true,
     strict: false,
-    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" }, why: { type: "string" }, read: { type: "boolean" }, seconds: { type: "string" }, stacks: { type: "string" } },
+    options: { interval: { type: "string" }, port: { type: "string" }, coordinate: { type: "boolean" }, recover: { type: "boolean" }, severity: { type: "string" }, "max-minutes": { type: "string" }, session: { type: "string" }, actor: { type: "string" }, purpose: { type: "string" }, cmd: { type: "string" }, out: { type: "string" }, runs: { type: "string" }, hours: { type: "string" }, days: { type: "string" }, canary: { type: "string" }, untested: { type: "boolean" }, why: { type: "string" }, read: { type: "boolean" }, seconds: { type: "string" }, stacks: { type: "string" } },
   });
   const runs = values.runs ?? process.env.IQD_RUNS ?? join(REPO, "runs");
   return { values, positionals, runs: isAbsolute(runs) ? runs : join(process.cwd(), runs) };
@@ -2635,6 +2642,20 @@ async function cmdMinutes({ values, runs }) {
   const db = openDb(join(runs, "iq.db"));
   const n = await backfillMinutes(db, runs, rosterGroups(), Date.now() - hours * 3600000);
   console.log(`minutes: ${n} group-minutes written for the last ${hours} hours`);
+}
+
+/** The coin ledger of the last days: what came in and went out by kind, and the account's total. */
+async function cmdCoin({ values, runs }) {
+  const days = Number(values.days ?? 7);
+  if (!(days > 0)) throw new Error("--days must be a positive number");
+  const rows = coinDays(openDb(join(runs, "iq.db")), days);
+  if (!rows.length) return console.log("coin: no ledger lines yet. The collector writes them as the tabs play.");
+  const kinds = [...new Set(rows.flatMap((r) => Object.keys(r.kinds)))].sort((a, b) => rows.reduce((s, r) => s + (r.kinds[b]?.pp ?? 0) - (r.kinds[a]?.pp ?? 0), 0));
+  const pp = (v) => (v == null ? "-" : Math.round(v).toLocaleString("en-US"));
+  const pad = (s, n) => String(s).padStart(n);
+  console.log(["day".padEnd(10), ...kinds.map((k) => pad(k, Math.max(9, k.length + 1))), pad("net", 9), pad("total", 9), pad("other", 9)].join(" "));
+  for (const r of rows) console.log([r.day, ...kinds.map((k) => pad(pp(r.kinds[k]?.pp ?? 0), Math.max(9, k.length + 1))), pad(pp(r.income + r.spent), 9), pad(pp(r.purse), 9), pad(pp(r.other), 9)].join(" "));
+  console.log("Platinum. net: the lines' sum. total: the account's coin at the day's last read. other: the change of the total that no line explains.");
 }
 
 async function cmdStatus({ runs }) {
@@ -2816,7 +2837,7 @@ async function cmdJob({ values, positionals, runs }) {
 async function main(argv) {
   const args = parse(argv);
   const cmd = args.positionals[0];
-  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, renew: cmdRenew, job: cmdJob };
+  const table = { run: cmdRun, serve: cmdServe, deploy: cmdDeploy, revert: cmdRevert, minutes: cmdMinutes, coin: cmdCoin, status: cmdStatus, wait: cmdWait, ack: cmdAck, note: cmdNote, page: cmdPage, load: cmdLoad, renew: cmdRenew, job: cmdJob };
   if (!table[cmd]) {
     console.log(HELP);
     process.exit(cmd && cmd !== "help" ? 1 : 0);
