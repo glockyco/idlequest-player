@@ -2059,6 +2059,14 @@ export class Daemon {
    */
   async checkRelease(now) {
     if (this.checkingRelease) return;
+    // The raid simulator, and with it the kill odds, runs the newest release it has a table for
+    // (tools/raidsim/clients.mjs), so a release the pages run without one is an item until it has.
+    const { CLIENTS } = await import("./raidsim/clients.mjs");
+    for (const r of new Set([...this.trackers.values()].map((tr) => tr.snap?.release).filter(Boolean))) {
+      const key = `raidsim:${r}`;
+      if (!CLIENTS[r]) raiseItem(this.db, { t: now, severity: "act", kind: "raidsim", key, text: `The raid simulator has no table for the client ${r} the pages run, so the kill odds fight with an older client. Write one with \`bun tools/raidsim/map-client.mjs ${r} --from <newest table>\` (docs/tools.md).` });
+      else for (const item of this.db.query("SELECT id FROM attention WHERE dedupe = ? AND resolved IS NULL").all(key)) resolveItem(this.db, item.id, "the raid simulator has a table for this release", now);
+    }
     const done = metaGet(this.db, "clientChecks") ?? {};
     const commit = this.deploy?.commit ?? null;
     const repaired = (r) => done[r]?.fails?.length > 0 && (done[r].commit ?? null) !== commit;
