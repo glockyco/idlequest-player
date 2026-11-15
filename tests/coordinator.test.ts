@@ -205,6 +205,14 @@ test("a chain whose reward a later chain takes stays done", () => {
     avenger: { class: "Paladin", reward: "Avenger", needs: ["SoulFire", "Ghoulbane"], steps: [{ npc: "Dason", say: ["Dirkog"], expect: "Pass" }, { npc: "Inte", give: ["SoulFire"], expect: "First Blessing" }, { npc: "Inte", give: ["Ghoulbane"], expect: "Second Blessing" }, { npc: "Inte", give: ["First Blessing", "Second Blessing"], expect: "Avenger" }] },
   };
   expect(doneItems("sword", tree)).toEqual(["Sword", "SoulFire", "First Blessing", "Second Blessing", "Avenger"]);
+  // A later chain may only have to carry the reward (`hold`), after steps that need nothing of it.
+  // What those bring does not show the reward's chain done: an Enchanter with an Enchanted Emerald
+  // still needs Jeb's Seal.
+  const staff = {
+    seal: { class: "Enchanter", reward: "Jeb's Seal", steps: [{ npc: "a sarnak imitator", give: ["Copy of Notes"], expect: "Jeb's Seal" }] },
+    third: { class: "Enchanter", reward: "3rd Piece of Staff", needs: ["Jeb's Seal"], steps: [{ npc: "Nadia", say: ["emerald"], expect: "Dull Emerald" }, { npc: "Tzilug", give: ["Dull Emerald"], expect: "Enchanted Emerald" }, { npc: "Nadia", say: ["i need a sack"], hold: ["Jeb's Seal"], expect: "Enchanters Sack" }, { npc: "Nadia", give: ["Sack For Nadia"], expect: "3rd Piece of Staff" }] },
+  };
+  expect(doneItems("seal", staff)).toEqual(["Jeb's Seal", "Enchanters Sack", "3rd Piece of Staff"]);
 });
 
 // One item for X1, a level 30 character an hour from its next level, one copy an hour of hunting:

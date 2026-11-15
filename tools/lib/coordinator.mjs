@@ -122,8 +122,8 @@ export function chainNeeders(id, { quests = {}, holders = {}, members = [] }) {
 /**
  * Returns the items that show a character has finished quest chain `id`:
  * - its reward and its `doneIf` items
- * - for each chain that consumes the reward (lists it in `needs`): every `expect` from the
- *   consuming step onward, and that chain's own done items, recursively
+ * - for each chain that uses the reward (lists it in `needs`): every `expect` from the step that
+ *   uses it onward, and that chain's own done items, recursively
  *
  * The second rule covers a reward that was already handed in, including a character that stopped
  * part way through the consuming chain.
@@ -132,9 +132,16 @@ export function doneItems(id, quests, seen = new Set()) {
   const q = quests[id];
   if (!q || seen.has(id)) return [];
   seen.add(id);
-  const takes = (s) => [...(s.give ?? []), ...(s.craft?.inputs ?? []), ...(s.cast?.inputs ?? [])].includes(q.reward);
+  // A step uses the reward when it hands it in, puts it into a craft or a cast, or only has to
+  // carry it (`hold`, as Jeb's Seal for Nadia's sack). What a later chain brings before that step
+  // says nothing: five Enchanters carried an Enchanted Emerald, the first thing the chain of the
+  // third staff piece brings, and so counted as done with Jeb's Seal, whose chain never ran.
+  const takes = (s) => [...(s.give ?? []), ...(s.hold ?? []), ...(s.craft?.inputs ?? []), ...(s.cast?.inputs ?? [])].includes(q.reward);
   const later = Object.keys(quests).filter((k) => k !== id && (quests[k].needs ?? []).includes(q.reward));
-  const spent = (k) => (quests[k].steps ?? []).slice(Math.max(0, (quests[k].steps ?? []).findIndex(takes))).map((s) => s.expect);
+  const spent = (k) => {
+    const at = (quests[k].steps ?? []).findIndex(takes);
+    return at < 0 ? [] : quests[k].steps.slice(at).map((s) => s.expect);
+  };
   return [...new Set([q.reward, ...(q.doneIf ?? []), ...later.flatMap((k) => [...spent(k), ...doneItems(k, quests, seen)])].filter(Boolean))];
 }
 
