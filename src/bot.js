@@ -2198,7 +2198,9 @@
     // with Shmendrik Lavawalker during Natasha Whitewater's scene, and Enemy Targets then leaves it
     // out. Outside a raid a player can still select it and press Attack, which starts the same
     // directed fight (`startDirectedCombat`, docs/client-internals.md).
-    const excluded = alive.length || !rt.startDirectedCombat ? null : (rt.combatScene.dependencies?.getEntityPool?.()?.getAliveEntities?.() ?? []).find((e) => e.spawn?.automatedCombatExcluded && wanted.test(String(e.spawn.name ?? "").replace(/#/g, "").replace(/_/g, " ")));
+    // The list of attackable enemies can still name such a spawn, and Enemy Targets then answers
+    // "No available enemies found in this zone": Shmendrik stood that way twice on 2026-11-15.
+    const excluded = !rt.startDirectedCombat ? null : (rt.combatScene.dependencies?.getEntityPool?.()?.getAliveEntities?.() ?? []).find((e) => e.spawn?.automatedCombatExcluded && wanted.test(String(e.spawn.name ?? "").replace(/#/g, "").replace(/_/g, " ")));
     if (!alive.length && !excluded && !engaged()) return "none";
     let t0 = now();
     if (!engaged()) {
