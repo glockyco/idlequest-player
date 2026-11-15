@@ -60,392 +60,311 @@
         "recipeId": 8337,
         "name": "Silver Malachite Ring",
         "to": 17,
-        "pp": 1.7,
-        "itemId": 14600
+        "pp": 1.7
       },
       {
         "recipeId": 8353,
         "name": "Silver Turquoise Bracelet",
         "to": 18,
-        "pp": 1.7,
-        "itemId": 14608
+        "pp": 1.7
       },
       {
         "recipeId": 8335,
         "name": "Silver Lapis Lazuli Necklace",
         "to": 21,
-        "pp": 1.7,
-        "itemId": 14604
+        "pp": 1.7
       },
       {
         "recipeId": 8319,
         "name": "Silver Cat Eye Necklace",
         "to": 24,
-        "pp": 1.8,
-        "itemId": 14616
+        "pp": 1.8
       },
       {
         "recipeId": 900004,
         "name": "Imbued Silver Plains Ring",
         "to": 34,
-        "pp": 1.9,
-        "itemId": 20891
+        "pp": 1.9
       },
       {
         "recipeId": 8123,
         "name": "Imbued Silver Amber Ring",
         "to": 35,
-        "pp": 4.1,
-        "itemId": 20549
+        "pp": 4.1
       },
       {
         "recipeId": 8309,
         "name": "Silver Amber Ring",
         "to": 36,
-        "pp": 4.1,
-        "itemId": 14640
+        "pp": 4.1
       },
       {
         "recipeId": 8355,
         "name": "Silver Wolf's Eye Necklace",
         "to": 38,
-        "pp": 4.8,
-        "itemId": 14644
+        "pp": 4.8
       },
       {
         "recipeId": 7945,
         "name": "Electrum Malachite Bracelet",
         "to": 74,
-        "pp": 4.1,
-        "itemId": 14601
+        "pp": 4.1
       },
       {
         "recipeId": 7943,
         "name": "Electrum Lapis Lazuli Earring",
         "to": 76,
-        "pp": 4.1,
-        "itemId": 14605
+        "pp": 4.1
       },
       {
         "recipeId": 7965,
         "name": "Electrum Turquoise Engagement Ring",
         "to": 79,
-        "pp": 4.1,
-        "itemId": 14609
+        "pp": 4.1
       },
       {
         "recipeId": 7939,
         "name": "Electrum Hematite Choker",
         "to": 82,
-        "pp": 4.2,
-        "itemId": 14613
+        "pp": 4.2
       },
       {
         "recipeId": 7933,
         "name": "Electrum Cat Eye Bracelet",
         "to": 84,
-        "pp": 4.2,
-        "itemId": 14617
+        "pp": 4.2
       },
       {
         "recipeId": 7929,
         "name": "Electrum Bloodstone Necklace",
         "to": 87,
-        "pp": 4.5,
-        "itemId": 14621
+        "pp": 4.5
       },
       {
         "recipeId": 900005,
         "name": "Imbued Electrum Plains Earring",
         "to": 98,
-        "pp": 4.3,
-        "itemId": 20892
+        "pp": 4.3
       },
       {
         "recipeId": 7926,
         "name": "Electrum Amber Earring",
         "to": 100,
-        "pp": 6.5,
-        "itemId": 14641
+        "pp": 6.5
       },
       {
         "recipeId": 8451,
         "name": "Wolf's Eye Electrum Bracelet",
         "to": 103,
-        "pp": 7.2,
-        "itemId": 14645
+        "pp": 7.2
       },
       {
         "recipeId": 8101,
         "name": "Imbued Jaded Electrum Bracelet",
         "to": 106,
-        "pp": 7.5,
-        "itemId": 20546
+        "pp": 7.5
       },
       {
         "recipeId": 7953,
         "name": "Electrum Pearl Choker",
         "to": 108,
-        "pp": 8.5,
-        "itemId": 14653
+        "pp": 8.5
       },
       {
         "recipeId": 8381,
         "name": "Topaz Electrum Earring",
         "to": 111,
-        "pp": 9,
-        "itemId": 14657
+        "pp": 9
       },
       {
         "recipeId": 7955,
         "name": "Electrum Peridot Bracelet",
         "to": 114,
-        "pp": 14,
-        "itemId": 14661
+        "pp": 14
       },
       {
         "recipeId": 8013,
         "name": "Gold Malachite Bracelet",
         "to": 146,
-        "pp": 13.1,
-        "itemId": 14602
+        "pp": 13.1
       },
       {
         "recipeId": 8011,
         "name": "Gold Lapis Lazuli Earring",
         "to": 148,
-        "pp": 13.1,
-        "itemId": 14606
+        "pp": 13.1
       },
       {
         "recipeId": 8023,
         "name": "Gold Turquoise Engagement Ring",
         "to": 151,
-        "pp": 13.1,
-        "itemId": 14610
+        "pp": 13.1
       },
       {
         "recipeId": 8043,
         "name": "Golden Hematite Choker",
         "to": 154,
-        "pp": 13.2,
-        "itemId": 14614
+        "pp": 13.2
       },
       {
         "recipeId": 8033,
         "name": "Golden Cat Eye Bracelet",
         "to": 156,
-        "pp": 13.2,
-        "itemId": 14618
+        "pp": 13.2
       },
       {
         "recipeId": 8005,
         "name": "Gold Bloodstone Necklace",
         "to": 159,
-        "pp": 13.5,
-        "itemId": 14622
+        "pp": 13.5
       },
       {
         "recipeId": 8016,
         "name": "Gold Onyx Pendant",
         "to": 162,
-        "pp": 13.7,
-        "itemId": 14626
+        "pp": 13.7
       },
       {
         "recipeId": 900006,
         "name": "Imbued Golden Plains Earring",
         "to": 170,
-        "pp": 13.3,
-        "itemId": 20893
+        "pp": 13.3
       },
       {
         "recipeId": 8025,
         "name": "Golden Amber Earring",
         "to": 172,
-        "pp": 15.5,
-        "itemId": 14642
+        "pp": 15.5
       },
       {
         "recipeId": 8453,
         "name": "Wolf's Eye Golden Bracelet",
         "to": 175,
-        "pp": 16.2,
-        "itemId": 14646
+        "pp": 16.2
       },
       {
         "recipeId": 8093,
         "name": "Imbued Golden Jaded Bracelet",
         "to": 178,
-        "pp": 16.5,
-        "itemId": 20547
+        "pp": 16.5
       },
       {
         "recipeId": 8055,
         "name": "Golden Pearl Choker",
         "to": 180,
-        "pp": 17.5,
-        "itemId": 14654
+        "pp": 17.5
       },
       {
         "recipeId": 8098,
         "name": "Imbued Golden Topaz Earring",
         "to": 183,
-        "pp": 18,
-        "itemId": 20583
+        "pp": 18
       },
       {
         "recipeId": 8095,
         "name": "Imbued Golden Peridot Bracelet",
         "to": 186,
-        "pp": 23,
-        "itemId": 20579
+        "pp": 23
       },
       {
         "recipeId": 8090,
         "name": "Imbued Golden Emerald Bracelet",
         "to": 188,
-        "pp": 26,
-        "itemId": 20559
+        "pp": 26
       },
       {
         "recipeId": 8094,
         "name": "Imbued Golden Opal Amulet",
         "to": 191,
-        "pp": 30,
-        "itemId": 20587
+        "pp": 30
       },
       {
         "recipeId": 8088,
         "name": "Imbued Golden Black Pearl Choker",
         "to": 195,
-        "pp": 33,
-        "itemId": 20567
+        "pp": 33
       },
       {
         "recipeId": 8091,
         "name": "Imbued Golden Fire Ring",
         "to": 196,
-        "pp": 53,
-        "itemId": 20591
+        "pp": 53
       },
       {
         "recipeId": 8073,
         "name": "Golden Star Ruby Ring",
         "to": 199,
-        "pp": 78,
-        "itemId": 14682
+        "pp": 78
       },
       {
         "recipeId": 7992,
         "name": "Fire Emerald Golden Bracelet",
         "to": 202,
-        "pp": 98,
-        "itemId": 14686
+        "pp": 98
       },
       {
         "recipeId": 8097,
         "name": "Imbued Golden Sapphire Earring",
         "to": 204,
-        "pp": 113,
-        "itemId": 20563
+        "pp": 113
       },
       {
         "recipeId": 8210,
         "name": "Platinum Malachite Ring",
         "to": 218,
-        "pp": 121.1,
-        "itemId": 14603
+        "pp": 121.1
       },
       {
         "recipeId": 8206,
         "name": "Platinum Lapis Lazuli Necklace",
         "to": 220,
-        "pp": 121.1,
-        "itemId": 14607
+        "pp": 121.1
       },
       {
         "recipeId": 8239,
         "name": "Platinum Turquoise Bracelet",
         "to": 223,
-        "pp": 121.1,
-        "itemId": 14611
+        "pp": 121.1
       },
       {
         "recipeId": 8200,
         "name": "Platinum Hematite Ring",
         "to": 226,
-        "pp": 121.2,
-        "itemId": 14615
+        "pp": 121.2
       },
       {
         "recipeId": 7912,
         "name": "Cat Eye Platinum Necklace",
         "to": 228,
-        "pp": 121.2,
-        "itemId": 14619
+        "pp": 121.2
       },
       {
         "recipeId": 900007,
         "name": "Imbued Platinum Plains Ring",
         "to": 242,
-        "pp": 121.3,
-        "itemId": 20894
+        "pp": 121.3
       },
       {
         "recipeId": 8180,
         "name": "Platinum Amber Ring",
         "to": 244,
-        "pp": 123.5,
-        "itemId": 14643
+        "pp": 123.5
       },
       {
         "recipeId": 8455,
         "name": "Wolf's Eye Platinum Necklace",
         "to": 247,
-        "pp": 124.2,
-        "itemId": 14647
+        "pp": 124.2
       },
       {
         "recipeId": 8139,
         "name": "Jaded Platinum Ring",
         "to": 250,
-        "pp": 124.5,
-        "itemId": 14651
+        "pp": 124.5
       }
     ],
     "goods": true,
     "maxPp": 400000,
     "retryMin": 30
-  },
-  "coin": {
-    "who": "Edroun",
-    "skillId": 57,
-    "skillName": "Tinkering",
-    "sell": [
-      {
-        "recipeId": 492,
-        "name": "Rebreather",
-        "itemId": 16889,
-        "pp": 383,
-        "attempts": 6000,
-        "needs": [
-          {
-            "recipeId": 347,
-            "itemId": 16873,
-            "pp": 22.1,
-            "yield": 20
-          },
-          {
-            "recipeId": 421,
-            "itemId": 16881,
-            "pp": 0.1
-          }
-        ]
-      }
-    ],
-    "maxPp": 2500000,
-    "retryMin": 60,
-    "untilPp": 100000000
   }
 }
