@@ -38,6 +38,11 @@ test("each carried item goes to the character it adds most to, once", () => {
   const own = planGear({ survey: [row("Tank", 2, "Equipped", 8, 1), row("Tank", 1, "Carried", 25, 2)], items, people, bound: new Set([1]) });
   expect(own.moves.map((m) => [m.item, m.to])).toEqual([["Fine Cloak", "Tank"]]);
   expect(planGear({ survey, items, people, bound: new Set([1]) }).moves).toEqual([]);
+  // An item its carrier has to wear goes on though the plain cloak it replaces scores no lower for
+  // the move to pay, and once worn the fine cloak does not take its place.
+  const forced = planGear({ survey: [row("Tank", 1, "Equipped", 8, 1), row("Tank", 2, "Carried", 25, 2)], items, people, wear: new Set([2]) });
+  expect(forced.moves.map((m) => [m.item, m.to, m.slot])).toEqual([["Plain Cloak", "Tank", "back"]]);
+  expect(planGear({ survey: [row("Tank", 2, "Equipped", 8, 1), row("Holder", 1, "Carried", 25, 2)], items, people: [people[0]], wear: new Set([2]) }).moves).toEqual([]);
 });
 
 test("a move of a lore item names the other characters that carry one, which a gear task's leader must not be", () => {

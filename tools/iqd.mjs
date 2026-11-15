@@ -408,6 +408,11 @@ export function drainInPage(a) {
 
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
+// The class epics a carrier wears whatever the set score says: the Water Sprinkler of Nem Ankh,
+// whose Reviviscence a raid orders for no mana. The client takes an item's click for a raid order
+// only when it revives, or heals or damages at once (`TU` and `EU` in the release of 2026-11-15),
+// and no other epic's click does.
+const WORN_EPICS = new Set([5532]);
 // Hours of a zone's own crowding measurement the crowding model's share counts as (`crowdFactors`).
 // The measurement is the time a group waits for a target, which a quarter hour shows within a few
 // percent, and the model misses by more: it gave Kedge Keep 0.89 beside four groups, where a group
@@ -1716,7 +1721,7 @@ export class Daemon {
     // progress, exceeds the chain's hours (`STEP_HOURS` a step and the model's cost of its pieces).
     const { STEP_HOURS } = await import("./lib/gear-quests.mjs");
     const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound: new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat()), copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound: new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat()), wear: WORN_EPICS, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
