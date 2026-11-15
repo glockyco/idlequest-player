@@ -40,7 +40,7 @@ end`;
       chain: { class: "Cleric", minLevel: 37, reward: "Fang", ids: { Note: 10, Fang: 20 }, steps: [
         { zone: "z", npc: "Giver", npcIds: [1], say: ["task"], expect: "Note" },
         { zone: "z", npc: "Giver", npcIds: [1], give: ["Note"] },
-        { zone: "z", kill: "a guardian", level: 40, hp: null, expect: "Fang", waitSec: 60, calledBy: 1 },
+        { zone: "z", kill: "a guardian", npcId: 500, level: 40, hp: null, expect: "Fang", waitSec: 60, calledBy: 1 },
       ] },
     },
     {
@@ -134,7 +134,7 @@ test("a chain with a kill above level 60 exists, asks for the level cap and name
   });
   const [chain] = epicChains(model, epicTree(model, "Monk", 30), { cls: "Monk", reward: 30, names: new Map([[10, "Wine"], [30, "Fangs"]]) });
   expect(chain.chain.minLevel).toBe(60);
-  expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", level: 65, hp: 32500, expect: "Fangs", waitSec: 60, calledBy: 0 });
+  expect(chain.chain.steps.at(-1)).toEqual({ zone: "z", kill: "a dragon", npcId: 500, level: 65, hp: 32500, expect: "Fangs", waitSec: 60, calledBy: 0 });
 });
 
 test("uncovered cuts a generated part after the last item a hand-kept chain of its class produces", () => {

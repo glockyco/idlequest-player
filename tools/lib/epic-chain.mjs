@@ -26,7 +26,7 @@ export const plainName = (name) => String(name).replace(/ \[\d+\]$/, "");
  * tree or one that needs a step kind the bot lacks (`missingKinds`).
  *
  * Step kinds: say or hand-in at an NPC (`expect` is the item it gives, `buy` a purchase in the
- * same zone, `hold` the items its NPC wants carried, which the member keeps), buy-only step for a merchant in another zone, kill of an NPC a hand-in spawns, craft,
+ * same zone, `hold` the items its NPC wants carried, which the member keeps), buy-only step for a merchant in another zone, kill of an NPC a hand-in spawns (with its type id `npcId`, by which the kill odds simulate it), craft,
  * cast, ground pickup. Hunted pieces (`huntPieces`) and the kills that drop them are not steps.
  *
  * Splitting into parts: a step stays in the current part if it consumes an item the part produced,
@@ -152,7 +152,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
         const zone = s.way.by?.zone ?? [...(model.sites.get(s.way.npcId)?.keys() ?? [])][0];
         begin({ after: s.way.by ? [s.way.by] : [], npcIds: [s.way.npcId], zone, kill: true });
         // A kill names its enemy's level and hit points, for the group's chance against it.
-        const at = push({ zone, kill: s.way.npc, level: s.way.level ?? model.npcs.get(s.way.npcId)?.level ?? null, hp: model.npcs.get(s.way.npcId)?.hp ?? null, expect: name(s.item), waitSec: SPAWN_WAIT_SEC, ...calledBy([s.way.npcId], zone) });
+        const at = push({ zone, kill: s.way.npc, ...(s.way.npcId != null ? { npcId: s.way.npcId } : {}), level: s.way.level ?? model.npcs.get(s.way.npcId)?.level ?? null, hp: model.npcs.get(s.way.npcId)?.hp ?? null, expect: name(s.item), waitSec: SPAWN_WAIT_SEC, ...calledBy([s.way.npcId], zone) });
         part.level = Math.max(part.level, s.way.level ?? 0);
         fights.set(s.way.npcId, { part, at });
         yieldItem(s.item, at);
@@ -211,7 +211,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       begin({ after, npcIds, zone: b.zone, kill: true });
       const hardest = npcIds.map((id) => model.npcs.get(id)).filter(Boolean).sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
       const gives = b.actions.flatMap((a) => a.give ?? []);
-      const at = push({ zone: b.zone, kill: b.npc, level: hardest?.level ?? null, hp: hardest?.hp ?? null, ...(gives.length ? { expect: name(gives[0]) } : {}), waitSec: SPAWN_WAIT_SEC, ...calledBy(npcIds, b.zone) });
+      const at = push({ zone: b.zone, kill: b.npc, ...(hardest?.id != null ? { npcId: hardest.id } : {}), level: hardest?.level ?? null, hp: hardest?.hp ?? null, ...(gives.length ? { expect: name(gives[0]) } : {}), waitSec: SPAWN_WAIT_SEC, ...calledBy(npcIds, b.zone) });
       ran(b, at);
       for (const id of gives) yieldItem(id, at);
       part.level = Math.max(part.level, ...npcIds.map((id) => model.npcs.get(id)?.level ?? 0));

@@ -1875,14 +1875,29 @@
       }
       // A hand-in that summons the next step's enemy waits for the party at full HP and mana, because
       // the client attacks only a party it finds ready and does not fight back while it waits.
-      if (m.steps[k + 1]?.kill && !s.kill) {
+      if (m.steps[k + 1]?.kill && !s.kill && !(m.steps[k + 1].raid && task.raid)) {
         if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
         gathered = true;
         await readyParty();
       }
-      // A script-spawned enemy appears a few seconds after the hand-in or kill that summons it, and a
-      // fight the party did not reach is tried again, as a hunt does, until `waitSec` runs out.
-      if (s.kill) {
+      // An enemy the group does not beat is the raid's (`raid` on the step, the coordinator's): the
+      // member leads every other roster character against it and loots it. Group 1 lost Ixiblat Fer
+      // of the Cleric epic at its first death twice, and the raid kills him in seconds. The raid
+      // starts only once the enemy is up, so a spawn that did not come costs no raid time.
+      if (s.kill && s.raid && task.raid?.members?.length) {
+        const wanted = enemyPattern(s.kill);
+        const up = () => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => wanted.test(x.name ?? ""));
+        for (const end = now() + (s.waitSec ?? 60) * 1000; !up() && now() < end; ) await sleep(2000);
+        if (!up()) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
+        // The raid fight reads and writes a raid task, so it gets one that falls back on this task
+        // for its status and runner.
+        const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", effects: [], fight: null, result: null, spawnInstanceId: null });
+        await raidFight(i, fight, step);
+        (task.raids ??= []).push(fight.result);
+        log(`quest: the raid on ${s.kill} for ${m.name}: ${fight.result ?? "no fight"}`);
+        if (fight.fight?.outcome !== "killed") throw new Error(`the raid on ${s.kill} ended without a kill: ${fight.result ?? "no fight"}`);
+        m.foughtAt = now();
+      } else if (s.kill) {
         if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
         gathered = true;
         // The client pulls only a party it finds ready, so the fight's time starts once it is, also
@@ -2707,11 +2722,11 @@
     if (state.task?.status === "running") throw new Error(`the ${state.task.kind} task is still running`);
     if (now() < state.pauseUntil) throw new Error(`the tab is paused${state.pauseReason ? ` for ${state.pauseReason}` : ""}`);
   };
-  const startQuest = (kind, members, name = kind) => {
+  const startQuest = (kind, members, name = kind, raid = null) => {
     takeTab();
     if (!members.length) throw new Error(`a ${kind} needs members`);
     for (const m of members) accountCharacter(iq(), m.name);
-    state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })) };
+    state.task = { id: `${kind}-${now().toString(36)}`, kind, name, startedAt: now(), members: members.map((m) => ({ ...m, done: false })), ...(raid ? { raid } : {}) };
     return { ...runTask(state.task) };
   };
   const taskSummary = (task) =>
@@ -3337,12 +3352,13 @@
      * `{ zone: "freporte", npc: "Kargek Redblade", say: ["scabbard", "favor"], expect: "Wax Sealed
      * Note" }`. A missing item is pulled from another account character, never from one in `avoid`,
      * the other characters that need it. `spare` maps a member to the gear the leader may pull out
-     * of its bags when they are full (`makeRoom`). Returns a copy of the task, which `state.task`
-     * keeps up to date.
+     * of its bags when they are full (`makeRoom`). A kill step with `raid` is fought as a raid led
+     * by the member, with `raid` (`{ members, maxPp, heal, nuke }`, the roster and the orders of
+     * `iqBot.raid`). Returns a copy of the task, which `state.task` keeps up to date.
      */
-    quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {} }) {
+    quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {}, raid = null }) {
       if (!steps?.length) throw new Error("a quest needs steps");
-      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids, spare: spare[n] ?? [] })), name);
+      const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids, spare: spare[n] ?? [] })), name, raid);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;
     },

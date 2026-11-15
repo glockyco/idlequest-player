@@ -988,7 +988,11 @@ export class Daemon {
     const purse = this.db.query("SELECT t, pp FROM coin ORDER BY t DESC LIMIT 1").get();
     const lastPlan = metaGet(this.db, "bossPlan");
     const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0) } : null;
-    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor };
+    const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor,
+      // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
+      raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke },
+      raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
+    };
     const { actions, targets: targetEval } = decide(input);
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.
     const pieceIds = new Set(opportunities.map((o) => o.id));

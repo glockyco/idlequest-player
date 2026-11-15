@@ -4,6 +4,8 @@
 // - Bosses: each daily boss (runs/state/daily-bosses.json), each casino boss a character holds a
 //   credit for (the db meta key `casinoCredits`) or a potion of, and the account's standing casino
 //   boss fight the raid of all roster characters and the strongest group's six.
+// - Quest enemies: the enemies the quest chains fight above level 50 (their kill steps) fight the
+//   raid, so a chain's fight the group cannot win goes to the raid (`decide` in tools/lib/coordinator.mjs).
 // - Gear targets (the db meta key `gear`): the pairs of group and target with the highest expected
 //   value, the target's value per hour times the prior's chance for the pair, that have no result
 //   younger than a day at the group's current level, `--pairs` of them per run. So the simulator
@@ -22,6 +24,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { RAID_MODES, bossParts } from "./lib/boss-plan.mjs";
 import { casinoBosses } from "./lib/client-tables.mjs";
+import { loadItemModel } from "./lib/item-demand.mjs";
 import { liveSpawnRows, rows } from "./lib/content.mjs";
 import { npcKey } from "./lib/fight-record.mjs";
 import { fitPrior, priorOf } from "./lib/kill-prior.mjs";
@@ -71,10 +74,16 @@ const credited = new Set(creditReads.flatMap((r) => (r.list ?? []).filter((c) =>
 const watch = JSON.parse(db.query("SELECT v FROM meta WHERE k = 'bossPlan'").get()?.v ?? "{}").watch ?? [];
 const openWatched = watch.filter((w) => (w.goal || w.gear) && !(daily.bosses ?? []).some((b) => b.key === w.key)).map((w) => ({ key: w.key, name: w.name, zone: w.zone }));
 
+// The enemies of the quest chains' kill steps above level 50, by zone and name, with the NPC type
+// a generated step names (`npcId`), since a script spawns most of them and no spawn point does.
+const chains = { ...(await loadItemModel()).chains, ...(await read("data/quests.json", {})) };
+const questKills = new Map();
+for (const q of Object.values(chains)) for (const s of q.steps ?? []) if (s.kill && s.level > 50) questKills.set(`${s.zone}|${npcKey(s.kill)}`, { key: `${s.zone}|${npcKey(s.kill)}`, name: s.kill, zone: s.zone, ...(s.npcId != null ? { npcId: s.npcId } : {}) });
+
 // An enemy is the NPC of its name that spawns in its zone, since a name alone is ambiguous in the
 // content (Talendor has a level-90 `#Talendor` beside the level-60 boss). Read once for every
 // enemy this run may fight and every one on file.
-const wanted = new Set([...(daily.bosses ?? []).flatMap((b) => bossParts(b.name)), ...openWatched.map((b) => b.name), ...targets.map((x) => x.npc), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
+const wanted = new Set([...(daily.bosses ?? []).flatMap((b) => bossParts(b.name)), ...openWatched.map((b) => b.name), ...targets.map((x) => x.npc), ...[...questKills.values()].map((k) => k.name), ...Object.values(odds).map((e) => e.name).filter(Boolean)].map(npcKey));
 const named = new Map();
 for await (const n of rows("npc_types")) if (wanted.has(npcKey(n.name))) named.set(n.id, n);
 const groupsOf = new Map();
@@ -103,6 +112,7 @@ const add = (e, group) => {
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
 for (const c of casino) if (held.has(c.itemId) || credited.has(c.key)) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
 for (const b of openWatched) add({ ...b, raid: true }, strongest);
+for (const k of questKills.values()) add({ ...k, raid: true }, null);
 const pairs = [];
 // A summoned boss's drops (`summoned`) come only from a raid, so no group fights it.
 for (const x of targets.filter((t) => t.npcLevel > 50 && !t.summoned)) {

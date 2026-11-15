@@ -35,6 +35,10 @@ export const DEFAULTS = {
   // A quest's fight waits until the group's kill chance against its enemy is this high. A lost
   // fight costs the hand-in that called the enemy, and the giver is gone until its respawn.
   questKillChance: 0.5,
+  // A quest's enemy of this level or more is the raid's when the simulated raid kills it, whatever
+  // the group's chance says: the chance for Ixiblat Fer (62) sent group 1 twice, which loses that
+  // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
+  questRaidLevel: 55,
 };
 
 /**
@@ -336,7 +340,7 @@ export function worldHold(history, id, code = null) {
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -433,10 +437,17 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       if (!due(last, q.retryMin ?? 120, t)) continue;
       if (now < worldHold(history, id, t.code ?? code)) continue;
       if ((pointBound || fights) && runs()) continue;
-      // An unknown chance does not hold the quest, as for an enemy no fight on file resembles.
-      if (q.steps.some((s) => s.kill && s.level != null && (killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1) < cfg.questKillChance)) continue;
+      // An unknown chance does not hold the quest, as for an enemy no fight on file resembles. A
+      // fight goes to the raid (`raid` on its step, `raid` in the spec) when the simulated raid kills
+      // the enemy and it is of `questRaidLevel` or the group's chance is too low. Raid mode takes
+      // enemies above level 50 and a leader of 46.
+      const chance = (s) => killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1;
+      const leads = who.every((n) => (t.members.find((m) => m.name === n)?.level ?? 0) >= 46);
+      const byRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance));
+      if (q.steps.some((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance)) continue;
+      const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
       for (const [p, n] of left) spare.set(p, n);
-      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps: q.steps, name: id, ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
+      out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
     }
   }
 
