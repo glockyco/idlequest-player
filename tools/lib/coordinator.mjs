@@ -501,7 +501,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);
       const who = dueNow ? [...new Set(calls.map((c) => c.who))].filter((n) => needers.includes(n)) : [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
       if (!who.length) {
-        no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${want.map((n) => lacks(n).filter(([, l]) => l > 0).map(([p, l]) => `${l} ${p}`).join(" and ")).join("; ")}, and no free copy is left`, !want.length);
+        no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${[...new Set(want.flatMap((n) => lacks(n).filter(([p, l]) => l > left.get(p)).map(([p]) => p)))].join(", ")}, of which no free copy is left`, !want.length);
         continue;
       }
       if (!dueNow && !due(last, q.retryMin ?? 120, t)) { no(t, `its last run ${last?.status ?? "has not ended"}, and the next is due at ${new Date(retryTime(last, q.retryMin ?? 120, t?.code ?? code)).toTimeString().slice(0, 5)}`); continue; }
