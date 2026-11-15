@@ -2682,7 +2682,15 @@
     await step(`look for ${task.name}`, async () => {
       for (;;) {
         if (state.task !== task || task.status !== "running" || task.runner !== runner) throw new TaskStopped();
-        const at = (await readBosses(i, task, task.name)).filter((s) => bossKey(s.name) === bossKey(task.name));
+        const list = await readBosses(i, task, task.name);
+        // With `list` the look writes the zone's whole spawn list to the log once, names and states,
+        // for comparing the live world with the content's spawn tables.
+        if (task.list && !task.listed) {
+          task.listed = true;
+          const names = [...new Set(list.map((s) => `${s.name}:${s.state}`))].sort();
+          for (let k = 0; k < names.length; k += 40) log(`look list ${task.zone} ${k / 40 + 1}: ${names.slice(k, k + 40).join(", ")}`);
+        }
+        const at = list.filter((s) => bossKey(s.name) === bossKey(task.name));
         if (at.some((s) => s.state === "alive")) return void (task.result = `${task.name} stands`);
         if (now() >= (task.until ?? 0)) {
           const next = Math.min(...at.map((s) => s.nextRespawnAtMs).filter((t) => t > now()));
@@ -3947,12 +3955,13 @@
      * Look whether the enemy `name` stands in `zone`, as a task in the page (`lookTask`): the party
      * travels there, reads the zone's spawn list and goes home, without a fight. With `until` (ms)
      * it stays and reads again until the enemy stands or that time has passed. The task keeps the
-     * zone's raid targets as read (`seen`, `seenAt`). Returns a copy of the task.
+     * zone's raid targets as read (`seen`, `seenAt`), and with `list` it logs the zone's whole
+     * spawn list once. Returns a copy of the task.
      */
-    look({ zone, name, until = 0 }) {
+    look({ zone, name, until = 0, list = false }) {
       takeTab();
       if (!zone || !name) throw new Error("a look needs zone and name");
-      state.task = { id: `look-${now().toString(36)}`, kind: "look", zone, name, until, startedAt: now() };
+      state.task = { id: `look-${now().toString(36)}`, kind: "look", zone, name, until, startedAt: now(), ...(list ? { list: true } : {}) };
       log(`task look: ${name} in ${zone}${until > now() ? `, until ${new Date(until).toTimeString().slice(0, 5)}` : ""}`);
       return { ...runTask(state.task) };
     },
