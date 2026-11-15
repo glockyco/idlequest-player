@@ -2049,8 +2049,11 @@
             break;
           }
           if (r === "none" && now() > end) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
-          if (r && r !== "fighting" && now() > end) throw new Error(`the fight with ${s.kill} was lost (${fightState(i)})`);
-          if (r && r !== "fighting") await sleep(2000);
+          // A walk that still gets nearer and another player's fight are waited out like a fight.
+          const going = r === "fighting" || r === "approaching";
+          if (r === "taken" && now() > end + 120000) throw Object.assign(new Error(`another player fights ${s.kill}`), { retryAfterMs: 900000 });
+          if (r && !going && r !== "taken" && now() > end) throw new Error(`the fight with ${s.kill} was lost (${fightState(i)})`);
+          if (r && !going) await sleep(r === "taken" ? 20000 : 2000);
           r = await step(`kill ${s.kill}`, () => directedKill(i, wanted), 200000);
         }
         if (skipped) {
@@ -2219,12 +2222,17 @@
   // What a failed directed kill saw, for its error.
   const fightState = (i) => `in combat ${Boolean(i.stores.skills.getState().inCombat)}, target ${i.stores.combat.getState().targetNPC?.name ?? "none"}, last line: ${(i.events ?? []).at(-1)?.text ?? "none"}`;
   // The client's lines when it finds no place to stand and fight its target: "No usable route.
-  // Recovering near a Paebala warrior." and then "Navigation recovery could not find a supported
-  // combat position. Looking for another target.". The other target is the same one while that is
-  // the nearest of the wanted: group 10 in Dragon Necropolis got the pair every 15 s for 11
-  // minutes (2026-11-12).
-  const NO_ROUTE = /^No usable route\. Recovering near (.+?)\.$/;
-  const NO_PLACE = /^Navigation recovery could not find a supported combat position/;
+  // Recovering near a Paebala warrior." or "Route blocked. Recovering near a lava walker." and
+  // then one of its four endings of the recovery, such as "Navigation recovery could not find a
+  // supported combat position. Looking for another target.". The other target is the same one
+  // while that is the nearest of the wanted: group 10 in Dragon Necropolis got the pair every 15 s
+  // for 11 minutes (2026-11-12), and six hunts in the Skyfire Mountains gave up on 2026-11-15
+  // after three such tries at a lava walker, under the wording this did not know.
+  const NO_ROUTE = /^(?:No usable route|Route blocked)\. Recovering near (.+?)\.$/;
+  const NO_PLACE = /^Navigation recovery (?:could not find a supported|remained unconfirmed|was not confirmed)/;
+  // The client's line when the target it chose is another player's fight.
+  const TAKEN = /^That target is already engaged by another player/;
+  const ENGAGED = /^You engage (.+?) in combat!$/;
   /** The enemy the client gave up on since `t0`, by its name in the client's line, or null. */
   const noRouteSince = (i, t0) => {
     const evs = i.events ?? [];
@@ -2238,9 +2246,11 @@
   };
   /**
    * Fight the wanted enemies that are up through Enemy Targets: "killed", "none" when none is up,
-   * "fighting" when the fight with one still runs, "lost" when no fight came of it, or
-   * "noroute:<name>" when the client found no route to the one it chose, whose kind then joins
-   * `skip` and is left out of the next call.
+   * "fighting" when the fight with one still runs, "approaching" when the party still walks to
+   * one and gets nearer, "taken" when another player fights the one the client chose, "lost" when
+   * no fight came of it, "left:<name>" when the guard left the fight with it, or "noroute:<name>"
+   * when the client found no route to the one it chose or the walk stopped getting nearer. The
+   * kind of a `left` or `noroute` enemy joins `skip` and is left out of the next call.
    */
   const directedKill = async (i, wanted, skip = new Set()) => {
     const rt = runtime(i);
@@ -2273,6 +2283,13 @@
         rt.startDirectedCombat(excluded.spawn.npcId, excluded);
       } else rt.selectEnemyTarget([...new Set(alive.map((t) => t.npcId))]);
     }
+    // How far the nearest of the chosen enemies stands, and when the party last got nearer to it:
+    // Lodizal across the Iceclad Ocean and Kirak Vil in Nektulos were walked at for three calls
+    // of 150 s each without a fight and without a line (2026-11-14).
+    const ids = new Set(alive.map((t) => t.npcId));
+    const nearest = () => (rt.combatScene.getAliveCombatTargetList?.() ?? []).filter((t) => ids.has(t.npcId) && Number.isFinite(t.distance)).sort((a, b) => a.distance - b.distance)[0] ?? null;
+    let best = nearest()?.distance ?? Infinity;
+    let nearerAt = now();
     for (let k = 0; k < 150; k++) {
       await sleep(1000);
       if (killedSince(i, wanted, t0)) {
@@ -2280,6 +2297,19 @@
         return "killed";
       }
       const busy = i.stores.skills.getState().inCombat || rt.combatApproach?.attempt || rt.buffPhaseActive;
+      if (!i.stores.skills.getState().inCombat) {
+        if ((i.events ?? []).some((e) => e.t >= t0 && TAKEN.test(e.text ?? ""))) return "taken";
+        const d = nearest();
+        if (d && d.distance < best - 5) {
+          best = d.distance;
+          nearerAt = now();
+        }
+        // A walk that has come no nearer for a minute does not arrive.
+        if (d && rt.combatApproach?.attempt && now() - nearerAt > 60000) {
+          skip.add(d.npcId);
+          return `noroute:${String(d.name ?? "").replace(/#/g, "")}`;
+        }
+      }
       // By the line's name, because a line about a kind already left out can still arrive.
       const gaveUp = i.stores.skills.getState().inCombat ? null : noRouteSince(i, t0);
       const stuck = gaveUp == null ? [] : alive.filter((t) => foeKey(String(t.name ?? "").replace(/#/g, "")) === foeKey(gaveUp));
@@ -2287,9 +2317,20 @@
         for (const t of stuck) skip.add(t.npcId);
         return `noroute:${gaveUp}`;
       }
-      if (!busy && now() - t0 > 15000) return "lost";
+      if (!busy && now() - t0 > 15000) {
+        // A fight the guard left is not tried again in this hunt: group 8 fought Pierre and the
+        // four enemies that joined twice, left both fights, and never tried its other targets.
+        const evs = (i.events ?? []).filter((e) => e.t >= t0);
+        const fought = evs.map((e) => ENGAGED.exec(e.text ?? "")?.[1]).filter(Boolean).at(-1);
+        const gone = fought && evs.some((e) => e.type === "guard" && /leaving/.test(e.text ?? "")) ? alive.filter((t) => foeKey(String(t.name ?? "").replace(/#/g, "")) === foeKey(fought)) : [];
+        if (gone.length) {
+          for (const t of gone) skip.add(t.npcId);
+          return `left:${fought}`;
+        }
+        return "lost";
+      }
     }
-    return engaged() ? "fighting" : "lost";
+    return engaged() ? "fighting" : rt.combatApproach?.attempt && now() - nearerAt <= 60000 ? "approaching" : "lost";
   };
   // With the wanted enemies' spawn points (`points`, spawn2 ids), a hunt camps them with the client's
   // own Spawn Camp (`startSpawnCamp` in the combat runtime), which kills whatever stands on them,
@@ -2362,6 +2403,8 @@
   };
   // Tries at a fight in a row that came to nothing before a hunt gives its enemies up.
   const HUNT_LOST_MAX = 3;
+  // Looks at an enemy that another player fights, 20 s apart.
+  const HUNT_TAKEN_MAX = 6;
   const huntTask = async (i, task, step) => {
     const wanted = enemyPattern(task.keep);
     const onArrival = Boolean(i.stores.combat.getState().enemyTargetAttackOnArrival);
@@ -2376,6 +2419,7 @@
       let at = 0;
       let empty = 0; // zones in a row without a wanted enemy
       let lost = 0; // tries in a row that came to no fight
+      let taken = 0; // tries that found the enemy in another player's fight
       const skip = new Set(); // the kinds of enemy the client found no route to
       // The wanted enemies that stand when a visit arrives in a zone, by name in lower case
       // (`task.up`), from which the coordinator counts how often a visit finds each one up. A hunt
@@ -2416,13 +2460,21 @@
         } else if (r.startsWith("noroute:")) {
           task.noRoute = [...new Set([...(task.noRoute ?? []), r.slice(8)])];
           log(`task hunt: the client finds no route to ${r.slice(8)}, so the hunt goes on without it`);
-        } else if (r === "fighting") {
+        } else if (r === "fighting" || r === "approaching") {
           seen = now(); // a boss takes minutes, and the next call waits for the same fight's end
           lost = 0;
-        } else if (r === "lost") {
-          // Fights that never start, or that the guard leaves, would otherwise fill the hunt's whole
-          // time: group 8 fought Pierre and four enemies that joined twice and left both fights.
-          if (++lost >= HUNT_LOST_MAX) return void (task.result = `${lost} tries at ${task.keep} ended without a kill`);
+        } else if (r === "taken") {
+          // Another player's fight ends soon, so the hunt looks again for two minutes and then
+          // leaves the enemy to them.
+          if (++taken >= HUNT_TAKEN_MAX) return void (task.result = `another player fights ${task.keep}`);
+          await sleep(20000);
+        } else if (r === "lost" || r.startsWith("left:")) {
+          if (r !== "lost") {
+            task.left = [...new Set([...(task.left ?? []), r.slice(5)])];
+            log(`task hunt: the party left its fight with ${r.slice(5)}, so the hunt goes on without it`);
+          }
+          // Fights that never start, or that the guard leaves, would otherwise fill the hunt's whole time.
+          if (++lost >= HUNT_LOST_MAX) return void (task.result = `${lost} tries at ${task.keep} ended without a kill${task.left?.length ? `, the party left its fights with ${task.left.join(", ")}` : ""}`);
         } else if (r === "none") {
           empty++;
           if (empty >= zones.length && now() - seen >= task.waitMin * 60000) {

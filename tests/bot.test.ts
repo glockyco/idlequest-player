@@ -1731,6 +1731,78 @@ test("a hunt leaves an enemy the client finds no route to and goes on with the o
   }
 });
 
+test("a hunt goes on past an enemy it cannot reach, cannot have or has fled from", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    f.bot.config.leaderId = 1;
+    Object.assign(f.combat, { enemyTargetAttackOnArrival: true, setEnemyTargetAttackOnArrival: () => {} });
+    const walker = { spawnInstanceId: 1, npcId: 91001, name: "a_lava_walker", level: 55, distance: 400 };
+    const pierre = { spawnInstanceId: 2, npcId: 91002, name: "Pierre", level: 56, distance: 500 };
+    const far = { spawnInstanceId: 3, npcId: 91003, name: "Lodizal", level: 52, distance: 900 };
+    const eldrig = { spawnInstanceId: 4, npcId: 91004, name: "Eldrig_the_Old", level: 53, distance: 950 };
+    let up = [walker, pierre, far, eldrig];
+    const picked: number[][] = [];
+    f.runtime.combatScene.getAliveCombatTargetList = () => up;
+    Object.assign(f.runtime, {
+      combatApproach: { attempt: null as unknown, isBusy: () => false },
+      selectEnemyTarget: (ids: number[]) => {
+        picked.push(ids);
+        f.runtime.combatApproach.attempt = null;
+        if (ids.includes(walker.npcId)) {
+          // The Skyfire Mountains, 2026-11-15: the wording the hunt did not know.
+          Object.assign(f.combat, { targetNPC: walker });
+          setTimeout(() => {
+            f.say("Route blocked. Recovering near a lava walker.");
+            f.say("Navigation recovery could not find a supported combat position. Looking for another target.");
+          }, 1000);
+        } else if (ids.includes(pierre.npcId)) {
+          // Dragon Necropolis, 2026-11-15: the fight starts, four enemies join, and the guard leaves it.
+          Object.assign(f.combat, { targetNPC: pierre });
+          setTimeout(() => {
+            f.say("You engage Pierre in combat!");
+            f.skills.inCombat = true;
+          }, 1000);
+          setTimeout(() => {
+            f.events.push({ ses: 1, seq: ++f.iq.seqs.event, t: Date.now(), type: "guard", text: "[guard] leaving: dying: leader at 647/2898 HP, losing 172 HP/s" });
+            f.skills.inCombat = false;
+          }, 6000);
+        } else if (ids.includes(far.npcId)) {
+          // The Iceclad Ocean, 2026-11-14: the party walks and comes no nearer, without a line.
+          Object.assign(f.combat, { targetNPC: far });
+          f.runtime.combatApproach.attempt = { target: far };
+        } else {
+          Object.assign(f.combat, { targetNPC: eldrig });
+          setTimeout(() => {
+            up = [walker, pierre, far];
+            f.say("You have defeated Eldrig the Old and gained 114145 experience!");
+          }, 3000);
+        }
+      },
+    });
+    f.bot.hunt({ zone: "skyfire", keep: "a lava walker|Pierre|Lodizal|Eldrig the Old", minutes: 30 });
+    await runToEnd(f);
+    expect(picked).toEqual([[91001, 91002, 91003, 91004], [91002, 91003, 91004], [91003, 91004], [91004]]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 1, left: ["Pierre"] });
+    expect(f.bot.state.task.noRoute).toEqual(["a lava walker", "Lodizal"]);
+    // An enemy in another player's fight is looked at for two minutes and then left to them.
+    up = [eldrig];
+    picked.length = 0;
+    Object.assign(f.runtime, {
+      selectEnemyTarget: (ids: number[]) => {
+        picked.push(ids);
+        setTimeout(() => f.say("That target is already engaged by another player. Looking for another target."), 1000);
+      },
+    });
+    f.bot.hunt({ zone: "skyfire", keep: "Eldrig the Old", minutes: 30 });
+    await runToEnd(f);
+    expect(picked.length).toBe(6);
+    expect(f.bot.state.task).toMatchObject({ status: "done", kills: 0, result: "another player fights Eldrig the Old" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a visit that finds none of its enemies up names the first respawn of the points it watches", async () => {
   vi.useFakeTimers();
   try {
