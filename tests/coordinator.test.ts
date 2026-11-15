@@ -367,6 +367,37 @@ test("each gear target says why it is not hunted", () => {
   expect(decide({ killChance: byLevel, now: NOW, tabs: [{ ...tabs[0], gameHour: 22 }], targets: [{ ...target("a dread wolf", "paw", 38), when: "night" }], hoursPerLevel }).actions).toMatchObject([{ kind: "errand" }]);
 });
 
+test("a piece of an epic that no trip pays for is hunted in the group's time for pieces, the soonest first", () => {
+  const tabs = [place(tab("A", "G1", 30), "paw"), place(tab("B", "G2", 30), "paw")];
+  const piece = (npc: string, zone: string, drop: number, itemId: number, to = "X1") => ({ npc, zone, npcLevel: 30, spawn: 1, points: 1, items: [{ item: `${npc} piece`, itemId, to, slot: "epic", level: 30, gain: 1, hours: 1 / drop, drop }] });
+  const run = (targets: object[], extra = {}) => decide({ killChance: byLevel, now: NOW, tabs, targets, hoursPerLevel, ...extra });
+  // A gain of a tenth of a percent pays for no trip. The group still goes, marked as a piece
+  // trip, and to the piece that drops every second kill before the one that drops every twentieth.
+  const far = piece("a wurm", "skyfire", 0.05, 1);
+  const near = piece("a prince", "chardok", 0.5, 2);
+  const { actions, targets } = run([far, near]);
+  expect(actions.map((a) => [a.kind, a.id, a.piece])).toEqual([["hunt", "target-chardok-a-prince", true], ["hunt", "target-skyfire-a-wurm", true]]);
+  expect(actions.map((a) => a.label).sort()).toEqual(["A", "B"]);
+  expect(actions[0].why).toContain("a prince piece (X1)");
+  expect(targets["target-chardok-a-prince"].state).toBe("queued");
+  // Both are pieces of X1's epic, and neither covers the other.
+  expect(targets["target-skyfire-a-wurm"].state).toBe("queued");
+  // A group that went for pieces for 33 minutes of the last four hours has 3 of its 36 left,
+  // too few for a visit, and the piece says that it waits its turn.
+  const camped = (label: string) => ({ t: NOW - 90 * 60000, label, kind: "hunt", id: "target-kedge-a-seahorse", piece: true, ms: 33 * 60000, status: "done" });
+  const spent = run([near], { history: [camped("A"), camped("B")] });
+  expect(spent.actions).toEqual([]);
+  expect(spent.targets["target-chardok-a-prince"].state).toBe("piece");
+  // A gear trip of that time does not count, and four hours later the share is free again.
+  expect(run([near], { history: [{ ...camped("A"), piece: undefined }, camped("B")] }).actions.map((a) => a.label)).toEqual(["A"]);
+  expect(run([near], { history: [{ ...camped("A"), t: NOW - 250 * 60000 }, camped("B")] }).actions.map((a) => a.label)).toEqual(["A"]);
+  // No piece trip goes during an XP event, nor against an enemy the group does not beat.
+  expect(run([near], { xpFactor: 2 }).actions).toEqual([]);
+  expect(run([{ ...near, npcLevel: 40 }]).actions).toEqual([]);
+  // A piece in the group's own rotation is an errand inside its hunting, which uses no share.
+  expect(run([piece("a goo", "paw", 0.5, 3)], { history: [camped("A"), camped("B")] }).actions.map((a) => [a.kind, a.piece])).toEqual([["errand", true]]);
+});
+
 test("during an XP event what can run on any day waits, and a gear trip must pay for its time twice", () => {
   const tabs = [place(tab("A", "G1", 30), "paw")];
   const kinds = (input: object) => decide({ now: NOW, tabs, ...input }).actions.map((a) => a.kind);

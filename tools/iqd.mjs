@@ -1069,7 +1069,8 @@ export class Daemon {
         if (!this.trackers.get(tab.targetId)?.usable) throw new Error("tab is not usable");
         const r = await this.relay.evaluate(tab.targetId, call(queueInPage, { kind: a.kind, spec: a.spec }), { timeout: 40000 });
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
-        state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), task: r?.id ?? null, code: tab.code });
+        // A trip for pieces no trip pays for counts against its group's time for them (`piece`).
+        state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), ...(a.piece ? { piece: true } : {}), task: r?.id ?? null, code: tab.code });
         if (a.kind === "gear") this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);

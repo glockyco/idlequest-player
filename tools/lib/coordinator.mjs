@@ -3,7 +3,7 @@
 // returns the tasks to queue, and tools/iqd.mjs gathers the inputs and queues the tasks in the
 // pages through the bot's own task API. It never plays a step itself.
 import { stoneShares } from "../../src/group.mjs";
-import { ACQUIRE, bestWay, describeTrip, netRate, paceOf, slotKey, targetId, targetRetryMin, trip } from "./acquire.mjs";
+import { ACQUIRE, bestWay, describeTrip, isPiece, netRate, paceOf, slotKey, targetId, targetRetryMin, trip } from "./acquire.mjs";
 import { estimate } from "./rates.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
@@ -18,6 +18,12 @@ export const DEFAULTS = {
   // Share of a tab's last hour that hunts for epic and quest pieces may take. The gear model does
   // not price these pieces, so they get a time budget instead of competing on value.
   huntShare: 0.15,
+  // A trip for the pieces among the gear targets that no trip pays for takes the same share, over
+  // this many hours, so a camp of half an hour fits into it.
+  pieceWindowH: 4,
+  // What such a piece counts as worth on that trip, in hours of a group's progress: enough for
+  // every piece to pay, so the trip goes to the pieces that come soonest.
+  pieceHours: 1000,
   // A piece hunt needs this many minutes of that share left, since a trip and a clear of the
   // points take about two and a shorter hunt ends with nothing.
   minHuntMin: 5,
@@ -699,7 +705,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     ...x,
     items: x.items.map((w) => {
       if (!claimed.has(slotKey(w))) return w;
-      const next = (w.others ?? []).find((o) => !claimed.has(slotKey(o)));
+      const next = (w.others ?? []).find((o) => !claimed.has(slotKey({ ...w, ...o })));
       return next ? { ...w, ...next } : { ...w, claim: claimed.get(slotKey(w)) };
     }),
   });
@@ -753,7 +759,32 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       }
     }
     if (!best) break;
-    const { t, w } = best;
+    send(best.t, best.w);
+  }
+  // The pieces of epics and quest rewards that no trip pays for (docs/plans/epic-model.md,
+  // "Order"): the goal asks for every class epic whatever it adds to its character, and 14 pieces
+  // that held 12 chains on 2026-11-15 were never hunted. So a free group whose share of time for
+  // pieces is not used up (`huntShare` of the last `pieceWindowH` hours) goes for the pieces of one
+  // zone that come soonest, with each piece worth `pieceHours`. A hunt inside the group's own
+  // rotation costs none of that share.
+  const pieceMs = (label) => history.filter((h) => h.label === label && h.piece && !(h.status === "failed" && h.task === null) && now - h.t < cfg.pieceWindowH * 3600000).reduce((a, h) => a + (h.ms ?? Math.min(now - h.t, ACQUIRE.campMin * 60000)), 0);
+  for (; !event; ) {
+    const withTrips = { ...ctx, tabs: [...tabs, ...occupied], pieceHours: cfg.pieceHours };
+    let best = null;
+    for (const t of tabs.filter(hunter)) {
+      const share = Math.floor((cfg.huntShare * cfg.pieceWindowH * 3600000 - pieceMs(t.label)) / 60000);
+      for (const xs of zones.values()) {
+        const open = xs.filter((x) => x.items.some(isPiece) && !queuedFor.has(targetId(x)) && !hunted.get(targetId(x)).length && left(x) >= ACQUIRE.minSupply && inTime(x, t) && killChance(t, x)?.p >= ACQUIRE.tooStrong).map((x) => withClaims(shared(x))).filter((x) => x.items.some((w) => isPiece(w) && !w.claim));
+        if (!open.length) continue;
+        const minutes = (kind) => (kind === "errand" ? 0 : kind === "camp" ? ACQUIRE.campMin : Math.max(cfg.minHuntMin, Math.round(ACQUIRE.visitHours * 60)));
+        const w = trip(t, open, withTrips, (x, kind) => allowed(t, kind) && (kind === "errand" || minutes(kind) <= share) && !(kind === "camp" && noCamp.has(targetId(x))) && due(lastHunt(targetId(x)), targetRetryMin(kind), t));
+        if (w && (!best || netRate(w) > netRate(best.w))) best = { t, w };
+      }
+    }
+    if (!best) break;
+    send(best.t, best.w, true);
+  }
+  function send(t, w, piece = false) {
     const ids = w.members.map((m) => targetId(m.x));
     // A target's `also` are the enemies a chain of deaths brings to it, which the hunt kills too.
     const keep = [...new Set(w.members.flatMap((m) => [m.x.npc, ...(m.x.also ?? [])]).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))].join("|");
@@ -762,8 +793,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // A camp kills whatever stands on its targets' points, and a visit watches them for their respawn.
     const pts = [...new Set(w.members.flatMap((m) => points[targetId(m.x)] ?? []))];
     const spec = w.kind === "errand" ? { zone: w.zone, keep, ...item, minutes: 60 } : { zone: w.zone, keep, ...item, ...(pts.length ? { [w.kind === "camp" ? "points" : "watch"]: pts } : {}), waitMin: 0, minutes: w.kind === "visit" ? Math.max(1, Math.round(w.hours * 60)) : ACQUIRE.campMin };
-    const why = `${t.group} ${w.kind === "errand" ? "hunts" : w.kind === "camp" ? "camps" : "visits"} ${w.zone} for ${w.members.map((m) => m.x.npc).join(", ")}: ${describeTrip(w)}`;
-    out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id: ids[0], ids, spec, why });
+    const why = piece
+      ? `${t.group} ${w.kind === "errand" ? "hunts" : w.kind === "camp" ? "camps" : "visits"} ${w.zone} for ${w.members.map((m) => m.x.npc).join(", ")}, for ${[...new Set(w.members.flatMap((m) => m.x.items.filter(isPiece).map((i) => `${i.item} (${i.to})`)))].join(", ")}: pieces the goal asks for, in the group's time for them`
+      : `${t.group} ${w.kind === "errand" ? "hunts" : w.kind === "camp" ? "camps" : "visits"} ${w.zone} for ${w.members.map((m) => m.x.npc).join(", ")}: ${describeTrip(w)}`;
+    out.push({ label: t.label, kind: w.kind === "errand" ? "errand" : "hunt", id: ids[0], ids, spec, why, ...(piece ? { piece: true } : {}) });
     for (const m of w.members) {
       const id = targetId(m.x);
       targetEval[id] ??= { state: "queued", plan: planOf(t, m.x, m.w, w.members.length) };
@@ -802,7 +835,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     else if (chance == null) why = { state: "untested", level: x.npcLevel ?? null };
     else if (!best || chance < ACQUIRE.tooStrong) why = { state: "tooStrong", level: x.npcLevel ?? null, chance };
     else if (!x.items.some((w) => hoursPerLevel[w.to] > 0)) why = { state: "noPace", taker: taker(x) };
-    else if (netRate(best.w) <= 0) why = { state: "notWorth" };
+    else if (netRate(best.w) <= 0) why = x.items.some(isPiece) ? { state: "piece" } : { state: "notWorth" };
     else if (net(best.w) <= 0) why = { state: "event", factor: xpFactor };
     else if (!allowed(best.t, best.w.kind)) why = { state: "experiment", group: best.t.group };
     else if (!hunter(best.t)) why = { state: "busy", group: best.t.group, only: reach.length === 1, on: holding(best.t) };

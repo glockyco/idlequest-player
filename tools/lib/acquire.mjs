@@ -166,12 +166,14 @@ export const chainKills = (x) => Math.max(1, ...x.items.map((w) => w.kills ?? 1)
  * copy of any of them comes every `1 / sum(1 / hours)` hours, and its value is the items' value per
  * hour of hunting times that. Each way also names `zoneRate`, the share of each of its hours the
  * zone costs whatever the group hunts there, which a trip for several targets pays once (`trip`),
- * and `copies`, each item's hours of hunting per copy.
+ * and `copies`, each item's hours of hunting per copy. With `pieceHours` a piece of an epic or a
+ * quest reward that no other hunt serves is worth at least that many hours, which the coordinator
+ * sets for the piece hunts the goal asks for whatever they add.
  */
-export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, killChance = null, upSeen = null } = {}, k = SURE) {
+export function ways(t, x, { tabs = [], hoursPerLevel = {}, killsPerHour = {}, killChance = null, upSeen = null, pieceHours = 0 } = {}, k = SURE) {
   const perFight = deathHours(t, k, hoursPerLevel);
   const copies = x.items.map((w) => copyHours({ ...w, hours: w.respawnHours ?? w.hours }, x, paceOf(killsPerHour[t.group], k)) / k.p);
-  const values = x.items.map((w, j) => copyValue(w, hoursPerLevel, copies[j]));
+  const values = x.items.map((w, j) => Math.max(copyValue(w, hoursPerLevel, copies[j]), isPiece(w) && !w.claim ? pieceHours : 0));
   const perHour = values.reduce((s, v, j) => s + v / copies[j], 0);
   const hours = 1 / copies.reduce((s, h) => s + 1 / h, 0);
   // A kill drops a wanted copy with the chance that at least one of the enemy's items rolls.
@@ -280,8 +282,14 @@ export function trip(t, xs, ctx = {}, due = () => true) {
 /** A gear target's id in the coordinator's history and the dashboard, `target-<zone>-<npc>`. */
 export const targetId = (t) => `target-${t.zone}-${t.npc.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
-/** The character slot an item of a target serves, `<taker>:<slot>`: one copy fills it. */
-export const slotKey = (w) => `${w.to}:${w.slot}`;
+/** Whether an item of a target is a piece of an epic or of a quest reward, each of which its taker needs. */
+export const isPiece = (w) => w.slot === "epic" || w.slot === "quest";
+
+/**
+ * The character slot an item of a target serves, `<taker>:<slot>`: one copy fills it. A piece
+ * fills a slot of its own, since a hunt for one piece of an epic leaves the others as wanted.
+ */
+export const slotKey = (w) => (isPiece(w) ? `${w.to}:${w.slot}:${w.itemId}` : `${w.to}:${w.slot}`);
 
 /** Minutes before a target's next hunt: an errand ran an hour inside normal hunting, a camp or a visit (history kind "hunt") was a trip. */
 export const targetRetryMin = (kind) => (kind === "errand" ? 120 : 60);

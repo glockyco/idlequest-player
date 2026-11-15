@@ -135,10 +135,15 @@ the account can finish has its pieces hunted: its steps are open and use the kin
 ### Order
 
 The gear value of an epic piece is too small for a trip to pay, and the goal asks for every class
-epic regardless of its value. So an epic is a goal of its own with a time budget: the piece hunts
-of `data/opportunities.json` may take `huntShare` of each group's hour, counted apart from gear
-trips (`decide` in `tools/lib/coordinator.mjs`). A chain step runs before a gear trip, because each
-step is certain progress.
+epic regardless of its value. So an epic is a goal of its own with a time budget, counted apart
+from the gear trips that pay (`decide` in `tools/lib/coordinator.mjs`). The piece hunts of
+`data/opportunities.json` may take `huntShare` of each group's hour. A piece among the gear
+targets that no trip pays for gets a trip of a free group all the same, inside `huntShare` of the
+group's last `pieceWindowH` hours: the trip into one zone whose pieces come soonest, each piece
+worth `pieceHours` on it. A hunt in the group's own rotation uses none of that share. Each piece
+is a slot of its own (`slotKey` in `tools/lib/acquire.mjs`), so a hunt for one piece of an epic
+leaves its other pieces wanted. A chain step runs before a gear trip, because each step is
+certain progress.
 
 ## Migration
 
