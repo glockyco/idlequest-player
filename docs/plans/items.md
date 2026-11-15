@@ -18,7 +18,7 @@ The coordinator owns the account's demand for items: how many copies of each ite
 3. The leader's bags are a buffer. A kept copy moves to the character who uses it, or to storage while that character cannot take it yet.
 4. Every loot channel and every held item goes through the same fate.
 5. The bridge offers primitives. Decisions are the bot's for its tab and the coordinator's for the account.
-6. The bag reserve keeps its property ([inventory](inventory.md)): `minFreeSlots` free between fights, by Auto Bank, then discards, then sales.
+6. The bag reserve keeps its property ([inventory](inventory.md)): `minFreeSlots` free between fights, by Auto Bank for what the banks take, then discards, then sales.
 
 ## Design
 

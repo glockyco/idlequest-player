@@ -2918,6 +2918,63 @@ test("a container on the cursor with every general slot taken sends the emptiest
   }
 });
 
+test("the reserve keeps crafting ingredients for the courier, which comes once enough stacks wait, and sells what it leaves", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    type Row = { bag: number; slot: number; itemid: number; itemInstanceId: number; quantity: number; itemDetails: Record<string, unknown> };
+    const item = (slot: number, itemid: number, Name: string, price: number, extra: object = {}): Row => ({ bag: 23, slot, itemid, itemInstanceId: 100 + slot, quantity: 1, itemDetails: { Name, price, nodrop: 1, norent: 1, ...extra } });
+    const inv: Row[] = [
+      item(0, 1, "Rusty Mace", 100),
+      item(1, 2, "Fine Cloak", 500),
+      item(2, 3, "Star Ruby", 65000, { tradeskills: 1 }),
+      item(3, 4, "Sapphire", 100000, { tradeskills: 1 }),
+      item(4, 5, "Short Sword of the Ykesha", 250000, { tradeskills: 1 }),
+    ];
+    (f.me as unknown as { inventory: Row[] }).inventory = inv;
+    const at = (b: number, s: number) => inv.find((r) => r.bag === b && r.slot === s);
+    const acts: string[] = [];
+    Object.assign(f.iq, {
+      bagSpace: () => ({ free: 6 - inv.length, capacity: 6, cursor: null }),
+      worldPort: () => null,
+      clientFn: (name: string) => async (bag: number, slot: number) => {
+        if (name === "autoBank") {
+          // The courier takes the gems and leaves the sword, which is no ingredient to the bank.
+          acts.push("courier");
+          for (const r of inv.filter((x) => [3, 4].includes(x.itemid))) inv.splice(inv.indexOf(r), 1);
+          return;
+        }
+        acts.push(`sell ${at(bag, slot)?.itemDetails.Name}`);
+        inv.splice(inv.indexOf(at(bag, slot)!), 1);
+        return { success: true, data: { copperTotal: 1 } };
+      },
+    });
+    const clean = async () => {
+      const run = f.bot.cleanup();
+      for (let k = 0; k < 30; k++) {
+        vi.advanceTimersByTime(500);
+        await flush();
+      }
+      await run;
+    };
+    // Three stacks wait for the courier, fewer than it comes for, so the other surplus makes the room.
+    Object.assign(f.bot.config, { autoBank: true, bankAtStacks: 12, minFreeSlots: 3, targetFreeSlots: 3 });
+    f.bot.state.bankAt = Date.now() - 11 * 60000;
+    expect(f.bot.fates().keep.map((k: { name: string; why: string }) => `${k.name} ${k.why}`)).toEqual(["Star Ruby bank", "Sapphire bank", "Short Sword of the Ykesha bank"]);
+    await clean();
+    expect(acts).toEqual(["sell Rusty Mace", "sell Fine Cloak"]);
+    // With enough stacks waiting the courier comes, and what it left behind is surplus from then on.
+    inv.push(item(0, 1, "Rusty Mace", 100), item(1, 2, "Fine Cloak", 500));
+    Object.assign(f.bot.config, { bankAtStacks: 3 });
+    f.bot.state.bankAt = Date.now() - 11 * 60000;
+    await clean();
+    expect(acts.slice(2)).toEqual(["courier"]);
+    expect(f.bot.fates().sell.map((x: { name: string }) => x.name)).toContain("Short Sword of the Ykesha");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("the reserve discards surplus without a price first, then sells surplus cheapest first, and never touches kept items", async () => {
   vi.useFakeTimers();
   try {

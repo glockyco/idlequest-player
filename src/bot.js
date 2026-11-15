@@ -33,7 +33,13 @@
     // bot makes room until `targetFreeSlots` are free, so a drop always fits.
     minFreeSlots: 8,
     targetFreeSlots: 16,
-    autoBank: true, // making room starts with the game's Auto Bank, which sends ingredients and spell scrolls to the account banks
+    autoBank: true, // the game's Auto Bank sends crafting ingredients and spell scrolls to the account banks, and the reserve never sells them
+    // The courier charges 20 to 30 platinum a visit, and a visit at every cleanup cost 21,000 a day
+    // (docs/plans/coin.md). Ingredients stack, so they take few slots, and the courier comes for
+    // this many stacks of them, or once in `bankEveryMin` for fewer, or when nothing else makes room.
+    bankAtStacks: 12,
+    bankEveryMin: 120,
+    scrollBankCap: 12, // a scroll the Spell Bank holds this many copies of is sold like other surplus
     discard: true, // surplus the client cannot sell (no price, NO DROP or NO RENT) is destroyed; false leaves it in the bags
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
@@ -245,8 +251,8 @@
    * up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
    * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`,
-   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand", "reagent" or "quest" (a
-   * running quest's item under an id the demand does not name).
+   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand", "reagent", "quest" (a
+   * running quest's item under an id the demand does not name) or "bank" (for the courier's next visit).
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -266,7 +272,10 @@
       const wanted = !move && demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true);
       // An item a running quest received under an id the demand does not know (`task.keep`).
       const quest = state.task?.status === "running" && state.task.keep?.includes(r.itemInstanceId);
-      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : null;
+      // What the courier banks stays for its next visit: crafting ingredients, and scrolls the
+      // Spell Bank is short of. An item a visit left behind is not the bank's and is surplus.
+      const bank = config.autoBank && !state.unbankable?.[r.itemid] && ((d.tradeskills && !(d.slots > 0)) || (d.scrolleffect > 0 && !((state.spellBank?.[r.itemid] ?? 0) >= config.scrollBankCap)));
+      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : bank ? "bank" : null;
       if (why) out.keep.push({ ...row, why });
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
@@ -293,9 +302,9 @@
     return destroyCursor(i);
   };
   /**
-   * The bag reserve: below `minFreeSlots` free slots, Auto Bank (at most every ten minutes, it is a
-   * slow courier), then the cheapest loss first until `targetFreeSlots`: surplus without a price,
-   * which nothing buys, then surplus sold cheapest first. When kept items alone leave too little
+   * The bag reserve: below `minFreeSlots` free slots, Auto Bank once enough stacks wait for it
+   * (`bankAtStacks`, at most every ten minutes, it is a slow courier), then the cheapest loss first
+   * until `targetFreeSlots`: surplus without a price, which nothing buys, then surplus sold cheapest first. When kept items alone leave too little
    * room, one alert an hour lists them, because only a decision about what the account keeps can help.
    * A pass waits while the server has not confirmed the last item action (`inventory.busy`), when the
    * client refuses a destroy and would leave the discard on the cursor.
@@ -311,12 +320,29 @@
       space = i.bagSpace();
     }
     if ((!force && now() < state.pauseUntil) || (space.cursor && !withCursor) || space.free >= config.minFreeSlots) return;
-    if (config.autoBank && now() - (state.bankAt ?? 0) > 600000) {
+    // The Spell Bank's copies, read with the window's own request once an hour, for `scrollBankCap`.
+    if (config.autoBank && now() - (state.spellBankAt ?? 0) > 3600000 && typeof i.query === "function") {
+      state.spellBankAt = now();
+      const r = await i.query(1225, { characterId: i.stores.character.getState().characterProfile?.id, kind: "spells", action: "read" }).catch(() => null);
+      if (r?.success) state.spellBank = Object.fromEntries((r.bankUpdate?.entries ?? []).map((e) => [e.itemId, e.quantity]));
+    }
+    // The courier's visit (`bankAtStacks`). What it leaves in the bags is not the bank's.
+    const visit = async () => {
+      const waiting = fates(i).keep.filter((k) => k.why === "bank");
       state.bankAt = now();
+      const before = i.bagSpace().free;
       const r = await autoBank().catch((e) => ({ success: false, message: String(e?.message ?? e) }));
       const after = i.bagSpace().free;
-      if (r?.success || after > space.free) log(`auto bank: ${r?.message ?? "done"}; ${after} slots free`);
+      if (r?.success || after > before) {
+        log(`auto bank: ${r?.message ?? "done"}; ${after} slots free`);
+        for (const k of waiting) if (rowAt(i, k)?.itemInstanceId === k.instanceId) (state.unbankable ??= {})[k.id] = true;
+      }
       space = i.bagSpace();
+    };
+    const bankDue = () => config.autoBank && now() - (state.bankAt ?? 0) > 600000;
+    const waiting = fates(i).keep.filter((k) => k.why === "bank").length;
+    if (bankDue() && waiting && (waiting >= config.bankAtStacks || now() - (state.bankAt ?? 0) > config.bankEveryMin * 60000)) {
+      await visit();
       if (space.free >= config.minFreeSlots) return;
     }
     const f = fates(i);
@@ -353,6 +379,8 @@
     }
     if (sold.length) log(`sold ${sold.length} surplus item(s) for ${copper} copper (${sold.join(", ")}); ${i.bagSpace().free} slots free`);
     if (gone.length) log(`discarded ${gone.length} surplus item(s) without a sale price (${gone.join(", ")}); ${i.bagSpace().free} slots free`);
+    // With no other surplus left, the courier comes for fewer stacks than `bankAtStacks`.
+    if (!queue.length && i.bagSpace().free < config.minFreeSlots && bankDue() && f.keep.some((k) => k.why === "bank")) await visit();
     // Kept copies the leader does not use itself go to a party member's bags, outside the reserve,
     // where a quest step pulls them from when it runs (docs/plans/items.md, "Place").
     if (!queue.length && i.bagSpace().free < config.minFreeSlots) await storeKept(i, f.keep.filter((k) => k.why === "demand"));
