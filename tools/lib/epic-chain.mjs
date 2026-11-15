@@ -14,6 +14,8 @@ const KILL_MARGIN = 3;
 const LEVEL_CAP = 60;
 // The attempts a craft step may take on a recipe that can fail, each pulling one set of inputs.
 const CRAFT_TRIES = 10;
+// Forages a step tries before it waits an hour. The first Chilled Tundra Root took 15 at skill 50.
+const FORAGE_TRIES = 40;
 // The highest trivial of a craft a chain runs while no character has trained a tradeskill.
 const CRAFT_TRIVIAL_MAX = 50;
 
@@ -192,6 +194,9 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
         // A quest item that lies in its zone, picked up as a click on it does, and back after its respawn.
         begin({});
         yieldItem(s.item, push({ zone: s.way.zone, pick: name(s.item), expect: name(s.item), respawnSec: s.way.respawn ?? null }));
+      } else if (s.way.kind === "forage") {
+        begin({});
+        yieldItem(s.item, push({ zone: s.way.zone, forage: { tries: FORAGE_TRIES, everySec: 25 }, expect: name(s.item) }));
       } else if (s.way.kind === "cast") {
         // The epic's own character casts the summoning spell where the part stands: the model
         // leaves a cast by another class out (`missingKinds`). It needs the spell's level.

@@ -1,0 +1,10 @@
+{
+  "about": "Quest items the game gives to Forage, by item id: the zone to forage in and whether a tab has foraged one there (`seen`). The content snapshot has no forage table. docs/plans/epics.md, Druid.",
+  "items": {
+    "20467": { "name": "Chilled Tundra Root", "zone": "everfrost", "seen": true },
+    "20464": { "name": "Ripened Heartfruit", "zone": "gfaydark", "seen": false },
+    "20466": { "name": "Speckled Molded Mushroom", "zone": "innothule", "seen": false },
+    "20465": { "name": "Sweetened Mudroot", "zone": "misty", "seen": false },
+    "12774": { "name": "Rose of Firiona", "zone": "firiona", "seen": false }
+  }
+}

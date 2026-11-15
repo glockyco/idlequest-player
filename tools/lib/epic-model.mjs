@@ -10,7 +10,7 @@ import { CLASS_BY_NUMBER, meets, parseScript, scriptOwner } from "./quest-script
 
 // Rough hours of one group, for choosing between ways to get a piece: talking or buying in passing,
 // a trip to a ground spawn, a hand-in trip, a combine, and a fight.
-const COST = { say: 0.02, buy: 0.05, ground: 0.2, handin: 0.1, combine: 0.05, kill: 0.1 };
+const COST = { say: 0.02, buy: 0.05, ground: 0.2, forage: 0.3, handin: 0.1, combine: 0.05, kill: 0.1 };
 // An NPC above this level needs a raid, which costs a raid hour of the whole account here.
 const GROUP_MAX_LEVEL = 60;
 const RAID_HOURS = 12;
@@ -71,6 +71,7 @@ const addWay = (ways, id, way) => id > 0 && (ways.get(id) ?? ways.set(id, []).ge
  *   `when`);
  * - `buy`: a merchant (`npc`, `zone`);
  * - `ground`: an enabled ground spawn (`zone`, `respawn`);
+ * - `forage`: Forage in `zone` (data/forage.json), by a class with the skill (`FORAGERS`);
  * - `combine` and `cast`: a tradeskill recipe or a summoning spell (`inputs`).
  */
 export function buildEpicModel({ scripts, npcs: npcRows, spawns = [], loot = new Map(), edges = [], catalog = new Map(), sources = [] }) {
@@ -210,6 +211,8 @@ export async function loadEpicModel(root) {
   for await (const g of rows("idlequest_enabled_ground_spawns", root)) enabled.add(g.ground_spawn_id);
   const zoneById = new Map();
   for await (const z of rows("zone", root)) zoneById.set(z.zoneidnumber, z.short_name);
+  const foraged = JSON.parse(await readFile(new URL("../../data/forage.json", import.meta.url), "utf8")).items;
+  for (const [item, f] of Object.entries(foraged)) sources.push({ item: Number(item), way: { kind: "forage", zone: f.zone } });
   for await (const g of rows("ground_spawns", root)) if (enabled.has(g.id)) sources.push({ item: g.item, way: { kind: "ground", zone: zoneById.get(g.zoneid) ?? String(g.zoneid), respawn: g.respawn_timer } });
   const model = buildEpicModel({ scripts, npcs, spawns, loot, edges, catalog, sources });
   const addStatic = async (itemIds) => {
@@ -293,6 +296,8 @@ export function cheapest(model, cls, reward) {
         return COST.buy;
       case "ground":
         return COST.ground;
+      case "forage":
+        return COST.forage;
       case "drop": {
         const hours = w.respawn > 0 && Number.isFinite(w.respawn) ? w.respawn / 3600 / Math.max(w.spawn * w.drop, 1e-3) / Math.max(1, w.points) : Infinity;
         return Math.max(hours, killHours(w.level, w.drop));
@@ -539,16 +544,19 @@ export function epicTree(model, cls, reward) {
 
 /**
  * The step kinds the bot lacks for epic tree `tree` (docs/plans/epic-model.md, "Running the
- * steps"): a summoning cast by another class than the epic's, or a hand-in of more than four
- * items. A timer or a signal branch runs by itself, and dropped pieces
+ * steps"): a summoning cast by another class than the epic's, a forage by a class without the
+ * skill, or a hand-in of more than four items. A timer or a signal branch runs by itself, and dropped pieces
  * come from hunts. A kill above level 60 is no missing kind: a chain's fight waits for the group's
  * kill chance, and so does a trip for a piece that drops, so the steps before it run meanwhile.
  */
+// Classes with the Forage skill.
+const FORAGERS = new Set(["druid", "ranger"]);
 export function missingKinds(model, tree) {
   const out = new Set();
   for (const s of tree.steps) {
     if (s.item) {
       if (s.way.kind === "cast" && !s.way.classes?.[tree.cls]) out.add("summoning cast by another class");
+      if (s.way.kind === "forage" && !FORAGERS.has(String(tree.cls).toLowerCase())) out.add("forage by a class without the skill");
       continue;
     }
     const b = s.branch;
