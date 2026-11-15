@@ -40,6 +40,16 @@ export function bossValues({ bosses, targets = [], hoursPerLevel = {} }) {
 export const killable = (o) => Boolean(o && !o.error && o.fights > 0 && o.kills === o.fights);
 
 /**
+ * Bosses whose simulated raid says nothing about the live one, by key, with the reason. The
+ * simulator fights a boss alone, and the collector voids its raid result for these (`killOdds`
+ * of tools/iqd.mjs), so no look, raid or credit counts on them. Tunare: an attack on her brings
+ * the whole Plane of Growth into the fight (the developer, 2026-11-15). The simulator kills her
+ * alone in four fights of four in 219 s, and the raid of 17:54 that day ended after 963 s with 5
+ * of 71 standing, while her zone's enemies healed her and no other player could fight them.
+ */
+export const SIM_BLIND = { tunare: "an attack on Tunare brings her whole zone into the fight, and the simulator fights her alone" };
+
+/**
  * The daily list's bosses a summon or a resume can bring now: a boss the client shows as
  * "Available" (any status but cooldown, limit and disabled) while free summons are left, and a
  * saved private copy (`resume`) always, since resuming spends no summon.

@@ -40,7 +40,7 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 | One more casino credit | 12,500 | the same | 4,800 |
 | An AA rank | 2,000 and a point | the median character's best stat rank adds 0.016% to its group's XP rate, the top tenth 0.038% | 12,500 and 5,300 over 1,000 hours of play |
 
-- A credit's worth is uneven: Lord Yelinak 26.2, Tunare 21.4, Nanzata the Warder 7.4 and Tukaarak the Warder 4.9 hold 60 of the 78 hours the raid can kill, and half the 30 bosses are worth under half an hour. The raid does not kill Hraashna the Warder (25.3), Ventani the Warder (15.9), Vulak`Aerr (14.5) or The Avatar of War (3.7) in the simulator, under any nuke and heal order. The server refused a Tunare potion on 2026-11-14 for a missing spawn point, and without her a credit averages 1.9.
+- A credit's worth is uneven: Lord Yelinak 26.2, Tunare 21.4, Nanzata the Warder 7.4 and Tukaarak the Warder 4.9 hold 60 of the 78 hours the raid can kill, and half the 30 bosses are worth under half an hour. The raid does not kill Hraashna the Warder (25.3), Ventani the Warder (15.9), Vulak`Aerr (14.5) or The Avatar of War (3.7) in the simulator, under any nuke and heal order. The raid does not kill Tunare either, whose zone joins her fight ([boss kills](raids.md)), and without her a credit averages 1.9.
 - An AA rank is also a goal of its own (docs/goal.md). Once every character is 60, the account earns about 115 points a day, 230,000 platinum of ranks, more than it earns in coin. Until then points limit the ranks, not coin.
 
 ## Policy

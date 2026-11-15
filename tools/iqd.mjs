@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, SIM_BLIND, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1335,6 +1335,7 @@ export class Daemon {
     } catch {
       // A refresh writes after each enemy. Keep the last complete file during a write.
     }
+    for (const [key, why] of Object.entries(SIM_BLIND)) if (this.odds?.odds?.[key]?.raid && !this.odds.odds[key].raid.error) this.odds.odds[key].raid = { ...this.odds.odds[key].raid, error: why };
     const odds = this.odds ?? null;
     if ((!odds || now - odds.t > 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
