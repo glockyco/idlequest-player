@@ -2326,7 +2326,10 @@
         const spell = buttons.find(isFree) ?? (free ? null : buttons[0]);
         if (!spell) {
           if (free) return null;
-          throw new Error(`no living raid member can revive ${leader ? "the leader" : target}`);
+          // The panel says why each revive is off in its button's title ("Not enough mana",
+          // "Action queue is full"), and shows no Revive group when no member knows one.
+          const off = [...document.querySelectorAll('[aria-label="Revive"] button')].map((b) => `${(b.textContent ?? "").trim().slice(0, 40)}: ${b.title || "disabled"}`);
+          throw new Error(`no living raid member can revive ${leader ? "the leader" : target} (${off.length ? off.join("; ") : "the panel shows no Revive group"})`);
         }
         spell.click();
         await wait(400);
@@ -2350,13 +2353,13 @@
         return { queued: true, free: isFree(spell) };
       },
       /**
-       * Mod Rod for a group of the raid, as the Heal & Revive panel's "Casters Only" and "Healers
+       * Mod Rod for a group of the raid, as the Utilities panel's "Casters Only" and "Healers
        * Only" buttons with three uses: every living member of the group turns hit points into mana
        * at once and stops at full mana or before 10% HP. Resolves with whether the button took it.
        */
       async rods(group = "Casters Only") {
         if (!stores.raid.getState().raidModeActive) throw new Error("raid mode is off");
-        const panel = await raidPanel("heal");
+        const panel = await raidPanel("utilities");
         const label = `${group}: Mod Rod x 3`;
         const button = [...panel.querySelectorAll("button")].find((b) => (b.textContent ?? "").trim() === label);
         if (!button) throw new Error(`the raid window shows no "${label}" button`);
