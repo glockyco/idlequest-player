@@ -77,9 +77,11 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * tools/lib/gear-plan.mjs). A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste,
  * regeneration, HP and mana like the item's own fields, and a spell focus (`focusEffects`) its best
  * mana cost reduction, spell damage and spell haste percent. Resists and the stats the client does
- * not use for this class count for nothing.
+ * not use for this class count for nothing. The client caps each stat at 255 with base, buffs and
+ * gear together (`Za`), so with `room` (`{ STR, STA, INT, WIS }`, what the cap leaves the wearer's
+ * gear, `statRoom` in tools/iqd.mjs) gear counts a stat only up to its room.
  */
-export const outputValue = (items, c, level, { pool, recovery } = {}) => {
+export const outputValue = (items, c, level, { pool, recovery, room } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
   // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
   const focus = { 124: 0, 127: 0, 132: 0 };
@@ -112,6 +114,10 @@ export const outputValue = (items, c, level, { pool, recovery } = {}) => {
     }
     if (i.focusEffects && level >= (i.reqlevel ?? 0)) for (const { spa, value } of i.focusEffects) if (spa in focus) focus[spa] = Math.max(focus[spa], value);
   }
+  const fit = (v, k) => (Number.isFinite(room?.[k]) ? Math.min(v, Math.max(0, room[k])) : v);
+  str = fit(str, "STR");
+  sta = fit(sta, "STA");
+  stat = fit(stat, WIS_CLASSES.has(c) ? "WIS" : "INT");
   const melee = ((2 / 3) * str + atk) * damagePctPerOffense(level) + Math.min(haste, 50);
   const regen = Math.min(manaregen, 15);
   const added = mana + ((80 * level) / 425) * stat;

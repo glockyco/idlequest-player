@@ -119,8 +119,8 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, shares? }`), in `xpGain`'s unit. */
-export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery }), p);
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, room?, shares? }`), in `xpGain`'s unit. */
+export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room }), p);
 
 /**
  * Each member's share of its party's damage, melee and spells apart, from `bun tools/groups.mjs
@@ -267,7 +267,7 @@ export const fits = (item, p, slot) =>
 /**
  * `survey`: rows of `iq.searchAccount()` (`characterName`, `itemId`, `itemName`, `itemInstanceId`,
  * `location` "Equipped" with its `slot`, or "Carried", and `blockReason`). `items`: item id to its
- * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, walk?, shares?, bodies? }]`
+ * content row. `people`: the roster characters, `[{ name, cls, level, race, pool?, recovery?, room?, walk?, shares?, bodies? }]`
  * with `cls` a gear-data class key, `walk` a Bard's (`walkShares`), `shares` its damage shares
  * (`damageShares`) and `bodies` the body types of its group's kills by share (`killBodies` of
  * tools/lib/fight-record.mjs), by which a proc for one kind of enemy counts. `minGain`: the smallest gain

@@ -497,6 +497,38 @@ export function inventoryInPage() {
   );
 }
 
+/**
+ * What the stat cap leaves the gear of the tab's leader and account companions, `{ name: { STR, STA,
+ * INT, WIS, buffed } }`: the cap less every other part of the stat (base, buffs and songs, AA), from
+ * the character sheet's `statBreakdowns`, the profile's for the active character and the companion
+ * store's `botComputedStats` for a member. `buffed` says whether any buff counted in.
+ */
+export function statRoomInPage() {
+  const S = window.iq.stores;
+  const p = S.character.getState().characterProfile;
+  const cs = S.companions.getState();
+  const chars = S.roster?.getState?.().characters ?? [];
+  const room = (b) => {
+    if (!b) return null;
+    const out = { buffed: false };
+    for (const k of ["STR", "STA", "INT", "WIS"]) {
+      const s = b[k];
+      if (!Number.isFinite(s?.cap) || !Array.isArray(s.parts)) return null;
+      const other = s.parts.filter((x) => x.label !== "Gear" && x.label !== "Stat cap").reduce((a, x) => a + (Number(x.value) || 0), 0);
+      if (s.parts.some((x) => /^Buffs/.test(x.label) && x.value > 0)) out.buffed = true;
+      out[k] = s.cap - other;
+    }
+    return out;
+  };
+  const out = {};
+  if (p?.name) out[p.name] = room(p.statBreakdowns);
+  for (const c of cs.companions ?? []) {
+    const r = chars.find((x) => x.id === c.characterId);
+    if (r) out[r.name] = room(cs.botComputedStats?.[c.id]?.statBreakdowns);
+  }
+  return out;
+}
+
 /** Start bridge job `a.name` with `a.args` and return its id (the bridge keeps it in `window.iq.jobs`). */
 export function startJobInPage(a) {
   return window.iq.job(a.name, ...a.args);
@@ -1482,6 +1514,7 @@ export class Daemon {
     // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
     // the middle of a character switch, is tried once more.
     const party = [];
+    const statRoom = metaGet(this.db, "statRoom") ?? {};
     for (const tr of [...this.trackers.values()].filter((x) => x.usable && x.snap?.leader && !x.state.unreachableSince && !x.snap.raid && !(x.snap.bot?.task?.kind === "gear" && x.snap.bot.task.status === "running"))) {
       let rows = null;
       for (let k = 0; k < 2 && !rows?.length; k++) {
@@ -1489,7 +1522,12 @@ export class Daemon {
         rows = await this.relay.evaluate(tr.targetId, call(inventoryInPage, {}), { timeout: 10000 }).catch((e) => (this.log(`gear pass: ${tr.label}'s party not read: ${e.message}`), null));
       }
       party.push(...(rows ?? []));
+      // What the stat cap leaves each character's gear (`statRoomInPage`). A read without buffs,
+      // such as right after a death, keeps the last buffed one, since the buffs come back.
+      const room = await this.relay.evaluate(tr.targetId, call(statRoomInPage, {}), { timeout: 10000 }).catch(() => null);
+      for (const [name, r] of Object.entries(room ?? {})) if (r && (r.buffed || !statRoom[name]?.buffed)) statRoom[name] = { ...r, t: now };
     }
+    metaSet(this.db, "statRoom", statRoom);
     const read = new Set(party.map((r) => r.characterName));
     const groups = this.groups();
     const last = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
@@ -1582,7 +1620,7 @@ export class Daemon {
       for (const k of killed) this.npcBodies.set(k, seen.has(k) ? [...seen.get(k)].sort((a, b) => b[1] - a[1])[0][0] : null);
     }
     const bodiesOf = killBodies(this.db, (npc) => this.npcBodies.get(npc) ?? null, { now });
-    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
+    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, room: statRoom[p.name], walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
     const { copyValue } = await import("./lib/acquire.mjs");
     // Each group's kills per hour over the report's two hours, and their median for the plan's hours per copy.
     this.killsPerHour = Object.fromEntries(groupRows.filter((r) => r.killsPerMin > 0).map((r) => [r.group, 60 * r.killsPerMin]));

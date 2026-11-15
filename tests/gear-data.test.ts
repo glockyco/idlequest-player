@@ -69,6 +69,18 @@ test("a proc for one kind of enemy counts for the share of the wearer's kills of
   expect(procDamagePerMinute({ ...blade, procSpell: { ...blade.procSpell, targetType: 5 } }, 30, 85, { 3: 1 })).toBeCloseTo(50);
 });
 
+test("gear counts STR and the casting stat only up to what the 255 cap leaves it", () => {
+  // A Paladin whose base and buffs leave 37 STR of room: a belt's ten more STR above that adds
+  // nothing, and the WIS of the belt it replaces still counts.
+  const room = { STR: 37, STA: 100, INT: 100, WIS: 109 };
+  const virtue = outputValue([{ astr: 81 }, { awis: 5 }], "paladin", 58, { room });
+  const banded = outputValue([{ astr: 91 }], "paladin", 58, { room });
+  expect(banded.melee).toBeCloseTo(virtue.melee);
+  expect(banded.spells).toBeLessThan(virtue.spells);
+  // Without a read of the room every point counts.
+  expect(outputValue([{ astr: 91 }], "paladin", 58).melee).toBeGreaterThan(outputValue([{ astr: 81 }], "paladin", 58).melee);
+});
+
 test("a worn effect counts like the stats it gives, from its required level, and a focus by its best item", () => {
   // Worn STR (SPA 4) adds offense for a Warrior like the same STR on the item.
   expect(outputValue([{ wornEffects: [{ spa: 4, value: 15 }], reqlevel: 30 }], "warrior", 40).melee).toBeCloseTo(outputValue([{ astr: 15 }], "warrior", 40).melee);
