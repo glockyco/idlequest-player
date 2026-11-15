@@ -1366,8 +1366,9 @@ export class Daemon {
     }
     for (const [key, why] of Object.entries(SIM_BLIND)) if (this.odds?.odds?.[key]?.raid && !this.odds.odds[key].raid.error) this.odds.odds[key].raid = { ...this.odds.odds[key].raid, error: why };
     const odds = this.odds ?? null;
-    // A refresh outlives a restart of the collector (it ignores SIGINT and writes its errors to a
-    // file), and the next collector waits for it by its pid file instead of starting another.
+    // A refresh outlives a restart of the collector: its shell ignores SIGINT and runs it in a
+    // process group of its own, which the terminal's Ctrl-C does not reach, and its errors go to a
+    // file. The next collector waits for it by its pid file instead of starting another.
     const pidFile = join(this.runs, "state/kill-odds.pid");
     const errFile = join(this.runs, "log/kill-odds.err");
     const alive = (pid) => {
@@ -1391,7 +1392,7 @@ export class Daemon {
     }
     if ((!odds || now - odds.t > 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
-      const job = this.oddsJob = Bun.spawn(["bash", "-c", "trap '' INT; exec bun tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: Bun.file(errFile) });
+      const job = this.oddsJob = Bun.spawn(["bash", "-c", "trap '' INT; set -m; bun tools/kill-odds.mjs & wait $!"], { cwd: REPO, stdout: "ignore", stderr: Bun.file(errFile) });
       await writeFile(pidFile, JSON.stringify({ pid: job.pid, at: now })).catch(() => {});
       void job.exited.then(async (code) => {
         const error = job.stderr instanceof ReadableStream ? await new Response(job.stderr).text() : await readFile(errFile, "utf8").catch(() => "");
