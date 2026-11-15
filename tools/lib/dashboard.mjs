@@ -918,7 +918,7 @@ export function coinView(db, now, { days = 3, rows = [] } = {}) {
     aaRanks: Math.max(0, Math.floor((pp - AA_POLICY.reservePp) / AA_POLICY.rankPp)),
     gearAboveReserve: Math.max(0, pp - BUY_RESERVE_PP),
   };
-  // The coin the groups looted in the last hour, by their own report (tools/groups.mjs), which the ledger's day does not show yet.
+  // The groups' loot and sales of the last hour (tools/groups.mjs).
   const groupsPerHour = rows.reduce((a, r) => a + (r.platPerHour ?? 0), 0) || null;
   const step = Math.max(1, Math.ceil(reads.length / 144));
   return {

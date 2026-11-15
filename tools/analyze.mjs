@@ -31,6 +31,7 @@
 // `act` or `act/why` for idle and travel, over the covered seconds that carry a label.
 import { readFile, readdir } from "node:fs/promises";
 import { lastJsonl, readJsonlSince } from "./lib/jsonl.mjs";
+import { coinEntries } from "./lib/coin.mjs";
 import { homedir } from "node:os";
 import { ESCAPE_END, ESCAPE_START } from "./lib/guard-log.mjs";
 import { xpStep } from "./lib/samples.mjs";
@@ -79,8 +80,6 @@ let pathLen = 0; // distance covered outside combat, from position packets
 const cellOf = [];
 let covered = 0;
 let xpSum = 0; // XP gained over covered seconds only, so label filters and gaps do not distort it
-let coinSum = 0; // copper picked up over covered seconds
-let coinSeen = false;
 const coveredSec = new Set();
 let stopped = 0; // seconds where AutoLevel was not running
 const activity = {}; // ms per page label
@@ -97,10 +96,6 @@ for (let i = 1; i < samples.length; i++) {
   for (let s = Math.floor(a.t / 1000) + 1; s <= Math.floor(b.t / 1000); s++) coveredSec.add(s);
   const dxp = xpStep(a, b);
   if (dxp != null) xpSum += dxp;
-  if (a.cp != null && b.cp != null) {
-    coinSeen = true;
-    if (b.cp > a.cp) coinSum += b.cp - a.cp;
-  }
   if (!b.run) stopped += dt;
   // Position comes from the client's own position packets (null until the first one arrives).
   const moved = (b.pst != null && b.pst !== "idle") || (a.x != null && b.x != null && Math.hypot(b.x - a.x, b.y - a.y) > MOVE_EPS);
@@ -342,8 +337,9 @@ const result = {
   zoneMultiplier,
   outcome: {
     xpPerHour: Math.round((xpGained / mins) * 60),
-    // Gross coin picked up (purchases are not subtracted), in platinum per hour. Null before samples carried coin.
-    platPerHour: coinSeen ? +(coinSum / 1000 / (mins / 60)).toFixed(1) : null,
+    // Coin looted and sold for, in platinum per hour, by the chat lines the coin ledger reads
+    // (tools/lib/coin.mjs). Carried coin also changes with character switches and transfers.
+    platPerHour: mins > 0 ? +(coinEntries(events.filter((e) => e.t >= start && e.t <= end)).filter((c) => c.kind === "loot" || c.kind === "sales").reduce((a, c) => a + c.pp, 0) / (mins / 60)).toFixed(1) : null,
     killsPerMin: +(kills.length / mins).toFixed(2),
     xpPerKill: kills.length ? Math.round(mean(kills.map((k) => k.xp))) : 0,
     // Seconds from the start of the combat stretch (or the previous kill in it) to each kill.

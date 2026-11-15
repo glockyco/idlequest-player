@@ -433,7 +433,7 @@ function renderCoin(s) {
     `<b>${pp(C.now.pp)}</b> on the account, read ${ago(s.now, C.now.t)}`,
     C.dayAgo ? `${signed(C.now.pp - C.dayAgo.pp)} since ${new Date(C.dayAgo.t).toDateString() === new Date(s.now).toDateString() ? "" : `${dayName(C.dayAgo.t)} `}${hhmm(C.dayAgo.t)}` : "",
     C.today?.perHour != null ? `Today ${pp(C.today.perHour)} an hour came in by the ledger` : "",
-    C.groupsPerHour != null ? `In the last hour the groups looted ${pp(C.groupsPerHour)} of coin, before sales` : "",
+    C.groupsPerHour != null ? `In the last hour the groups brought in ${pp(C.groupsPerHour)} from loot and sales` : "",
   ].filter(Boolean).join(". ") + ".";
   const P = C.pays;
   const can = (ok) => (ok ? ` <span class="pill accent">pays now</span>` : ` <span class="pill">not yet</span>`);
