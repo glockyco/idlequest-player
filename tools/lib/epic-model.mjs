@@ -168,9 +168,16 @@ async function craftEdges(root) {
   }
   for (const r of (await craftableRecipes(root)).values()) {
     if (!r.yields.length) continue;
-    const inputs = {};
-    for (const p of r.parts) inputs[p.item] = (inputs[p.item] ?? 0) + p.n;
-    edges.push({ kind: "combine", recipe: r.id, skill: r.skill, trivial: r.trivial, nofail: r.nofail, container: r.container?.item ?? null, inputs, outputs: r.yields.map((y) => y.item) });
+    // One way for each item container the recipe takes, so the tree picks one the account can get:
+    // the first of the Rebreather's three is sold nowhere, and the Warrior epic counted as blocked.
+    for (const container of r.containers ?? [r.container?.item ?? null]) {
+      const inputs = {};
+      for (const p of r.parts) {
+        const item = p.item === r.container?.item ? container : p.item;
+        inputs[item] = (inputs[item] ?? 0) + p.n;
+      }
+      edges.push({ kind: "combine", recipe: r.id, skill: r.skill, trivial: r.trivial, nofail: r.nofail, container, inputs, outputs: r.yields.map((y) => y.item) });
+    }
   }
   return edges;
 }

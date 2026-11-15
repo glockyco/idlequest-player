@@ -42,8 +42,9 @@ export async function* liveSpawnRows(table, root) {
  * window, and inside the live expansion. A recipe of a world container such as the forge crafts
  * with container 0 (`craftItem` in src/bridge.js), and its container is no part. A recipe whose
  * only containers are items, such as the Enchanters Sack, is combined in a carried one
- * (`combineInContainer`): `container` names it, `{ item, replace }`, `replace` when the craft uses
- * it up (`replace_container`). It is a part either way, since the craft needs it at hand. A part
+ * (`combineInContainer`): `container` names the first, `{ item, replace }`, `replace` when the craft
+ * uses it up (`replace_container`), and `containers` all of them. The first is a part, since the
+ * craft needs one at hand. A part
  * the recipe hands back, such as a tool, is no yield.
  */
 export async function craftableRecipes(root) {
@@ -69,6 +70,8 @@ export async function craftableRecipes(root) {
     const r = recipes.get(id);
     if (!list.every((c) => c >= 1000)) continue;
     r.container = { item: list[0], replace: replaces.has(id) };
+    // Any of them does: a Rebreather is combined in a Collapsible Toolbox, a Toolbox or a Deluxe Toolbox.
+    r.containers = list;
     r.parts.push({ item: list[0], n: 1 });
   }
   for (const r of recipes.values()) r.yields = r.yields.filter((y) => !r.parts.some((p) => p.item === y.item));
