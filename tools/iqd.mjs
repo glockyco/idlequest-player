@@ -1393,7 +1393,11 @@ export class Daemon {
       if (live) for (const [name, list] of spawns) spawns.set(name, list.filter((p) => live.has(p.zone)));
       this.bossSpawns = { key: names.join("|"), spawns };
     }
-    const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns });
+    // A boss whose zone showed no spawn point for it at a look is not in the live game where the
+    // content has it, and stays off the watch while the history holds that look, two days: eight
+    // such bosses took 34 looks in two days.
+    const noPoint = (w) => history.some((h) => h.id === `look:${w.key}` && /has no spawn point in/.test(h.result ?? ""));
+    const watch = watchedBosses({ daily: st.daily, goal, gear, spawns: this.bossSpawns.spawns }).filter((w) => !noPoint(w));
     // No group hunts a boss the raid kills: those of the daily list and the goal, and the gear
     // bosses the watch holds, since a gear target without a live spawn point stays a group's target.
     this.bossNames = new Set([...(st.daily?.bosses ?? []).map((b) => b.name), ...casino.map((c) => c.name), ...goal, ...watch.filter((w) => w.gear).map((w) => w.name)].map(npcKey));
