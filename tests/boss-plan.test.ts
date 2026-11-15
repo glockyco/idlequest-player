@@ -33,19 +33,17 @@ test("a raid runs as soon as one is due, the most valuable first, potions includ
   expect(nextBossKill({ daily: daily(0, [boss("phin")]), potions, odds }).kill).toMatchObject({ key: "lodizal" });
 });
 
-test("bosses go by worth per raid minute, a goal boss among them, and a goal boss the simulator does not kill waits", () => {
-  // After the server's restart of 2026-11-12: Cazic-Thule, a goal boss, fights ten minutes for
-  // little loot, and Lady Vox dies in 21 s for more.
+test("bosses go by the worth of their drops, a goal boss among them, ties by the shorter raid, and a goal boss the simulator does not kill waits", () => {
+  // A free summon is the scarce currency, not the raid's minutes: Cazic-Thule's ten-minute fight
+  // for loot worth 1.7 hours goes before Lady Vox's 21 s for 1.2, and after her 21 s for 2.69.
   const d = daily(2, [boss("vox"), boss("cazic")]);
   const odds = { vox: { raid: { ...win, meanSec: 21 } }, cazic: { raid: { ...win, meanSec: 589 } } };
-  const value = { vox: 2.69, cazic: 1.7 };
-  expect(nextBossKill({ daily: d, odds, value, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
-  // Each raid takes three minutes besides its fight, so Vox's loot has to be worth about a third
-  // of Cazic's: 0.5 over 3.35 minutes beats 1.7 over 12.8, and 0.3 does not.
-  expect(nextBossKill({ daily: d, odds, value: { vox: 0.5, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
-  expect(nextBossKill({ daily: d, odds, value: { vox: 0.3, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
+  expect(nextBossKill({ daily: d, odds, value: { vox: 2.69, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "vox" });
+  expect(nextBossKill({ daily: d, odds, value: { vox: 1.2, cazic: 1.7 }, first: ["cazic"] }).kill).toMatchObject({ key: "cazic", way: "raid", source: "summon" });
+  // Of equal worth, the shorter raid goes first.
+  expect(nextBossKill({ daily: d, odds, value: { vox: 1.7, cazic: 1.7 } }).kill).toMatchObject({ key: "vox" });
   // A goal boss the simulator does not kill in every fight still waits.
-  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value, first: ["cazic"] }).kill).toBeNull();
+  expect(nextBossKill({ daily: d, odds: { ...odds, cazic: { raid: lose }, vox: { raid: lose } }, value: { vox: 2.69, cazic: 1.7 }, first: ["cazic"] }).kill).toBeNull();
 });
 
 test("a boss whose last raid is not due stands aside for the next one", () => {

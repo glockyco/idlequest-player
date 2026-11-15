@@ -70,10 +70,10 @@ export function dailyCandidates(daily) {
  * A standing boss goes first: its potion is spent, it waits at its spawn point for the character
  * that summoned it, and the server refuses every other potion while it stands ("Your account
  * already has a summoned casino boss"), so the other potions wait for it. The others go by their
- * worth per minute of raid time, the simulator's fight and `RAID_SETUP_MIN` together, also a
- * boss of `first`: after the server's restart of 2026-11-12 five bosses stood, and the raid spent
- * its hour on Cazic-Thule's ten-minute fight while Lady Vox, Trakanon and Phinigel Autropos each
- * take the simulator under a minute and other players may take them first. Every kill is a raid's:
+ * worth, the gear upgrades their drops bring, also a boss of `first`, since a free summon or a
+ * credit is a scarce currency and the raid's minutes are not: up to three raids run at once and
+ * most fights take seconds. Of two bosses of equal worth, the one with the shorter raid goes
+ * first (the simulator's fight and `RAID_SETUP_MIN` together). Every kill is a raid's:
  * a group can fight a boss in a hunt, but nothing yet judges it against the boss with its company.
  * The simulator fights a boss alone and gave group 1 four kills of four against Phinigel
  * Autropos, who beat it twice beside his seahorses (docs/plans/raids.md, Schedule). A raid on a
@@ -113,9 +113,9 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
       else add(p, source);
     }
   }
-  const perMinute = (w) => (value[w.key] ?? 0) / (RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60);
+  const minutes = (w) => RAID_SETUP_MIN + (odds[w.key]?.raid?.meanSec ?? 600) / 60;
   const rank = (w) => (w.source === "standing" ? 0 : 1);
-  const kills = ways.sort((a, b) => rank(a) - rank(b) || perMinute(b) - perMinute(a));
+  const kills = ways.sort((a, b) => rank(a) - rank(b) || (value[b.key] ?? 0) - (value[a.key] ?? 0) || minutes(a) - minutes(b));
   return { kill: kills[0] ?? null, kills, skipped };
 }
 

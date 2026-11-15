@@ -60,7 +60,7 @@ next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily 
 casino credit or potion, or the standing casino boss, as a raid of all roster characters, led by the credit's holder or the strongest
 group's leader, once the simulator kills the boss in every fight (`runs/state/kill-odds.json`, which
 `bun tools/kill-odds.mjs` refreshes in the background hourly). A raid runs as soon as one is due,
-by the worth of its loot per raid minute, and buys raid time at the server's quote. Raids fight with
+by the worth of its loot, and buys raid time at the server's quote. Raids fight with
 snapshots of the characters, so inside paid raid time up to three run at once, each in its own zone
 with its own leader, and the bosses that stand in a raid's zone come with it. The
 same pass watches the raid bosses that stand in the open world, sends a free group to look into a
