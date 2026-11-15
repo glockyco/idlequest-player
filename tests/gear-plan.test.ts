@@ -280,6 +280,15 @@ test("drops become wants for every character that gains enough after the moves, 
   expect(plan.keep.counts[1]).toBe(2);
   // A copy the account holds is moved this pass, so the drop is no longer wanted.
   expect(planGear({ survey: [...survey, row("Holder", 1, "Carried", 25, 3)], items, people: people.slice(0, 1), drops }).drops).toEqual([]);
+  // A lore item that fits several slots is one per character: it is wanted for the slot where it
+  // adds most, here the bare shoulders over the cloaked back, and the other slot takes its next
+  // best drop. An item that is not lore is wanted for both.
+  const cord = (lore: number) => new Map([...items, item(60, "Spirit Cord", { slots: (1 << 6) | (1 << 8), ac: 12, hp: 100, attack: 40, loregroup: lore })]);
+  const both = [{ itemId: 60, zone: "karnor", npc: "a lorekeeper", hours: 4 }, ...drops];
+  const one = planGear({ survey: survey.slice(0, 1), items: cord(-1), people: people.slice(0, 1), drops: both }).drops;
+  expect(one.map((d) => [d.item, d.slot]).sort()).toEqual([["Fine Cloak", "back"], ["Spirit Cord", "shoulders"]]);
+  const two = planGear({ survey: survey.slice(0, 1), items: cord(0), people: people.slice(0, 1), drops: both }).drops;
+  expect(two.map((d) => [d.item, d.slot]).sort()).toEqual([["Spirit Cord", "back"], ["Spirit Cord", "shoulders"]]);
 });
 
 test("the off-hand chance is (Dual Wield + level) / 400 for a class with the skill", () => {

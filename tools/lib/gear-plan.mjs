@@ -547,9 +547,12 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     const n = takers(id);
     if (n > 0) counts[id] = Math.max(counts[id] ?? 0, n);
   }
-  // The drops worth hunting for, against what each character wears after this pass.
+  // The drops worth hunting for, against what each character wears after this pass: for each of
+  // a character's slots the drop that adds most there. A lore item is one per character, so it
+  // is wanted for the one slot where it adds most, and its other slots take their next best.
   const want = new Map();
   const wantSlot = new Map();
+  const wanted = [];
   // Each enemy's wanted drops, every item with every character slot it would serve (`rankTargets`).
   const byTarget = new Map();
   for (const d of drops) {
@@ -562,17 +565,20 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
         // Hours per copy at the account's typical kill rate (`copyHours`), and the respawns' bound
         // alone (`respawnHours`), from which the coordinator takes each group's own kill rate.
         const entry = { item: r.itemName, itemId: d.itemId, to: p.name, slot: o.slot === "bags" ? "bags" : SLOT_BY_NUM[o.slot], gain: Math.round(o.gain * 100) / 100, zone: d.zone, npc: d.npc, hours: Math.round(100 * copyHours(d, d, killsPerHour)) / 100 };
-        const best = want.get(k);
-        if (!best || o.gain > best.gain || (o.gain === best.gain && entry.hours < best.hours)) {
-          want.set(k, entry);
-          wantSlot.set(k, o.slot);
-        }
+        wanted.push({ k, entry, slot: o.slot, gain: o.gain, lore: isLore(items.get(d.itemId)) ? `${p.name}:${d.itemId}` : null });
         const tk = `${d.zone}|${d.npc}`;
         // The taker's level and the enemy's level, spawn chance per point, points, respawn and time
         // of day, and the item's drop chance, for weighing a camp or a visit (tools/lib/acquire.mjs).
         (byTarget.get(tk) ?? byTarget.set(tk, { zone: d.zone, npc: d.npc, npcLevel: d.npcLevel ?? null, npcHp: d.npcHp ?? null, spawn: d.spawn ?? null, points: d.points ?? null, respawn: d.respawn ?? null, when: d.when ?? null, ...(d.summoned ? { summoned: true } : {}), offers: [] }).get(tk)).offers.push({ ...entry, respawnHours: d.hours, level: p.level, drop: d.drop ?? null, key: k });
       }
     }
+  }
+  const loreSlot = new Map();
+  for (const w of wanted.sort((a, b) => b.gain - a.gain || a.entry.hours - b.entry.hours)) {
+    if (want.has(w.k) || (w.lore && (loreSlot.get(w.lore) ?? w.k) !== w.k)) continue;
+    want.set(w.k, w.entry);
+    wantSlot.set(w.k, w.slot);
+    if (w.lore) loreSlot.set(w.lore, w.k);
   }
   // A reward's pieces join the targets, each worth the reward's gain to `p` shared by the pieces,
   // under `slot` "epic" or "quest".
