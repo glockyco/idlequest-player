@@ -73,6 +73,6 @@
     ],
     "maxPp": 60000,
     "retryMin": 240,
-    "untilPp": 1500000
+    "untilPp": 500000
   }
 }
