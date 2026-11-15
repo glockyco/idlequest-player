@@ -2125,8 +2125,13 @@
               results.push(fight.result);
             }
           }
-          // A raid kept for enemies that did not stand any more ends here.
-          if (killed && s.adds?.length && !nextIsRaid && inRaid(i)) await i.raid.end().catch((e) => log(`quest: end raid failed: ${e?.message ?? e}`));
+          // A raid kept for enemies that did not stand any more ends here, and what its kills
+          // left on their corpses is taken now.
+          if (killed && fight.keepRaid && !nextIsRaid) {
+            if (inRaid(i)) await i.raid.end().catch((e) => log(`quest: end raid failed: ${e?.message ?? e}`));
+            const loot = await step("collect the loot", () => collectCorpseLoot(i), 120000).catch((e) => (log(`quest: the loot of the raid on ${s.kill} was not collected (${e?.message ?? e})`), null));
+            if (loot) log(`quest: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
+          }
           Object.assign(fight, { fight: { outcome: killed ? "killed" : fight.fight?.outcome }, result: results.filter(Boolean).join("; ") });
         } finally {
           task.raiding = false;
@@ -2994,7 +2999,10 @@
     // Raid kills leave their corpses to the leader's RAID LOOT tab instead of Auto Loot, and the
     // first Phinigel kill left two epic staves and the Kedge Backbone there unlooted. The tab is
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
-    if (task.fight) {
+    // A raid that stays on for the next enemy (`keepRaid`) leaves the loot to the fight that ends
+    // it, because the tab does not open in raid mode: a quest's raids on Zordak Ragefire and on a
+    // soul carrier failed at it with the kill made (2026-11-15).
+    if (task.fight && !task.keepRaid) {
       await keepReserve(i, true);
       const collect = () => (task.status !== "running" ? collectCorpseLoot(i) : step("collect the loot", () => collectCorpseLoot(i), 120000));
       let loot = await collect();
