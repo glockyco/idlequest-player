@@ -461,13 +461,6 @@ export async function queueInPage(a) {
   return { id: t?.id ?? null, status: t?.status ?? String(t) };
 }
 
-/** Whether NPC `a.name` stands alive on one of the spawn points `a.points` of the tab's zone, from the zone's spawn list read anew. */
-export async function npcUpInPage(a) {
-  await window.iq.refreshSpawns().catch(() => {});
-  const wanted = new RegExp(`^${a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[ _]/g, "[ _]")}$`, "i");
-  return (window.iq.zoneSpawns?.spawns ?? []).some((x) => x.state === "alive" && a.points.includes(x.spawn2Id) && wanted.test(String(x.name ?? "").replace(/#/g, "")));
-}
-
 /** The daily boss list and the raid time quote of the tab's leader, both read-only requests. */
 export async function bossStateInPage() {
   const [daily, time] = await Promise.all([window.iq.raid.bosses(), window.iq.raid.time()]);
@@ -896,23 +889,6 @@ export class Daemon {
     settleHistory(state.history, tabs.map((t) => t.task));
     settleErrands(state.history, tabs, now);
     releaseWaits(state.history, metaGet(this.db, "bossPlan")?.spawnsResetAt ?? 0);
-    // A quest that waits for an NPC's spawn point learns that the NPC is back from any tab that
-    // stands in its zone: the Ranger epic waited up to eight hours between looks for Jaeil the
-    // Wretched in The Hole, 31 looks in two days that all found his point gone from the zone's
-    // list, while three groups hunted in that zone and he stood there (2026-11-15).
-    for (const [id, q] of Object.entries(quests)) {
-      const waits = state.history.filter((h) => h.id === id && h.status === "waiting" && h.nextAt > now);
-      if (!waits.length) continue;
-      for (const s of q.steps.filter((x) => x.npc && x.points?.length && waits.some((h) => String(h.result ?? "").startsWith(`${x.npc}'s spawn point`)))) {
-        const eye = tabs.find((t) => t.zone === s.zone && this.trackers.get(t.targetId)?.usable);
-        if (!eye) continue;
-        const up = await this.relay.evaluate(eye.targetId, call(npcUpInPage, { name: s.npc, points: s.points }), { timeout: 10000 }).catch(() => false);
-        if (!up) continue;
-        for (const h of waits) h.nextAt = now;
-        this.log(`coordinator: ${s.npc} stands in ${s.zone}, as ${eye.label}'s tab sees, so ${id} waits no longer`);
-        break;
-      }
-    }
     // The step each needer of a held chain resumes at, the one after the last whose `expect` it
     // carries, as the quest task does: a hold at a step keeps only who still has to pass it
     // (`holdStep`). Only held chains are searched for, which are few.
