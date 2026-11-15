@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "../tools/lib/boss-plan.mjs";
 
 const nextLook = (o: Parameters<typeof nextLooks>[0]) => nextLooks(o)[0] ?? null;
 
@@ -358,4 +358,37 @@ test("unchanged looks back off to six hours and a new sighting resets the wait",
 test("further standing raids do not renew the summoned copy's day", () => {
   const h = (t) => ({ t, kind: "raid", id: "boss:potion:1:Pal", status: "done", result: "ended vox" });
   expect(standingBosses([h(1000), h(1000 + 23 * 3600000)], [{ ...boss("vox"), itemId: 1 }], 1000 + 25 * 3600000)).toEqual([]);
+});
+
+test("a restart of the server is every tab out of the world and one back, and a silent relay is none", () => {
+  const T = 1_700_000_000_000;
+  // The pages answer without a bridge: the outage starts. A relay that reaches no page starts none.
+  expect(worldOutage({ since: null }, { inWorld: 0, answered: 12, now: T })).toEqual({ since: T, restartAt: null });
+  expect(worldOutage({ since: null }, { inWorld: 0, answered: 0, now: T })).toEqual({ since: null, restartAt: null });
+  expect(worldOutage({ since: T }, { inWorld: 0, answered: 12, now: T + 30000 })).toEqual({ since: T, restartAt: null });
+  // The first tab back ends it, and a gap of one cycle is a reload and no restart.
+  expect(worldOutage({ since: T }, { inWorld: 1, answered: 12, now: T + 300000 })).toEqual({ since: null, restartAt: T + 300000 });
+  expect(worldOutage({ since: T }, { inWorld: 1, answered: 12, now: T + 30000 })).toEqual({ since: null, restartAt: null });
+  expect(worldOutage({ since: null }, { inWorld: 12, answered: 12, now: T })).toEqual({ since: null, restartAt: null });
+});
+
+test("after a restart every boss gets a look at once, the one worth most first, whatever was looked at before", () => {
+  const T = 1_700_000_000_000;
+  const H = 3600000;
+  const watch = [
+    { key: "nagafen", name: "Lord Nagafen", zone: "soldungb", goal: false },
+    { key: "yelinak", name: "Lord Yelinak", zone: "skyshrine", goal: false },
+  ];
+  const seen = {
+    "lord nagafen": { name: "Lord_Nagafen", zone: "soldungb", state: "respawning", seenAt: T, respawnAt: T + 40 * H },
+    "lord yelinak": { name: "Lord_Yelinak", zone: "skyshrine", state: "respawning", seenAt: T, respawnAt: T + 60 * H },
+  };
+  // Both were looked at ten minutes ago, which holds a look back for half an hour.
+  const lookTimes = () => [T + 50 * 60000];
+  const worth = (w: { key: string }) => (w.key === "yelinak" ? 26 : 5);
+  expect(nextLooks({ watch, seen, now: T + H, lookTimes, worth })).toEqual([]);
+  const looks = nextLooks({ watch, seen, now: T + H, lookTimes, worth, resetAt: T + 55 * 60000 });
+  expect(looks.map((l) => l.key)).toEqual(["yelinak", "nagafen"]);
+  // A look sent after the restart holds the next one back as before.
+  expect(nextLooks({ watch, seen, now: T + H, lookTimes: () => [T + 58 * 60000], worth, resetAt: T + 55 * 60000 })).toEqual([]);
 });

@@ -263,6 +263,19 @@ export function spawnReset(log = []) {
 }
 
 /**
+ * Whether the game went away for every tab and came back, which is a restart of the server, after
+ * which every boss with a spawn point stands. `prev`: `{ since }` of the last cycle, `since` the
+ * first cycle that found no tab in the world, null while one is. `inWorld`: tabs in the world now.
+ * `answered`: tabs whose page answered, so a relay that reaches no tab is no outage. Returns
+ * `{ since, restartAt }` with `restartAt` set in the cycle a tab is back after `OUTAGE_MIN_MS` out.
+ */
+export const OUTAGE_MIN_MS = 60000;
+export function worldOutage(prev, { inWorld, answered, now }) {
+  if (inWorld > 0) return { since: null, restartAt: prev?.since && now - prev.since >= OUTAGE_MIN_MS ? now : null };
+  return { since: prev?.since ?? (answered > 0 ? now : null), restartAt: null };
+}
+
+/**
  * The looks into bosses' zones that are due, the most urgent first, as `[{ key, name, zone,
  * until, why }]`. A look is a group that travels there, reads the zone's spawn list and leaves
  * (`lookTask` of src/bot.js), staying until `until` when a respawn is due. Other players kill
@@ -277,19 +290,23 @@ export function spawnReset(log = []) {
  *   fresh a sighting of a boss that stands is kept. Whether an hour of raid time can be bought
  *   does not decide whether a look goes: the look takes a group about a minute, and without it
  *   the plan knows neither that a boss is worth an hour nor how long it stands.
- * - `resetAt`: `spawnReset`.
- * A due respawn and a sighting from before the server's reset go first, the earliest of them,
- * then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
+ * - `resetAt`: when the server last put its bosses up: `spawnReset`, or its restart, which the
+ *   collector notes when every tab was out of the world and one is back (`worldOutage`). Looks
+ *   and sightings from before it say nothing about now, so they hold no look back.
+ * - `worth(w)`: what the boss's kill is worth, by which bosses due at the same time are ordered.
+ * A due respawn and a sighting from before the server's reset go first, the earliest of them
+ * and of those after a reset the one worth most, then a boss that stood, whose kill needs a look that is fresh (`OPEN_SEEN_MS`), then one no tab
  * has seen, a goal boss before the others, then a boss that stood and the plan would not raid.
  */
-export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0 }) {
+export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, lookTimes = () => [], could = () => true, wanted = () => true, resetAt = 0, worth = () => 0 }) {
   const due = [];
   for (const w of watch) {
     const s = seen[npcKey(w.name)]?.zone === w.zone ? seen[npcKey(w.name)] : null;
-    const times = lookTimes(w.key);
+    const times = lookTimes(w.key).filter((t) => t >= resetAt);
     const unchanged = times.filter((t) => t > (s?.seenAt ?? 0)).length;
     const retry = Math.min(LOOK.staleMs, LOOK.retryMs * 2 ** Math.min(20, Math.max(0, unchanged - 1)));
-    if (now - (times[0] ?? lastLook(w.key)) < retry || !could(w)) continue;
+    const last = times[0] ?? lastLook(w.key);
+    if ((last >= resetAt && now - last < retry) || !could(w)) continue;
     if (!s) due.push({ rank: 2, at: 0, w, until: 0, why: "no tab has seen it yet" });
     else if (s.state === "alive") {
       if (!wanted(w)) {
@@ -300,7 +317,7 @@ export function nextLooks({ watch = [], seen = {}, now, lastLook = () => 0, look
       if (now >= s.respawnAt - LOOK.leadMs) due.push({ rank: 0, at: s.respawnAt, w, until: Math.max(0, s.respawnAt + LOOK.waitMs), why: `its respawn ${now < s.respawnAt ? "is" : "was"} due at ${clock(s.respawnAt)}` });
     } else if (now - s.seenAt > LOOK.staleMs) due.push({ rank: 2, at: s.seenAt, w, until: 0, why: `it was down at ${clock(s.seenAt)} with no respawn time` });
   }
-  due.sort((a, b) => a.rank - b.rank || Number(b.w.goal) - Number(a.w.goal) || a.at - b.at);
+  due.sort((a, b) => a.rank - b.rank || Number(b.w.goal) - Number(a.w.goal) || a.at - b.at || worth(b.w) - worth(a.w));
   return due.map((d) => ({ key: d.w.key, name: d.w.name, zone: d.w.zone, until: d.until > now ? d.until : 0, why: d.why }));
 }
 

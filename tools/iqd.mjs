@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, creditPays, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, bossParts, bossValues, canBuyHour, casinoStanding, creditPays, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -431,6 +431,10 @@ const RELAY_STUCK_MS = 120000;
 const RELAY_ASK_EVERY_MS = 600000;
 // The looks one boss pass sends, each with a group of its own, which leaves at least eight groups hunting.
 const LOOKS_A_PASS = 4;
+// For `RESET_RUSH_MS` after the server put its bosses up every boss stands and other players are
+// on their way, so a pass sends up to `LOOKS_AFTER_RESET` looks.
+const LOOKS_AFTER_RESET = 10;
+const RESET_RUSH_MS = 30 * 60000;
 // The item field each stat ability's rank raises, for the stats the gear score counts (`aaGain` of the gear pass).
 const AA_STAT_FIELD = { 50001: "astr", 50002: "asta", 50005: "aint", 50006: "awis" };
 // Raids at once, each in its own zone with its own leader (`bossPass`).
@@ -1508,8 +1512,8 @@ export class Daemon {
     const raidOdds = (w) => odds.odds[w.key]?.raid;
     const could = (w) => !waiting(w, "open") && killable(raidOdds(w));
     const wanted = (w) => (w.goal && !killedGoal.has(goalBoss(w.name, goal))) || paid || (canBuy && (value[w.key] ?? 0) >= OPEN_BUY.worth);
-    const spawnsResetAt = spawnReset(log);
-    const looks = nextLooks({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt });
+    const spawnsResetAt = Math.max(spawnReset(log), metaGet(this.db, "serverRestartAt") ?? 0);
+    const looks = nextLooks({ watch, seen, now, lastLook: (key) => history.findLast((h) => h.id === `look:${key}`)?.t ?? 0, lookTimes: (key) => history.filter((h) => h.id === `look:${key}`).map((h) => h.t).reverse(), could, wanted, resetAt: spawnsResetAt, worth: (w) => value[w.key] ?? 0 });
     const look = looks[0] ?? null;
     // `next` and the summons are for the dashboard's raid bar, which says what the goal waits for.
     const next = first.map((key) => ({ name: candidates.find((b) => b.key === key).name, raid: odds.odds[key]?.raid ?? null }));
@@ -1587,7 +1591,7 @@ export class Daemon {
     // The leader the next raid wants, the potion's holder or the strongest group's, stays free of looks.
     const reserved = leaderTab(kill?.who ?? strongestLeader);
     const lookers = tabs.filter((t) => free(t) && t !== reserved && !used.has(t.label) && (t.members[0]?.level ?? 0) >= 46);
-    for (const l of looks.slice(0, LOOKS_A_PASS)) {
+    for (const l of looks.slice(0, now - spawnsResetAt < RESET_RUSH_MS ? LOOKS_AFTER_RESET : LOOKS_A_PASS)) {
       const t = lookers.filter((c) => !out.some((a) => a.label === c.label)).sort((a, b) => Number(b.zone === l.zone) - Number(a.zone === l.zone) || Number(Boolean(a.errand)) - Number(Boolean(b.errand)) || (b.members[0]?.level ?? 0) - (a.members[0]?.level ?? 0))[0];
       if (!t) break;
       out.push({ label: t.label, kind: "look", id: `look:${l.key}`, spec: { zone: l.zone, name: l.name, until: l.until }, why: `${l.name} in ${l.zone}: ${l.why}` });
@@ -1863,6 +1867,15 @@ export class Daemon {
     await part("tabs", () => Promise.all([...this.trackers.values()].map((tr) => this.poll(tr, now, triggers).catch((e) => this.log(`poll ${tr.label}: ${e.message}`)))));
     sweepOrphans(this.db, [...this.trackers.values()].map((tr) => tr.label), now);
     await this.relayStuck(now);
+    // A restart of the server puts every boss up, so the boss pass looks at them all once a tab is back.
+    const polled = [...this.trackers.values()];
+    const outage = worldOutage(metaGet(this.db, "worldOut"), { inWorld: polled.filter((tr) => tr.usable && tr.snap?.leader).length, answered: polled.filter((tr) => tr.snap && !tr.snap.error).length, now });
+    metaSet(this.db, "worldOut", { since: outage.since });
+    if (outage.restartAt) {
+      metaSet(this.db, "serverRestartAt", outage.restartAt);
+      this.coordinatedAt = 0;
+      this.log(`the game is back after every tab was out of the world, so the boss watch looks at every boss again`);
+    }
     // The leaders whose pages run other code than their group should, for `status`.
     const behind = this.recover && this.code ? [...this.trackers.values()].filter((tr) => tr.snap?.leader && tr.snap.code !== this.codeOf(tr)).map((tr) => tr.snap.leader.name) : null;
     metaSet(this.db, "daemon", { pid: process.pid, intervalSec: this.intervalSec, last: Date.now(), relay: this.relay.connected, coordinate: this.coordinate, code: this.code, deploy: this.deploy ?? null, behind });
