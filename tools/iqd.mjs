@@ -957,9 +957,13 @@ export class Daemon {
     // Each group's kills per hour from the last gear pass's report, which bound a common drop's hours per copy.
     this.killsPerHour ??= metaGet(this.db, "gear")?.killsPerHour ?? {};
     // The last gear pass's moves wait for a free tab until a gear task takes them or a newer pass
-    // replaces them, because the pass runs hourly and a busy hour would otherwise lose them.
+    // replaces them, because the pass runs hourly and a busy hour would otherwise lose them. They
+    // are kept in the db (meta key `pendingGear`), so a restart of iqd does not lose them either:
+    // the crafted jewelry of 2026-11-15 waited for its crafter's tab through two restarts.
     this.doing = "gear pass";
-    this.pendingGear = (await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null))) ?? this.pendingGear ?? null;
+    const planned = await this.gearPass(now, tabs, hoursPerLevel).catch((e) => (this.log(`gear pass failed: ${e.message}`), null));
+    if (planned) metaSet(this.db, "pendingGear", planned);
+    this.pendingGear = planned ?? this.pendingGear ?? metaGet(this.db, "pendingGear") ?? null;
     this.doing = "item demand";
     const gear = this.pendingGear;
     // The last gear pass's targets, kept in the db so a restart does not lose them for an hour.
@@ -1096,7 +1100,10 @@ export class Daemon {
         // A trip names every target it hunts, so each target's retry and hunt state follow its task.
         // A trip for pieces no trip pays for counts against its group's time for them (`piece`).
         state.history.push({ t: Date.now(), label: a.label, kind: a.kind, id: a.id ?? null, ...(a.ids ? { ids: a.ids } : {}), ...(a.piece ? { piece: true } : {}), ...(a.kind === "raid" && a.spec?.zone ? { zone: a.spec.zone } : {}), task: r?.id ?? null, code: tab.code });
-        if (a.kind === "gear") this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
+        if (a.kind === "gear") {
+          this.pendingGear = { ...this.pendingGear, moves: this.pendingGear.moves.filter((m) => !a.spec.moves.includes(m)) };
+          metaSet(this.db, "pendingGear", this.pendingGear);
+        }
         this.db.query("INSERT INTO interventions (t, session, actor, text) VALUES (?, ?, 'coordinator', ?)").run(now, a.label, `${a.kind}: ${a.why}`);
         this.log(`coordinator: ${a.label} ${a.kind}: ${a.why}`);
       } catch (e) {
