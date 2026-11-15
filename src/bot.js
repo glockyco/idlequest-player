@@ -484,7 +484,11 @@
   // Manage Money moves another character's whole balance, carried and banked, to the active one,
   // so coin cannot be split ahead of time. A dead leader that cannot pay for a resurrection pulls
   // the largest balance it may take instead, and the coin stays there until another leader needs it.
-  const pullCoin = async (i, minPp) => {
+  // With `least` it takes the balance of the tab's own leader when that covers `minPp`, else the
+  // smallest that does, for a small purchase: a quest member took the account's two largest
+  // balances, 30,818 and 25,186 platinum of other groups' leaders, for a Quill and a Piece of
+  // Parchment (2026-11-15).
+  const pullCoin = async (i, minPp, { least = false } = {}) => {
     const cb = i.stores.combat.getState();
     cb.openManageMoney();
     let panel = null;
@@ -497,7 +501,9 @@
       const tds = [...tr.querySelectorAll("td")].map((td) => td.textContent.trim());
       return { name: tds[0], pp: Number((/([\d,]+)\s*pp/.exec(tds[3] ?? "")?.[1] ?? "0").replace(/,/g, "")), button: tr.querySelector("button") };
     });
-    const pick = rows.filter((r) => r.button && !r.button.disabled && r.pp >= minPp && !config.coinKeepNames.includes(r.name)).sort((a, b) => b.pp - a.pp)[0];
+    const open = rows.filter((r) => r.button && !r.button.disabled && r.pp >= minPp && !config.coinKeepNames.includes(r.name));
+    const own = least && config.leaderId != null ? findCharacter(i, Number(config.leaderId))?.name : null;
+    const pick = (own && open.find((r) => r.name === own)) || open.sort((a, b) => (least ? a.pp - b.pp : b.pp - a.pp))[0];
     if (pick) {
       pick.button.click();
       await sleep(2000);
@@ -1664,6 +1670,8 @@
     if (full) (state.fullBags ??= {})[activeName(i)] = now();
     throw Object.assign(new Error(`pulling ${typeof item === "string" ? item : item.name} from ${r.from} failed: ${r.reply ?? "no reply"}`), full ? { retryAfterMs: 10 * 60000 } : {});
   };
+  // The platinum a quest member carries for a purchase whose price the chain does not name.
+  const QUEST_BUY_PP = 20;
   // How many items a member hands to the leader when a pull finds its bags full.
   const SHED_ITEMS = 4;
   /**
@@ -1846,8 +1854,10 @@
     const ref = (name) => m.ids?.[name] == null ? name : { name: name.replace(/ \[\d+\]$/, ""), id: m.ids[name] };
     const buy = async (s, item, n) => {
       if (i.carried(ref(item)) >= n) return;
-      await step(`coin for ${m.name}'s purchase`, async () => {
-        const from = await pullCoin(i, s.buy.price ?? 1).catch((e) => {
+      // A member that carries the price pulls none, and one that is short takes a small balance.
+      const price = Math.max(QUEST_BUY_PP, (s.buy.price ?? 0) * n);
+      if ((i.stores.character.getState().characterProfile?.platinum ?? 0) < price) await step(`coin for ${m.name}'s purchase`, async () => {
+        const from = await pullCoin(i, price, { least: true }).catch((e) => {
           log(`quest: no coin pull for ${item} (${e.message})`);
           return null;
         });
