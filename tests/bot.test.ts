@@ -2075,7 +2075,7 @@ test("a quest item that lies in the zone is picked up, and one another player to
 // leader once, mid-fight, `endFails` makes that many calls of `end` throw, `diesOnArrival`
 // has the raid engage and kill the boss while it walks there, before any attack order, and
 // `stalls` leaves the raid standing in combat under its first attack order until a second one.
-function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false, stalls = false, memberFalls = false, freeRevive = true } = {}) {
+function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pricePp = 2000, outcome = "killed", fightMs = 10000, leaderFalls = false, endFails = 0, healer = false, diesOnArrival = false, stalls = false, memberFalls = false, freeRevive = true, adds = 0 } = {}) {
   const calls: string[] = [];
   const r = { active: false, combat: false, leaderDead: false, roster: [] as { id?: string; role?: string; name: string; damage: number; alive: boolean }[] };
   let started = false;
@@ -2085,6 +2085,9 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
     f.targets.splice(0);
     drops = [{ id: "loot-item-7-0", name: "Red Dragon Scales" }];
     page.events = [...(page.events ?? []), { t: Date.now(), seq: 9002, type: "EXPERIENCE_GAIN", text: "You have defeated Lord Nagafen and gained 520300 experience!" }];
+    // The death sets its attackers on the raid, as a soul carrier's does.
+    for (let k = 0; k < adds; k++) f.targets.push({ spawnInstanceId: 20 + k, npcId: 2000, name: "an_essence_carrier", level: 54, distance: 10 } as { spawnInstanceId: number; name: string });
+    started = false;
   };
   (f.iq as unknown as { raid: object }).raid = {
     time: async () => (calls.push("time"), { active: timeLeft, pricePp }),
@@ -2109,6 +2112,16 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
       calls.push(`attack ${f.combat.targetNPC?.name}`);
       if (started) return;
       r.combat = true;
+      const add = f.combat.targetNPC?.name === "an_essence_carrier" ? f.combat.targetNPC : null;
+      if (add) {
+        started = true;
+        return void setTimeout(() => {
+          r.combat = false;
+          started = false;
+          f.targets.splice(f.targets.findIndex((x) => x.spawnInstanceId === add.spawnInstanceId), 1);
+          page.events = [...(page.events ?? []), { t: Date.now(), seq: 9100 + add.spawnInstanceId, type: "EXPERIENCE_GAIN", text: "You have defeated an essence carrier and gained 90300 experience!" }];
+        }, fightMs);
+      }
       if (stalls) return void (stalls = false);
       started = true;
       if (leaderFalls) setTimeout(() => (r.leaderDead = true), fightMs / 2);
@@ -2164,7 +2177,12 @@ function fakeRaid(f: Awaited<ReturnType<typeof install>>, { timeLeft = false, pr
   };
   // The boss that dies on arrival stands as far off as Lodizal did, so the raid is still walking.
   f.targets.push({ spawnInstanceId: 7, npcId: 1032, name: "Lord_Nagafen", level: 55, distance: diesOnArrival ? 5580 : 12 } as { spawnInstanceId: number; name: string });
-  Object.assign(f.runtime, { selectEnemyTarget: (ids: number[]) => (f.combat.targetNPC = ids[0] === 1099 ? { spawnInstanceId: 8, name: "a_swirlspine_seahorse" } : { spawnInstanceId: 7, name: "Lord_Nagafen" }) });
+  Object.assign(f.runtime, {
+    selectEnemyTarget: (ids: number[]) => {
+      const add = ids[0] === 2000 ? f.targets.find((x) => x.name === "an_essence_carrier") : null;
+      return (f.combat.targetNPC = add ? { spawnInstanceId: add.spawnInstanceId, name: add.name } : ids[0] === 1099 ? { spawnInstanceId: 8, name: "a_swirlspine_seahorse" } : { spawnInstanceId: 7, name: "Lord_Nagafen" });
+    },
+  });
   return calls;
 }
 
@@ -2442,7 +2460,24 @@ test("a quest's kill step marked for the raid is fought as a raid led by the mem
   }
 });
 
-test("an enemy that a timer puts up an hour after its call ends the task until it is due, and the next task skips the call", async () => {
+test("a quest's raid also kills the enemies its target's death sets on the member, and then ends", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install([10, 20]);
+    const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000, adds: 2 });
+    const steps = [{ zone: "guktop", kill: "Lord Nagafen", level: 62, raid: true, adds: [{ name: "an essence carrier", npcId: 2000, level: 54, hp: 20000, n: 2 }] }];
+    f.bot.quest({ members: ["Tagujazolu"], steps, raid: { members: ["Tagujazolu", "Edroun"], maxPp: 0, heal: "all-balanced", nuke: "dps-all-out" } });
+    await runToEnd(f);
+    expect(calls.filter((c) => c.startsWith("attack") || c === "end")).toEqual(["attack Lord_Nagafen", "attack an_essence_carrier", "attack an_essence_carrier", "end"]);
+    expect(f.targets).toEqual([]);
+    expect(f.bot.state.task).toMatchObject({ status: "done", raiding: false });
+    expect(f.bot.state.task.raids[0]).toMatch(/^killed Lord.Nagafen.*; killed an.essence.carrier.*; killed an.essence.carrier/);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("the member who called a timed enemy waits for it in its zone, and nobody else's call counts", async () => {
   vi.useFakeTimers();
   try {
     const steps = [
@@ -2450,23 +2485,37 @@ test("an enemy that a timer puts up an hour after its call ends the task until i
       { zone: "guktop", kill: "Lord Nagafen", level: 62, raid: true, calledBy: 0, after: { minSec: 3600, maxSec: 5100 } },
     ];
     const raid = { members: ["Tagujazolu", "Edroun"], maxPp: 0, heal: "all-balanced", nuke: "dps-all-out" };
-    // The call ran 20 minutes ago in another tab, as the coordinator hands it on: the caller is
-    // skipped, and the enemy is not due for 40 minutes, so the task ends as waiting until then.
+    // The member's call ran 80 minutes ago in a task that ended early, as the coordinator hands it
+    // on: the caller is skipped and the member waits in the zone. The enemy comes two minutes
+    // later, and the raid kills it.
     const f = await install([10, 20]);
     const calls = fakeRaid(f, { timeLeft: true, fightMs: 20000 });
-    f.targets.splice(0);
-    const calledAt = Date.now() - 20 * 60000;
-    f.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": calledAt } });
-    await runToEnd(f);
-    expect(f.bot.state.task).toMatchObject({ status: "waiting", nextAt: calledAt + 3600000 + 30000 });
-    expect(f.bot.state.task.result).toMatch(/^Lord Nagafen comes between \d\d:\d\d and \d\d:\d\d$/);
+    const enemies = f.targets.splice(0);
+    setTimeout(() => f.targets.push(...enemies), 90000);
+    f.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": { at: Date.now() - 80 * 60000, who: "Tagujazolu" } } });
+    for (let k = 0; k < 40; k++) {
+      vi.advanceTimersByTime(1500);
+      await flush();
+    }
+    expect(f.bot.state.task).toMatchObject({ status: "running", step: expect.stringMatching(/^wait in guktop for Lord Nagafen until \d\d:\d\d$/) });
     expect(calls).not.toContain("open");
-    // An hour after the call the enemy stands: the caller is skipped again and the raid kills it.
+    await runToEnd(f);
+    expect(f.bot.state.task).toMatchObject({ status: "done", raids: [expect.stringMatching(/^killed Lord.Nagafen/)] });
+    // A wait to the timer's last minute without the enemy fails, and holds the chain for three hours.
     const g = await install([10, 20]);
     fakeRaid(g, { timeLeft: true, fightMs: 20000 });
-    g.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": Date.now() - 62 * 60000 } });
+    g.targets.splice(0);
+    g.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": { at: Date.now() - 88 * 60000, who: "Tagujazolu" } } });
     await runToEnd(g);
-    expect(g.bot.state.task).toMatchObject({ status: "done", raids: [expect.stringMatching(/^killed Lord.Nagafen/)] });
+    expect(g.bot.state.task).toMatchObject({ status: "failed", error: expect.stringMatching(/^Lord Nagafen did not come by \d\d:\d\d/) });
+    expect(g.bot.state.task.nextAt - Date.now()).toBeGreaterThan(2.9 * 3600000);
+    // Another member's call is his own: this one looks for the caller.
+    const h = await install([10, 20]);
+    fakeRaid(h, { timeLeft: true, fightMs: 20000 });
+    h.targets.splice(0);
+    h.bot.quest({ members: ["Tagujazolu"], steps, raid, timed: { "guktop|Lord Nagafen": { at: Date.now() - 80 * 60000, who: "Edroun" } } });
+    await runToEnd(h);
+    expect(h.bot.state.task).toMatchObject({ status: "failed", error: expect.stringMatching(/^no a soul carrier came up/) });
   } finally {
     vi.useRealTimers();
   }

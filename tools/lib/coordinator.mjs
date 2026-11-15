@@ -40,6 +40,8 @@ export const DEFAULTS = {
   // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
   // Groups have won the fights at 55 (Jaeil the Insane, a plasmatic priest), which cost no raid time.
   questRaidLevel: 57,
+  // The account's coin below which no quest starts a raid, which buys raid time.
+  questRaidReservePp: 100000,
 };
 
 /**
@@ -316,27 +318,6 @@ export function worldHold(history, id, code = null) {
 // How long a timed enemy stands once it has come (Keeper of Souls: half an hour).
 export const TIMED_UP_SEC = 1800;
 
-/**
- * When each timed enemy of the quests (a step's `after`) was last called by a kill of its calling
- * enemy, from `kills` (`[{ t, npc }]`, the account's kills by `npcKey`, earliest first), as
- * `{ "<zone>|<enemy>": time }`. A kill while the enemy can still come or stand starts no new
- * timer, so the first kill after that time counts. A call whose enemy is gone by `now` is left out.
- */
-export function timedCalls(quests, kills, now, key = (name) => String(name).toLowerCase()) {
-  const out = {};
-  for (const q of Object.values(quests)) {
-    for (const s of q.steps ?? []) {
-      const caller = s.after && s.kill ? q.steps[s.calledBy] : null;
-      if (!caller?.kill) continue;
-      const span = (s.after.maxSec + TIMED_UP_SEC) * 1000;
-      let at = null;
-      for (const k of kills) if (k.npc === key(caller.kill) && (at == null || k.t > at + span)) at = k.t;
-      if (at != null && now < at + span) out[`${s.zone}|${s.kill}`] = at;
-    }
-  }
-  return out;
-}
-
 const holding = (history, id, code) => {
   const holds = (h) => h.status === "waiting" || (h.status === "failed" && (h.repeat || code == null || h.code == null || h.code === code));
   return history.filter((h) => h.id === id && h.nextAt && holds(h));
@@ -389,8 +370,7 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
- * - `called`: when each timed enemy of the quests was last called (`timedCalls`).
- * - `explain`: a quest's id, for which `explained` lists why each tab gets it or not (`iqd why`).
+ * - `explain`: a quest's id, or "all", for which `explained` lists why each tab gets it or not (`iqd why`).
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
  * Returns `{ actions, targets }`: `actions`, `[{ label, kind, spec, why, id?, ids? }]`, at most one
@@ -398,7 +378,7 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, called = {}, explain = null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, explain = null, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
   const explained = [];
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
@@ -480,10 +460,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // enemy, and no ranger got its hammer.
     const pointBound = history.some((h) => h.id === id && h.status === "waiting" && now - h.t < 2 * 3600000);
     const fights = q.steps.some((s) => s.kill);
-    // When this quest's steps last called a timed enemy (a step's `after`): a run of any tab that
-    // made the call, or a kill of the calling enemy by anyone on the account (`called`, from the
-    // fight records), such as a hunt's.
-    const timed = Object.assign({}, ...q.steps.filter((s) => s.after && called[`${s.zone}|${s.kill}`] != null).map((s) => ({ [`${s.zone}|${s.kill}`]: called[`${s.zone}|${s.kill}`] })), ...history.filter((h) => h.id === id && h.timed && now - h.t < 3 * 3600000).map((h) => h.timed));
+    // When a run of this quest last called a timed enemy (a step's `after`) and for whom, as
+    // `{ "<zone>|<enemy>": { at, who } }`. The server keeps a script's timer and what it puts up
+    // for the character whose kill started it (`owner_character_id` of `quest_runtime_timers` in
+    // the content snapshot's reference server), so only that member's own call counts, and a
+    // kill by a hunt or by another tab calls nothing for him.
+    const timed = Object.assign({}, ...history.filter((h) => h.id === id && h.timed && now - h.t < 3 * 3600000).map((h) => Object.fromEntries(Object.entries(h.timed).filter(([, v]) => v?.who))));
     // A tab is known by its active character, which is the quest's member while the quest runs,
     // so a running quest is found by its task and not by the leader's name it was given under:
     // five groups waited for Keeper of Souls at once on 2026-11-15.
@@ -507,18 +489,15 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         return true;
       });
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
-      // An enemy that a timer brings (a step's `after`) can stand from `minSec` after its call until
-      // half an hour past `maxSec`. One run goes inside that time whatever an earlier failure or
-      // wait holds, and waits there for it: Keeper of Souls was due from 10:51 to 11:46 on
-      // 2026-11-15 while the chain waited until 12:10 for a soul carrier. No second run goes in
-      // that time, from any tab.
-      const dueNow = !camped && q.steps.some((s) => {
-        const at = s.after ? timed[`${s.zone}|${s.kill}`] : null;
-        return at != null && now >= at + s.after.minSec * 1000 && now < at + (s.after.maxSec + TIMED_UP_SEC) * 1000 && !(lastAny?.t >= at + s.after.minSec * 1000);
-      });
+      // An enemy that a timer brings (a step's `after`) comes up to `maxSec` after its call and
+      // stands half an hour. The run that makes the call stays in the zone until then. When that
+      // run ended early, such as with a reloaded page, its member goes back at once whatever a
+      // failure or a wait holds, and no second run goes in that time.
+      const calls = q.steps.map((s) => (s.after ? timed[`${s.zone}|${s.kill}`] : null)).filter((c, k) => c && t.members.some((m) => m.name === c.who) && now < c.at + (q.steps[k].after.maxSec + TIMED_UP_SEC) * 1000 && !(lastAny?.t > c.at));
+      const dueNow = !camped && calls.length > 0;
       // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);
-      const who = [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
+      const who = dueNow ? [...new Set(calls.map((c) => c.who))].filter((n) => needers.includes(n)) : [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
       if (!who.length) {
         no(t, !want.length ? "no member needs it" : heldAt >= 0 && begun.length + fresh.length ? `a wait or a failure at step ${heldAt === Infinity ? "unknown" : heldAt} holds ${[...begun, ...fresh].join(", ")}` : `${want.join(", ")} lack ${want.map((n) => lacks(n).filter(([, l]) => l > 0).map(([p, l]) => `${l} ${p}`).join(" and ")).join("; ")}, and no free copy is left`, !want.length);
         continue;
@@ -529,7 +508,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // fight goes to the raid (`raid` on its step, `raid` in the spec) when the simulated raid kills
       // the enemy and it is of `questRaidLevel` or the group's chance is too low. Raid mode takes
       // enemies above level 50 and a leader of 46.
-      const chance = (s) => killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1;
+      // A kill's chance is its worst fight's: the enemy's, and those its death sets on the party
+      // (`adds`). Groups killed 32 of 40 soul carriers and then left 48 of 60 fights with the essence
+      // carriers, which takes the member out of the zone before the Key Master hears of the death.
+      const chance = (s) => Math.min(...[{ npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null }, ...(s.adds ?? []).map((x) => ({ npc: x.name, npcLevel: x.level, npcHp: x.hp ?? null }))].map((x) => killChance(t, { zone: s.zone, ...x })?.p ?? 1));
       const leads = who.every((n) => (t.members.find((m) => m.name === n)?.level ?? 0) >= 46);
       // An enemy that a raid's kill calls is the raid's as well, also below `questRaidLevel`: Zordakalicus
       // Ragefire (54) comes up when Zordak Ragefire (60) dies, and the group that followed the raid
@@ -537,8 +519,11 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       const mayRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s));
       const byRaid = (s) => mayRaid(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance || Boolean(q.steps[s.calledBy]?.kill && byRaid(q.steps[s.calledBy])));
       const tooStrong = q.steps.filter((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance);
-      if (tooStrong.length) { no(t, `the group's chance against ${tooStrong.map((s) => `${s.kill} is ${Math.round(100 * chance(s))}%`).join(", ")}, and the raid does not take ${tooStrong.length > 1 ? "them" : "it"}`); continue; }
+      if (tooStrong.length) { no(t, `the group's chance against ${tooStrong.map((s) => `${s.kill}${s.adds?.length ? ` and what its death brings` : ""} is ${Math.round(100 * chance(s))}%`).join(", ")}, and the raid does not take ${tooStrong.length > 1 ? "them" : "it"}`); continue; }
       const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
+      // A raid buys an hour of raid time when none is paid, so a quest with one waits for the
+      // account's reserve, as one more casino credit does.
+      if (steps !== q.steps && coin && coin.pp < cfg.questRaidReservePp) { no(t, `its fights are the raid's, and the account holds ${Math.round(coin.pp)} of the ${cfg.questRaidReservePp} platinum a raid waits for`); continue; }
       for (const [p, n] of left) spare.set(p, n);
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(Object.keys(timed).length ? { timed } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
     }

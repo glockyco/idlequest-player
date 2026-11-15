@@ -1,6 +1,6 @@
 // Checks the coordinator's policy (tools/lib/coordinator.mjs). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, releaseWaits, retryTime, settleErrands, settleHistory, timedCalls, worldHold } from "../tools/lib/coordinator.mjs";
+import { assignZones, chainSummary, decide, doneItems, experimentSettings, piecesNeeded, progressItems, refusedGoods, releaseWaits, retryTime, settleErrands, settleHistory, worldHold } from "../tools/lib/coordinator.mjs";
 import { ACQUIRE } from "../tools/lib/acquire.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -166,10 +166,10 @@ test("a quest's fight goes to the raid when the simulated raid kills an enemy th
   expect(run(52, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) })[0].spec.steps[1].raid).toBe(true);
   // An enemy the raid does not kill either still waits for the group's chance.
   expect(run(62, { raid, raidKill: () => false, killChance: () => ({ p: 0.2 }) })).toEqual([]);
-  // When a step of this quest called a timed enemy, in any tab, goes along with the next run.
-  const called = { t: NOW - 3600000, label: "B", kind: "quest", id: "sceptre", status: "waiting", nextAt: NOW - 1000, timed: { "burningwood|Ixiblat Fer": NOW - 3600000 } };
+  // When a step of this quest called a timed enemy, and for whom, goes along with the next run.
+  const called = { t: NOW - 3600000, label: "B", kind: "quest", id: "sceptre", status: "waiting", nextAt: NOW - 1000, timed: { "burningwood|Ixiblat Fer": { at: NOW - 3600000, who: "A0" } } };
   const [again] = decide({ now: NOW, tabs: [cleric(59)], quests: { sceptre: { class: "Cleric", minLevel: 1, reward: "Sceptre of Ixiblat Fer", steps: fight(62) } }, history: [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, called], raid, raidKill: () => true }).actions.filter((a) => a.kind === "quest");
-  expect(again.spec.timed).toEqual({ "burningwood|Ixiblat Fer": NOW - 3600000 });
+  expect(again.spec.timed).toEqual({ "burningwood|Ixiblat Fer": { at: NOW - 3600000, who: "A0" } });
   // A Cleric that looks for the NPC of step 0 waits. That holds a Cleric who still has to pass
   // that step, and not one who resumes behind it.
   const waits = { t: NOW - 60000, label: "B", kind: "quest", id: "sceptre", status: "waiting", nextAt: NOW + 3600000, stepAt: 0 };
@@ -1029,45 +1029,55 @@ test("a spawn reset ends the quest waits from before it and leaves the others", 
   expect(releaseWaits(history, 0)).toBe(false);
 });
 
-test("a kill of its caller by anyone times an enemy, and its quest goes while the enemy can stand", () => {
+test("a timed enemy is its caller's: the member goes back for it, and the raid takes a death's attackers", () => {
   const steps = [
-    { zone: "airplane", kill: "a soul carrier", level: 52 },
+    { zone: "airplane", kill: "a soul carrier", level: 52, adds: [{ name: "an essence carrier", npcId: 71070, level: 54, hp: 20000, n: 2 }] },
     { zone: "airplane", kill: "Keeper of Souls", level: 60, calledBy: 0, after: { minSec: 3600, maxSec: 5100 }, expect: "Black Silk Cape" },
   ];
   const quests = { cape: { class: "Necromancer", minLevel: 1, reward: "Black Silk Cape", steps } };
   const min = 60000;
-  // The kill 62 minutes after the first starts no timer, since the Keeper can still come.
-  const kills = [{ t: NOW - 80 * min, npc: "a soul carrier" }, { t: NOW - 18 * min, npc: "a soul carrier" }, { t: NOW - 5 * min, npc: "an essence carrier" }];
-  expect(timedCalls(quests, kills, NOW)).toEqual({ "airplane|Keeper of Souls": NOW - 80 * min });
-  // Past the last minute he can stand the call is over, and the kill inside his time started none.
-  expect(timedCalls(quests, kills, NOW + 40 * min)).toEqual({});
-  expect(timedCalls(quests, [...kills, { t: NOW + 39 * min, npc: "a soul carrier" }], NOW + 40 * min)).toEqual({ "airplane|Keeper of Souls": NOW + 39 * min });
-  expect(timedCalls(quests, [], NOW)).toEqual({});
-  // The chain waits an hour for a soul carrier that did not come up. The Keeper is due, so it goes,
-  // with the time of the call, and not again once this tab has gone inside his time.
-  const tab = { label: "A", members: [{ name: "A0", level: 59, class: "Necromancer" }], task: null };
-  const failed = { t: NOW - 85 * min, label: "A", kind: "quest", id: "cape", status: "failed", repeats: 2, nextAt: NOW + 50 * min, error: "no a soul carrier came up" };
-  const run = (history: object[], called: object) => decide({ now: NOW, tabs: [tab], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, ...history], called }).actions.filter((a) => a.kind === "quest");
-  expect(run([failed], {})).toEqual([]);
-  const [a] = run([failed], timedCalls(quests, kills, NOW));
-  expect(a.spec.timed).toEqual({ "airplane|Keeper of Souls": NOW - 80 * min });
-  expect(run([failed, { ...failed, t: NOW - 10 * min }], timedCalls(quests, kills, NOW))).toEqual([]);
-  // Nor does another tab go once one has gone inside his time, and while that run is still on,
-  // under its member's name, nobody else is sent either.
+  const key = "airplane|Keeper of Souls";
+  const tab = { label: "A", members: [{ name: "A0", level: 59, class: "Necromancer" }, { name: "A1", level: 59, class: "Necromancer" }], task: null };
   const other = { label: "B", members: [{ name: "B0", level: 59, class: "Necromancer" }], task: null };
-  const two = (history: object[], tabs: object[], called: object) => decide({ now: NOW, tabs, quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, ...history], called }).actions.filter((a) => a.kind === "quest");
-  expect(two([failed, { t: NOW - 10 * min, label: "A", kind: "quest", id: "cape", status: "failed", task: "quest-1" }], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
+  const two = (history: object[], tabs: object[], more: object = {}) => decide({ now: NOW, tabs, quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, ...history], ...more }).actions.filter((a) => a.kind === "quest");
+  const run = (history: object[]) => two(history, [tab]);
+  // A run of A0 called the Keeper 80 minutes ago and ended early, and the chain waits an hour
+  // more. A0 goes back at once, alone, with the time of his call. A1 and tab B do not.
+  const failed = { t: NOW - 85 * min, label: "A", kind: "quest", id: "cape", status: "failed", repeats: 2, nextAt: NOW + 50 * min, error: "the page was reloaded" };
+  expect(run([failed])).toEqual([]);
+  const call = { ...failed, timed: { [key]: { at: NOW - 80 * min, who: "A0" } } };
+  const [a] = run([call]);
+  expect(a.spec.members).toEqual(["A0"]);
+  expect(a.spec.timed).toEqual({ [key]: { at: NOW - 80 * min, who: "A0" } });
+  expect(two([call], [other])).toEqual([]);
+  // Not again once a run has gone since the call, nor while that run is still on under its
+  // member's name, nor past the last minute the Keeper can stand.
+  expect(run([call, { ...failed, t: NOW - 10 * min }])).toEqual([]);
   const running = { label: "A0", members: tab.members, task: { id: "quest-2", kind: "quest", status: "running" } };
-  expect(two([{ t: NOW - 100 * min, label: "A", kind: "quest", id: "cape", task: "quest-2" }], [running, other], timedCalls(quests, kills, NOW))).toEqual([]);
+  expect(two([call, { t: NOW - 5 * min, label: "A", kind: "quest", id: "cape", task: "quest-2" }], [running, other])).toEqual([]);
+  expect(run([{ ...call, timed: { [key]: { at: NOW - 120 * min, who: "A0" } } }])).toEqual([]);
+  // A call that names nobody, as older page code recorded, is nobody's.
+  expect(run([{ ...failed, timed: { [key]: NOW - 80 * min } }])).toEqual([]);
+  // The group kills soul carriers and loses to the essence carriers their death brings, so the
+  // raid takes the kill, and without a raid the quest waits.
+  const killChance = (_t: object, x: { npc: string }) => ({ p: x.npc === "an essence carrier" ? 0.2 : 0.9 });
+  const raid = { members: ["A0", "B0"], maxPp: 10000 };
+  const [byRaid] = two([], [tab], { killChance, raid, raidKill: () => true });
+  expect(byRaid.spec.steps.map((s: { raid?: boolean }) => Boolean(s.raid))).toEqual([true, true]);
+  expect(two([], [tab], { killChance, raidKill: () => true })).toEqual([]);
+  // A raid buys raid time, so it waits for the account's reserve. Above it tab A rolls for one
+  // more casino credit, and tab B gets the quest.
+  expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 60000, credits: 0 } })).toEqual([]);
+  expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 160000, credits: 0 } }).map((x) => x.label)).toEqual(["B"]);
+  // A run that waited his whole time out holds the chain for its retry time.
+  const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 100 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could", timed: { [key]: { at: NOW - 95 * min, who: "A0" } } };
+  expect(two([waitedOut], [tab, other])).toEqual([]);
   // Asked why, the decision names each tab's reason.
-  const asked = decide({ now: NOW, tabs: [tab, other], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, failed], called: {}, explain: "cape" });
+  const asked = decide({ now: NOW, tabs: [tab, other], quests, history: [{ t: NOW - min, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, { t: NOW - min, label: "B", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, failed], explain: "cape" });
   expect(asked.explained.map((e: { label: string; text: string }) => [e.label, e.text.slice(0, 32)])).toEqual([["A", "a wait or a failure at step unkn"], ["B", "a wait or a failure at step unkn"]]);
   expect(decide({ now: NOW, tabs: [tab], quests, explain: "nothing" }).explained).toEqual([{ id: "nothing", label: "no tab", text: "the coordinator has no quest of that id" }]);
   // Asked for every quest, a tab without a needer is marked as saying nothing about the quest.
   const idler = { label: "C", members: [{ name: "C0", level: 59, class: "Warrior" }], task: null };
-  const all = decide({ now: NOW, tabs: [tab, idler], quests, history: [failed], called: {}, explain: "all" }).explained;
+  const all = decide({ now: NOW, tabs: [tab, idler], quests, history: [failed], explain: "all" }).explained;
   expect(all.map((e: { id: string; label: string; idle?: boolean }) => [e.id, e.label, Boolean(e.idle)])).toEqual([["cape", "A", false], ["cape", "C", true]]);
-  // A run that waited his whole time out holds the chain for its retry time, also against a new call.
-  const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 600 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could" };
-  expect(two([waitedOut], [tab, other], timedCalls(quests, kills, NOW))).toEqual([]);
 });

@@ -734,7 +734,7 @@ export class Daemon {
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
     this.doing = "item searches";
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, holdStep, piecesNeeded, progressItems, releaseWaits, settleErrands, settleHistory, timedCalls, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, holdStep, piecesNeeded, progressItems, releaseWaits, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -1017,7 +1017,12 @@ export class Daemon {
     // hunts it: group 1 set out for Trakanon once epic pieces above level 60 became wanted (2026-11-12).
     // After a start the boss plan has not run yet, so its last watch list names the bosses.
     this.bossNames ??= new Set([...(metaGet(this.db, "bossPlan")?.watch ?? []).map((w) => w.name), ...(this.itemModel?.bosses ?? []).map((c) => c.name), ...this.raidGoal()].map(npcKey));
-    const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)));
+    // An enemy whose death starts a quest's timer for its killer is left to that quest while a
+    // character still needs it: a soul carrier comes back after four hours, and six of the ten
+    // killed on 2026-11-15 went to gear hunts, whose leaders Keeper of Souls is of no use to.
+    const callers = new Set(Object.entries(quests).filter(([id]) => chainNeeders(id, { quests, holders, members }).length).flatMap(([, q]) => q.steps.filter((s, k) => s.kill && q.steps.some((x) => x.after && x.calledBy === k)).map((s) => `${s.zone}|${npcKey(s.kill)}`)));
+    const questOnly = (x) => callers.has(`${x.zone}|${npcKey(x.npc)}`);
+    const huntable = this.targetWants.filter((x) => !this.bossNames.has(npcKey(x.npc)) && !questOnly(x));
     const xpFactor = factorAt(this.xpEvents, now);
     // The account's coin at its last read and the casino bosses that wait for a raid, by which one
     // more credit is rolled for (`casino` of DEFAULTS in tools/lib/coordinator.mjs).
@@ -1029,8 +1034,6 @@ export class Daemon {
       raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
       raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
       resumeAt,
-      // When a kill of the account last called each timed enemy of the quests (`timedCalls`).
-      called: timedCalls(quests, this.db.query("SELECT t, npc FROM fights WHERE outcome = 'kill' AND t >= ? ORDER BY t").all(now - 6 * 3600000), now, npcKey),
       // A quest that `iqd why` asked about: the pass logs why each tab gets it or not, once.
       explain: metaGet(this.db, "explain")?.id ?? null,
     };
@@ -1047,7 +1050,7 @@ export class Daemon {
     const pieceIds = new Set(opportunities.map((o) => o.id));
     const eventHolds = xpFactor > 1 ? decide({ ...input, xpFactor: 1 }).actions.filter((a) => a.kind === "quest" || (a.kind === "hunt" && pieceIds.has(a.id))).map((a) => ({ label: a.label, kind: a.kind, id: a.id, why: a.why })) : [];
     // Why each listed target is or is not hunted, for the dashboard's Most wanted list.
-    for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: "raid" };
+    for (const x of this.targetWants) if (!huntable.includes(x)) targetEval[targetId(x)] = { state: questOnly(x) ? "quest" : "raid" };
     metaSet(this.db, "targetStatus", { t: now, targets: targetEval });
     // The boss kills that are due (docs/plans/raids.md), each raid with a tab of its own. A raid takes
     // its tab from any other action of this pass, since summons and potions are time gated and a hunt is not.

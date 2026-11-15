@@ -101,7 +101,8 @@ then leaves the zone's spawn list. It has not been seen to come back without a s
 Jaeil the Wretched, who gives the Ranger's hammer fight, is such an NPC, so one Ranger can use him
 per restart. A step that does not find its NPC's point in the list waits, and the wait doubles up
 to eight hours (`settleHistory` in `tools/lib/coordinator.mjs`). The wait ends when the boss watch
-sees that the server put its spawns up again (`releaseWaits`, `spawnReset`).
+sees that the server put its spawns up again (`releaseWaits`, `spawnReset`), or when a tab that
+stands in the NPC's zone finds it on its point (`npcUpInPage` in `tools/iqd.mjs`).
 
 A chain part with a fight runs in one tab at a time, because a hand-in calls one enemy and takes
 its giver away until the respawn, and it waits for a group whose kill chance against the enemy is
@@ -109,6 +110,21 @@ under a half (`questKillChance` in `tools/lib/coordinator.mjs`, the chance of
 [gear-acquisition.md](gear-acquisition.md)). An enemy above level 60 is held the same way, not
 left out: a chain exists for every epic whose steps the bot can run, and its part waits at the
 fight, while the parts before it run. A part asks for level 60 at most.
+
+The server runs a script's timers, and what they put up, for the character whose action started
+them: the content snapshot's reference server keeps each timer under an `owner_character_id`
+(`reference/server/internal/quest/timer_state.go`) and calls quest spawns personal. So an enemy a
+timer puts up long after its call (`after` on its step, Keeper of Souls 60 to 85 minutes after a
+soul carrier's death) belongs to the member whose kill called it. That member stays in the zone
+from the call until the enemy comes or its time is over, and the party comes back when the guard
+took it out. A run that ended early hands the call's time and member to the coordinator
+(`timed`), which sends that member back at once. An enemy whose death calls such a timer is left
+out of the gear hunts while a character needs the quest (`callers` in `tools/iqd.mjs`).
+
+A kill step names the enemies its target's death sets on the killer (`adds`, from a spawn the
+death script attacks with at once). The step's kill chance is the lowest of its fights, and its
+raid fights each of them before it ends. A quest with a raid waits while the account holds under
+`questRaidReservePp`, because a raid buys an hour of raid time when none is paid.
 
 A piece that drops becomes a gear acquisition target (docs/plans/gear-acquisition.md) worth the
 progress the epic adds to its character's group, shared by the pieces still missing. Only an epic
@@ -131,7 +147,7 @@ step is certain progress.
 | 1 | The analyzer reads events, conditions and actions, and a check lists every epic's steps, sources and gaps. | The `needFor` closure as the epic's definition |
 | 2 | The plan per character, and quest tasks generated from it for the epics whose steps use the existing kinds. | Their chains in `data/quests.json` |
 | 3 | Dropped pieces as acquisition targets with the epic's value. | `data/opportunities.json` epic pieces |
-| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own, the ground pickup, the summoning cast by the epic's own class, the item an NPC wants carried (`hold`), the combine in a carried container such as the Enchanters Sack, the fight by raid for an enemy the group does not beat and the enemy a timer puts up long after its call (`after`, Keeper of Souls an hour or more after a soul carrier's death), which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Enchanter and Magician beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill. The Warrior epic is blocked: its Rebreather is combined in a Collapsible Toolbox that no merchant, drop or script gives, and the Rebreather's other source, Triathalon Swim Goggles, has no live spawn. To build: a cast by another class (the Shadow Knight's Enchanted Platinum Bar), forage, tradeskill training. | |
+| 4 | New step kinds as the epics in the plan reach them. Built: the coin hand-in, the purchase in a step of its own, the ground pickup, the summoning cast by the epic's own class, the item an NPC wants carried (`hold`), the combine in a carried container such as the Enchanters Sack, the fight by raid for an enemy the group does not beat and the enemy a timer puts up long after its call (`after`, Keeper of Souls an hour or more after a soul carrier's death, for which the member stays in the zone), which with hard kills held by the kill chance give chains to the Necromancer, Paladin, Cleric, Monk, Bard, Wizard, Enchanter and Magician beside the Ranger's Earthcaller and the Shaman. A part whose craft trivials above 50 waits for a trained tradeskill. The Warrior epic is blocked: its Rebreather is combined in a Collapsible Toolbox that no merchant, drop or script gives, and the Rebreather's other source, Triathalon Swim Goggles, has no live spawn. To build: a cast by another class (the Shadow Knight's Enchanted Platinum Bar), forage, tradeskill training. | |
 | 5 | Kills and raid pieces a group cannot win, such as the Wizard's enraged golem at 65 with 175,000 HP, with the raid way and the boss kills. | |
 | 6 | The model covers every epic. | The class sections of `epics.md` and the remaining epic chains |
 

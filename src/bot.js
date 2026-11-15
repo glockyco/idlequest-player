@@ -1904,21 +1904,24 @@
     const instances = () => new Set((i.stores.character.getState().characterProfile?.inventory ?? []).map((r) => r.itemInstanceId));
     // An enemy that a timer puts up long after the step that calls it (`after`, `{ minSec, maxSec }`):
     // Keeper of Souls comes 60 to 85 minutes after a soul carrier's death and stays half an hour.
-    // `state.timed` keeps when the calling step last ran, by zone and enemy, which the coordinator
-    // also hands to the next task of any tab (`timed`). A call inside the time the enemy can still
-    // come or stand starts no new timer, so it does not count.
+    // The server keeps such a timer, and what it puts up, for the character whose kill started it
+    // (the content snapshot's reference server, `quest_runtime_timers`), so the member who made the
+    // call stays in the zone until the enemy comes. `state.timed` keeps when and for whom the
+    // calling step last ran, by zone and enemy, which the coordinator hands to that member's next
+    // task when this one ends early (`timed`). A call inside the time the enemy can still come or
+    // stand starts no new timer, so it does not count.
     const UP_SEC = 1800;
     const timedKey = (x) => `${x.zone}|${x.kill}`;
     const pending = (x) => {
-      const at = state.timed?.[timedKey(x)]?.at;
-      return at != null && now() < at + (x.after.maxSec + UP_SEC) * 1000 ? at : null;
+      const call = state.timed?.[timedKey(x)];
+      return call?.who === m.name && now() < call.at + (x.after.maxSec + UP_SEC) * 1000 ? call.at : null;
     };
     const enemyUp = (name) => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(name).test(x.name ?? ""));
     const called = (k) => {
       for (const x of m.steps) {
         if (x.calledBy !== k || !x.after || !x.kill || pending(x) != null) continue;
-        (state.timed ??= {})[timedKey(x)] = { at: now() };
-        (task.timed ??= {})[timedKey(x)] = now();
+        (state.timed ??= {})[timedKey(x)] = { at: now(), who: m.name };
+        (task.timed ??= {})[timedKey(x)] = { at: now(), who: m.name };
       }
     };
     for (const [k, s] of m.steps.entries()) {
@@ -2042,24 +2045,30 @@
         gathered = true;
         await readyParty();
       }
-      // A timed enemy that is not up yet: the task comes back when it is due, and inside its window
-      // the party waits for it.
+      // A timed enemy that is not up yet: the member waits for it in its zone from the call on,
+      // since the timer is his and nobody else sees what it puts up. None of the 30 soul carriers
+      // the account had killed by 2026-11-15 brought Keeper of Souls: every party left the zone
+      // within minutes, most of them in flight from the essence carriers.
       if (s.kill && s.after && !enemyUp(s.kill)) {
         const at = pending(s);
         const clock = (t) => new Date(t).toTimeString().slice(0, 5);
-        if (at != null && now() < at + s.after.minSec * 1000) throw new TaskLater(`${s.kill} comes between ${clock(at + s.after.minSec * 1000)} and ${clock(at + s.after.maxSec * 1000)}`, at + s.after.minSec * 1000 + 30000);
         // Five minutes past the timer's longest run, for what delays its start: a soul carrier's
         // death reaches the Key Master 200 s later.
         const until = at == null ? 0 : at + s.after.maxSec * 1000 + 300000;
-        if (now() < until) {
-          await step(`wait for ${s.kill}`, async () => {
-            while (!enemyUp(s.kill) && now() < until) await sleep(5000);
-          }, until - now() + 60000);
-          // A wait to the end without the enemy: it did not come from this call, or others killed
-          // it. The chain tries again a day later (`camped` in tools/lib/coordinator.mjs), since
-          // Keeper of Souls came in none of the windows of 30 soul carriers the account killed.
-          if (!enemyUp(s.kill)) throw Object.assign(new Error(`${s.kill} did not come by ${clock(until)}, the last minute it could (${fightState(i)})`), { retryAfterMs: 24 * 3600000 });
+        if (now() < until) log(`quest: ${m.name} waits in ${s.zone} for ${s.kill}, which comes between ${clock(at + s.after.minSec * 1000)} and ${clock(until)}`);
+        while (!enemyUp(s.kill) && now() < until) {
+          // In steps of ten minutes, so the task's step says how long the wait still is. A party
+          // that the guard took out of the zone comes back once its fight is over.
+          await step(`wait in ${s.zone} for ${s.kill} until ${clock(until)}`, async () => {
+            for (const end = Math.min(until, now() + 600000); !enemyUp(s.kill) && now() < end; await sleep(5000)) {
+              if (zoneShort(i) !== s.zone && !i.stores.skills.getState().inCombat && !leaderDead(i)) await i.changeZone(s.zone).catch((e) => log(`quest: back to ${s.zone} failed: ${e?.message ?? e}`));
+            }
+          }, 700000);
         }
+        // A wait to the end without the enemy: the zone's lock of two hours was another player's
+        // or an earlier call's, or the member was out of the zone when the timer ran out. The
+        // chain tries again after that lock (`camped` in tools/lib/coordinator.mjs).
+        if (at != null && !enemyUp(s.kill)) throw Object.assign(new Error(`${s.kill} did not come by ${clock(until)}, the last minute it could (${fightState(i)})`), { retryAfterMs: 3 * 3600000 });
       }
       // An enemy the group does not beat is the raid's (`raid` on the step, the coordinator's): the
       // member leads every other roster character against it and loots it. Group 1 lost Ixiblat Fer
@@ -2072,11 +2081,27 @@
         if (!up()) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
         // The raid fight reads and writes a raid task, so it gets one that falls back on this task
         // for its status and runner.
-        const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", revive: task.raid.revive ?? "free", rods: task.raid.rods ?? "off", keepRaid: Boolean(m.steps[k + 1]?.raid && m.steps[k + 1].kill && m.steps[k + 1].zone === s.zone), effects: [], fight: null, result: null, spawnInstanceId: null });
+        // The raid stays for the next step's enemy when this kill calls it at once, and for the
+        // enemies this death sets on the member (`adds`), each of which gets a fight of its own.
+        const nextIsRaid = Boolean(m.steps[k + 1]?.raid && m.steps[k + 1].kill && !m.steps[k + 1].after && m.steps[k + 1].zone === s.zone);
+        const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", revive: task.raid.revive ?? "free", rods: task.raid.rods ?? "off", keepRaid: Boolean(s.adds?.length) || nextIsRaid, effects: [], fight: null, result: null, spawnInstanceId: null });
         // The tick ends raid mode that no running task owns, so the quest says that it raids.
         task.raiding = true;
+        const results = [];
         try {
           await raidFight(i, fight, step);
+          results.push(fight.result);
+          const killed = fight.fight?.outcome === "killed";
+          for (const add of killed ? (s.adds ?? []) : []) {
+            for (let n = 0; n < (add.n ?? 1) + 1 && enemyUp(add.name) && task.status === "running"; n++) {
+              Object.assign(fight, { bossKey: null, spawnInstanceId: null, target: add.name, fight: null, result: null, keepRaid: nextIsRaid || n + 1 < (add.n ?? 1) || add !== s.adds.at(-1) });
+              await raidFight(i, fight, step);
+              results.push(fight.result);
+            }
+          }
+          // A raid kept for enemies that did not stand any more ends here.
+          if (killed && s.adds?.length && !nextIsRaid && inRaid(i)) await i.raid.end().catch((e) => log(`quest: end raid failed: ${e?.message ?? e}`));
+          Object.assign(fight, { fight: { outcome: killed ? "killed" : fight.fight?.outcome }, result: results.filter(Boolean).join("; ") });
         } finally {
           task.raiding = false;
         }
@@ -2123,6 +2148,13 @@
         }
         m.foughtAt = since;
         called(k);
+        // What the death sets on the party is fought to its end, for up to five minutes.
+        for (const add of s.adds ?? []) {
+          for (const stop = now() + 300000; enemyUp(add.name) && now() < stop; ) {
+            const r = await step(`kill ${add.name}`, () => directedKill(i, enemyPattern(add.name)), 200000);
+            if (r !== "killed") await sleep(2000);
+          }
+        }
       }
       // An NPC that shares its spawn point with others (`points`, which tools/iqd.mjs adds from the
       // content snapshot) is up only when its point rolled it, and a point rolls again only after its
@@ -3685,7 +3717,7 @@
      */
     quest({ members, steps, name = "quest", avoid = [], ids = {}, spare = {}, raid = null, timed = {} }) {
       if (!steps?.length) throw new Error("a quest needs steps");
-      for (const [key, at] of Object.entries(timed ?? {})) if (!((state.timed ?? {})[key]?.at >= at)) (state.timed ??= {})[key] = { at };
+      for (const [key, call] of Object.entries(timed ?? {})) if (call?.who && !((state.timed ?? {})[key]?.at >= call.at)) (state.timed ??= {})[key] = { at: call.at, who: call.who };
       const task = startQuest("quest", (members ?? []).map((n) => ({ name: n, steps, avoid, ids, spare: spare[n] ?? [] })), name, raid);
       log(`task quest ${name}: ${members.join(", ")}, ${steps.length} steps`);
       return task;

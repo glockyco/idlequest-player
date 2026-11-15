@@ -39,6 +39,7 @@ export const plainName = (name) => String(name).replace(/ \[\d+\]$/, "");
  *   part if it carries the reward or something a later part made from it (`doneItems`). This is
  *   only valid because every part is a single dependency chain.
  * - `flow`: per step, the items it consumes (`ins`, without bought ones) and produces (`outs`).
+ * - `adds` on a kill step: the enemies its death sets on the killer, `[{ name, npcId, level, hp, n }]`.
  * - `calledBy` on a step: index of the step in the same part that spawned its NPC, with `after`
  *   (`{ minSec, maxSec }`) when a timer of two minutes or more puts it up that long after that step.
  * - `id`: ends in the reward's item id, so it is stable when other parts of the tree change.
@@ -220,7 +221,14 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       begin({ after, npcIds, zone: b.zone, kill: true });
       const hardest = npcIds.map((id) => model.npcs.get(id)).filter(Boolean).sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
       const gives = b.actions.flatMap((a) => a.give ?? []);
-      const at = push({ zone: b.zone, kill: b.npc, ...(hardest?.id != null ? { npcId: hardest.id } : {}), level: hardest?.level ?? null, hp: hardest?.hp ?? null, ...(gives.length ? { expect: name(gives[0]) } : {}), waitSec: SPAWN_WAIT_SEC, ...calledBy(npcIds, b.zone) });
+      // The enemies the death puts up against its killer (a spawn the script sets on the player at
+      // once): a soul carrier's death brings two essence carriers, which the fight has to win too.
+      const sets = new Map();
+      b.actions.forEach((a, k) => {
+        const n = a.spawn != null && b.actions[k + 1]?.attack ? model.npcs.get(a.spawn) : null;
+        if (n) sets.set(a.spawn, { name: npcKey(n.name), npcId: a.spawn, level: n.level ?? null, hp: n.hp ?? null, n: (sets.get(a.spawn)?.n ?? 0) + 1 });
+      });
+      const at = push({ zone: b.zone, kill: b.npc, ...(hardest?.id != null ? { npcId: hardest.id } : {}), level: hardest?.level ?? null, hp: hardest?.hp ?? null, ...(gives.length ? { expect: name(gives[0]) } : {}), ...(sets.size ? { adds: [...sets.values()] } : {}), waitSec: SPAWN_WAIT_SEC, ...calledBy(npcIds, b.zone) });
       ran(b, at);
       for (const id of gives) yieldItem(id, at);
       part.level = Math.max(part.level, ...npcIds.map((id) => model.npcs.get(id)?.level ?? 0));

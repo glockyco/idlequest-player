@@ -230,6 +230,7 @@ function reasonOf(t, now) {
     case "noPace": return { kind: "out", text: `no XP rate for ${w.taker}'s group yet` };
     case "covered": return { kind: "covered", text: `covered by ${w.by.join(", ")}` };
     case "raid": return { kind: "wait", text: "by raid", tip: "A raid boss: the boss plan raids it, and no group hunts it alone." };
+    case "quest": return { kind: "wait", text: "kept for a quest", tip: "Its death starts a quest's timer for the character that killed it, so only that quest's runs kill it while a character still needs the quest. Their kills drop the same items." };
     default: return { kind: "out", text: "not planned yet" };
   }
 }
