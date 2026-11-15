@@ -312,13 +312,18 @@ const holding = (history, id, code) => {
 };
 
 /**
- * The last step of quest `id` that a hold still running at `now` is at (`stepAt` of the run that
- * waits), Infinity when such a run names no step, and -1 without a hold. A member who has already
+ * The last step of quest `id` (`steps`) that a hold still running at `now` is at (`stepAt` of the
+ * run that waits), Infinity when such a run names no step, and -1 without a hold. A member who has already
  * passed that step is not held: Naxot Deepwater stays gone while the Ixiblat Fer he called lives,
  * and the wait of a Cleric looking for him kept the Cleric who had to kill Ixiblat Fer away.
  */
-export function holdStep(history, id, code = null, now = Date.now()) {
-  return Math.max(-1, ...holding(history, id, code).filter((h) => h.nextAt > now).map((h) => h.stepAt ?? Infinity));
+export function holdStep(history, id, code = null, now = Date.now(), steps = []) {
+  // A run under page code that names no step index is placed by the NPC or enemy its step's label names.
+  const byLabel = (h) => {
+    const k = steps.findIndex((s) => (s.npc && String(h.step ?? "").includes(s.npc)) || (s.kill && String(h.step ?? "").includes(s.kill)));
+    return k < 0 ? Infinity : k;
+  };
+  return Math.max(-1, ...holding(history, id, code).filter((h) => h.nextAt > now).map((h) => h.stepAt ?? byLabel(h)));
 }
 
 /**
@@ -452,7 +457,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         return true;
       });
       // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
-      const heldAt = holdStep(history, id, t.code ?? code, now);
+      const heldAt = holdStep(history, id, t.code ?? code, now, q.steps);
       const who = [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
