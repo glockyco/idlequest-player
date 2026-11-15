@@ -2420,8 +2420,9 @@
           seen = now(); // a boss takes minutes, and the next call waits for the same fight's end
           lost = 0;
         } else if (r === "lost") {
-          // Fights that never start would otherwise fill the hunt's whole time.
-          if (++lost >= HUNT_LOST_MAX) return void (task.result = `no fight came of ${lost} tries at ${task.keep}`);
+          // Fights that never start, or that the guard leaves, would otherwise fill the hunt's whole
+          // time: group 8 fought Pierre and four enemies that joined twice and left both fights.
+          if (++lost >= HUNT_LOST_MAX) return void (task.result = `${lost} tries at ${task.keep} ended without a kill`);
         } else if (r === "none") {
           empty++;
           if (empty >= zones.length && now() - seen >= task.waitMin * 60000) {
