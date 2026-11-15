@@ -5,6 +5,7 @@
 import { stoneShares } from "../../src/group.mjs";
 import { ACQUIRE, bestWay, describeTrip, isPiece, netRate, paceOf, slotKey, targetId, targetRetryMin, trip } from "./acquire.mjs";
 import { estimate } from "./rates.mjs";
+import { RAID_RESERVE_PP } from "./coin.mjs";
 
 export const STONES = ["Greater Lightstone", "Lightstone"];
 
@@ -45,18 +46,18 @@ export const DEFAULTS = {
   // fight in every simulated one, and the raid of all roster characters kills him in six seconds.
   // Groups have won the fights at 55 (Jaeil the Insane, a plasmatic priest), which cost no raid time.
   questRaidLevel: 57,
-  // Coin below which no quest starts a raid: three raid hours, as one try can buy two.
-  questRaidReservePp: 30000,
+  // Coin below which no quest starts a raid or a craft job runs (`RAID_RESERVE_PP`).
+  questRaidReservePp: RAID_RESERVE_PP,
 };
 
 /**
  * Every character's AA settings: all XP to AA, paused below level 60, because a rank gives 2 stat
  * points for 75M XP while a level below 60 gives far more for less (docs/plans/systems-research.md,
  * section 1). A rank costs `rankPp` of the tab's active character's carried coin, and coin, not
- * points, limits the ranks. So ranks take what the account holds above `reservePp`, which stays
- * for two hours of raid time, and a leader keeps `keepPp` for its spells and recoveries.
+ * points, limits the ranks. So ranks take what the account holds above `reservePp`, the raid
+ * reserve, and a leader keeps `keepPp` for its spells and recoveries.
  */
-export const AA_POLICY = { allocation: 100, level: 60, rankPp: 2000, reservePp: 20000, keepPp: 2000 };
+export const AA_POLICY = { allocation: 100, level: 60, rankPp: 2000, reservePp: RAID_RESERVE_PP, keepPp: 2000 };
 
 const AA = { str: 50001, sta: 50002, agi: 50003, dex: 50004, int: 50005, wis: 50006, cha: 50007, magic: 50008, cold: 50009, fire: 50010, poison: 50011, disease: 50012, run: 50013, regen: 50014, metabolism: 50015, lungs: 50016 };
 const CASTING = { magician: AA.int, wizard: AA.int, necromancer: AA.int, enchanter: AA.int, cleric: AA.wis, druid: AA.wis, shaman: AA.wis };

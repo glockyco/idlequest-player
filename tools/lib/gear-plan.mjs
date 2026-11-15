@@ -22,6 +22,7 @@
 // offered a main hand together with an off hand (`pairOffer`), since neither half has to pay alone.
 import { copyHours, elasticity } from "./acquire.mjs";
 import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
+import { RAID_RESERVE_PP } from "./coin.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
 export const PRIMARY = 13;
@@ -55,10 +56,10 @@ const MAIN_HAND_TYPE = { rogue: PIERCING };
  * so purchases spend income and the standing coin stays for raids (`docs/plans/gear-acquisition.md`).
  * `rows` are `bun tools/groups.mjs --json` rows, `raidPpPerDay` the raid budget. With the account's
  * coin (`coinPp`) the pass may also spend what stands above `BUY_RESERVE_PP`. Never more than the
- * account holds.
+ * coin above `RAID_RESERVE_PP`, since raids come first.
  */
 export const BUY_RESERVE_PP = 200000;
-export const buyBudget = (rows, raidPpPerDay, coinPp = null) => Math.min(coinPp ?? Infinity, Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24, (coinPp ?? 0) - BUY_RESERVE_PP));
+export const buyBudget = (rows, raidPpPerDay, coinPp = null) => Math.min(coinPp == null ? Infinity : Math.max(0, coinPp - RAID_RESERVE_PP), Math.max(0, rows.reduce((s, r) => s + (r.platPerHour ?? 0), 0) - raidPpPerDay / 24, (coinPp ?? 0) - BUY_RESERVE_PP));
 /**
  * How much of the party's XP rate one percent of a member's melee or spell damage is worth: the XP
  * elasticity at its level times its measured share of the party's damage (`p.shares`, from

@@ -1,6 +1,12 @@
 // The account's coin: what comes in and goes out, by kind and day, from the lines each tab's
 // recorder exports, and the account's total as the boss pass reads it (docs/plans/coin.md).
 
+/**
+ * Coin kept for raids, three hours of raid time. Raids come first: gear purchases, crafted gear,
+ * AA ranks and quest raids spend only what the account holds above it.
+ */
+export const RAID_RESERVE_PP = 30000;
+
 export const COIN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS coin_ledger (
   day TEXT NOT NULL, grp TEXT NOT NULL, kind TEXT NOT NULL, pp REAL NOT NULL DEFAULT 0, n INTEGER NOT NULL DEFAULT 0,

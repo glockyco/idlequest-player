@@ -519,14 +519,15 @@ test("a shield and an off-hand weapon replace each other by what each adds", () 
   expect(planGear({ survey: [sword, dagger("Rng", "Equipped", 14, 2), row("Holder", 6, "Carried", 25, 3)], items: set, people }).moves).toEqual([]);
 });
 
-test("a gear pass spends the hour's income less the raid budget, or what stands above the reserve, and never more than the account holds", () => {
+test("a gear pass spends the hour's income less the raid budget, or what stands above the reserve, and never the raid reserve", () => {
   const rows = [{ platPerHour: 4000 }, { platPerHour: 3000 }];
   // 7,000 an hour less 12,000 a day for raids.
   expect(buyBudget(rows, 12000, 150000)).toBe(6500);
   // 300,000 held leave 100,000 above the reserve.
   expect(buyBudget(rows, 12000, 300000)).toBe(100000);
-  // An account that holds 3,000 spends no more, whatever the hour brought.
-  expect(buyBudget([{ platPerHour: 37000 }], 12000, 3000)).toBe(3000);
+  // Under the raid reserve nothing is bought, whatever the hour brought.
+  expect(buyBudget([{ platPerHour: 37000 }], 12000, 25000)).toBe(0);
+  expect(buyBudget([{ platPerHour: 37000 }], 12000, 33000)).toBe(3000);
   // With the coin unread the income decides.
   expect(buyBudget(rows, 12000)).toBe(6500);
 });

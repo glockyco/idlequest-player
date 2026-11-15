@@ -59,14 +59,14 @@ test("the account's coin above its reserve buys ranks, every character's first s
     { name: "Cle", class: "Cleric", points: 2, spent: 0, ranks: {} },
     { name: "None", class: "Wizard", points: 0, spent: 0, ranks: {} },
   ];
-  // 20,000 stay for raid time, and 6,500 above them pay for three ranks of the five wanted.
-  const plan = aaPlan({ characters, totalPp: 26500 });
+  // 30,000 stay for raid time, and 6,500 above them pay for three ranks of the five wanted.
+  const plan = aaPlan({ characters, totalPp: 36500 });
   expect(plan).toMatchObject({ wanted: 5, budget: 3 });
   // Both first stats come first, the cleric's with no rank yet before the warrior's fifth.
   expect(plan.orders).toEqual({ Cle: [WIS, WIS], War: [STA] });
   // With coin for all, the warrior goes on to strength once its stamina is full.
   expect(aaPlan({ characters, totalPp: 100000 }).orders).toEqual({ Cle: [WIS, WIS], War: [STA, 50001, 50001] });
-  expect(aaPlan({ characters, totalPp: 21000 })).toMatchObject({ orders: {}, budget: 0 });
+  expect(aaPlan({ characters, totalPp: 31000 })).toMatchObject({ orders: {}, budget: 0 });
   // A warrior whose strength stands at its cap trains dexterity after stamina, and strength last.
   const capped = aaPlan({ characters: [{ ...characters[0], capped: [50001] }], totalPp: 100000 }).orders.War;
   expect(capped).toEqual([STA, 50004, 50004]);
@@ -80,7 +80,7 @@ test("with measured gains the rank that adds most goes first, on a character and
   ];
   expect(aaPlan({ characters, totalPp: 100000 }).orders).toEqual({ Monk: [50001, 50001], Cle: [STA] });
   // Coin for one rank buys the Monk's strength, not the Cleric's first ability.
-  expect(aaPlan({ characters, totalPp: 22000 }).orders).toEqual({ Monk: [50001] });
+  expect(aaPlan({ characters, totalPp: 32000 }).orders).toEqual({ Monk: [50001] });
 });
 
 test("the planned ranks are trained a rank a request, for the leader and the members, from the leader's coin", async () => {
