@@ -79,8 +79,10 @@ the skill by the job's ladder and makes the copies the account is short of (`cra
 `src/bot.js`, `crafts` in `tools/lib/coordinator.mjs`), as Edroun does the Warriors' Rebreathers
 with Tinkering. The server crafts a recipe of the Advanced window without its container.
 A summoning spell the epic's own class casts is a step of its own (`castSummon`: scribe the scroll,
-memorize it into the last gem, click the gem), at the spell's level. One only another class casts,
-such as the Enchanter's Enchant Platinum for the Shadow Knight, still keeps the epic's chains out,
+memorize it into the last gem, click the gem), at the spell's level, and a spell of the night or
+the day ends its task until that time begins. A script's give the live server does not make, as
+Sojan the Sleepless's Receipt, is listed in `data/withheld-gives.json` and is no way to its item.
+A spell only another class casts, such as the Enchanter's Enchant Platinum for the Shadow Knight, still keeps the epic's chains out,
 and so does a forage. A timer or a signal branch runs by itself once its starter has, so the step after it waits
 as a kill step waits for a summoned enemy. A hand-in is made by the active character, so the task
 plays the character whose epic it is, as quest tasks do now. A step at an NPC names the NPC's type
