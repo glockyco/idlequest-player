@@ -1689,8 +1689,17 @@
       // pressed only once the window shows this item and the button is enabled again, since it stays
       // disabled for a moment after a consider while the client is busy.
       for (let k = 0; k < 20 && !ms().consideredItem; k++) await pause(250);
-      ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
-      const shown = () => ms().consideredItem?.item?.id === goods.item.id && [...document.querySelectorAll("body *")].some((el) => el.childElementCount === 0 && el.textContent.trim() === name);
+      // The window can consider its first item again after this one is set, so the consider is
+      // set until it holds for a second.
+      const considered = () => ms().consideredItem?.item?.id === goods.item.id;
+      for (let k = 0, held = 0; k < 20 && held < 4; k++) {
+        if (!considered()) {
+          ms().setConsideredItem({ item: goods.item, price: goods.price, source: "merchant", slot: goods.slot });
+          held = 0;
+        } else held++;
+        await pause(250);
+      }
+      const shown = () => considered() && [...document.querySelectorAll("body *")].some((el) => el.childElementCount === 0 && el.textContent.trim() === name);
       let button = null;
       for (let k = 0; k < 20 && !(shown() && (button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "PURCHASE" && !b.disabled))); k++) await pause(250);
       if (!button || !shown()) break;
