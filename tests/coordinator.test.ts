@@ -170,6 +170,12 @@ test("a quest's fight goes to the raid when the simulated raid kills an enemy th
   const called = { t: NOW - 3600000, label: "B", kind: "quest", id: "sceptre", status: "waiting", nextAt: NOW - 1000, timed: { "burningwood|Ixiblat Fer": NOW - 3600000 } };
   const [again] = decide({ now: NOW, tabs: [cleric(59)], quests: { sceptre: { class: "Cleric", minLevel: 1, reward: "Sceptre of Ixiblat Fer", steps: fight(62) } }, history: [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, called], raid, raidKill: () => true }).actions.filter((a) => a.kind === "quest");
   expect(again.spec.timed).toEqual({ "burningwood|Ixiblat Fer": NOW - 3600000 });
+  // A Cleric that looks for the NPC of step 0 waits. That holds a Cleric who still has to pass
+  // that step, and not one who resumes behind it.
+  const waits = { t: NOW - 60000, label: "B", kind: "quest", id: "sceptre", status: "waiting", nextAt: NOW + 3600000, stepAt: 0 };
+  const held = (resumeAt: object) => decide({ now: NOW, tabs: [cleric(59)], quests: { sceptre: { class: "Cleric", minLevel: 1, reward: "Sceptre of Ixiblat Fer", steps: fight(62) } }, history: [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }, waits], raid, raidKill: () => true, resumeAt }).actions.filter((a) => a.kind === "quest");
+  expect(held({})).toEqual([]);
+  expect(held({ sceptre: { A0: 1 } })).toHaveLength(1);
   // Raid mode takes enemies above level 50 and a leader of 46.
   expect(run(50, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) })).toEqual([]);
   expect(run(62, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) }, 45)).toEqual([]);

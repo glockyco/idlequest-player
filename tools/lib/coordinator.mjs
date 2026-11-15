@@ -176,7 +176,7 @@ export function settleHistory(history, tasks) {
   for (const [k, h] of history.entries()) {
     const task = byId.get(h.task);
     if (!task || task.status === "running") continue;
-    const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null, kills: task.kills };
+    const next = { nextAt: task.nextAt ?? h.nextAt, ms: task.endedAt && task.startedAt ? task.endedAt - task.startedAt : h.ms, endedAt: task.endedAt ?? h.endedAt, status: task.status, result: task.result ?? null, error: task.error ?? null, step: task.step ?? null, stepAt: task.stepAt, kills: task.kills };
     if (task.status === "failed") {
       const before = history.slice(0, k).filter((x) => x.id === h.id && x.label === h.label).at(-1);
       next.repeat = before?.status === "failed" && before.step === next.step;
@@ -304,8 +304,21 @@ export function releaseWaits(history, resetAt) {
  * could not clear, hold every member who needs that NPC.
  */
 export function worldHold(history, id, code = null) {
+  return Math.max(0, ...holding(history, id, code).map((h) => h.nextAt));
+}
+const holding = (history, id, code) => {
   const holds = (h) => h.status === "waiting" || (h.status === "failed" && (h.repeat || code == null || h.code == null || h.code === code));
-  return Math.max(0, ...history.filter((h) => h.id === id && h.nextAt && holds(h)).map((h) => h.nextAt));
+  return history.filter((h) => h.id === id && h.nextAt && holds(h));
+};
+
+/**
+ * The last step of quest `id` that a hold still running at `now` is at (`stepAt` of the run that
+ * waits), Infinity when such a run names no step, and -1 without a hold. A member who has already
+ * passed that step is not held: Naxot Deepwater stays gone while the Ixiblat Fer he called lives,
+ * and the wait of a Cleric looking for him kept the Cleric who had to kill Ixiblat Fer away.
+ */
+export function holdStep(history, id, code = null, now = Date.now()) {
+  return Math.max(-1, ...holding(history, id, code).filter((h) => h.nextAt > now).map((h) => h.stepAt ?? Infinity));
 }
 
 /**
@@ -347,7 +360,7 @@ export function worldHold(history, id, code = null) {
  * names its targets in `ids`, and `targets`, by `targetId`, the group each target pays most for,
  * its way, hours, value and cost, and its `status`.
  */
-export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
+export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = [], missing = {}, carriedBy = {}, farms = [], quests = {}, holders = {}, started = {}, have = {}, own = {}, gear = null, held = new Set(), history = [], code = null, targets = [], crowded = new Set(), points = {}, hoursPerLevel = {}, killsPerHour = {}, killChance = () => null, raid = null, raidKill = () => false, resumeAt = {}, coin = null, xpFactor = 1, cfg = DEFAULTS }) {
   const out = [];
   // A tab whose page runs older code than the tabs should (`stale`) takes no new task, because
   // the page supervisor deploys only between tasks: group 1 went from task to task for an hour and
@@ -438,11 +451,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         for (const [p, l] of lacks(n)) left.set(p, left.get(p) - l);
         return true;
       });
-      const who = [...begun, ...fresh];
+      // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
+      const heldAt = holdStep(history, id, t.code ?? code, now);
+      const who = [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);
       if (!who.length) continue;
       const last = history.filter((h) => h.id === id && h.label === t.label).at(-1);
       if (!due(last, q.retryMin ?? 120, t)) continue;
-      if (now < worldHold(history, id, t.code ?? code)) continue;
       if ((pointBound || fights) && runs()) continue;
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles. A
       // fight goes to the raid (`raid` on its step, `raid` in the spec) when the simulated raid kills

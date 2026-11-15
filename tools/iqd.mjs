@@ -727,7 +727,7 @@ export class Daemon {
     // for the event log, which the first export of a run brings (`noteKills`).
     if (!this.xpEvents) return;
     this.doing = "item searches";
-    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, piecesNeeded, progressItems, releaseWaits, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
+    const { decide, assignZones, bandZones, chainNeeders, chainSummary, crowdedZones, doneItems, holdStep, piecesNeeded, progressItems, releaseWaits, settleErrands, settleHistory, AA_POLICY, aaPlan } = await import("./lib/coordinator.mjs");
     const groupOf = rosterGroups();
     // When each tab last got a rotation, from the coordinator's logged zone changes, so a restart keeps it.
     this.zoneSetAt ??= new Map(this.db.query("SELECT session, MAX(t) AS t FROM interventions WHERE actor = 'coordinator' AND text LIKE 'zone:%' GROUP BY session").all().map((r) => [r.session, r.t]));
@@ -886,6 +886,18 @@ export class Daemon {
     settleHistory(state.history, tabs.map((t) => t.task));
     settleErrands(state.history, tabs, now);
     releaseWaits(state.history, metaGet(this.db, "bossPlan")?.spawnsResetAt ?? 0);
+    // The step each needer of a held chain resumes at, the one after the last whose `expect` it
+    // carries, as the quest task does: a hold at a step keeps only who still has to pass it
+    // (`holdStep`). Only held chains are searched for, which are few.
+    const resumeAt = {};
+    for (const [id, q] of Object.entries(quests)) {
+      if (holdStep(state.history, id, null, now) < 0) continue;
+      const at = (resumeAt[id] = {});
+      for (const [k, s] of q.steps.entries()) {
+        if (!s.expect) continue;
+        for (const who of await carriers(s.expect, q.for ? q.ids : { ...classIds[q.class], ...q.ids }, q.for ? inSurvey : search)) at[who] = Math.max(at[who] ?? 0, k + 1);
+      }
+    }
     this.doing = "experiments";
     const held = await this.experimentPass(now, tabs, state);
     this.saveCoordinator(state);
@@ -992,6 +1004,7 @@ export class Daemon {
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
       raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke },
       raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
+      resumeAt,
     };
     const { actions, targets: targetEval } = decide(input);
     // The quests and piece hunts the pass would start without the XP event, for the dashboard.

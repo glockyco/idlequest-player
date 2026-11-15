@@ -1863,6 +1863,8 @@
     };
     for (const [k, s] of m.steps.entries()) {
       if (k < m.at && !redo.has(k)) continue;
+      // The step the task is at, which tells the coordinator whom a wait at this step holds.
+      task.stepAt = k;
       // The step that calls a timed enemy is skipped while that enemy stands or is still to come.
       const timedNext = m.steps[k + 1]?.after && m.steps[k + 1].calledBy === k ? m.steps[k + 1] : null;
       if (timedNext && s.kill && (pending(timedNext) != null || (zoneShort(i) === timedNext.zone && enemyUp(timedNext.kill)))) {
