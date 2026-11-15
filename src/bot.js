@@ -2491,9 +2491,24 @@
         const r = await i.walkTo({ x: at.z, y: -at.x, z: at.y }, { radius: RAID_REACH, stillMs: 20000 }).then(() => "arrived", (e) => e?.message ?? String(e));
         log(`task raid: the leader walked to ${boss.name}: ${r}, ${Math.round(distance() ?? -1)} away`);
       }, 180000);
+      // A boss other players killed while the raid walked is gone from the zone's targets, with no
+      // kill line for this raid. Two raids of 2026-11-15 failed there at "the leader has no target".
+      const stands = () => (rt?.combatScene.getAliveCombatTargetList?.() ?? []).find((x) => x.spawnInstanceId === boss.spawnInstanceId);
+      if (!killed() && !stands()) {
+        if (task.open) await readBosses(i, task, task.target).catch((e) => log(`task raid: the spawn list: ${e?.message ?? e}`));
+        return void (task.result = `${boss.name} was gone when the raid reached it`);
+      }
       const t0 = now();
       task.fight = { boss: boss.name, startedAt: t0, orders: [], deaths: 0, revives: 0, trace: [] };
-      if (!killed()) await step(`attack ${boss.name}`, () => raid.attack(), 30000);
+      // The walk can lose the leader's target while the boss still stands, so it is selected again.
+      if (!killed()) await step(`attack ${boss.name}`, async () => {
+        const t = stands();
+        if (!i.stores.combat.getState().targetNPC?.spawnInstanceId && t) {
+          rt.selectEnemyTarget([t.npcId]);
+          await sleep(1000);
+        }
+        return raid.attack();
+      }, 30000);
       if (task.nuke && !killed()) await step("nuke order", async () => raid.nuke(task.nuke), 10000);
       // An effect the group cannot cast is recorded and does not hold the fight.
       if (task.effects?.length && !killed()) {
