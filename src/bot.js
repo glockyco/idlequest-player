@@ -1900,10 +1900,36 @@
       for (const item of s.give ?? []) need[item] = (need[item] ?? 0) + 1;
       // An item the NPC wants carried (`hold`, such as Jeb's Seal for Nadia's sack) stays with the member.
       for (const item of s.hold ?? []) need[item] = (need[item] ?? 0) + 1;
-      for (const [item, n] of Object.entries(need)) {
-        if (s.buy?.items?.includes(item)) await buy(s, item, n);
-        // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
-        while (i.carried(ref(item)) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
+      try {
+        for (const [item, n] of Object.entries(need)) {
+          if (s.buy?.items?.includes(item)) await buy(s, item, n);
+          // A copy another member of the chain carries is its own, so a pull skips those (`avoid`).
+          while (i.carried(ref(item)) < n) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
+        }
+      } catch (e) {
+        // A hand-in whose item is gone was made by an earlier run that then lost a fight: Ewbanaqoa
+        // gave the Shimmering Pearl to Zordak Ragefire, the raid killed him, and the group lost
+        // Zordakalicus Ragefire, whom his death calls. So the member looks for the enemies of the
+        // fights that follow, and goes on to the first that stands. An enemy that bears the name of
+        // one of the chain's NPCs says nothing, since that NPC stands there too.
+        const fights = [];
+        for (let j = k + 1; j < m.steps.length && (m.steps[j].kill || !fights.length); j++) if (m.steps[j].kill) fights.push(j);
+        const named = (x) => m.steps.some((y) => y.npc && enemyPattern(x.kill).test(y.npc));
+        const ahead = (s.give ?? []).some((item) => i.carried(ref(item)) < 1) ? fights.filter((j) => !named(m.steps[j]) && !m.steps[j].after) : [];
+        let found = null;
+        for (const j of ahead) {
+          const x = m.steps[j];
+          if (zoneShort(i) !== x.zone) await step(`travel to ${x.zone}`, () => i.changeZone(x.zone), 90000);
+          for (const end = now() + 10000; !enemyUp(x.kill) && now() < end; ) await sleep(2000);
+          if (!enemyUp(x.kill)) continue;
+          found = j;
+          break;
+        }
+        if (found == null) throw e;
+        log(`quest: ${m.name} lacks what ${s.npc} takes, and ${m.steps[found].kill} stands, so the hand-in was made and ${m.name} goes on to the fight`);
+        m.at = Math.max(m.at, found);
+        fresh = false;
+        continue;
       }
       if (s.craft) {
         const c = s.craft;
@@ -1964,7 +1990,7 @@
         if (!up()) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
         // The raid fight reads and writes a raid task, so it gets one that falls back on this task
         // for its status and runner.
-        const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", effects: [], fight: null, result: null, spawnInstanceId: null });
+        const fight = Object.assign(Object.create(task), { members: task.raid.members.filter((n) => n !== m.name), target: s.kill, bossKey: null, also: [], potion: null, credit: null, who: m.name, zone: s.zone, open: false, maxPp: task.raid.maxPp ?? 0, minutes: task.raid.minutes ?? 15, heal: task.raid.heal ?? "all-balanced", nuke: task.raid.nuke ?? "dps-balanced", revive: task.raid.revive ?? "free", rods: task.raid.rods ?? "off", keepRaid: Boolean(m.steps[k + 1]?.raid && m.steps[k + 1].kill && m.steps[k + 1].zone === s.zone), effects: [], fight: null, result: null, spawnInstanceId: null });
         // The tick ends raid mode that no running task owns, so the quest says that it raids.
         task.raiding = true;
         try {
@@ -2730,7 +2756,9 @@
       // on keeps the group from leveling. A task that a newer one replaced leaves the raid to it: a
       // stopped raid of 2026-11-12 ended raid mode after the next raid had recruited, and that
       // raid found nobody to attack with.
-      if (state.task === task || state.task?.kind !== "raid") {
+      // A quest whose next step is a raid's kill too keeps the raid (`keepRaid`): Zordakalicus
+      // Ragefire comes up when Zordak Ragefire dies, and was gone for the group once raid mode ended.
+      if (!task.keepRaid && (state.task === task || state.task?.kind !== "raid")) {
         await raid.end().catch(async (e) => {
           log(`task raid: end raid failed: ${e?.message ?? e}`);
           await sleep(10000);

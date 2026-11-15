@@ -469,7 +469,11 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // enemies above level 50 and a leader of 46.
       const chance = (s) => killChance(t, { zone: s.zone, npc: s.kill, npcLevel: s.level, npcHp: s.hp ?? null })?.p ?? 1;
       const leads = who.every((n) => (t.members.find((m) => m.name === n)?.level ?? 0) >= 46);
-      const byRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance));
+      // An enemy that a raid's kill calls is the raid's as well, also below `questRaidLevel`: Zordakalicus
+      // Ragefire (54) comes up when Zordak Ragefire (60) dies, and the group that followed the raid
+      // found him gone.
+      const mayRaid = (s) => Boolean(raid && leads && s.kill && s.level > 50 && raidKill(s));
+      const byRaid = (s) => mayRaid(s) && (s.level >= cfg.questRaidLevel || chance(s) < cfg.questKillChance || Boolean(q.steps[s.calledBy]?.kill && byRaid(q.steps[s.calledBy])));
       if (q.steps.some((s) => s.kill && s.level != null && !byRaid(s) && chance(s) < cfg.questKillChance)) continue;
       const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
       // When this quest's steps last called a timed enemy, in any tab (a step's `after`).

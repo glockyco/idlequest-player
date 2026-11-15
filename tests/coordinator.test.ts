@@ -180,6 +180,10 @@ test("a quest's fight goes to the raid when the simulated raid kills an enemy th
   Object.assign(waits, { stepAt: undefined, step: "look for Naxot Deepwater" });
   expect(held({ sceptre: { A0: 1 } })).toHaveLength(1);
   expect(held({})).toEqual([]);
+  // An enemy that the raid's kill calls is the raid's too, though the group could beat its level.
+  const dragon = [...fight(62), { zone: "burningwood", kill: "Zordakalicus Ragefire", level: 54, hp: 32000, calledBy: 1 }];
+  const [both] = decide({ now: NOW, tabs: [cleric(59)], quests: { sceptre: { class: "Cleric", minLevel: 1, reward: "Sceptre of Ixiblat Fer", steps: dragon } }, history: [{ t: NOW - 60000, label: "A", kind: "casino", id: "casino", nextAt: NOW + 86400000 }], raid, raidKill: () => true, killChance: () => ({ p: 0.9 }) }).actions.filter((a) => a.kind === "quest");
+  expect(both.spec.steps.map((s: { raid?: boolean }) => Boolean(s.raid))).toEqual([false, true, true]);
   // Raid mode takes enemies above level 50 and a leader of 46.
   expect(run(50, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) })).toEqual([]);
   expect(run(62, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) }, 45)).toEqual([]);
