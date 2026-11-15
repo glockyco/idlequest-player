@@ -3100,6 +3100,41 @@ test("the reserve discards surplus without a price first, then sells surplus che
   }
 });
 
+test("a class epic on the cursor of full bags is not handed to a party member", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await install();
+    const epic = { bag: 0, slot: 30, itemid: 5532, itemInstanceId: 900, quantity: 1, itemDetails: { Name: "Water Sprinkler of Nem Ankh", price: 0, nodrop: 0, norent: 1, bagslots: 0, itemtype: 3 } };
+    (f.me as unknown as { inventory: unknown[] }).inventory = [epic];
+    const given: number[] = [];
+    Object.assign(f.iq, {
+      bagSpace: () => ({ free: 0, capacity: 8, cursor: "Water Sprinkler of Nem Ankh" }),
+      placeCursor: async () => false,
+      giveCursor: async (id: number) => (given.push(id), true),
+    });
+    Object.assign(f.bot.config, { autoBank: false, cursorPlaceSec: 1, cursorAlertSec: 600, demand: { 5532: 1 }, keepIds: [5532] });
+    const pass = async () => {
+      for (let k = 0; k < 3; k++) {
+        const run = f.bot.tick();
+        for (let n = 0; n < 20; n++) {
+          vi.advanceTimersByTime(500);
+          await flush();
+        }
+        await run;
+      }
+    };
+    await pass();
+    expect(given).toEqual([]);
+    // A kept item that is no class epic goes to the first member that takes it.
+    f.bot.config.keepIds = [];
+    f.bot.state.cursorInst = null;
+    await pass();
+    expect(given.length).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a discard the client has not taken off the cursor holds AutoLevel until the destroy goes through", async () => {
   vi.useFakeTimers();
   try {

@@ -321,7 +321,7 @@ export const fits = (item, p, slot) =>
  * (`huntPieces` in tools/lib/epic-model.mjs). Each piece is worth the reward's gain to `to`, shared by
  * the pieces it lacks, and its sources join the targets with `slot` "epic", not the per-slot
  * `drops`. A target keeps its hardest enemy's level and hit points and, in `also`, the enemies a
- * chain of deaths brings, which its hunt kills too, with each enemy's own fights in `fights`. `unworn` lists items no move puts on, `bound` the items that stay with whoever carries them (the class epics), `wear` those a carrier wears whatever they gain, the
+ * chain of deaths brings, which its hunt kills too, with each enemy's own fights in `fights`. `unworn` lists items no move puts on, `bound` the items that stay with whoever carries them (the class epics), the
  * pieces a quest hands in, since a hand-in takes them from the bags. `quests` lists the quest
  * rewards (`questRewards` in tools/lib/gear-quests.mjs), each `{ rewardId, classes, pieces, cost,
  * steps }`, and the result's `quests` the rewards worth their chains, `[{ rewardId, item, to, cls,
@@ -338,7 +338,7 @@ export const fits = (item, p, slot) =>
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], quests = [], questWorth = () => true, unworn = new Set(), copyValue = (w) => w.gain, killsPerHour = 0, bound = new Set(), wear = new Set() }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], quests = [], questWorth = () => true, unworn = new Set(), copyValue = (w) => w.gain, killsPerHour = 0, bound = new Set() }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -369,16 +369,11 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     if (isLore(item) && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
     const out = [];
-    // An item its carrier has to wear (`wear`) takes its slot whatever the set score says, and
-    // nothing takes that slot from it: the Cleric epic's revive is a raid order, which the score
-    // does not price.
-    const must = wear.has(r.itemId) && r.characterName === p.name;
-    const locked = (slot) => wear.has(mine.get(slot)?.id);
     const gainIn = (slot) => value(p, new Map([...mine, [slot, item]])) - value(p, mine);
     for (const slot of ARMOR_SLOTS) {
-      if (!fits(item, p, slot) || item.damage > 0 || locked(slot)) continue;
+      if (!fits(item, p, slot) || item.damage > 0) continue;
       const gain = gainIn(slot);
-      if (gain >= minGain || must) out.push({ r, p, slot, gain, forced: must });
+      if (gain >= minGain) out.push({ r, p, slot, gain });
     }
     // A Bard carries an instrument for the party supply in its bags, where it costs no hand.
     if (p.cls === "bard" && bagInstrument(item) && r.characterName !== p.name) {
@@ -395,7 +390,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     const main = { bodies: p.bodies };
     const offSwing = (first, offItem) => (offItem ? chance * weaponRatio(offItem, p.cls, p.level, off) : p.cls === "monk" && !TWO_HANDED.has(first?.itemtype) ? chance * weaponRatio(fist, p.cls, p.level, off) : 0);
     // Beside a two-hander the off hand stays empty.
-    if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY) && !locked(SECONDARY)) {
+    if (!TWO_HANDED.has(held?.itemtype) && fits(item, p, SECONDARY)) {
       // A shield counts for its stats and replaces no weapon.
       if (item.itemtype === SHIELD && !(offHeld?.damage > 0)) {
         const gain = gainIn(SECONDARY);
@@ -410,12 +405,12 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     }
     // A main hand counts for its stats and its swings against the one it replaces, so a caster
     // keeps a main hand worn for its stats unless the new one's stats and swings beat it.
-    if (!locked(PRIMARY) && fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !offHeld || epic)) {
+    if (fits(item, p, PRIMARY) && item.damage > 0 && item.delay > 0 && (!MAIN_HAND_TYPE[p.cls] || item.itemtype === MAIN_HAND_TYPE[p.cls]) && (!TWO_HANDED.has(item.itemtype) || !offHeld || epic)) {
       const after = new Map([...mine, [PRIMARY, item]]);
       const newOff = TWO_HANDED.has(item.itemtype) ? null : offHeld;
       if (!newOff) after.delete(SECONDARY);
       const gain = value(p, after) - value(p, mine) + meleeGain(weaponRatio(item, p.cls, p.level, main) + offSwing(item, newOff) - weaponRatio(held ?? fist, p.cls, p.level, main) - offSwing(held, offHeld), weaponRatio(held ?? fist, p.cls, p.level, main) + offSwing(held, offHeld), p);
-      if (gain >= minGain || must) out.push({ r, p, slot: PRIMARY, gain, weapon: true, forced: must });
+      if (gain >= minGain) out.push({ r, p, slot: PRIMARY, gain, weapon: true });
     }
     return out;
   };
@@ -443,8 +438,7 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   let zone = null;
   const key = (r) => `${r.characterName}:${r.itemInstanceId}`;
   const affordable = (o) => !o.r.buy || (o.r.buy.price <= budget && (zone == null || o.r.buy.zone === zone));
-  // An item that has to be worn goes before every other offer.
-  const top = (list) => list.reduce((a, o) => (!a || (o.forced && !a.forced) || (Boolean(o.forced) === Boolean(a.forced) && (o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy))) ? o : a), null);
+  const top = (list) => list.reduce((a, o) => (!a || o.gain > a.gain || (o.gain === a.gain && a.r.buy && !o.r.buy) ? o : a), null);
   for (offers = offers.filter(affordable); offers.length; offers = offers.filter(affordable)) {
     const best = top(offers);
     const { r, p, slot, gain } = best;
@@ -588,12 +582,13 @@ const SPARE_LISTED = 12;
  * - Inventory Search can move it (no `blockReason`)
  * - no copy of it on that character is reserved for a planned move (`keep.instances`)
  * - the plan is not short of it (`keep.counts`)
- * - it is not in the account's demand (`need`, by item id) and not a quest hand-in (`unworn`)
+ * - it is not in the account's demand (`need`, by item id), not a quest hand-in (`unworn`) and not
+ *   an item that stays with its carrier (`bound`, the class epics)
  * - it is not the one copy of the best instrument of its kind in a Bard's bags, which the Bard
  *   plays from there
  * Each spare copy is listed, so a pull per entry empties a slot per entry.
  */
-export function spareGear({ survey, items, people, keep, need = {}, unworn = new Set() }) {
+export function spareGear({ survey, items, people, keep, need = {}, unworn = new Set(), bound = new Set() }) {
   const kept = new Set(keep.instances);
   const bards = new Set(people.filter((p) => p.cls === "bard").map((p) => p.name));
   const names = new Set(people.map((p) => p.name));
@@ -613,7 +608,7 @@ export function spareGear({ survey, items, people, keep, need = {}, unworn = new
     for (const r of rows) {
       const item = items.get(r.itemId);
       if (!item || !(item.slots > 0) || item.bagslots > 0 || item.norent === 0 || r.blockReason) continue;
-      if (moving.has(r.itemId) || keep.counts[r.itemId] > 0 || need[r.itemId] > 0 || unworn.has(r.itemId)) continue;
+      if (moving.has(r.itemId) || keep.counts[r.itemId] > 0 || need[r.itemId] > 0 || unworn.has(r.itemId) || bound.has(r.itemId)) continue;
       if (best.get(item.bardtype) === item && !played.has(item.id)) {
         played.add(item.id);
         continue;

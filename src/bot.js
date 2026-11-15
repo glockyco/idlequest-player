@@ -861,7 +861,8 @@
    * container making room in the bank (`placeCursor`), because the bag reserve decides what is
    * surplus with the gear pass's knowledge, which a fresh raid drop has not met yet. With no room,
    * surplus leaves by its fate, and a kept item goes to the first party member that takes it, else
-   * waits while the reserve sells what it can and then goes into the room made. Resolves with
+   * waits while the reserve sells what it can and then goes into the room made. A class epic
+   * goes to nobody else. Resolves with
    * whether the cursor is empty.
    */
   const settleHeld = async (i) => {
@@ -875,7 +876,10 @@
       if (mine(f.sell)) how = `sold: ${(await sellAt(0, 30))?.message ?? "no reply"}`;
       else if (mine(f.discard) && config.discard) how = (await destroyCursor(i)) ? "destroyed" : "destroy refused";
       else {
-        const comps = i.stores.companions.getState().companions ?? [];
+        // A class epic stays with its earner (`keepIds`), so it is not handed to a party member:
+        // it waits on the cursor, which is its earner's too, until the bags have room.
+        const epic = config.keepIds.includes(rowAt(i, { bag: 0, slot: 30 })?.itemid);
+        const comps = epic ? [] : (i.stores.companions.getState().companions ?? []);
         for (const c of comps.filter((c) => c.companionType === 2)) {
           if (await i.giveCursor(Number(c.characterId), false)) {
             how = `given to ${c.name}`;

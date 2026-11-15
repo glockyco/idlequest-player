@@ -38,11 +38,6 @@ test("each carried item goes to the character it adds most to, once", () => {
   const own = planGear({ survey: [row("Tank", 2, "Equipped", 8, 1), row("Tank", 1, "Carried", 25, 2)], items, people, bound: new Set([1]) });
   expect(own.moves.map((m) => [m.item, m.to])).toEqual([["Fine Cloak", "Tank"]]);
   expect(planGear({ survey, items, people, bound: new Set([1]) }).moves).toEqual([]);
-  // An item its carrier has to wear goes on though the plain cloak it replaces scores no lower for
-  // the move to pay, and once worn the fine cloak does not take its place.
-  const forced = planGear({ survey: [row("Tank", 1, "Equipped", 8, 1), row("Tank", 2, "Carried", 25, 2)], items, people, wear: new Set([2]) });
-  expect(forced.moves.map((m) => [m.item, m.to, m.slot])).toEqual([["Plain Cloak", "Tank", "back"]]);
-  expect(planGear({ survey: [row("Tank", 2, "Equipped", 8, 1), row("Holder", 1, "Carried", 25, 2)], items, people: [people[0]], wear: new Set([2]) }).moves).toEqual([]);
 });
 
 test("a move of a lore item names the other characters that carry one, which a gear task's leader must not be", () => {
@@ -429,6 +424,9 @@ test("spareGear lists carried gear that is not kept, needed, reserved for a move
   // Backpack, Bread and the NO RENT blade (not gear), the Hand Drum the Bard plays, and a non-roster holder.
   const sword = { id: 4, name: "Rusty Sword" };
   expect(spare).toEqual({ Pal: [sword, sword, { id: 2, name: "Plain Cloak" }], Song: [{ id: 20, name: "Hand Drum" }, sword] });
+  // A class epic in the bags is never spare, also once the demand no longer names it.
+  const kept = spareGear({ survey, items: withPrice, people, keep: { counts: { 1: 1 }, instances: [5] }, need: { 22: 4 }, unworn: new Set([7]), bound: new Set([4]) });
+  expect(kept).toEqual({ Pal: [{ id: 2, name: "Plain Cloak" }], Song: [{ id: 20, name: "Hand Drum" }] });
 });
 
 test("AC and HP count by the share of the party's hits their wearer takes, and a swap names what it trades", () => {

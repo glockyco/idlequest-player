@@ -408,11 +408,6 @@ export function drainInPage(a) {
 
 // The roster gear plan runs this often (`gearPass`): a survey of the account takes a minute.
 const GEAR_EVERY_MIN = 60;
-// The class epics a carrier wears whatever the set score says: the Water Sprinkler of Nem Ankh,
-// whose Reviviscence a raid orders for no mana. The client takes an item's click for a raid order
-// only when it revives, or heals or damages at once (`TU` and `EU` in the release of 2026-11-15),
-// and no other epic's click does.
-const WORN_EPICS = new Set([5532]);
 // Hours of a zone's own crowding measurement the crowding model's share counts as (`crowdFactors`).
 // The measurement is the time a group waits for a target, which a quarter hour shows within a few
 // percent, and the model misses by more: it gave Kedge Keep 0.89 beside four groups, where a group
@@ -1721,7 +1716,9 @@ export class Daemon {
     // progress, exceeds the chain's hours (`STEP_HOURS` a step and the model's cost of its pieces).
     const { STEP_HOURS } = await import("./lib/gear-quests.mjs");
     const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound: new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat()), wear: WORN_EPICS, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    // The class epics, which stay with the character that carries them, worn or in its bags.
+    const bound = new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat());
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's
@@ -1753,7 +1750,7 @@ export class Daemon {
     this.log(`gear pass: ${survey.length} items, ${moves.length} moves, ${targets.length} targets, ${questWants.length} quest rewards, ${Object.keys(keep.counts).length} items short, ${keep.instances.length} copies held for moves${job.result.capped.length ? `, cut off: ${job.result.capped.join(", ")}` : ""}${job.result.missed?.length ? `, ${job.result.missed.length} words missed` : ""}`);
     // Spare gear per character, for gear tasks whose receiver has full bags. Requires the demand
     // of an earlier coordinator pass. Without it nothing counts as spare.
-    const spare = this.need ? spareGear({ survey: survey.filter((r) => !unseen.has(r.characterName)), items: this.items, people, keep, need: this.need, unworn }) : {};
+    const spare = this.need ? spareGear({ survey: survey.filter((r) => !unseen.has(r.characterName)), items: this.items, people, keep, need: this.need, unworn, bound }) : {};
     return { moves, spare };
   }
 
