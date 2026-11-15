@@ -8,7 +8,7 @@
 // in the bots (tools/lib/coordinator.mjs) through their own task API, which plays the steps.
 // Usage: see `iqd help` and docs/collector.md.
 import { Database } from "bun:sqlite";
-import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { statSync, openSync, readSync, closeSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, isAbsolute, relative } from "node:path";
 import { parseArgs } from "node:util";
@@ -1366,11 +1366,36 @@ export class Daemon {
     }
     for (const [key, why] of Object.entries(SIM_BLIND)) if (this.odds?.odds?.[key]?.raid && !this.odds.odds[key].raid.error) this.odds.odds[key].raid = { ...this.odds.odds[key].raid, error: why };
     const odds = this.odds ?? null;
+    // A refresh outlives a restart of the collector (it ignores SIGINT and writes its errors to a
+    // file), and the next collector waits for it by its pid file instead of starting another.
+    const pidFile = join(this.runs, "state/kill-odds.pid");
+    const errFile = join(this.runs, "log/kill-odds.err");
+    const alive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (!this.oddsJob) {
+      const running = JSON.parse(await readFile(pidFile, "utf8").catch(() => "null"));
+      if (running?.pid && alive(running.pid)) {
+        this.oddsJob = { adopted: running.pid };
+        this.log(`kill chances: a refresh started ${new Date(running.at).toTimeString().slice(0, 5)} still runs (pid ${running.pid})`);
+      }
+    }
+    if (this.oddsJob?.adopted && !alive(this.oddsJob.adopted)) {
+      this.oddsJob = null;
+      await rm(pidFile, { force: true }).catch(() => {});
+    }
     if ((!odds || now - odds.t > 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
-      const job = this.oddsJob = Bun.spawn(["bun", "tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: "pipe" });
-      const stderr = new Response(job.stderr).text();
-      void Promise.all([job.exited, stderr]).then(([code, error]) => {
+      const job = this.oddsJob = Bun.spawn(["bash", "-c", "trap '' INT; exec bun tools/kill-odds.mjs"], { cwd: REPO, stdout: "ignore", stderr: Bun.file(errFile) });
+      await writeFile(pidFile, JSON.stringify({ pid: job.pid, at: now })).catch(() => {});
+      void job.exited.then(async (code) => {
+        const error = job.stderr instanceof ReadableStream ? await new Response(job.stderr).text() : await readFile(errFile, "utf8").catch(() => "");
+        await rm(pidFile, { force: true }).catch(() => {});
         const t = Date.now();
         if (code === 0) {
           this.oddsFailures = 0;

@@ -460,7 +460,8 @@ test("kill odds failures back off, report stderr and raise attention until succe
   const clock = spyOn(Date, "now").mockReturnValue(T0);
   let exit = 1;
   const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(exit, "", "fixture error"));
-  const finish = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+  // The refresh's end reads and removes files, which takes more than microtasks.
+  const finish = () => new Promise((r) => setTimeout(r, 50));
   try {
     await d.killOdds(T0);
     await finish();
