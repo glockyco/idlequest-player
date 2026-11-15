@@ -24,10 +24,12 @@ test("the ledger reads each kind of coin line once, and nothing from lines that 
     e("bot", "[bot] quest: Hargrimol gave 500 platinum to Dirkog Steelhand, which answered: Thank ye, laddie!"),
     e("bot", "[bot] quest: Hargrimol took Pivorandel's coin for a hand-in of 500 platinum"),
     e("SYSTEM", "Resurrected: recovered 963000 experience (90%). 200pp charged."),
+    e("bot", "[bot] craft: Tinkering 148 after 281 attempts for about 2950 pp, carries 10 Rebreather"),
+    e("bot", "[bot] craft: pulled Tagujazolu (4100pp)"),
   ]);
   const by = Object.fromEntries(entries.map((x) => [x.kind, Math.round(x.pp * 1000) / 1000]));
-  expect(entries).toHaveLength(10);
-  expect(by).toEqual({ loot: 0.067, sales: 58.019, courier: -20, "raid time": -10000, casino: -1800, spells: -859.5, purchases: -0.5, "hand-ins": -500, resurrection: -200 });
+  expect(entries).toHaveLength(11);
+  expect(by).toEqual({ loot: 0.067, sales: 58.019, courier: -20, "raid time": -10000, casino: -1800, spells: -859.5, purchases: -0.5, "hand-ins": -500, resurrection: -200, crafts: -2950 });
   expect(entries[0].pp).toBeCloseTo(5.773);
 });
 

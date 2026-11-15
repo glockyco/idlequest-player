@@ -23,6 +23,7 @@ const RULES = [
   { kind: "purchases", type: "SYSTEM", re: /^You purchased .* for ((?:\d+(?:pp|gp|sp|cp) ?)+)\.$/, pp: (m) => -sum(m[1], /(\d+)(pp|gp|sp|cp)/g) },
   { kind: "hand-ins", type: "bot", re: /^\[bot\] quest: \S+ gave (\d+) platinum to /, pp: (m) => -Number(m[1]) },
   { kind: "resurrection", type: "SYSTEM", re: /^Resurrected: .*?(\d+(?:\.\d+)?)pp charged/, pp: (m) => -Number(m[1]) },
+  { kind: "crafts", type: "bot", re: /^\[bot\] craft: .*? after \d+ attempts for about (\d+) pp/, pp: (m) => -Number(m[1]) },
 ];
 
 /** The coin lines among a tab's exported `events` (`{ t, type, text }`): `[{ t, kind, pp }]`, `pp` in platinum, negative for a spend. */

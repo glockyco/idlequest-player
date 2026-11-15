@@ -3117,29 +3117,34 @@
         }
       }
     };
-    for (const r of task.train ?? []) {
-      // The first batch tells the skill, which the client keeps nowhere.
-      for (let idle = 0; task.status === "running" && (task.skill == null || task.skill < r.to); ) {
-        const before = task.skill;
-        const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, { quantity: CRAFT_BATCH }), 300000);
-        if (!out.attempted || task.skill == null) throw new Error(`${r.name} gave no attempt or no skill value (${JSON.stringify(out).slice(0, 200)})`);
-        // Forty batches without a point: the recipe is past its trivial, or the skill at its cap.
-        idle = task.skill > (before ?? -1) ? 0 : idle + 1;
-        if (idle >= 40) throw new Error(`${r.name} raised the skill no further than ${task.skill} in 400 attempts`);
+    const line = () => `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`;
+    try {
+      for (const r of task.train ?? []) {
+        // The first batch tells the skill, which the client keeps nowhere.
+        for (let idle = 0; task.status === "running" && (task.skill == null || task.skill < r.to); ) {
+          const before = task.skill;
+          const out = await step(`train ${r.name} at skill ${task.skill ?? "?"} of ${r.to}`, () => attempts(r, { quantity: CRAFT_BATCH }), 300000);
+          if (!out.attempted || task.skill == null) throw new Error(`${r.name} gave no attempt or no skill value (${JSON.stringify(out).slice(0, 200)})`);
+          // Forty batches without a point: the recipe is past its trivial, or the skill at its cap.
+          idle = task.skill > (before ?? -1) ? 0 : idle + 1;
+          if (idle >= 40) throw new Error(`${r.name} raised the skill no further than ${task.skill} in 400 attempts`);
+        }
       }
-    }
-    for (const r of task.make ?? []) {
-      const ref = { name: r.item, id: r.itemId };
-      for (let dry = 0; task.status === "running" && i.carried(ref) < r.n; ) {
-        const have = i.carried(ref);
-        const out = await step(`make ${r.item} (${have} of ${r.n})`, () => attempts(r, { quantity: Math.min(CRAFT_BATCH, 2 * (r.n - have)), until: r.n - have, output: r.itemId, settle: () => settleHeld(i) }), 600000);
-        task.made[r.item] = i.carried(ref);
-        dry = out.successes ? 0 : dry + 1;
-        if (dry >= 6) throw new Error(`${r.item} did not come out of ${6 * CRAFT_BATCH} attempts at skill ${task.skill ?? "unknown"}`);
+      for (const r of task.make ?? []) {
+        const ref = { name: r.item, id: r.itemId };
+        for (let dry = 0; task.status === "running" && i.carried(ref) < r.n; ) {
+          const have = i.carried(ref);
+          const out = await step(`make ${r.item} (${have} of ${r.n})`, () => attempts(r, { quantity: Math.min(CRAFT_BATCH, 2 * (r.n - have)), until: r.n - have, output: r.itemId, settle: () => settleHeld(i) }), 600000);
+          task.made[r.item] = i.carried(ref);
+          dry = out.successes ? 0 : dry + 1;
+          if (dry >= 6) throw new Error(`${r.item} did not come out of ${6 * CRAFT_BATCH} attempts at skill ${task.skill ?? "unknown"}`);
+        }
       }
+    } finally {
+      // The line the coin ledger reads the spend from, also of a task that failed part way.
+      if (task.attempts) log(`craft: ${line()}`);
     }
-    task.result = `${task.skillName} ${task.skill ?? "unknown"} after ${task.attempts} attempts for about ${Math.round(task.spentPp)} pp${Object.keys(task.made).length ? `, carries ${Object.entries(task.made).map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`;
-    log(`craft: ${task.result}`);
+    task.result = line();
   };
   const TASKS = { handIn: questTask, quest: questTask, hunt: huntTask, raid: raidTask, gear: gearTask, casino: casinoTask, look: lookTask, craft: craftTask };
   // A task takes a free tab only: one without a running task and without a pause, which holds the
