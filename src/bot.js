@@ -504,12 +504,21 @@
     const open = rows.filter((r) => r.button && !r.button.disabled && r.pp >= minPp && !config.coinKeepNames.includes(r.name));
     const own = least && config.leaderId != null ? findCharacter(i, Number(config.leaderId))?.name : null;
     const pick = (own && open.find((r) => r.name === own)) || open.sort((a, b) => (least ? a.pp - b.pp : b.pp - a.pp))[0];
+    // The panel confirms a transfer in its status line or names the failure in its alert. Closing
+    // it before that aborts the request.
+    let done = false;
     if (pick) {
       pick.button.click();
-      await sleep(2000);
+      for (let k = 0; k < 60 && !done; k++) {
+        await sleep(250);
+        const said = [...(panel?.querySelectorAll('[role="status"], [role="alert"]') ?? [])].map((e) => e.textContent ?? "").join(" ");
+        if (/Transferred/.test(said)) done = true;
+        else if (/not confirmed|failed|error/i.test(said)) break;
+      }
+      if (!done) log(`coin: the pull from ${pick.name} was not confirmed`);
     }
     i.stores.combat.getState().closeManageMoney();
-    return pick ? `${pick.name} (${pick.pp}pp)` : null;
+    return done ? `${pick.name} (${pick.pp}pp)` : null;
   };  /**
    * Bring the active character's carried coin to `pp`: one balance that covers the rest (the
    * smallest such with `least`), else the largest balances one after another, up to `max` pulls.

@@ -2553,6 +2553,7 @@ test("a raid's leader pulls balances one after another until it carries the hour
       const f = await install([10, 20]);
       Object.assign(f.sheet.characterProfile, { platinum: 618 });
       const pulls: string[] = [];
+      const status = { textContent: "" };
       const row = ([name, pp]: [string, number]) => ({
         querySelectorAll: () => [name, "", "", `${pp.toLocaleString("en")} pp`].map((textContent) => ({ textContent })),
         querySelector: () => ({
@@ -2561,10 +2562,11 @@ test("a raid's leader pulls balances one after another until it carries the hour
             Object.assign(f.sheet.characterProfile, { platinum: (f.sheet.characterProfile as { platinum?: number }).platinum! + pp });
             held.splice(held.findIndex((b) => b[0] === name), 1);
             pulls.push(name);
+            status.textContent = `Transferred ${pp} from ${name}.`;
           },
         }),
       });
-      const panel = { textContent: "", querySelector: () => null, querySelectorAll: () => held.map(row) };
+      const panel = { textContent: "", querySelector: () => null, querySelectorAll: (sel: string) => (sel.includes("role") ? [status] : held.map(row)) };
       g.document = { querySelector: (sel: string) => (sel.includes("manage-money-panel") ? panel : null), querySelectorAll: () => [] };
       Object.assign(f.combat, { openManageMoney: () => {}, closeManageMoney: () => {} });
       const calls = fakeRaid(f, { pricePp: 10000 });
