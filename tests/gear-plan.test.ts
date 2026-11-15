@@ -33,6 +33,11 @@ test("each carried item goes to the character it adds most to, once", () => {
   // A second copy nobody needs is not kept once the Tank wears one.
   const both = planGear({ survey: [...survey, row("Holder", 1, "Carried", 26, 3), row("Holder", 1, "Carried", 27, 4)], items, people });
   expect(both.keep).toEqual({ counts: {}, instances: [2, 3] });
+  // A class epic stays with whoever carries it: the Tank's copy goes on the Tank, not on the
+  // Paladin it would add more to, and another character's copy goes to nobody.
+  const own = planGear({ survey: [row("Tank", 2, "Equipped", 8, 1), row("Tank", 1, "Carried", 25, 2)], items, people, bound: new Set([1]) });
+  expect(own.moves.map((m) => [m.item, m.to])).toEqual([["Fine Cloak", "Tank"]]);
+  expect(planGear({ survey, items, people, bound: new Set([1]) }).moves).toEqual([]);
 });
 
 test("a move of a lore item names the other characters that carry one, which a gear task's leader must not be", () => {

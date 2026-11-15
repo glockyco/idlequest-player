@@ -65,8 +65,13 @@
     healMinHp: 0, // single-target heals that heal less than this are left out for a caster that has a larger one (`keepExclusions`); 0 leaves none out
     // Item id to the copies the account needs (docs/plans/items.md, "Demand"), set by the coordinator
     // from the gear plan, the class epics' chosen steps, the quest chains and the casino's boss
-    // potions: up to that many copies are kept.
-    demand: {},
+    // potions: up to that many copies are kept. Null until the coordinator has set it: a page that
+    // does not know the demand yet sells and destroys nothing, since a quest piece or an epic in the
+    // leader's bags would be surplus to it.
+    demand: null,
+    // Item ids that are never sold or destroyed, whatever the demand says: the class epics, which
+    // take a whole quest chain to earn (the coordinator's `keepIds`).
+    keepIds: [],
     gearKeepInstances: [], // the item copies the gear plan's moves take, kept until moved
     keepSupply: { 14: 20, 15: 20 }, // food (item type 14) and drink (15): units kept, from the largest stacks, which the server feeds the character from
     sellPerTick: 8,
@@ -251,8 +256,9 @@
    * up to `keepSupply` units of each type, from the largest stacks.
    * Surplus the client can sell (a price, not NO DROP, not NO RENT) is `sell`, cheapest first, and
    * the rest `discard`. Returns `{ keep, sell, discard }`, lists of `{ bag, slot, id, instanceId, name, quantity, price }`,
-   * and a kept row's `why`: "supply", "move" (the gear plan's), "demand", "reagent", "quest" (a
-   * running quest's item under an id the demand does not name) or "bank" (for the courier's next visit).
+   * and a kept row's `why`: "epic" (a class epic, `keepIds`), "supply", "move" (the gear plan's),
+   * "demand", "reagent", "quest" (a running quest's item under an id the demand does not name) or
+   * "bank" (for the courier's next visit). Without a demand (`config.demand` null) every row is kept.
    */
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
@@ -275,8 +281,9 @@
       // What the courier banks stays for its next visit: crafting ingredients, and scrolls the
       // Spell Bank is short of. An item a visit left behind is not the bank's and is surplus.
       const bank = config.autoBank && !state.unbankable?.[r.itemid] && ((d.tradeskills && !(d.slots > 0)) || (d.scrolleffect > 0 && !((state.spellBank?.[r.itemid] ?? 0) >= config.scrollBankCap)));
-      const why = supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : bank ? "bank" : null;
-      if (why) out.keep.push({ ...row, why });
+      const epic = config.keepIds.includes(r.itemid);
+      const why = epic ? "epic" : supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : bank ? "bank" : null;
+      if (why || config.demand == null) out.keep.push({ ...row, why: why ?? "unknown" });
       else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
       else out.discard.push(row);
     }
@@ -313,6 +320,8 @@
     // The demand and the kept copies are the leader's share, so the reserve must not judge
     // another character's bags by them. A member's bags are emptied by `makeRoom`.
     if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
+    // Nothing is surplus before the coordinator has said what the account needs (`demand`).
+    if (config.demand == null) return;
     if (i.stores.inventory?.getState?.().busy) return;
     let space = i.bagSpace();
     if (space.cursor && state.discarding != null && rowAt(i, { bag: 0, slot: 30 })?.itemInstanceId === state.discarding) {

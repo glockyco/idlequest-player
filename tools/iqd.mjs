@@ -963,7 +963,7 @@ export class Daemon {
     // titled after its group, so the twelve game tabs can be told apart.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], keepIds: Object.values(this.itemModel.epics).flat(), gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
     // prior fitted to every fight on file, the simulator's fights of its six and the live fights
     // that count at its level, once per pair for the pass. A chain's enemies share the target's name
@@ -1716,7 +1716,7 @@ export class Daemon {
     // progress, exceeds the chain's hours (`STEP_HOURS` a step and the model's cost of its pieces).
     const { STEP_HOURS } = await import("./lib/gear-quests.mjs");
     const questWorth = (w, q) => copyValue(w, hoursPerLevel) > q.cost + q.steps * STEP_HOURS;
-    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
+    const plan = planGear({ survey, items: this.items, people, shop, buyPp: buyBudget(groupRows, raidPpPerDay), drops: this.drops, epics, quests: questRewards, questWorth, unworn, bound: new Set(Object.values((this.itemModel ??= await loadItemModel()).epics).flat()), copyValue: (w) => copyValue(w, hoursPerLevel), killsPerHour: kph[Math.floor(kph.length / 2)] ?? 0 });
     const { keep, drops, targets, quests: questWants } = plan;
     const { moves, characters } = withoutUnread(plan, unseen, { sheets: metaGet(this.db, "gearSheets")?.sheets, characters: metaGet(this.db, "gearPlan")?.characters });
     // Every target the plan values goes to the coordinator, which weighs it against every group's

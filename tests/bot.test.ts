@@ -239,6 +239,8 @@ async function install(partyIds: number[] = []) {
   clearInterval(bot.timerId);
   clearInterval(bot.fastTimerId);
   bot.config.upkeep = false;
+  // The coordinator's demand has arrived, without which the reserve sells and destroys nothing.
+  bot.config.demand = {};
   bot.config.partyIds = partyIds;
   await bot.tick(); // the first tick only sets the event cursor
   const say = (text: string, type = "SYSTEM") => events.push({ ses: 1, seq: ++seqs.event, t: Date.now(), type, text });
@@ -3842,6 +3844,16 @@ test("the reserve leaves the bags of an active character other than the leader a
     await clean();
     expect(sold).toEqual([]);
     f.bot.config.leaderId = (f.me as unknown as { id: number }).id;
+    // A page that has not been told the account's demand yet keeps everything.
+    f.bot.config.demand = null;
+    await clean();
+    expect(sold).toEqual([]);
+    // A class epic is kept whatever the demand says.
+    Object.assign(f.bot.config, { demand: {}, keepIds: [1] });
+    await clean();
+    expect(sold).toEqual([]);
+    expect(f.bot.fates().keep.map((k: { why: string }) => k.why)).toEqual(["epic"]);
+    f.bot.config.keepIds = [];
     await clean();
     expect(sold).toEqual(["Rusty Mace"]);
   } finally {

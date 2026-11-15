@@ -321,7 +321,7 @@ export const fits = (item, p, slot) =>
  * (`huntPieces` in tools/lib/epic-model.mjs). Each piece is worth the reward's gain to `to`, shared by
  * the pieces it lacks, and its sources join the targets with `slot` "epic", not the per-slot
  * `drops`. A target keeps its hardest enemy's level and hit points and, in `also`, the enemies a
- * chain of deaths brings, which its hunt kills too, with each enemy's own fights in `fights`. `unworn` lists items no move puts on, the
+ * chain of deaths brings, which its hunt kills too, with each enemy's own fights in `fights`. `unworn` lists items no move puts on, `bound` the items that stay with whoever carries them (the class epics), the
  * pieces a quest hands in, since a hand-in takes them from the bags. `quests` lists the quest
  * rewards (`questRewards` in tools/lib/gear-quests.mjs), each `{ rewardId, classes, pieces, cost,
  * steps }`, and the result's `quests` the rewards worth their chains, `[{ rewardId, item, to, cls,
@@ -338,7 +338,7 @@ export const fits = (item, p, slot) =>
  * move to it (`{ itemId, item, from, buy?, gain, replaces }`) and its wanted drop (`{ itemId, item,
  * zone, npc, hours, gain }`).
  */
-export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], quests = [], questWorth = () => true, unworn = new Set(), copyValue = (w) => w.gain, killsPerHour = 0 }) {
+export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyPp = 0, drops = [], epics = [], quests = [], questWorth = () => true, unworn = new Set(), copyValue = (w) => w.gain, killsPerHour = 0, bound = new Set() }) {
   const byName = new Map(people.map((p) => [p.name, p]));
   const worn = new Map(people.map((p) => [p.name, new Map()]));
   const owned = new Map(people.map((p) => [p.name, new Set()]));
@@ -361,6 +361,10 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
   const offer = (r, p, epic = false) => {
     const item = items.get(r.itemId);
     if (unworn.has(r.itemId)) return [];
+    // A class epic stays with the character that earned it (`bound`, the epic rewards' ids): the
+    // chains count who carries one as done, so a copy that moved would send its earner through
+    // the whole epic again, and whether the server gives a second one is untried.
+    if (bound.has(r.itemId) && r.characterName && r.characterName !== p.name) return [];
     // A lore item is one per character, so a second copy is refused.
     if (isLore(item) && r.characterName !== p.name && owned.get(p.name).has(r.itemId)) return [];
     const mine = worn.get(p.name);
