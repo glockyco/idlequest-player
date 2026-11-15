@@ -480,11 +480,9 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     // A quest whose NPC was not up lately waits on a spawn point, which every needer's group would
     // reach at once when its hold ends, and all but the first would find the point held. So one
     // group runs it at a time, and the others come once that run has looked. So does a quest
-    // with a fight: its enemy is one NPC that a hand-in calls, and the giver is gone until its
-    // respawn. Four groups sent to Jaeil the Wretched at once (2026-11-12) fought one another's
-    // enemy, and no ranger got its hammer.
+    // with a fight, whose enemy is one NPC, and one with a pickup, whose item is one ground spawn.
     const pointBound = history.some((h) => h.id === id && h.status === "waiting" && now - h.t < 2 * 3600000);
-    const fights = q.steps.some((s) => s.kill);
+    const single = q.steps.some((s) => s.kill || s.pick);
     // When a run of this quest last called a timed enemy (a step's `after`) and for whom, as
     // `{ "<zone>|<enemy>": { at, who } }`. The server keeps a script's timer and what it puts up
     // for the character whose kill started it (`owner_character_id` of `quest_runtime_timers` in
@@ -530,7 +528,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
         continue;
       }
       if (!dueNow && !due(last, q.retryMin ?? 120, t)) { no(t, `its last run ${last?.status ?? "has not ended"}, and the next is due at ${new Date(retryTime(last, q.retryMin ?? 120, t?.code ?? code)).toTimeString().slice(0, 5)}`); continue; }
-      if ((pointBound || fights) && runs()) { no(t, "another tab runs it, and one group runs it at a time"); continue; }
+      if ((pointBound || single) && runs()) { no(t, "another tab runs it, and one group runs it at a time"); continue; }
       // An unknown chance does not hold the quest, as for an enemy no fight on file resembles. A
       // fight goes to the raid (`raid` on its step, `raid` in the spec) when the simulated raid kills
       // the enemy and it is of `questRaidLevel` or the group's chance is too low. Raid mode takes
