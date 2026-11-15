@@ -974,11 +974,12 @@ export class Daemon {
     // The tradeskill jobs (data/crafts.json) whose items the account is short of by that demand,
     // each with the copies its crafter has to carry in the end, where the chains that take them
     // find them: a Warrior's Ancient Sword Blade takes two Rebreathers, which only Tinkering makes.
+    // And the jobs that craft for a merchant.
     this.craftJobs ??= JSON.parse(await readFile(join(REPO, "data/crafts.json"), "utf8"));
     const crafts = [];
     for (const [id, job] of Object.entries(this.craftJobs)) {
       const make = [];
-      for (const m of job.make) {
+      for (const m of job.make ?? []) {
         const held = (await search(m.item)).filter((r) => r.itemId === m.itemId);
         // What the Tradeskill Bank holds counts too: a craft's results lie there until they are
         // taken out, and a quest's pull takes them from it. A pass that cannot read the bank makes nothing.
@@ -988,7 +989,8 @@ export class Daemon {
         const short = (need[m.itemId] ?? 0) - banked - held.reduce((s, r) => s + r.n, 0);
         if (short > 0) make.push({ ...m, n: held.filter((r) => r.who === job.who).reduce((s, r) => s + r.n, 0) + banked + short });
       }
-      if (make.length) crafts.push({ id, ...job, make });
+      // A job that crafts for a merchant (`sell`) is due by its own time, whatever the account holds of its items.
+      if (make.length || job.sell?.length) crafts.push({ id, ...job, make });
     }
     // Each tab keeps its leader's share (`tabShares`), from the last gear pass's survey, and is
     // titled after its group, so the twelve game tabs can be told apart.

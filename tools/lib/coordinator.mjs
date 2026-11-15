@@ -376,8 +376,9 @@ export function holdStep(history, id, code = null, now = Date.now(), steps = [])
  *   by `targetId`, and the terms of `trip` and `bestWay` (tools/lib/acquire.mjs): `hoursPerLevel`,
  *   `killsPerHour` and `killChance(tab, target)`, a group's kill chance against the enemy
  *   (`killChanceOf`), null when unknown.
- * - `crafts`: the tradeskill jobs whose items the account is short of, `[{ id, who, skillId,
- *   skillName, train, make, makes, maxPp, retryMin }]` with `make[].n` the copies the crafter is to carry.
+ * - `crafts`: the tradeskill jobs whose items the account is short of or that craft for a merchant,
+ *   `[{ id, who, skillId, skillName, train, make, makes, sell, maxPp, retryMin, untilPp }]` with
+ *   `make[].n` the copies the crafter is to carry.
  * - `explain`: a quest's id, or "all", for which `explained` lists why each tab gets it or not (`iqd why`).
  * - `xpFactor`: what kills pay now against their normal XP, above 1 during an XP event
  *   (tools/lib/xp-events.mjs), with `hoursPerLevel` at the normal pace.
@@ -443,14 +444,19 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
 
   // A tradeskill job (`crafts`, data/crafts.json with the copies the account is short of): its
   // crafter's tab trains the skill and makes the items, once the tab is free and the account
-  // holds the job's cost over the reserve a raid waits for. A job that failed waits `retryMin`.
+  // holds the job's cost over the reserve a raid waits for. A job that crafts for a merchant
+  // (`sell`) pays for itself, so it needs no reserve, and it runs every `retryMin` while the
+  // account holds less than `untilPp`, since coin and not XP limits the AA ranks. A job that
+  // failed waits `retryMin` too.
   for (const job of event ? [] : crafts) {
     const t = tabs.find((x) => x.members.some((m) => m.name === job.who));
     if (!t || !free(t)) continue;
-    if (coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
+    if (job.make.length && coin && coin.pp < cfg.questRaidReservePp + job.maxPp) continue;
+    if (!job.make.length && (!coin || coin.pp >= (job.untilPp ?? Infinity))) continue;
     if (!due(history.filter((h) => h.id === `craft:${job.id}`).at(-1), job.retryMin ?? 360, t)) continue;
-    const { id, retryMin, ...spec } = job;
-    out.push({ label: t.label, kind: "craft", id: `craft:${id}`, spec, why: `${job.who} makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")} with ${job.skillName}, for up to ${job.maxPp} pp` });
+    const { id, retryMin, untilPp, ...spec } = job;
+    const what = [job.make.length ? `makes ${job.make.map((m) => `${m.n} ${m.item}`).join(", ")}` : null, job.sell?.length ? `crafts ${job.sell.map((m) => `${m.attempts} ${m.name}`).join(", ")} for a merchant` : null].filter(Boolean).join(" and ");
+    out.push({ label: t.label, kind: "craft", id: `craft:${id}`, spec, why: `${job.who} ${what} with ${job.skillName}, for up to ${job.maxPp} pp` });
   }
 
   // Quest chains (data/quests.json) come next, because each step is certain progress while a

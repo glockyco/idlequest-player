@@ -68,6 +68,19 @@ test("a tradeskill job goes to its crafter's tab when that is free and the coin 
   expect(crafts({ xpFactor: 2 })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 60 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toEqual([]);
   expect(crafts({ history: [{ t: NOW - 400 * 60000, label: "A", kind: "craft", id: "craft:rebreather", status: "failed" }] })).toHaveLength(1);
+  // A job that crafts for a merchant needs no reserve. It runs while the account holds less than
+  // its `untilPp`, with the coin known, and again after its `retryMin`.
+  const coinJob = { id: "coin", who: "B1", skillId: 57, skillName: "Tinkering", make: [], sell: [{ recipeId: 491, name: "Powered Gloves", itemId: 16876, pp: 8.1, attempts: 6000 }], maxPp: 60000, retryMin: 240, untilPp: 1500000 };
+  const sells = (extra = {}) => decide({ now: NOW, tabs, crafts: [coinJob], ...extra }).actions.filter((a) => a.kind === "craft");
+  expect(sells()).toEqual([]);
+  const [s] = sells({ coin: { pp: 20000, credits: 3 } });
+  expect(s).toMatchObject({ label: "B", id: "craft:coin" });
+  expect(s.why).toBe("B1 crafts 6000 Powered Gloves for a merchant with Tinkering, for up to 60000 pp");
+  expect(s.spec).not.toHaveProperty("untilPp");
+  expect(sells({ coin: { pp: 1600000, credits: 3 } })).toEqual([]);
+  const ran = (min: number) => [{ t: NOW - min * 60000, label: "B", kind: "craft", id: "craft:coin", status: "done" }];
+  expect(sells({ coin: { pp: 20000, credits: 3 }, history: ran(200) })).toEqual([]);
+  expect(sells({ coin: { pp: 20000, credits: 3 }, history: ran(250) })).toHaveLength(1);
 });
 
 test("a task past 90 minutes is stopped, and a shorter one runs on", () => {

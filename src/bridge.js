@@ -1746,16 +1746,20 @@
    * a batch would run out after the first attempt whenever the bank held exactly one set. Resolves
    * with the attempts' counts and the number withdrawn.
    */
-  const craftItem = async (recipeId, { quantity = 1, until = Infinity, skillId, containerItemId = 0, output = null, settle }) => {
+  const craftItem = async (recipeId, { quantity = 1, until = Infinity, skillId, containerItemId = 0, output = null, settle, batch = 1 }) => {
     const p = () => stores.character.getState().characterProfile;
     const done = { attempted: 0, successes: 0, failures: 0, skillUp: null, newSkillValue: null };
     while (done.attempted < quantity && done.successes < until) {
+      // With `batch` the attempts go 100 or 20 at a time, as the window's x100 and x20 buttons
+      // send them: the catalog then sells that many sets at once, and a batch of 20 took 1.2 s.
+      const left = quantity - done.attempted;
+      const n = batch >= 100 && left >= 100 ? 100 : batch >= 20 && left >= 20 ? 20 : 1;
       const cat = await socket.sendJsonRequest(1045, 1046, { recipeId });
       if (cat?.purchasable?.length) {
-        const b = await socket.sendJsonRequest(1047, 1048, { recipeId, quantity: 1 }, 10000);
+        const b = await socket.sendJsonRequest(1047, 1048, { recipeId, quantity: n }, n > 1 ? 30000 : 10000);
         if (!b?.success) throw new Error(`buying the ingredients failed: ${b?.error ?? "no reply"}`);
       }
-      const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity: 1, skillId, containerItemId }, 30000);
+      const r = await socket.sendCorrelatedJsonRequest(1043, 1044, { characterId: p().id, recipeId, quantity: n, skillId, containerItemId }, n > 1 ? 60000 : 30000);
       // A failed skill roll answers success false ("All 1 attempts failed."), which is an attempt that
       // used up its components, so the next attempt follows. Anything else is an error, except once an
       // attempt ran: a component the catalog does not sell can run out mid-way, which ends the attempts.
@@ -1779,6 +1783,15 @@
     }
     const withdrawn = output != null && done.successes > 0 ? await bankWithdraw(output, done.successes, settle) : 0;
     return { ...done, withdrawn };
+  };
+  /**
+   * Sell item `itemId` out of the Tradeskill Bank as the bank window's Sell ("one") and Sell Stack
+   * ("stack", the whole quantity) buttons do. Resolves with `{ quantity, pp }`, what a merchant paid.
+   */
+  const bankSell = async (itemId, mode = "stack") => {
+    const r = await socket.sendJsonRequest(1102, 1103, { itemId, mode }, 20000);
+    if (!r?.success) throw new Error(`the bank sale failed: ${r?.error ?? "no reply"}`);
+    return { quantity: r.quantity ?? 0, pp: (r.platinum ?? 0) + (r.gold ?? 0) / 10 + (r.silver ?? 0) / 100 + (r.copper ?? 0) / 1000 };
   };
   /** How many of item `itemId` the account's Tradeskill Bank holds. */
   const bankCount = async (itemId) => {
@@ -2031,6 +2044,7 @@
     craftItem,
     bankCount,
     bankWithdraw,
+    bankSell,
     combineInContainer,
     sellCursor,
     placeCursor,

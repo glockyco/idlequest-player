@@ -3994,6 +3994,42 @@ test("a craft task trains a skill by its ladder, crafts what the catalog does no
     expect(log.slice(0, 3)).toEqual(["413 x5", "495 x5", "413 x5"]);
     expect(log.slice(-2)).toEqual(["bank x1", "492 x2"]);
     expect(f.bot.state.task.result).toMatch(/^Tinkering 60 after \d+ attempts for about \d+ pp, carries 3 Rebreather$/);
+    // A job that crafts for a merchant goes a hundred attempts at a time, makes what the bank lacks
+    // of a component the catalog does not sell, and sells each hundred out of the bank.
+    const h = await install([10, 20]);
+    Object.assign(h.sheet.characterProfile, { platinum: 5000 });
+    const bank: Record<number, number> = { 16881: 30, 16873: 7 };
+    const calls: string[] = [];
+    Object.assign(h.iq, {
+      carried: () => 0,
+      bankCount: async (id: number) => bank[id] ?? 0,
+      bankSell: async (id: number) => {
+        const quantity = bank[id] ?? 0;
+        bank[id] = 0;
+        calls.push(`sell ${id} x${quantity}`);
+        return { quantity, pp: quantity * (id === 16873 ? 170 : 34) };
+      },
+      craftItem: async (recipeId: number, opts: { quantity: number; batch?: number }) => {
+        const out = recipeId === 421 ? 16881 : 16876;
+        if (recipeId === 491) bank[16881] -= opts.quantity;
+        bank[out] = (bank[out] ?? 0) + opts.quantity;
+        calls.push(`craft ${recipeId} x${opts.quantity} batch ${opts.batch}`);
+        return { attempted: opts.quantity, successes: opts.quantity, failures: 0, newSkillValue: 153, withdrawn: 0 };
+      },
+    });
+    h.bot.craft({
+      who: "Tagujazolu",
+      skillId: 57,
+      skillName: "Tinkering",
+      sell: [{ name: "Aqualung", itemId: 16873 }, { recipeId: 491, name: "Powered Gloves", itemId: 16876, pp: 8.2, attempts: 150, needs: [{ recipeId: 421, itemId: 16881, pp: 0.1 }] }],
+      maxPp: 5000,
+    });
+    await runToEnd(h);
+    // The banked Aqualungs go first. The first hundred lacks 70 Firewater and makes 80, the last
+    // fifty lacks 40 and makes 60.
+    expect(calls).toEqual(["sell 16873 x7", "craft 421 x80 batch 100", "craft 491 x100 batch 100", "sell 16876 x100", "craft 421 x60 batch 100", "craft 491 x50 batch 100", "sell 16876 x50"]);
+    expect(h.bot.state.task).toMatchObject({ status: "done", soldPp: 7 * 170 + 150 * 34 });
+    expect(h.bot.state.task.result).toMatch(/, sold for 6290 pp$/);
     // A task whose attempts would cost more than it may ends with what it reached.
     const g = await install([10, 20]);
     Object.assign(g.sheet.characterProfile, { platinum: 5000 });

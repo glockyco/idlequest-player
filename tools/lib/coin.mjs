@@ -16,6 +16,7 @@ const sum = (text, re) => [...text.matchAll(re)].reduce((a, m) => a + Number(m[1
 const RULES = [
   { kind: "loot", type: "LOOT", re: /^You loot ((?:\d+ (?:platinum|gold|silver|copper)(?:, )?)+)[!.]$/, pp: (m) => sum(m[1], /(\d+) (platinum|gold|silver|copper)/g) },
   { kind: "sales", type: "bot", re: /^\[bot\] sold \d+ surplus item\(s\) for (\d+) copper/, pp: (m) => Number(m[1]) / 1000 },
+  { kind: "sales", type: "bot", re: /^\[bot\] craft: sold \d+ .+? for (\d+) pp$/, pp: (m) => Number(m[1]) },
   { kind: "courier", type: "SYSTEM", re: /^You are charged (\d+)pp for courier-based banking fees/, pp: (m) => -Number(m[1]) },
   { kind: "raid time", type: "SYSTEM", re: /^Raid time purchased: one hour for ([\d,]+) platinum/, pp: (m) => -Number(m[1].replace(/,/g, "")) },
   { kind: "casino", type: "bot", re: /^\[bot\] note task: casino .*? in \d+ rolls for (\d+)pp/, pp: (m) => -Number(m[1]) },

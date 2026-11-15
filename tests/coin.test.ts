@@ -26,10 +26,11 @@ test("the ledger reads each kind of coin line once, and nothing from lines that 
     e("SYSTEM", "Resurrected: recovered 963000 experience (90%). 200pp charged."),
     e("bot", "[bot] craft: Tinkering 148 after 281 attempts for about 2950 pp, carries 10 Rebreather"),
     e("bot", "[bot] craft: pulled Tagujazolu (4100pp)"),
+    e("bot", "[bot] craft: sold 100 Powered Gloves for 3400 pp"),
   ]);
   const by = Object.fromEntries(entries.map((x) => [x.kind, Math.round(x.pp * 1000) / 1000]));
-  expect(entries).toHaveLength(11);
-  expect(by).toEqual({ loot: 0.067, sales: 58.019, courier: -20, "raid time": -10000, casino: -1800, spells: -859.5, purchases: -0.5, "hand-ins": -500, resurrection: -200, crafts: -2950 });
+  expect(entries).toHaveLength(12);
+  expect(by).toEqual({ loot: 0.067, sales: 3400, courier: -20, "raid time": -10000, casino: -1800, spells: -859.5, purchases: -0.5, "hand-ins": -500, resurrection: -200, crafts: -2950 });
   expect(entries[0].pp).toBeCloseTo(5.773);
 });
 
