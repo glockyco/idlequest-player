@@ -510,7 +510,26 @@
     }
     i.stores.combat.getState().closeManageMoney();
     return pick ? `${pick.name} (${pick.pp}pp)` : null;
+  };  /**
+   * Bring the active character's carried coin to `pp`: one balance that covers the rest (the
+   * smallest such with `least`), else the largest balances one after another, up to `max` pulls.
+   * Pulled characters go to `state.coinBack`. Resolves with the names pulled from.
+   */
+  const gatherCoin = async (i, pp, { least = false, max = 8 } = {}) => {
+    const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
+    const from = [];
+    if (purse() >= pp) return from;
+    const one = await pullCoin(i, pp - purse(), { least }).catch(() => null);
+    if (one) from.push(one);
+    for (let k = 0; k < max && purse() < pp; k++) {
+      const next = await pullCoin(i, 1).catch(() => null);
+      if (!next) break;
+      from.push(next);
+    }
+    if (from.length) state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
+    return from;
   };
+
   const watchDeath = async (i) => {
     if (!leaderDead(i)) {
       state.deadSince = null;
@@ -557,8 +576,8 @@
     const cheapest = Math.min(...offers.filter((o) => o.price > 0 && o.price <= config.rezMaxPp).map((o) => o.price));
     if (config.rezPullCoin && Number.isFinite(cheapest) && state.coinPullFor !== state.deadSince) {
       state.coinPullFor = state.deadSince;
-      const from = await pullCoin(i, cheapest + config.rezReservePp - coinPp);
-      log(from ? `pulled the coin of ${from} to pay for a resurrection` : "no account balance large enough for a resurrection");
+      const from = await gatherCoin(i, cheapest + config.rezReservePp);
+      log(from.length ? `pulled the coin of ${from.join(", ")} to pay for a resurrection` : "no account balance to pull for a resurrection");
       return; // the next tick reads the new balance
     }
     if (now() - state.deadSince < config.respawnAfterSec * 1000) return;
@@ -1737,13 +1756,8 @@
           if (mv.stock && i.bagSpace().free < 3) throw new Error(`${activeName(i)}'s bags have no room to keep it`);
           // The catalog charges the crafter, so it gathers two attempts' worth from the largest
           // balances, as no single balance may cover it.
-          const need = (mv.buy.price ?? 0) * 2;
           const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
-          for (let k = 0; k < 8 && purse() < need; k++) {
-            const from = await pullCoin(i, 1).catch(() => null);
-            if (!from) break;
-            state.coinBack = [...new Set([...(state.coinBack ?? []), activeName(i)])];
-          }
+          await gatherCoin(i, (mv.buy.price ?? 0) * 2);
           if (purse() < (mv.buy.price ?? 0)) throw new Error(`the account's balances do not cover ${Math.ceil(mv.buy.price ?? 0)} pp of components (${Math.floor(purse())} pp gathered)`);
           const made = await step(`craft ${mv.item}`, () => i.craftItem(c.recipeId, { quantity: 20, until: 1, skillId: c.skillId, output: mv.itemId, settle: () => settleHeld(i) }), 120000);
           if (i.carried(ref) <= before) throw new Error(`${mv.item} did not come out of ${made.attempted} attempts`);
@@ -1754,12 +1768,9 @@
         } else if (mv.buy && i.carried(mv.item) < 1) {
           if (zoneShort(i) !== mv.buy.zone) await step(`travel to ${mv.buy.zone}`, () => i.changeZone(mv.buy.zone), 90000);
           if (i.bagSpace().free < 1) await keepReserve(i, true);
-          // The gear plan spends account coin, so a leader that carries too little pulls the
-          // largest account balance first (Manage Money), as for a resurrection. Whether that
-          // sufficed shows in the purchase, which reports the platinum carried when it fails.
-          const p = i.stores.character.getState().characterProfile ?? {};
-          const short = (mv.buy.price ?? 0) - (p.platinum ?? 0);
-          if (short > 0) log(`gear: ${(await pullCoin(i, short).catch((e) => `no pull (${e.message})`)) ?? "no balance large enough"} for ${mv.item} (${mv.buy.price} pp)`);
+          // The purchase reports the platinum carried when the gathered coin falls short.
+          const pulled = await gatherCoin(i, mv.buy.price ?? 0);
+          if (pulled.length) log(`gear: pulled ${pulled.join(", ")} for ${mv.item} (${mv.buy.price} pp)`);
           const r = await step(`buy ${mv.item} from ${mv.buy.merchant}`, () => i.buyItem(mv.item, mv.buy.merchant, 1), 240000);
           if (r.bought < 1) throw new Error(`${mv.buy.merchant} sold no ${mv.item} (${r.platinum} pp carried)`);
         }
@@ -1882,14 +1893,8 @@
       // A member that carries the price pulls none, and one that is short takes a small balance.
       const price = Math.max(QUEST_BUY_PP, (s.buy.price ?? 0) * n);
       if ((i.stores.character.getState().characterProfile?.platinum ?? 0) < price) await step(`coin for ${m.name}'s purchase`, async () => {
-        const from = await pullCoin(i, price, { least: true }).catch((e) => {
-          log(`quest: no coin pull for ${item} (${e.message})`);
-          return null;
-        });
-        if (from) {
-          if (Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) state.coinBack = [...new Set([...(state.coinBack ?? []), m.name])];
-          log(`quest: ${m.name} pulled ${from} for ${item}`);
-        }
+        const from = await gatherCoin(i, price, { least: true });
+        if (from.length) log(`quest: ${m.name} pulled ${from.join(", ")} for ${item}`);
       }, 60000);
       const r = await step(`buy ${item} from ${s.buy.merchant}`, () => i.buyItem(ref(item), s.buy.merchant, n - i.carried(ref(item))), 240000);
       if (i.carried(ref(item)) < n) throw new Error(`${s.buy.merchant} sold too little ${item} (${r.platinum ?? i.stores.character.getState().characterProfile?.platinum ?? 0} pp carried)`);
@@ -2754,12 +2759,7 @@
       // failed here. So a short leader pulls the largest balances one after another.
       const carried = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
       if (t.pricePp && t.pricePp <= task.maxPp) {
-        const pulled = [];
-        for (let k = 0; k < RAID_COIN_PULLS && carried() < t.pricePp; k++) {
-          const from = await pullCoin(i, 1);
-          if (!from) break;
-          pulled.push(from);
-        }
+        const pulled = await gatherCoin(i, t.pricePp, { max: RAID_COIN_PULLS });
         if (pulled.length) log(`task raid: pulled ${pulled.join(", ")} for raid time`);
         // The step is tried twice, so the message names what is carried, which holds for both tries.
         if (carried() < t.pricePp) throw new Error(`${activeName(i)} carries ${carried()} of the ${t.pricePp} platinum an hour of raid time costs, with every balance it could pull`);
@@ -3137,9 +3137,9 @@
       // inventory on 2026-11-15. The reserve acts for the leader, who rolls.
       if (i.bagSpace().free < config.minFreeSlots) await keepReserve(i, true);
       if (coin() < price) {
-        const from = await step("pull coin", () => pullCoin(i, price), 30000);
-        if (!from || coin() < price) throw new TaskLater(`no balance of ${price}pp to pull for a roll`, now() + 3600000);
-        log(`casino: pulled ${from}`);
+        const from = await step("pull coin", () => gatherCoin(i, price), 60000);
+        if (coin() < price) throw new TaskLater(`the account's balances do not cover a ${price}pp roll`, now() + 3600000);
+        log(`casino: pulled ${from.join(", ")}`);
       }
       const r = await step(`roll ${task.dice} dice`, () => i.casino.roll(task.dice, task.face), 45000);
       task.rolls++;
@@ -3174,12 +3174,9 @@
     const paid = async (pp) => {
       if (task.spentPp + pp > task.maxPp) throw new Error(`the crafts cost ${Math.round(task.spentPp)} of the ${task.maxPp} pp they may, at skill ${task.skill ?? "unknown"}`);
       if (purse() >= pp + 5) return;
-      const from = await pullCoin(i, pp + 5, { least: true }).catch((e) => (log(`craft: no coin pull (${e?.message ?? e})`), null));
-      if (from) {
-        state.coinBack = [...new Set([...(state.coinBack ?? []), task.who ?? activeName(i)])];
-        log(`craft: pulled ${from}`);
-      }
-      if (purse() < pp) throw new Error(`no balance of the account covers ${Math.round(pp)} pp of components`);
+      const from = await gatherCoin(i, pp + 5, { least: true });
+      if (from.length) log(`craft: pulled ${from.join(", ")}`);
+      if (purse() < pp) throw new Error(`the account's balances do not cover ${Math.round(pp)} pp of components`);
     };
     // Attempts at one recipe, after the crafts of what the catalog does not sell for it.
     const attempts = async (r, opts, depth = 0) => {
