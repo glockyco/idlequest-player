@@ -121,10 +121,13 @@ for (const x of targets.filter((t) => t.npcLevel > 50 && !t.summoned)) {
     if (fresh(odds[key]?.groups?.[g.id], leaderLevel(g))) continue;
     // Without a prior yet, the first run takes the most valuable targets for every group.
     const p = prior && x.npcLevel != null ? priorOf(prior, x.npcLevel - leaderLevel(g), x.npcHp).p : 1;
-    pairs.push({ key, x, g, priority: x.rate * p });
+    pairs.push({ e: { key, name: x.npc, zone: x.zone, raid: false }, g, priority: x.rate * p });
   }
 }
-for (const { key, x, g } of pairs.sort((a, b) => b.priority - a.priority).slice(0, Number(opt.pairs))) add({ key, name: x.npc, zone: x.zone, raid: false }, g);
+// A quest's kill is fought by the group that runs the quest unless the raid takes it, so every
+// group's chance against it comes first, since the prior misses strong named enemies.
+for (const k of questKills.values()) for (const g of roster) if (!fresh(odds[k.key]?.groups?.[g.id], leaderLevel(g))) pairs.push({ e: { ...k, raid: false }, g, priority: Infinity });
+for (const { e, g } of pairs.sort((a, b) => b.priority - a.priority).slice(0, Number(opt.pairs))) add(e, g);
 
 // Leader deaths count apart from companions', because only the leader's death costs XP (`deathHours` in tools/lib/acquire.mjs).
 const result = (s) => ({ t: Date.now(), sim: SIM_VERSION, kills: s.kills, fights: s.fights, meanSec: s.killSec.mean, deathsPerFight: s.deathsPerFight, leaderDeathsPerFight: (s.members.find((m) => m.leader)?.deaths ?? 0) / s.fights, hpLeft: s.bossHpLeftMean });
