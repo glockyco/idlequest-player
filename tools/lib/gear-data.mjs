@@ -71,8 +71,10 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  *   rest saves, since AutoLevel pulls only once every bar is full and the out-of-fight refill is 2.5%
  *   of the maximum per 600 ms times 1 + min(regen / 50, 1), so a rest lasts the share of the bar a
  *   fight spent over that rate; and survival, AC and HP (STA at about 6 HP a point at 60) at the
- *   leveling model's 0.5% per 100 for the member that takes the hits, assumed one of six (leveling
- *   plan, lever 7), which undervalues them for raids until the raid model weighs them.
+ *   leveling model's 0.5% per 100 for the member that takes the hits (leveling plan, lever 7),
+ *   by the wearer's share of the damage its party takes (`hits`, from `hitShares`) and at least one
+ *   sixth, which stands for the damage a raid deals everyone. It undervalues them for raids until
+ *   the raid model weighs them. `rest` and `survival` are the two parts of `party`.
  * The gear plan weighs `melee` and `spells` by the wearer's share of the party's damage (`xpGain` in
  * tools/lib/gear-plan.mjs). A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste,
  * regeneration, HP and mana like the item's own fields, and a spell focus (`focusEffects`) its best
@@ -81,7 +83,7 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  * gear together (`Za`), so with `room` (`{ STR, STA, INT, WIS }`, what the cap leaves the wearer's
  * gear, `statRoom` in tools/iqd.mjs) gear counts a stat only up to its room.
  */
-export const outputValue = (items, c, level, { pool, recovery, room } = {}) => {
+export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}) => {
   let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
   // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
   const focus = { 124: 0, 127: 0, 132: 0 };
@@ -129,8 +131,8 @@ export const outputValue = (items, c, level, { pool, recovery, room } = {}) => {
   const rest = caster && recovery ? 100 * recovery.share * (1 - ((cheaper * base) / (base + added)) * (refill(r0 + regen) / refill(r0))) : 0;
   const spendable = caster && !recovery ? (100 * added) / base + 2 * regen + focus[132] : 0;
   const spells = caster ? focus[124] + focus[127] + spendable : 0;
-  const survival = (0.005 * (ac + hp + ((6 * level) / 60) * sta)) / 6;
-  return { melee: 10 * melee, spells: 10 * spells, party: 10 * (rest + survival) };
+  const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta) * Math.max(1 / 6, hits ?? 0);
+  return { melee: 10 * melee, spells: 10 * spells, party: 10 * (rest + survival), rest: 10 * rest, survival: 10 * survival };
 };
 
 // A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee

@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { elasticity } from "../tools/lib/acquire.mjs";
 import { dualWieldSkill, offhandChance } from "../tools/lib/gear-data.mjs";
-import { damageShares, fists, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
+import { damageShares, fists, gainParts, hitShares, itemCard, mergeSurvey, planGear, setValue, spareGear, walkValue, withoutUnread } from "../tools/lib/gear-plan.mjs";
 
 // Content rows: slots and classes are bit masks (back = 1 << 8, primary = 1 << 13, secondary = 1 << 14).
 const ALL = 65535;
@@ -419,4 +419,23 @@ test("spareGear lists carried gear that is not kept, needed, reserved for a move
   // Backpack, Bread and the NO RENT blade (not gear), the Hand Drum the Bard plays, and a non-roster holder.
   const sword = { id: 4, name: "Rusty Sword" };
   expect(spare).toEqual({ Pal: [sword, sword, { id: 2, name: "Plain Cloak" }], Song: [{ id: 20, name: "Hand Drum" }, sword] });
+});
+
+test("AC and HP count by the share of the party's hits their wearer takes, and a swap names what it trades", () => {
+  // The leader takes 70% of the damage, the pets the rest, and the caster none.
+  const rows = [{ group: "G1", taken: { total: 1000, minutes: 90, by: { Tank: 700, Lonann: 300 } } }];
+  const hits = hitShares(rows, new Map([["G1", ["Tank", "Caster"]]]));
+  expect(hits.get("Tank")).toBeCloseTo(0.7);
+  expect(hits.get("Caster")).toBe(0);
+  expect(hitShares([{ group: "G1", taken: { total: 1000, minutes: 30, by: {} } }], new Map([["G1", ["Tank"]]])).size).toBe(0);
+  const cloak = [{ ac: 8, hp: 35 }];
+  const tank = { cls: "shadowknight", level: 59, pool: 1800, recovery: { share: 0.05, regen: 0 }, hits: 0.7 };
+  // A member that takes few hits or none keeps the sixth that stands for a raid's damage.
+  expect(setValue(cloak, tank)).toBeCloseTo(4.2 * setValue(cloak, { ...tank, hits: 0 }));
+  expect(setValue(cloak, { ...tank, hits: 0 })).toBeCloseTo(setValue(cloak, { ...tank, hits: undefined }));
+  // Mana for armor: the rests get shorter and survival falls, and melee and spells stay out.
+  const parts = gainParts(tank, cloak, [{ ac: 4, aint: 4 }]);
+  expect(Object.keys(parts).sort()).toEqual(["rest", "survival"]);
+  expect(parts.rest).toBeGreaterThan(0);
+  expect(parts.survival).toBeLessThan(0);
 });

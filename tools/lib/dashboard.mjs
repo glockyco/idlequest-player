@@ -769,11 +769,25 @@ function rowView({ key, events }) {
   }
   const slots = events.reduce((a, e) => a + (e.data.slots?.length ?? 1), 0);
   const gain = events.reduce((a, e) => a + (e.data.slots ?? []).reduce((b, s) => b + (s.gain > 0 ? s.gain : 0), 0), 0);
-  return { ...row, parts, text: `${who} ${names.length === 1 ? "wears" : "wear"} ${slots} upgrade${slots === 1 ? "" : "s"}`, detail: gain > 0 ? `group XP rate +${gainPercent(gain)}%` : null };
+  return { ...row, parts, text: `${who} ${names.length === 1 ? "wears" : "wear"} ${slots} upgrade${slots === 1 ? "" : "s"}`, detail: gain > 0 ? `group XP rate +${gainPercent(gain)}%${tradeOf(events.flatMap((e) => e.data.slots ?? []))}` : null };
 }
 
 /** A gear plan gain, tenths of a percent of the group's XP rate, as a percent with two decimals at most. */
 const gainPercent = (gain) => Math.round(gain * 10) / 100;
+
+const CHANNELS = { melee: "melee", spells: "spells", rest: "shorter rests", survival: "survival" };
+/**
+ * What the slots of a gear row trade against each other, such as " (shorter rests +0.13%, survival
+ * -0.08%)", from the channels of their moves (`gainParts`), or nothing when no channel loses: a swap
+ * that gives up armor for mana says so.
+ */
+function tradeOf(slots) {
+  const sum = {};
+  for (const s of slots) for (const [k, v] of Object.entries(s.parts ?? {})) sum[k] = (sum[k] ?? 0) + v;
+  if (!Object.values(sum).some((v) => v < 0)) return "";
+  const shown = Object.entries(sum).filter(([k, v]) => CHANNELS[k] && gainPercent(Math.abs(v)) > 0);
+  return shown.length ? ` (${shown.map(([k, v]) => `${CHANNELS[k]} ${v > 0 ? "+" : "-"}${gainPercent(Math.abs(v))}%`).join(", ")})` : "";
+}
 
 /**
  * The detail a row of one event shows beside its text: for gear, the planned gain in the group's
@@ -783,7 +797,7 @@ function detailOf(kind, data) {
   if (kind === "gear") {
     const gain = (data.slots ?? []).reduce((a, s) => a + (s.gain > 0 ? s.gain : 0), 0);
     const score = data.score?.target > 0 ? `set ${Math.round((100 * data.score.before) / data.score.target)}% to ${Math.round((100 * data.score.after) / data.score.target)}% of target` : null;
-    return [gain > 0 ? `group XP rate +${gainPercent(gain)}%` : null, score].filter(Boolean).join(", ") || null;
+    return [gain > 0 ? `group XP rate +${gainPercent(gain)}%${tradeOf(data.slots ?? [])}` : null, score].filter(Boolean).join(", ") || null;
   }
   if (kind === "raid") return data.goal ? "a boss of the goal" : null;
   return null;

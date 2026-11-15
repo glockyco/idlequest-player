@@ -179,7 +179,7 @@ export function gearChanges({ before, after, t }) {
       const pair = old.filter((x) => x.slot === s.slot || [x.slot, s.slot].every((n) => HANDS.includes(n)));
       const planned = [o?.move, o?.drop, ...pair.flatMap((x) => [x.move, x.drop])].find((p) => p?.itemId === s.worn.itemId);
       const was = [o, ...pair].map((x) => x?.worn).find((w) => w && !has.has(w.itemId)) ?? null;
-      changed.push({ slot: s.slot, item: s.worn.name, itemId: s.worn.itemId, was: was?.name ?? null, wasId: was?.itemId ?? null, gain: planned?.gain ?? null });
+      changed.push({ slot: s.slot, item: s.worn.name, itemId: s.worn.itemId, was: was?.name ?? null, wasId: was?.itemId ?? null, gain: planned?.gain ?? null, ...(planned?.parts ? { parts: planned.parts } : {}) });
     }
     if (!changed.length) continue;
     const sb = before.scores?.[name];
@@ -213,7 +213,7 @@ export function equipProgress({ events, sheets, task = null }) {
     if (!s) continue;
     const twins = sheets[name].filter((x) => x.slot === s.slot || [x.slot, s.slot].every((n) => HANDS.includes(n)));
     if (twins.length > 1 && twins.every((x) => x.worn)) continue;
-    out.push({ t: e.t, kind: "gear", sig: 1, name, text: `${name} wears ${item} (${s.slot})`, data: { slots: [{ slot: s.slot, item, itemId: s.move.itemId, was: s.worn?.name ?? null, wasId: s.worn?.itemId ?? null, gain: s.move.gain ?? null }], score: null, task }, key: `equip:${e.ses}:${e.seq}` });
+    out.push({ t: e.t, kind: "gear", sig: 1, name, text: `${name} wears ${item} (${s.slot})`, data: { slots: [{ slot: s.slot, item, itemId: s.move.itemId, was: s.worn?.name ?? null, wasId: s.worn?.itemId ?? null, gain: s.move.gain ?? null, ...(s.move.parts ? { parts: s.move.parts } : {}) }], score: null, task }, key: `equip:${e.ses}:${e.seq}` });
   }
   return out;
 }

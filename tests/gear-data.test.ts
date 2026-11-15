@@ -89,7 +89,7 @@ test("a worn effect counts like the stats it gives, from its required level, and
   expect(outputValue([{ wornEffects: [{ spa: 11, value: 121 }] }, { haste: 15 }], "warrior", 40).melee).toBeCloseTo(outputValue([{ haste: 21 }], "warrior", 40).melee);
   // A 10% mana cost focus (SPA 132) is worth 10% of a caster's spells, and of two only the better counts.
   const focus = (v: number) => ({ focusEffects: [{ spa: 132, value: v }] });
-  expect(outputValue([focus(10)], "wizard", 40)).toEqual({ melee: 0, spells: 100, party: 0 });
+  expect(outputValue([focus(10)], "wizard", 40)).toMatchObject({ melee: 0, spells: 100, party: 0 });
   expect(outputValue([focus(10), focus(5)], "wizard", 40).spells).toBe(100);
   expect(outputValue([focus(10)], "warrior", 40).spells).toBe(0);
 });

@@ -1560,7 +1560,7 @@ export class Daemon {
     // while a watched boss's respawn is near, which a look has to meet (`nextLook`).
     if ((metaGet(this.db, "bossPlan")?.watch ?? []).some((w) => w.respawnAt && w.respawnAt - now < 20 * 60000 && now - w.respawnAt < 10 * 60000)) return null;
     metaSet(this.db, "gear", { ...prev, next: now + GEAR_RETRY_MIN * 60000 });
-    const { ARMOR_SLOTS, buyBudget, damageShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, setValue, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
+    const { ARMOR_SLOTS, buyBudget, damageShares, hitShares, itemCard, planGear, recoveryShares, rosterPeople, mergeSurvey, setValue, spareGear, surveyWords, walkShares, withoutUnread } = await import("./lib/gear-plan.mjs");
     // Every tab that stands in the world is read, also one the pass gives no task: a bot paused
     // for its upkeep after a level-up still wears what it wears. A read that brings nothing, as in
     // the middle of a character switch, is tried once more.
@@ -1659,6 +1659,8 @@ export class Daemon {
     const members = new Map();
     for (const [name, g] of groupOfName) members.set(g, [...(members.get(g) ?? []), name]);
     const shareOf = damageShares(groupRows, members);
+    // Each member's share of the damage its party takes, by which its AC and HP count (`hitShares`).
+    const hitOf = hitShares(groupRows, members);
     // The body types of each group's kills, by which a weapon proc for one kind of enemy counts
     // (`killBodies`). A name that enemies of several body types share takes the most common one.
     this.npcBodies ??= new Map();
@@ -1672,7 +1674,7 @@ export class Daemon {
       for (const k of killed) this.npcBodies.set(k, seen.has(k) ? [...seen.get(k)].sort((a, b) => b[1] - a[1])[0][0] : null);
     }
     const bodiesOf = killBodies(this.db, (npc) => this.npcBodies.get(npc) ?? null, { now });
-    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, room: statRoom[p.name], walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
+    const people = rosterPeople(survey, groupOfName, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), recovery: groupRows.length ? (recoveryOf.get(p.name) ?? { share: 0, regen: 0 }) : undefined, room: statRoom[p.name], hits: hitOf.get(p.name), walk: walkOf.get(p.name), shares: shareOf.get(p.name), bodies: bodiesOf[groupOfName.get(p.name)] }));
     // What a rank of a stat ability adds to its character: two points of the stat by the gear
     // score, inside the room the stat cap leaves, for the order of the AA ranks (`aaPlan`).
     const aaGain = {};

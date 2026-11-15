@@ -119,8 +119,35 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, room?, shares? }`), in `xpGain`'s unit. */
-export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room }), p);
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, room?, hits?, shares? }`), in `xpGain`'s unit. */
+export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room, hits: p.hits }), p);
+
+/**
+ * What a change of worn armor from `before` to `after` gains a person by channel, in `xpGain`'s
+ * unit: melee and spell damage by the wearer's share, the rests it shortens and survival. The
+ * channels that do not change are left out, so a swap that trades one for another shows it.
+ */
+export function gainParts(p, before, after) {
+  const [a, b] = [before, after].map((items) => outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room, hits: p.hits }));
+  const w = damageWeights(p);
+  const parts = { melee: w.melee * (b.melee - a.melee), spells: w.spells * (b.spells - a.spells), rest: b.rest - a.rest, survival: b.survival - a.survival };
+  return Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, Math.round(v * 100) / 100]).filter(([, v]) => v !== 0));
+}
+
+/**
+ * Each member's share of the damage its party takes, from `bun tools/groups.mjs --json` rows
+ * (`taken`, the leader's incoming lines by who was hit). Pets take a part that is nobody's gear.
+ * A group counts once its lines span `minMinutes` of play. Returns a Map of name to share.
+ */
+export function hitShares(rows, members, minMinutes = 60) {
+  const out = new Map();
+  for (const r of rows) {
+    const t = r.taken;
+    if (!(t?.total > 0) || !(t.minutes >= minMinutes)) continue;
+    for (const name of members.get(r.group) ?? []) out.set(name, (t.by?.[name] ?? 0) / t.total);
+  }
+  return out;
+}
 
 /**
  * Each member's share of its party's damage, melee and spells apart, from `bun tools/groups.mjs
@@ -229,7 +256,7 @@ function characterReport(p, { wornRows, worn, scoreNow, moves, wants, items, val
         slotNum: n,
         slot: slotLabel(n),
         worn: wornRows.get(n) ?? null,
-        move: m ? { itemId: m.itemId, item: m.item, from: m.from, gain: m.gain, replaces: m.replaces, ...(m.buy ? { buy: m.buy } : {}) } : null,
+        move: m ? { itemId: m.itemId, item: m.item, from: m.from, gain: m.gain, ...(m.parts ? { parts: m.parts } : {}), replaces: m.replaces, ...(m.buy ? { buy: m.buy } : {}) } : null,
         drop: w ? { itemId: w.itemId, item: w.item, zone: w.zone, npc: w.npc, hours: w.hours, gain: w.gain } : null,
       };
     }),
@@ -421,7 +448,10 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
     // weapon it ranks lower, whatever the plan meant (docs/client-internals.md, "Account-wide sharing
     // rules"). The receiver wears it in the planned hand while it is the active character.
     const exact = !toBags && Boolean(replaced) && [PRIMARY, SECONDARY].includes(slot) && Boolean(fits(items.get(r.itemId), p, PRIMARY) && fits(items.get(r.itemId), p, SECONDARY));
-    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, replaces: replaced?.Name ?? null, ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
+    // What the armor of the move changes by channel, for a reader who sees stats leave (`gainParts`).
+    const armorOf = (set) => [...set].filter(([s]) => ARMOR_SLOTS.includes(s)).map(([, i]) => i);
+    const parts = toBags || !ARMOR_SLOTS.includes(slot) ? null : gainParts(p, armorOf(worn.get(p.name)), armorOf(new Map([...worn.get(p.name), [slot, items.get(r.itemId)]])));
+    moves.push({ item: r.itemName, itemId: r.itemId, from: r.characterName, to: p.name, slot: toBags ? "bags" : SLOT_BY_NUM[slot], slotNum: toBags ? null : slot, gain: Math.round(gain * 100) / 100, ...(parts && Object.keys(parts).length > 1 ? { parts } : {}), replaces: replaced?.Name ?? null, ...(exact ? { exact } : {}), ...(loreHolders.length ? { loreHolders } : {}), ...(r.buy ? { buy: { merchant: r.buy.merchant, zone: r.buy.zone, price: r.buy.price } } : {}) });
     if (r.buy) {
       budget -= r.buy.price;
       zone = r.buy.zone;

@@ -77,6 +77,27 @@ function damage(events) {
   return d;
 }
 
+// The damage the party took by who took it, from the leader's incoming lines ("a rock golem hits
+// Lonann for 80 damage!", "you" the leader): each member's and pet's points, the total, and the
+// minutes between the first and the last line.
+const TAKEN = /^.+? \w+ (\S+) for (\d+) (?:points? of )?damage/;
+function taken(events, leader) {
+  const d = { total: 0, minutes: 0, by: {} };
+  let first = Infinity;
+  let last = -Infinity;
+  for (const e of events) {
+    const m = e.type === "COMBAT_INCOMING" ? TAKEN.exec(e.text ?? "") : null;
+    if (!m) continue;
+    const who = /^you$/i.test(m[1]) ? leader : m[1];
+    d.by[who] = (d.by[who] ?? 0) + Number(m[2]);
+    d.total += Number(m[2]);
+    first = Math.min(first, e.t);
+    last = Math.max(last, e.t);
+  }
+  if (d.total > 0) d.minutes = (last - first) / 60000;
+  return d;
+}
+
 const out = [];
 for (const g of roster.groups.filter((x) => x.members?.length)) {
   const leader = g.members[0];
@@ -117,6 +138,8 @@ for (const g of roster.groups.filter((x) => x.members?.length)) {
     runSpeed: sn?.runSpeed ?? null,
     // The party's damage by source (`damage`), for each member's share in the gear value.
     damage: events ? damage(events) : null,
+    // The damage the party took by who took it (`taken`), for the worth of AC and HP in the gear value.
+    taken: events ? taken(events, leader) : null,
   });
 }
 
