@@ -1651,12 +1651,21 @@
     ms().setSelectedMerchant(null);
     // Every purchase closes the merchant's window at its end, which removes the PURCHASE button
     // while the merchant can stay selected with its goods, so the merchant is selected every time.
-    const row = await pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
+    const findRow = () => pathToFind(() => [...document.querySelectorAll(".merchant-name")].find((el) => el.textContent.trim() === merchant && !/QUEST NPC/i.test(el.parentElement?.textContent ?? "")));
+    const row = await findRow();
     if (!row) throw new Error(`merchant ${merchant} is not in the Path To list`);
     row.parentElement.click();
     let goods = null;
+    let clickedAt = Date.now();
     for (let end = Date.now() + 180000; !goods; await pause(1000)) {
       if (Date.now() > end) throw new Error(`${merchant} did not open`);
+      // A click right after a zone change can go unheeded: both merchants of the first run for Jeb's
+      // Seal stayed shut for the whole three minutes and opened within one on the next try
+      // (2026-11-15). So the walk is asked for again every 45 s.
+      if (Date.now() - clickedAt > 45000 && !cb().isMerchantWindowOpen) {
+        clickedAt = Date.now();
+        (await findRow())?.parentElement.click();
+      }
       const m = ms();
       if (!cb().isMerchantWindowOpen || m.selectedMerchant?.name !== merchant || m.isLoadingItems || !(m.merchantItems ?? []).length) continue;
       goods = m.merchantItems.find((g) => item?.id != null ? g.item?.id === item.id : g.item?.name === name) ?? false;
