@@ -74,7 +74,7 @@
     const FUNCTIONS = {
       sell: ["Sale confirmation was interrupted"], // the sale the Sell Item button and merchant windows send, (bag, slot)
       autoBank: ["courier-based banking fees"], // the Auto Bank macro's courier to the tradeskill bank
-      autoPlace: ["Auto-placing"], // puts the cursor item into the bags
+      autoPlace: ["Auto-place confirmation was interrupted"], // puts the cursor item into the bags and resolves with the server's answer
       zoneChange: ["WorldSocket not connected", "zoneName"], // the Travel window's zone request
       raidTime: ["Raid time reply belongs to another character"], // the Raid Time section's RaidAccess request, (action, autoRenew), which updates `raidTime`
       consume: ["The item could not be consumed"], // an item's use from the bags, ({ bag, slot }), which also uses a casino boss potion
