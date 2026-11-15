@@ -1080,4 +1080,9 @@ test("a timed enemy is its caller's: the member goes back for it, and the raid t
   const idler = { label: "C", members: [{ name: "C0", level: 59, class: "Warrior" }], task: null };
   const all = decide({ now: NOW, tabs: [tab, idler], quests, history: [failed], explain: "all" }).explained;
   expect(all.map((e: { id: string; label: string; idle?: boolean }) => [e.id, e.label, Boolean(e.idle)])).toEqual([["cape", "A", false], ["cape", "C", true]]);
+  // A busy tab says what would hold the quest once it is free, or for whom it would run.
+  const busy = { ...tab, task: { id: "hunt-1", kind: "hunt", status: "running" } };
+  const texts = (history: object[]) => decide({ now: NOW, tabs: [busy], quests, history, explain: "cape" }).explained.map((e: { text: string }) => e.text);
+  expect(texts([])).toEqual(["the tab is busy, and then it would run for A0, A1"]);
+  expect(texts([failed])[0]).toMatch(/^the tab is busy, and then a wait or a failure at step unknown holds A0, A1$/);
 });

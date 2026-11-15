@@ -475,10 +475,12 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
     const camped = history.some((h) => h.id === id && h.status === "failed" && h.nextAt > now && /did not come/.test(h.error ?? ""));
     const lastAny = history.filter((h) => h.id === id).at(-1);
     // Why no tab gets this quest, for `iqd why` (`explain`, a quest's id or "all"): one line for
-    // each tab, `idle` for a tab whose reason says nothing about the quest.
-    const no = (t, text, idle = false) => void ((explain === id || explain === "all") && explained.push({ id, label: t.label, text, ...(idle ? { idle } : {}) }));
+    // each tab, `idle` for a tab whose reason says nothing about the quest. A busy tab is asked
+    // too, for what would keep the quest from it once it is free.
+    const asked = explain === id || explain === "all";
+    const no = (t, text, idle = false) => void (asked && explained.push({ id, label: t.label, text: free(t) ? text : `the tab is busy, and then ${text}`, ...(idle ? { idle } : {}) }));
     for (const t of tabs) {
-      if (!free(t)) { no(t, "the tab is busy or has a task of this pass", !t.members.some((m) => needers.includes(m.name))); continue; }
+      if (!free(t) && !asked) continue;
       const want = t.members.map((m) => m.name).filter((n) => needers.includes(n));
       const begun = want.filter((n) => (started[id] ?? []).includes(n));
       // The members the spare copies still serve, in the tab's order.
@@ -524,6 +526,7 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // A raid buys an hour of raid time when none is paid, so a quest with one waits for the
       // account's reserve, as one more casino credit does.
       if (steps !== q.steps && coin && coin.pp < cfg.questRaidReservePp) { no(t, `its fights are the raid's, and the account holds ${Math.round(coin.pp)} of the ${cfg.questRaidReservePp} platinum a raid waits for`); continue; }
+      if (!free(t)) { no(t, `it would run for ${who.join(", ")}`); continue; }
       for (const [p, n] of left) spare.set(p, n);
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(Object.keys(timed).length ? { timed } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });
     }
