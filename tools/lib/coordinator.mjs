@@ -523,6 +523,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       // failure or a wait holds, and no second run goes in that time.
       const calls = q.steps.map((s) => (s.after ? timed[`${s.zone}|${s.kill}`] : null)).filter((c, k) => c && t.members.some((m) => m.name === c.who) && now < c.at + (q.steps[k].after.maxSec + TIMED_UP_SEC) * 1000 && !(lastAny?.t > c.at));
       const dueNow = !camped && calls.length > 0;
+      // While a member's call is pending, another member's kill calls nothing: the Plane of Sky's
+      // Key Master takes one soul carrier's death in two hours and ignores the rest.
+      const pending = q.steps.flatMap((s) => (s.after && timed[`${s.zone}|${s.kill}`] ? [{ s, c: timed[`${s.zone}|${s.kill}`] }] : [])).find(({ s, c }) => now < c.at + (s.after.maxSec + TIMED_UP_SEC) * 1000);
+      if (!dueNow && pending) { no(t, `${pending.c.who}'s call brings ${pending.s.kill} until ${new Date(pending.c.at + (pending.s.after.maxSec + TIMED_UP_SEC) * 1000).toTimeString().slice(0, 5)}, and another call meanwhile brings nothing`); continue; }
       // A hold at a step keeps the members who still have to pass it (`holdStep`, `resumeAt`).
       const heldAt = dueNow ? -1 : holdStep(history, id, t.code ?? code, now, q.steps);
       const who = dueNow ? [...new Set(calls.map((c) => c.who))].filter((n) => needers.includes(n)) : [...begun, ...fresh].filter((n) => (resumeAt[id]?.[n] ?? 0) > heldAt);

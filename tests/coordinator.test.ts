@@ -1152,6 +1152,11 @@ test("a timed enemy is its caller's: the member goes back for it, and the raid t
   // more casino credit, and tab B gets the quest.
   expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 20000, credits: 0 } })).toEqual([]);
   expect(two([], [tab, other], { killChance, raid, raidKill: () => true, coin: { pp: 160000, credits: 0 } }).map((x) => x.label)).toEqual(["B"]);
+  // While A0's call is pending, a kill of B0's would call nothing, so tab B waits.
+  const recent = { t: NOW - 30 * min, label: "A", kind: "quest", id: "cape", status: "failed", error: "the fight did not end", timed: { [key]: { at: NOW - 25 * min, who: "A0" } } };
+  const paid = { ...raid, paidUntil: NOW + 40 * min };
+  expect(two([], [other], { killChance, raid: paid, raidKill: () => true, coin: { pp: 20000, credits: 0 } }).map((x) => x.label)).toEqual(["B"]);
+  expect(two([recent], [other], { killChance, raid: paid, raidKill: () => true, coin: { pp: 20000, credits: 0 } })).toEqual([]);
   // A run that waited his whole time out holds the chain for its retry time.
   const waitedOut = { t: NOW - 200 * min, label: "A", kind: "quest", id: "cape", status: "failed", nextAt: NOW + 100 * min, error: "Keeper of Souls did not come by 13:48, the last minute it could", timed: { [key]: { at: NOW - 95 * min, who: "A0" } } };
   expect(two([waitedOut], [tab, other])).toEqual([]);

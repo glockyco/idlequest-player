@@ -2173,6 +2173,8 @@
           await raidFight(i, fight, step);
           results.push(fight.result);
           const killed = fight.fight?.outcome === "killed";
+          // The kill makes the call, whatever becomes of the fights its death brings.
+          if (killed) called(k);
           for (const add of killed ? (s.adds ?? []) : []) {
             for (let n = 0; n < (add.n ?? 1) + 1 && enemyUp(add.name) && task.status === "running"; n++) {
               Object.assign(fight, { bossKey: null, spawnInstanceId: null, target: add.name, fight: null, result: null, keepRaid: nextIsRaid || n + 1 < (add.n ?? 1) || add !== s.adds.at(-1) });
@@ -2194,7 +2196,6 @@
         log(`quest: the raid on ${s.kill} for ${m.name}: ${fight.result ?? "no fight"}`);
         if (fight.fight?.outcome !== "killed") throw new Error(`the raid on ${s.kill} ended without a kill: ${fight.result ?? "no fight"}`);
         m.foughtAt = now();
-        called(k);
       } else if (s.kill) {
         if (!gathered) await step(`gather the party for ${m.name}`, () => gatherParty(i), 60000);
         gathered = true;
