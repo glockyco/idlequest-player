@@ -1421,7 +1421,7 @@ export class Daemon {
    * The quest rewards the gear plan can take (runs/state/gear-quests.json, docs/plans/
    * gear-acquisition.md, "Quest rewards"), read again whenever the file changes. The collector
    * runs tools/gear-quests.mjs once after it starts, which writes the file only when the content's
-   * commit changed. Null before the first file.
+   * commit or the chains' code changed. Null before the first file.
    */
   async gearQuests() {
     const file = join(this.runs, "state/gear-quests.json");
