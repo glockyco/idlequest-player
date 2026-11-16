@@ -345,12 +345,13 @@
     return sold.length;
   };
   /**
-   * The banks' copies beyond `bankKeep`, sold by the one tab with `bankSeller` once an hour: each
-   * stack is taken out onto the cursor (the bank window's Withdraw), goes into the bags and is sold
-   * from there, a few stacks a run while the bags have room.
+   * The banks' copies beyond `bankKeep`, sold by the one tab with `bankSeller` once an hour, or
+   * after a quarter of an hour while copies are left: each stack is taken out onto the cursor (the
+   * bank window's Withdraw), goes into the bags and is sold from there, 12 stacks a run while the
+   * bags have room.
    */
   const drainBanks = async (i) => {
-    if (!config.bankSeller || !config.bankKeep || now() - (state.drainAt ?? 0) < 3600000) return;
+    if (!config.bankSeller || !config.bankKeep || now() - (state.drainAt ?? 0) < (state.drainLeft ? 900000 : 3600000)) return;
     if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
     if (typeof i.bankWithdraw !== "function" || i.bagSpace().cursor || i.bagSpace().free < config.minFreeSlots) return;
     state.drainAt = now();
@@ -365,14 +366,15 @@
     }
     let moved = 0;
     for (const o of over) {
-      if (moved >= 4 || i.bagSpace().free < config.minFreeSlots) break;
+      if (moved >= 12 || i.bagSpace().free < config.minFreeSlots) break;
       const taken = await i.bankWithdraw(o.id, o.n, () => settleHeld(i), o.kind).catch((e) => (log(`bank sale: withdrawing item ${o.id} failed: ${e?.message ?? e}`), 0));
       if (!taken) break;
       state[o.key][o.id] = o.keep;
       moved++;
       await sellRows(i, fates(i).sell.filter((s) => s.id === o.id));
     }
-    if (moved) log(`bank sale: sold the banks' copies of ${moved} item(s) beyond what they keep, ${over.length - moved} left for the next run`);
+    state.drainLeft = over.length - moved;
+    if (moved) log(`bank sale: sold the banks' copies of ${moved} item(s) beyond what they keep, ${state.drainLeft} left for the next run`);
   };
   /**
    * The bag reserve: below `minFreeSlots` free slots, Auto Bank once enough stacks wait for it
