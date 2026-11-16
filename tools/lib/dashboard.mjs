@@ -11,7 +11,7 @@ import { factor, xpAt, xpStart } from "./xp.mjs";
 import { progressCounts } from "./progress.mjs";
 import { cardsFor } from "./cards.mjs";
 import { OPEN_BUY } from "./boss-plan.mjs";
-import { coinDays } from "./coin.mjs";
+import { RAID_RESERVE_PP, coinDays } from "./coin.mjs";
 import { AA_POLICY, DEFAULTS } from "./coordinator.mjs";
 import { BUY_RESERVE_PP } from "./gear-plan.mjs";
 
@@ -913,6 +913,7 @@ export function coinView(db, now, { days = 3, rows = [] } = {}) {
   const price = metaRow(db, "bossPlan")?.price ?? null;
   const pp = last?.pp ?? null;
   const pays = pp == null ? null : {
+    raidReserve: { needs: RAID_RESERVE_PP, ok: pp >= RAID_RESERVE_PP },
     raidHour: price ? { price, needs: price * (1 + OPEN_BUY.reserveHours), ok: pp >= price * (1 + OPEN_BUY.reserveHours) } : null,
     credit: { needs: DEFAULTS.casino.extraReservePp, ok: pp >= DEFAULTS.casino.extraReservePp },
     aaRanks: Math.max(0, Math.floor((pp - AA_POLICY.reservePp) / AA_POLICY.rankPp)),

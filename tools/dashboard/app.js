@@ -438,10 +438,11 @@ function renderCoin(s) {
   const P = C.pays;
   const can = (ok) => (ok ? ` <span class="pill accent">pays now</span>` : ` <span class="pill">not yet</span>`);
   const pays = P ? `<ul class="small">${[
+    P.raidReserve ? `<li>Raids come first: ${pp(P.raidReserve.needs)} stay for raid time, and gear, crafted gear, craft jobs, AA ranks and quest raids outside paid raid time spend only the coin above it.${P.raidReserve.ok ? ` <span class="pill accent">above it</span>` : ` <span class="pill">below it</span>`}</li>` : "",
     P.raidHour ? `<li>An hour of raid time for an open-world boss costs ${pp(P.raidHour.price)} and is bought while the account holds ${pp(P.raidHour.needs)}.${can(P.raidHour.ok)} A free summon or a potion buys its hour regardless.</li>` : "",
     `<li>One more casino credit is rolled for while the account holds ${pp(P.credit.needs)}.${can(P.credit.ok)}</li>`,
-    `<li>AA ranks: ${P.aaRanks ? `${P.aaRanks} the coin above the reserve pays for` : "none, the coin is under the reserve"}.</li>`,
-    `<li>Gear purchases: the hour's income less the raid budget${P.gearAboveReserve ? `, or ${pp(P.gearAboveReserve)} above the reserve` : ""}, never more than the account holds.</li>`,
+    `<li>AA ranks: ${P.aaRanks ? `${P.aaRanks} the coin above the raid reserve pays for` : "none, the coin is under the raid reserve"}.</li>`,
+    `<li>Gear purchases: the hour's income less the raid budget${P.gearAboveReserve ? `, or ${pp(P.gearAboveReserve)} above 200,000` : ""}, never coin below the raid reserve.</li>`,
   ].join("")}</ul>` : "";
   const L3 = C.ledger;
   const kinds = [...new Set(L3.flatMap((d) => Object.keys(d.kinds)))].sort((a, b) => Math.max(...L3.map((d) => d.kinds[b]?.pp ?? 0)) - Math.max(...L3.map((d) => d.kinds[a]?.pp ?? 0)) || (L3.at(-1).kinds[a]?.pp ?? 0) - (L3.at(-1).kinds[b]?.pp ?? 0));
