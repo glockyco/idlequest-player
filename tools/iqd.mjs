@@ -1016,7 +1016,11 @@ export class Daemon {
     // titled after its group, so the twelve game tabs can be told apart.
     const survey = JSON.parse(await readFile(join(this.runs, "state/account-items.json"), "utf8").catch(() => "[]"));
     const shares = tabShares({ need, short: this.gearKeep.counts, rows: survey, leaders: tabs.map((t) => t.members[0].name) });
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], keepIds: Object.values(this.itemModel.epics).flat(), gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
+    // Every class epic, and every piece the epics of the leader's own class take, stays, because the
+    // members' copies can cover the account's count while the leader still needs his own.
+    const epicIds = Object.values(this.itemModel.epics).flat();
+    const piecesOf = (cls) => (this.itemModel.epics[cls] ?? []).flatMap((r) => Object.keys(this.itemModel.epicNeeds.get(r) ?? {}).map(Number));
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], keepIds: [...new Set([...epicIds, ...piecesOf(t.members[0].class)])], gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
     // prior fitted to every fight on file, the simulator's fights of its six and the live fights
     // that count at its level, once per pair for the pass. A chain's enemies share the target's name
