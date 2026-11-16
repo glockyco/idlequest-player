@@ -3172,23 +3172,7 @@
     // looked into after every raid that fought, so a kill the outcome missed leaves nothing behind.
     // The tab does not open in raid mode, so a raid kept for the next enemy (`keepRaid`) leaves
     // the loot to the fight that ends it.
-    if (task.fight && !task.keepRaid) {
-      await keepReserve(i, true);
-      const collect = () => (task.status !== "running" ? collectCorpseLoot(i) : step("collect the loot", () => collectCorpseLoot(i), 120000));
-      let loot = await collect();
-      // An item the leader could not put away is mostly a lore item it holds already, which only a
-      // party member can take, and the raid's end left the leader alone: a second Torn, Burnt Book
-      // of Lord Nagafen went back to his corpse (2026-11-13). So the party gathers and the tab is
-      // looked into once more, where the held item goes to a member (`settleHeld`).
-      if (loot.left.length && task.status === "running") {
-        await step("gather the party for the loot", () => gatherParty(i), 60000).catch((e) => log(`task raid: the party did not gather for the loot (${e?.message ?? e})`));
-        const again = await collect();
-        loot = { looted: [...loot.looted, ...again.looted], left: again.left };
-      }
-      task.fight.loot = loot;
-      task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
-      log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
-    }
+    if (task.fight && !task.keepRaid) await lootRaid(i, task, step);
     // An open-world boss is down after the kill, with the respawn time the zone's spawn list gives.
     // The task keeps that sighting (`task.seen`), and the collector takes it as from a look, so the
     // boss no longer shows as up from the sighting before the fight.
@@ -3199,16 +3183,113 @@
   // that still stands then gets a fight of its own, targeted by its name, in the same task and
   // the same hour of raid time.
   const raidTask = async (i, task, step) => {
-    await raidFight(i, task, step);
-    const results = [task.result];
-    for (const name of task.also ?? []) {
-      if (task.status !== "running" || !/^killed /.test(task.result ?? "")) break;
-      if (!(runtime(i)?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => bossKey(x.name ?? "") === bossKey(name))) continue;
-      Object.assign(task, { bossKey: null, spawnInstanceId: null, target: name });
+    // A sweep keeps raid mode between its fights and loots once at its end.
+    const sweeping = task.open && task.sweep?.length > 0;
+    task.keepRaid = sweeping;
+    const results = [];
+    try {
       await raidFight(i, task, step);
       results.push(task.result);
+      for (const name of task.also ?? []) {
+        if (task.status !== "running" || !/^killed /.test(task.result ?? "")) break;
+        if (!(runtime(i)?.combatScene.getAliveCombatTargetList?.() ?? []).some((x) => bossKey(x.name ?? "") === bossKey(name))) continue;
+        Object.assign(task, { bossKey: null, spawnInstanceId: null, target: name });
+        await raidFight(i, task, step);
+        results.push(task.result);
+      }
+      if (sweeping && task.status === "running" && task.fight?.outcome === "killed" && inRaid(i)) results.push(await sweepZone(i, task, step));
+    } finally {
+      if (sweeping) {
+        task.keepRaid = false;
+        if (inRaid(i)) await i.raid.end().catch((e) => log(`task raid: end raid failed: ${e?.message ?? e}`));
+      }
     }
     task.result = results.filter(Boolean).join("; ");
+    if (sweeping && task.fight) {
+      await lootRaid(i, task, step);
+      // The zone's spawn list after the sweep, which the collector takes as from a look.
+      await readBosses(i, task, task.sweep[0]).catch((e) => log(`task raid: the spawn list after the sweep: ${e?.message ?? e}`));
+    }
+  };
+  /** Collect a raid's loot from the RAID LOOT tab after raid mode has ended, and add it to `task.result`. */
+  const lootRaid = async (i, task, step) => {
+    await keepReserve(i, true);
+    const collect = () => (task.status !== "running" ? collectCorpseLoot(i) : step("collect the loot", () => collectCorpseLoot(i), 120000));
+    let loot = await collect();
+    // An item the leader could not put away is mostly a lore item it holds already, which only a
+    // party member can take, and the raid's end left the leader alone: a second Torn, Burnt Book
+    // of Lord Nagafen went back to his corpse (2026-11-13). So the party gathers and the tab is
+    // looked into once more, where the held item goes to a member (`settleHeld`).
+    if (loot.left.length && task.status === "running") {
+      await step("gather the party for the loot", () => gatherParty(i), 60000).catch((e) => log(`task raid: the party did not gather for the loot (${e?.message ?? e})`));
+      const again = await collect();
+      loot = { looted: [...loot.looted, ...again.looted], left: again.left };
+    }
+    task.fight.loot = loot;
+    task.result += `, looted ${loot.looted.length} items${loot.left.length ? `, left ${loot.left.join(", ")}` : ""}`;
+    log(`task raid: looted ${loot.looted.join(", ") || "nothing"}${loot.left.length ? `; left ${loot.left.join(", ")}` : ""}`);
+  };
+  // A sweep's fights stop this long before paid raid time ends, since a fight that started later
+  // could outlast it, and its fights never buy an hour. At most `SWEEP_MAX_KILLS` a sweep.
+  const SWEEP_STOP_MS = 3 * 60000;
+  const SWEEP_MAX_KILLS = 60;
+  /**
+   * A zone sweep (docs/plans/raids.md, "Zone sweeps"): after its kills the raid fights the nearest
+   * enemy of `task.sweep` that stands in the zone, one after another, until none stands, a fight
+   * ends without a kill, `task.sweepMin` minutes pass or paid raid time nears its end. Resolves with
+   * a line of the kills by enemy and why the sweep stopped.
+   */
+  const sweepZone = async (i, task, step) => {
+    const names = new Set(task.sweep.map(bossKey));
+    const end = now() + (task.sweepMin || 30) * 60000;
+    const kills = {};
+    let gone = 0;
+    let stop = "none of its enemies stands";
+    for (let n = 0; n < SWEEP_MAX_KILLS; n++) {
+      if (task.status !== "running") throw new TaskStopped();
+      if (now() > end) {
+        stop = `its ${task.sweepMin} min were up`;
+        break;
+      }
+      const t = await i.raid.time().catch(() => null);
+      if (!t?.active || t.expiresAt - now() < SWEEP_STOP_MS) {
+        stop = "paid raid time was ending";
+        break;
+      }
+      const next = (runtime(i)?.combatScene.getAliveCombatTargetList?.() ?? []).filter((x) => names.has(bossKey(x.name ?? ""))).sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))[0];
+      if (!next) break;
+      // Not `open`: the sweep reads the spawn list once at its end, not before and after each fight.
+      Object.assign(task, { bossKey: null, spawnInstanceId: next.spawnInstanceId, target: next.name, open: false, maxPp: 0 });
+      const before = task.fight;
+      task.fight = null;
+      try {
+        await raidFight(i, task, step);
+      } catch (e) {
+        task.fight ??= before;
+        if (e instanceof TaskStopped) throw e;
+        stop = `a fight failed: ${e?.message ?? e}`;
+        break;
+      }
+      // An enemy other players took while the raid walked brings no fight, and the next one is tried.
+      if (!task.fight) {
+        task.fight = before;
+        if (++gone >= 3) {
+          stop = "three of its enemies were gone when the raid reached them";
+          break;
+        }
+        continue;
+      }
+      if (task.fight.outcome !== "killed") {
+        stop = task.result ?? "a fight ended without a kill";
+        break;
+      }
+      kills[task.fight.boss] = (kills[task.fight.boss] ?? 0) + 1;
+    }
+    task.open = true;
+    task.sweepKills = kills;
+    const list = Object.entries(kills).map(([name, k]) => `${k} ${name.replace(/_/g, " ")}`);
+    log(`task raid: swept ${zoneShort(i)}: ${list.join(", ") || "no kill"}, stopped as ${stop}`);
+    return `swept ${list.join(", ") || "nothing"}, stopped as ${stop}`;
   };
   /**
    * Loot the zone's corpses from the party panel's RAID LOOT tab (`raid.loot` of src/bridge.js),
@@ -4070,17 +4151,20 @@
      * ended the fight with the boss alive, and the three fights without the orders were kills. The
      * task ends when the boss dies, the raid wipes
      * or `minutes` pass, and `task.fight` records the fight. A summon can bring several bosses:
-     * `also` names them, and each that still stands after a kill gets a fight of its own. Returns a
+     * `also` names them, and each that still stands after a kill gets a fight of its own. With
+     * `sweep`, names of enemies in the zone of an `open` raid, the raid stays after its kills and
+     * fights the nearest of them that stands, one after another, for up to `sweepMin` minutes
+     * while paid raid time lasts (`sweepZone`). Returns a
      * copy of the task, which `state.task` keeps up to date.
      */
-    raid({ members, target = null, bossKey = null, also = [], potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [], revive = "free", rods = "off" }) {
+    raid({ members, target = null, bossKey = null, also = [], sweep = [], sweepMin = 0, potion = null, credit = null, who = null, zone = null, open = false, maxPp = 0, minutes = 15, heal = "all-balanced", nuke = "dps-balanced", effects = [], revive = "free", rods = "off" }) {
       takeTab();
       if (!target === !bossKey) throw new Error("a raid needs either target or bossKey");
       if ((potion || credit) && !target) throw new Error("a potion or credit raid needs its boss as target");
       if (!members?.length) throw new Error("a raid needs members");
       for (const m of [...members, ...(who ? [who] : [])]) accountCharacter(iq(), m);
       if (target) new RegExp(target);
-      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], revive, rods, startedAt: now() };
+      state.task = { id: `raid-${now().toString(36)}`, kind: "raid", members: [...members], target, bossKey, also: [...(also ?? [])], sweep: open ? [...(sweep ?? [])] : [], sweepMin, potion, credit, who, zone, open: Boolean(open), maxPp, minutes, heal, nuke, effects: [...(effects ?? [])], revive, rods, startedAt: now() };
       log(`task raid: ${target ?? bossKey}${potion ? ` from potion ${potion}` : ""}${credit ? ` from a credit for ${credit}` : ""}${who ? ` led by ${who}` : ""}${zone ? ` in ${zone}` : ""} with ${members.length} members, up to ${minutes} min`);
       return { ...runTask(state.task) };
     },

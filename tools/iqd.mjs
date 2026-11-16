@@ -19,7 +19,7 @@ import { MinuteFolder, backfillMinutes, pruneMinutes } from "./lib/minutes.mjs";
 import { killChanceOf, targetId } from "./lib/acquire.mjs";
 import { addDemand, chainDemand, handInDemand, loadItemModel, opportunityDemand, potionDemand, stepDemand, tabShares } from "./lib/item-demand.mjs";
 import { plainName, uncovered } from "./lib/epic-chain.mjs";
-import { OPEN_BUY, RAID_MODES, SIM_BLIND, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
+import { OPEN_BUY, RAID_MODES, SIM_BLIND, SWEEP, bossParts, bossValues, canBuyHour, casinoStanding, hoursLastDay, killId, killable, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, sightings, spawnReset, standingBosses, sweepNames, watchRows, watchedBosses, worldOutage } from "./lib/boss-plan.mjs";
 import { factorAt, foldKills, killFactors, normalXp } from "./lib/xp-events.mjs";
 import { priorOf } from "./lib/kill-prior.mjs";
 import { WEAR_SCHEMA, recordWear } from "./lib/wear.mjs";
@@ -1517,15 +1517,19 @@ export class Daemon {
     // page code from before the credits, the raid history says (`standingBosses`).
     const standing = Array.isArray(st.daily?.credits) ? casinoStanding(st.daily.credits, st.daily.who, history) : standingBosses(history, casino, now);
     // The raid bosses the tabs see in their zones' spawn lists, by name with the time of the look
-    // (db meta key `bossesSeen`). One that stands alive in the open world needs no summon. After a
-    // raid on it, it counts again only from a look later than that raid's end.
+    // (db meta key `bossesSeen`), an enemy of several spawn points with its living copies
+    // (`sightings`). One that stands alive in the open world needs no summon. After a raid on it,
+    // it counts again only from a look later than that raid's end.
     const seen = metaGet(this.db, "bossesSeen") ?? {};
+    const note = (list, zone, t) => {
+      for (const [key, s] of Object.entries(sightings(list, zone, t))) if (!(seen[key]?.seenAt >= t)) seen[key] = s;
+    };
     for (const tr of this.trackers.values()) {
       const w = tr.snap?.wardens;
-      if (w && tr.snap.zoneShort) for (const s of w.list) if (!(seen[npcKey(s.name)]?.seenAt >= w.t)) seen[npcKey(s.name)] = { ...s, zone: tr.snap.zoneShort, seenAt: w.t };
+      if (w && tr.snap.zoneShort) note(w.list, tr.snap.zoneShort, w.t);
       // A look or a raid kept what its zone's list showed, which holds after the party has left.
       const k = tr.snap?.bot?.task;
-      if (k?.seenAt && k.zone) for (const s of k.seen ?? []) if (!(seen[npcKey(s.name)]?.seenAt >= k.seenAt)) seen[npcKey(s.name)] = { ...s, zone: k.zone, seenAt: k.seenAt };
+      if (k?.seenAt && k.zone) note(k.seen ?? [], k.zone, k.seenAt);
     }
     metaSet(this.db, "bossesSeen", seen);
     // The gear targets above level 50 that no group can kill (state `tooStrong` of the coordinator
@@ -1602,7 +1606,11 @@ export class Daemon {
       // The server refuses a potion whose boss has no spawn point until its content changes.
       const noSpawn = /authored spawn is unavailable/.test(l.error ?? "");
       const lastTab = tabs.find((t) => t.label === l.label);
-      const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + 6 * 3600000 : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
+      // A gear enemy of the watch, which a sweep kills on every point, is due again once its points
+      // respawn, and a boss six hours after its kill.
+      const w = watch.find((x) => x.key === c.key);
+      const killedHold = w?.gear && Number.isFinite(w.respawnMs) ? Math.max(30 * 60000, w.respawnMs) : 6 * 3600000;
+      const at = noSpawn ? (l.endedAt ?? l.t) + NO_SPAWN_RETRY_MIN * 60000 : killed ? (l.endedAt ?? l.t) + killedHold : lost || source === "standing" ? (l.endedAt ?? l.t) + 12 * 3600000 : retryTime(l, RAID_RETRY_MIN, lastTab?.code ?? this.code);
       return now < at ? `its last raid ${noSpawn ? "found that the server has no spawn point for it" : killed ? "killed it" : lost ? "fought it and lost" : "ended without a fight"} at ${clock(l.endedAt ?? l.t)}, and it is due again ${at - now > 86400000 ? `on ${new Date(at).toDateString().slice(0, 10)}` : `at ${clock(at)}`}` : null;
     };
     // Unknown when the price or the coin is unread.
@@ -1701,8 +1709,10 @@ export class Daemon {
       const parts = bossParts(k.name);
       const nearby = k.source === "open" ? kills.filter((o) => o !== k && o.source === "open" && o.zone === k.zone).map((o) => o.name) : [];
       const also = parts.length > 1 ? parts : nearby;
-      const what = k.source === "potion" ? { target: k.name, potion: k.itemId, who: k.who } : k.source === "credit" || (k.source === "standing" && k.credit) ? { target: k.name, credit: k.key, who: k.who } : k.source === "standing" ? { target: k.name, who: k.who } : k.source === "open" ? { target: k.name, open: true, ...(also.length ? { also } : {}) } : { bossKey: k.key, ...(also.length > 1 ? { also } : {}) };
-      const from = k.source === "potion" ? `${k.who}'s potion` : k.source === "credit" ? `${k.who}'s credit` : k.source === "standing" ? `${k.who}'s casino boss, which still stands after ${k.fights} fight${k.fights === 1 ? "" : "s"}` : k.source === "open" ? `its open-world spawn in ${k.zone}${nearby.length ? `, with ${nearby.join(", ")}` : ""}` : "a free summon";
+      // An open-world raid sweeps the wanted enemies of its zone after its kills (`sweepNames`).
+      const sweep = k.source === "open" ? sweepNames({ watch, zone: k.zone, value, odds: odds.odds }) : [];
+      const what = k.source === "potion" ? { target: k.name, potion: k.itemId, who: k.who } : k.source === "credit" || (k.source === "standing" && k.credit) ? { target: k.name, credit: k.key, who: k.who } : k.source === "standing" ? { target: k.name, who: k.who } : k.source === "open" ? { target: k.name, open: true, ...(also.length ? { also } : {}), ...(sweep.length ? { sweep, sweepMin: SWEEP.minutes } : {}) } : { bossKey: k.key, ...(also.length > 1 ? { also } : {}) };
+      const from = k.source === "potion" ? `${k.who}'s potion` : k.source === "credit" ? `${k.who}'s credit` : k.source === "standing" ? `${k.who}'s casino boss, which still stands after ${k.fights} fight${k.fights === 1 ? "" : "s"}` : k.source === "open" ? `its open-world spawn in ${k.zone}${nearby.length ? `, with ${nearby.join(", ")}` : ""}${sweep.length ? `, sweeping ${sweep.join(", ")}` : ""}` : "a free summon";
       // A raid gets three times its simulated fights, and a quarter of an hour at least: the
       // simulator takes ten minutes on average for Cazic-Thule, which the quarter hour would cut off
       // in many fights.

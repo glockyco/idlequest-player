@@ -1,6 +1,6 @@
 // Checks the boss-kill planner (docs/plans/raids.md). Run with `bun test`.
 import { expect, test } from "bun:test";
-import { LOOK, OPEN_BUY, bossParts, bossValues, canBuyHour, casinoStanding, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, spawnReset, standingBosses, watchRows, watchedBosses, worldOutage } from "../tools/lib/boss-plan.mjs";
+import { LOOK, OPEN_BUY, SWEEP, bossParts, bossValues, canBuyHour, casinoStanding, dailyCandidates, hoursLastDay, killId, nextBossKill, nextLooks, noteSightings, openBosses, potionSpent, raidHours, sightings, spawnReset, standingBosses, sweepNames, watchRows, watchedBosses, worldOutage } from "../tools/lib/boss-plan.mjs";
 
 const nextLook = (o: Parameters<typeof nextLooks>[0]) => nextLooks(o)[0] ?? null;
 
@@ -71,7 +71,7 @@ test("a raid boss that stands in the open world is killed there, without a summo
   const d = daily(0, [{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge", status: "limit" }, { key: "innoruuk", name: "Innoruuk", zone: "hateplane", status: "limit" }, { key: "vox", name: "Lady Vox", zone: "permafrost", status: "limit" }]);
   const open = openBosses({ seen, daily: d, gear: ["Lord Yelinak"], now: NOW });
   // The dead one, the one last seen three hours ago and the one on no list are left out.
-  expect(open).toEqual([{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge" }, { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine" }]);
+  expect(open).toEqual([{ key: "phinigel", name: "Phinigel Autropos", zone: "kedge", alive: 1 }, { key: "lord yelinak", name: "Lord Yelinak", zone: "skyshrine", alive: 1 }]);
   const odds = { phinigel: { raid: win, groups: { G1: win } }, "lord yelinak": { raid: lose } };
   const r = nextBossKill({ daily: d, open, odds, value: { phinigel: 0.17 } });
   expect(r.kill).toMatchObject({ key: "phinigel", zone: "kedge", way: "raid", source: "open" });
@@ -121,6 +121,37 @@ test("an open-world boss buys an hour the account's coin pays, for kills worth o
   expect(hoursLastDay(ledger, NOW + 25.5 * H)).toBe(1);
 });
 
+test("a zone sweep counts every living copy of a wanted enemy, and sweeps only what the raid kills and is worth a kill", () => {
+  const T = 1_800_000_000_000;
+  // Three sentry points, two alive, and a wyvern whose two points are down.
+  const seen = sightings([
+    { name: "an_ancient_sentry", state: "killed", respawnAt: T + 500000 },
+    { name: "an_ancient_sentry", state: "alive", hp: 55000 },
+    { name: "an_ancient_sentry", state: "alive", hp: 50000 },
+    { name: "a_scholarly_wyvern", state: "killed", respawnAt: T + 9000000 },
+    { name: "a_scholarly_wyvern", state: "killed", respawnAt: T + 6000000 },
+  ], "sleeper", T);
+  expect(seen["an ancient sentry"]).toMatchObject({ state: "alive", alive: 2, points: 3, respawnAt: null, zone: "sleeper" });
+  expect(seen["a scholarly wyvern"]).toMatchObject({ state: "killed", alive: 0, points: 2, respawnAt: T + 6000000 });
+  const open = openBosses({ seen, gear: ["an ancient sentry", "a scholarly wyvern"], now: T });
+  expect(open).toEqual([{ key: "an ancient sentry", name: "an ancient sentry", zone: "sleeper", alive: 2 }]);
+  // Two sentries at 0.6 h each are worth an hour, where one would not be.
+  const odds = { "an ancient sentry": { raid: win } };
+  expect(nextBossKill({ open, paid: false, canBuy: true, odds, value: { "an ancient sentry": 0.6 } }).kill).toMatchObject({ key: "an ancient sentry", source: "open" });
+  expect(nextBossKill({ open: [{ ...open[0], alive: 1 }], paid: false, canBuy: true, odds, value: { "an ancient sentry": 0.6 } }).kill).toBeNull();
+  const watch = [
+    { key: "an ancient sentry", name: "an ancient sentry", zone: "sleeper", gear: true },
+    { key: "a scholarly wyvern", name: "a scholarly wyvern", zone: "sleeper", gear: true },
+    { key: "a drakeen sentinel", name: "a drakeen sentinel", zone: "sleeper", gear: true },
+    { key: "kildrukaun", name: "Kildrukaun the Ancient", zone: "sleeper" },
+    { key: "racnor", name: "Blood-Thirsty Racnor", zone: "veeshan", gear: true },
+  ];
+  const value = { "an ancient sentry": 0.13, "a scholarly wyvern": 0.3, "a drakeen sentinel": SWEEP.minWorth / 2, kildrukaun: 2, racnor: 0.5 };
+  const all = { "an ancient sentry": { raid: win }, "a scholarly wyvern": { raid: win }, "a drakeen sentinel": { raid: win }, kildrukaun: { raid: win }, racnor: { raid: win } };
+  // The wyvern the raid loses, the sentinel worth too little, the named boss and another zone's enemy stay out.
+  expect(sweepNames({ watch, zone: "sleeper", value, odds: { ...all, "a scholarly wyvern": { raid: lose } } })).toEqual(["an ancient sentry"]);
+});
+
 test("the watched bosses are those a live spawn point puts up, and a look goes where one is due or unknown", () => {
   const NOW = 1_800_000_000_000;
   const H = 3600000;
@@ -144,7 +175,7 @@ test("the watched bosses are those a live spawn point puts up, and a look goes w
   expect(withGear.filter((w) => w.gear).map((w) => w.key)).toEqual(["narandi the wretched", "lord yelinak"]);
   // Seen standing, it is an open-world boss for the raid, and an unlisted name is not.
   const standing = { "narandi the wretched": { name: "Narandi_the_Wretched", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 }, "a frost giant": { name: "a_frost_giant", zone: "greatdivide", state: "alive", seenAt: NOW - 60000 } };
-  expect(openBosses({ seen: standing, gear: ["Narandi the Wretched"], now: NOW })).toEqual([{ key: "narandi the wretched", name: "Narandi the Wretched", zone: "greatdivide" }]);
+  expect(openBosses({ seen: standing, gear: ["Narandi the Wretched"], now: NOW })).toEqual([{ key: "narandi the wretched", name: "Narandi the Wretched", zone: "greatdivide", alive: 1 }]);
 
   // Nobody has seen any of them.
   expect(nextLook({ watch, seen: {}, now: NOW })).toMatchObject({ key: "cazic", zone: "fearplane", until: 0, why: "no tab has seen it yet" });

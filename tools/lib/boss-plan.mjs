@@ -103,7 +103,8 @@ export function nextBossKill({ daily = null, potions = [], credits = [], standin
     else skipped.push({ key: c.key, why: o.raid?.error ? "the simulation failed" : o.raid ? `the simulator kills it in ${o.raid.kills} of ${o.raid.fights} fights` : "no kill chance yet" });
   };
   for (const s of standing) add(s, "standing");
-  const worth = open.filter((o) => killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0), 0);
+  // Each copy that stands counts, since a sweep kills them all (`SWEEP`).
+  const worth = open.filter((o) => killable(odds[o.key]?.raid) && !waiting(o, "open")).reduce((s, o) => s + (value[o.key] ?? 0) * (o.alive ?? 1), 0);
   for (const o of open) {
     if (paid) add(o, "open");
     else if (!canBuy) skipped.push({ key: o.key, why: `it stands in the open world, and the account's coin does not pay an hour of raid time and ${OPEN_BUY.reserveHours} more for the summons` });
@@ -182,12 +183,33 @@ export const hoursLastDay = (ledger, now) => ledger.filter((end) => end > now - 
 const OPEN_SEEN_MS = 30 * 60000;
 
 /**
+ * A zone's spawn list (`[{ name, state, respawnAt, ... }]`, one row per spawn point) as sightings
+ * by name key, as the db meta key `bossesSeen` keeps them: an enemy of several points, such as the
+ * 26 ancient sentries of Sleeper's Tomb, is alive while one of its points is, with `alive` its
+ * living copies and `points` its points, and else down until its earliest respawn.
+ */
+export function sightings(list, zone, seenAt) {
+  const out = {};
+  for (const s of list) {
+    const key = npcKey(s.name);
+    const o = (out[key] ??= { ...s, zone, seenAt, alive: 0, points: 0, respawnAt: null });
+    o.points++;
+    if (s.state === "alive") {
+      if (!o.alive) Object.assign(o, { ...s, zone, seenAt, alive: o.alive, points: o.points });
+      o.alive++;
+    } else if (!o.alive && s.respawnAt && (o.respawnAt == null || s.respawnAt < o.respawnAt)) o.respawnAt = s.respawnAt;
+  }
+  for (const o of Object.values(out)) if (o.alive) Object.assign(o, { state: "alive", respawnAt: null });
+  return out;
+}
+
+/**
  * The raid bosses that stand in the open world, from what the tabs see in their zones' spawn lists
- * (`seen`, by name key: `{ name, zone, level, state, seenAt }`, the enemies the client keeps out of
- * AutoLevel): those alive at a look within `OPEN_SEEN_MS` whose name is on the daily list
+ * (`seen`, by name key: `{ name, zone, level, state, seenAt, alive? }`, the enemies the client keeps
+ * out of AutoLevel): those alive at a look within `OPEN_SEEN_MS` whose name is on the daily list
  * (`daily.bosses`, which gives the key and the zone the look has to be from) or among the bosses
- * whose drops the gear plan wants (`gear`, names), as `[{ key, name, zone }]`. A boss off the
- * daily list goes by its name key.
+ * whose drops the gear plan wants (`gear`, names), as `[{ key, name, zone, alive }]`, `alive` the
+ * copies that stood. A boss off the daily list goes by its name key.
  */
 export function openBosses({ seen = {}, daily = null, gear = [], now }) {
   const out = [];
@@ -195,10 +217,23 @@ export function openBosses({ seen = {}, daily = null, gear = [], now }) {
     if (s.state !== "alive" || now - s.seenAt > OPEN_SEEN_MS) continue;
     const listed = (daily?.bosses ?? []).find((b) => npcKey(b.name) === key);
     if (listed ? listed.zone !== s.zone : !gear.some((g) => npcKey(g) === key)) continue;
-    out.push({ key: listed?.key ?? key, name: listed?.name ?? String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone });
+    out.push({ key: listed?.key ?? key, name: listed?.name ?? String(s.name).replace(/^#/, "").replace(/_/g, " "), zone: s.zone, alive: Math.max(1, s.alive ?? 1) });
   }
   return out;
 }
+
+/**
+ * Zone sweeps (docs/plans/raids.md, "Zone sweeps"): an open-world raid kills every wanted enemy
+ * that stands in its zone. `minWorth`, in hours of a group's progress per kill, is about what the
+ * raid minute a kill takes costs at `OPEN_BUY`'s price of an hour for one hour of kills, with the
+ * walk to the next. `minutes` bounds a sweep.
+ */
+export const SWEEP = { minWorth: 0.02, minutes: 40 };
+/**
+ * The names a raid in `zone` sweeps: the gear bosses of the watch there that the simulated raid
+ * kills and whose kill is worth `SWEEP.minWorth`.
+ */
+export const sweepNames = ({ watch = [], zone, value = {}, odds = {} }) => watch.filter((w) => w.gear && w.zone === zone && killable(odds[w.key]?.raid) && (value[w.key] ?? 0) >= SWEEP.minWorth).map((w) => w.name);
 
 /**
  * The bosses the account watches in the open world: those of the daily list and those whose
