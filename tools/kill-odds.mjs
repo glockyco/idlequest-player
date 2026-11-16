@@ -38,6 +38,8 @@ const { values: opt } = parseArgs({ options: { seeds: { type: "string", default:
 const read = async (path, fallback) => JSON.parse(await readFile(path, "utf8").catch(() => JSON.stringify(fallback)));
 const OUT = "runs/state/kill-odds.json";
 const FRESH_MS = 24 * 3600000;
+// Fights at once. The machine runs twelve game tabs, so a refresh takes two cores and their memory.
+const JOBS = 2;
 
 const roster = (await read("data/roster.json", { groups: [] })).groups.filter((g) => g.members?.length);
 const survey = await read("runs/state/account-items.json", []);
@@ -149,7 +151,7 @@ if (opt.refit) {
 // One raid fight of every roster character against NPC `npc`, as `result` gives it.
 const raidFight = async (npc) => {
   const boss = await bossSpec(await findBoss(String(npc)));
-  const [r] = await simulate({ boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods });
+  const [r] = await simulate({ jobs: JOBS, boss, variants: [{ label: "raid", entries: entriesOf(strongest.members[0], roster.flatMap((g) => g.members)) }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods });
   return { ...result(r.summary), orders: ORDERS };
 };
 for (const e of enemies.values()) {
@@ -197,7 +199,7 @@ for (const e of enemies.values()) {
       const boss = await bossSpec(await findBoss(String(npc)));
       // A group's fight has no raid window to order a revive or a rod in.
       const raid = variant.label === "raid";
-      const [r] = await simulate({ boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: raid ? RAID_MODES.revive : "off", rods: raid ? RAID_MODES.rods : "off" });
+      const [r] = await simulate({ jobs: JOBS, boss, variants: [{ label: variant.label, entries }], seeds: Number(opt.seeds), maxSec: 900, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: raid ? RAID_MODES.revive : "off", rods: raid ? RAID_MODES.rods : "off" });
       outcome = { ...result(r.summary), ...(raid ? { orders: ORDERS } : {}) };
     } catch (error) {
       outcome = { t: Date.now(), sim: SIM_VERSION, error: error.message };

@@ -1408,7 +1408,9 @@ export class Daemon {
       this.oddsJob = null;
       await rm(pidFile, { force: true }).catch(() => {});
     }
-    if (!(now - (odds?.t ?? 0) <= 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
+    // Every three hours: a refresh takes two cores and about 3 GB for up to half an hour, and a
+    // result stays fresh for a day.
+    if (!(now - (odds?.t ?? 0) <= 3 * 3600000) && !this.oddsJob && !(now < this.oddsRetryAt)) {
       this.log("kill chances: refreshing (tools/kill-odds.mjs)");
       const job = this.oddsJob = Bun.spawn(["bash", "-c", "trap '' INT; set -m; bun tools/kill-odds.mjs & wait $!"], { cwd: REPO, stdout: "ignore", stderr: Bun.file(errFile) });
       await writeFile(pidFile, JSON.stringify({ pid: job.pid, at: now })).catch(() => {});

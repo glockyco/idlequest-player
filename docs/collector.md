@@ -62,7 +62,7 @@ for the day's boss credit (`iqBot.casino`), which stays with that leader, and fo
 next boss kill (`docs/plans/raids.md`, `tools/lib/boss-plan.mjs`): a free daily summon, a held
 casino credit or potion, or the standing casino boss, as a raid of all roster characters, led by the credit's holder or the strongest
 group's leader, once the simulator kills the boss in every fight (`runs/state/kill-odds.json`, which
-`bun tools/kill-odds.mjs` refreshes in the background hourly). A raid runs as soon as one is due,
+`bun tools/kill-odds.mjs` refreshes in the background every three hours). A raid runs as soon as one is due,
 by the worth of its loot, and buys raid time at the server's quote. Raids fight with
 snapshots of the characters, so inside paid raid time up to three run at once, each in its own zone
 with its own leader, and the bosses that stand in a raid's zone come with it. The
@@ -176,7 +176,7 @@ group and zone first: a trip hunts every wanted enemy of its zone that pays, as 
 normal hunting when the zone is in the group's rotation, and as a camp or a short visit when it is
 not. A group's chance against an enemy comes from a model fitted to every simulated fight, the
 simulator's fights of its six and its own live fights (`runs/state/kill-odds.json`, which
-`bun tools/kill-odds.mjs` refreshes in the background hourly). Any group may hunt for any
+`bun tools/kill-odds.mjs` refreshes in the background every three hours). Any group may hunt for any
 character, because a gear task moves the copy. A boss of the daily list or the casino is left
 to the boss plan's raids, and Most wanted shows it as "by raid". `docs/plans/gear-acquisition.md` describes the
 model and its assumptions. The dashboard lists every enemy a group hunts or has queued and the top
