@@ -121,10 +121,22 @@ const save = (file) => {
 for (const npc of bossIds) {
   const boss = await bossSpec(await findBoss(npc));
   const name = boss.row.name.replace(/#/g, "").replace(/_/g, " ");
-  const runs = await simulate({ boss, level, seeds, maxSec, jobs, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods, variants: variants.map((v) => ({ label: v.label, entries: v.entries, items: v.items })) });
+  // A fight that outlasts the pool's wall-clock limit ends the boss, not the run: Cazic-Thule's
+  // fights did on 2026-11-16 after three bosses had finished.
+  const runs = await simulate({ boss, level, seeds, maxSec, jobs, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods, variants: variants.map((v) => ({ label: v.label, entries: v.entries, items: v.items })) }).catch((error) => {
+    log(`${name}: left out, a fight failed: ${error.message}`);
+    return null;
+  });
+  if (!runs) continue;
   const base = runs[0].fights.map((f) => fightScore(f, maxSec));
+  log(`${name}: baseline ${runs[0].summary.kills}/${seeds} kills, score ${(base.reduce((a, b) => a + b, 0) / seeds).toFixed(3)}`);
+  // A boss the raid kills in every fight shows only noise: on 2026-11-16 Hraashna the Warder, Zlexak
+  // and The Final Arbiter moved by nothing beyond their spread for any probe.
+  if (runs[0].summary.kills === seeds) {
+    log(`${name}: left out, the raid kills it in every fight, so gear moves nothing there`);
+    continue;
+  }
   baselines[npc] = base.reduce((a, b) => a + b, 0) / seeds;
-  log(`${name}: baseline ${runs[0].summary.kills}/${seeds} kills, score ${baselines[npc].toFixed(3)}`);
   for (const [i, v] of variants.entries()) {
     if (!v.role) continue;
     const w = weightOf(base, runs[i].fights.map((f) => fightScore(f, maxSec)), PROBES[v.probe], v.members);
