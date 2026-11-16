@@ -2096,9 +2096,19 @@
         while (tally.attempted < (c.quantity ?? 1)) {
           for (const item of c.inputs ?? []) {
             if (i.carried(ref(item)) >= 1) continue;
-            await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000).catch((e) => {
-              throw new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`);
-            });
+            const pull = () => step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
+            // Full bags hand what the quest does not use to the leader once, as the gathering does.
+            await pull()
+              .catch(async (e) => {
+                if (!BAGS_FULL.test(e?.message ?? "") || m.shed) throw e;
+                m.shed = true;
+                if (!(await step(`make room in ${m.name}'s bags`, () => shedLoad(i, m), 120000))) throw e;
+                delete state.fullBags?.[m.name];
+                return pull();
+              })
+              .catch((e) => {
+                throw Object.assign(new Error(`out of ${item} after ${tally.failures} failed ${c.output.item} rolls: ${e.message}`), e?.retryAfterMs ? { retryAfterMs: e.retryAfterMs } : {});
+              });
           }
           const r = c.container
             ? await step(`combine ${c.output.item} in the ${c.container.item}`, async () => {
