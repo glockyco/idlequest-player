@@ -6,8 +6,9 @@
 //   bun tools/raid-weights.mjs [--bosses 128093,128091] [--seeds 8] [--jobs 2] [--roles tank,melee]
 //     [--stats hp,ac] [--out <file>]
 //
-//   --bosses  npc ids of the bosses to fight (default the five bosses of the last kill odds whose
-//             raid kill chance is nearest one half, among those it kills sometimes or nearly kills,
+//   --bosses  npc ids of the bosses to fight (default: a screen of two fights against each boss
+//             the last kill odds call a loss and each of the raid kit's hard bosses keeps the four
+//             the raid kills sometimes or leaves under half their hit points, nearest a kill first,
 //             since gear moves the raid's results only there)
 //   --seeds   fights per variant and boss, the same seeds in every variant (default 8)
 //   --roles   roles to probe (default all four: tank, melee, priest, caster)
@@ -29,7 +30,8 @@ import { rosterEntries } from "./raidsim/roster.mjs";
 import { byId } from "./raidsim/content.mjs";
 import { simulate } from "./raidsim/run.mjs";
 import { RAID_MODES } from "./lib/boss-plan.mjs";
-import { PROBES, ROLES, fightScore, probeRow, roleOf, weightOf } from "./lib/raid-weights.mjs";
+import { PROBES, ROLES, fightScore, pickBosses, probeRow, roleOf, weightOf } from "./lib/raid-weights.mjs";
+import { HARD_BOSSES } from "./lib/raid-kit.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -46,6 +48,9 @@ const log = (message) => console.error(`[${((Date.now() - started) / 60000).toFi
 const seeds = Number(opt("seeds", 8));
 const jobs = Number(opt("jobs", 2));
 const maxSec = 900;
+// The screen's fights per candidate boss, and the bosses it keeps.
+const SCREEN_SEEDS = 2;
+const BOSSES = 4;
 const roles = opt("roles", Object.keys(ROLES).join(",")).split(",");
 const stats = opt("stats", Object.keys(PROBES).join(",")).split(",");
 for (const r of roles) if (!ROLES[r]) fail(`unknown role ${r}, one of ${Object.keys(ROLES).join(", ")}`);
@@ -64,18 +69,25 @@ const names = groups.flatMap((g) => g.members ?? []);
 const { entries, level } = rosterEntries(accountRoster(rows, { leader: names[0], names }));
 const items = await byId("items");
 
+// The default bosses come from a screen with the roster as it is now, since kill odds up to a day
+// old miss what the roster gained since: on 2026-11-16 they called Zlexak a loss that the screen
+// won 8 times in 8.
 const bossIds = opt("bosses")
   ? opt("bosses").split(",").map(Number)
   : await (async () => {
       const odds = JSON.parse(await readFile(new URL("../runs/state/kill-odds.json", import.meta.url), "utf8")).odds;
       const byNpc = new Map();
-      for (const o of Object.values(odds)) if (o.raid && !o.raid.error && o.hp > 0 && o.raid.fights > 0) byNpc.set(o.npc, o);
-      const chance = (o) => o.raid.kills / o.raid.fights;
-      return [...byNpc.values()]
-        .filter((o) => (chance(o) > 0 && chance(o) < 1) || (o.raid.kills === 0 && o.raid.hpLeft / o.hp < 0.35))
-        .sort((a, b) => Math.abs(chance(a) - 0.5) - Math.abs(chance(b) - 0.5))
-        .slice(0, 5)
-        .map((o) => o.npc);
+      for (const o of Object.values(odds)) if (o.raid && !o.raid.error && o.hp > 0 && o.raid.fights > 0 && o.raid.kills < o.raid.fights) byNpc.set(o.npc, o);
+      for (const b of HARD_BOSSES) byNpc.set(b.npc, { npc: b.npc });
+      const screened = [];
+      for (const npc of byNpc.keys()) {
+        const boss = await bossSpec(await findBoss(npc));
+        const [r] = await simulate({ boss, level, seeds: SCREEN_SEEDS, maxSec, jobs, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods, variants: [{ label: "screen", entries }] });
+        const s = r.summary;
+        log(`screen: ${boss.row.name}: ${s.kills}/${s.fights} kills, boss hit points left ${s.bossHpLeftMean} of ${s.bossMaxHp}`);
+        screened.push({ npc, chance: s.kills / s.fights, left: s.bossHpLeftMean / s.bossMaxHp });
+      }
+      return pickBosses(screened, BOSSES);
     })();
 if (!bossIds.length) fail("no boss to fight");
 

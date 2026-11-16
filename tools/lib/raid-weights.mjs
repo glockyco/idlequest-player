@@ -27,6 +27,17 @@ export function probeRow(row, id, probe) {
 export const fightScore = (f, maxSec) => (f.bossMaxHp > 0 ? (f.bossMaxHp - f.bossHpLeft) / f.bossMaxHp : 0) + (f.outcome === "kill" ? Math.max(0, maxSec - f.seconds) / maxSec : 0);
 
 /**
+ * The bosses to measure from a screen of the raid against each (`[{ npc, chance, left }]`, its kill
+ * chance and the share of the boss's hit points left): where gear can move the result, a boss the
+ * raid kills sometimes or one it leaves under half its hit points. Those nearest a kill first,
+ * `n` of them.
+ */
+export function pickBosses(screened, n) {
+  const near = (s) => (s.chance > 0 ? Math.abs(s.chance - 0.5) : 0.5 + s.left);
+  return screened.filter((s) => s.chance < 1 && (s.chance > 0 || s.left < 0.5)).sort((a, b) => near(a) - near(b)).slice(0, n).map((s) => s.npc);
+}
+
+/**
  * The weight of a probe from the scores of the baseline's fights and the probe's fights of the same
  * seeds, in order: the mean paired change per point of the probe (the sum of its amounts) and per
  * probed member, and its standard error.
