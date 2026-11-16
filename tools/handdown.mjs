@@ -3,10 +3,11 @@
 // account: which carried item each character should wear, and from whom it comes. The coordinator
 // in tools/iqd.mjs runs the same plan and carries it out as a gear task.
 //
-//   bun tools/handdown.mjs [items.json] [--content <idlequest-content clone>] [--min-gain 0.5] [--buy-pp 0] [--json]
+//   bun tools/handdown.mjs [items.json] [--content <idlequest-content clone>] [--min-gain 0.5] [--buy-pp 0] [--weights <file>] [--json]
 //
-// `--min-gain` is in tenths of a percent of the group's XP rate, and `--buy-pp` the platinum the plan
-// may spend at merchants (iqd spends the account's last hour of income less the raid budget).
+// `--min-gain` is in the gear plan's unit (`gearGain`), and `--buy-pp` the platinum the plan may
+// spend at merchants (iqd spends the account's last hour of income less the raid budget). The raid
+// weights come from `--weights`, by default runs/state/raid-weights.json as in the coordinator's plan.
 //
 // `items.json` is the survey (`iq.searchAccount()` writes runs/state/account-items.json). Races
 // come from the iqd database (runs/iq.db), groups from data/roster.json and item stats from the
@@ -17,7 +18,7 @@ import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { rows } from "./lib/content.mjs";
 import { attachEffects, merchantGoods } from "./lib/gear-data.mjs";
-import { planGear, rosterPeople } from "./lib/gear-plan.mjs";
+import { planGear, raidWeights, rosterPeople } from "./lib/gear-plan.mjs";
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
@@ -25,6 +26,7 @@ const { values: opt, positionals } = parseArgs({
     content: { type: "string", default: `${homedir()}/src/github.com/brynnb/idlequest-content` },
     "min-gain": { type: "string", default: "0.5" },
     "buy-pp": { type: "string", default: "0" },
+    weights: { type: "string" },
     json: { type: "boolean", default: false },
   },
 });
@@ -40,7 +42,8 @@ for await (const i of rows("items", opt.content)) if (ids.has(i.id)) items.set(i
 await attachEffects(items, opt.content);
 
 const poolOf = new Map(db.query("SELECT c.name, s.max_mana FROM char_snapshots s JOIN characters c ON c.id = s.char_id WHERE s.id IN (SELECT MAX(id) FROM char_snapshots WHERE max_mana > 0 GROUP BY char_id)").all().map((r) => [r.name, r.max_mana]));
-const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name) }));
+const raidDoc = await readFile(opt.weights ?? `${REPO}runs/state/raid-weights.json`, "utf8").then(JSON.parse, () => null);
+const people = rosterPeople(survey, groupOf, raceOf).map((p) => ({ ...p, pool: poolOf.get(p.name), raid: raidWeights(raidDoc, p.cls, p.level) }));
 // The class epics stay with whoever carries them, as in the coordinator's plan.
 const bound = new Set(Object.values(JSON.parse(await readFile(new URL("../data/epics.json", import.meta.url), "utf8"))).flat());
 const { moves } = planGear({ survey, items, people, minGain: Number(opt["min-gain"]), shop, buyPp: Number(opt["buy-pp"]), bound });
