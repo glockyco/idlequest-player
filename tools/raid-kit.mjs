@@ -4,7 +4,10 @@
 //
 //   bun tools/raid-kit.mjs [--boss <npc id|name>] [--seeds 6] [--leader Tagujazolu] [--budget 30]
 //     [--max-sec 900] [--screen-sec 90] [--screen-seeds 6] [--margin 1] [--validate] [--out <file>]
-//     [--heal-mode all-balanced] [--dps-mode dps-all-out] [--jobs N] [--seed-base 1] [--pick-seeds 2]
+//     [--heal-mode <mode>] [--dps-mode <mode>] [--jobs N] [--seed-base 1] [--pick-seeds 2]
+//
+// The fights take the raid's orders (`RAID_MODES` in tools/lib/boss-plan.mjs): its nuke and heal
+// modes unless `--dps-mode` and `--heal-mode` name others, its revives and its Mod Rods.
 //
 //   --boss          npc_types id or name. Without it the hard boss closest to a kill (kill chance, then
 //                   mean kill time, then boss hit points left) of `--pick-seeds` fights each
@@ -47,6 +50,7 @@ import { rosterEntries } from "./raidsim/roster.mjs";
 import { byId } from "./raidsim/content.mjs";
 import { DEFAULT_JOBS } from "./raidsim/pool.mjs";
 import { DPS_MODES, HEAL_MODES, simulate } from "./raidsim/run.mjs";
+import { RAID_MODES } from "./lib/boss-plan.mjs";
 import { SLOT_BY_NUM } from "./lib/gear-data.mjs";
 import {
   HARD_BOSSES,
@@ -88,8 +92,10 @@ const pickSeeds = Number(opt("pick-seeds", 2));
 const marginFactor = Number(opt("margin", 1));
 const budgetMin = Number(opt("budget", 30));
 const jobs = Number(opt("jobs", DEFAULT_JOBS));
-const dpsMode = opt("dps-mode", "dps-all-out");
-const healMode = opt("heal-mode", "all-balanced");
+// The raid's own orders (`RAID_MODES`) unless the options name others, so the kit is judged by
+// fights the raids fight.
+const dpsMode = opt("dps-mode", RAID_MODES.nuke);
+const healMode = opt("heal-mode", RAID_MODES.heal);
 const out = opt("out", new URL("../runs/state/raid-kit.json", import.meta.url).pathname);
 for (const [name, value] of [["--seeds", seeds], ["--max-sec", maxSec], ["--screen-sec", screenSec], ["--screen-seeds", screenSeeds], ["--pick-seeds", pickSeeds], ["--budget", budgetMin], ["--jobs", jobs]]) {
   if (!(value >= 1)) fail(`${name} must be a number of at least 1`);
@@ -127,7 +133,7 @@ try {
 const items = await byId("items");
 
 const run = async (boss, variants, o = {}) => {
-  const results = await simulate({ boss, level, seeds, seedBase, maxSec, dpsMode, healMode, jobs, ...o, variants });
+  const results = await simulate({ boss, level, seeds, seedBase, maxSec, dpsMode, healMode, revive: RAID_MODES.revive, rods: RAID_MODES.rods, jobs, ...o, variants });
   endProgress();
   return results;
 };
