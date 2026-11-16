@@ -298,15 +298,6 @@ export class Relay extends EventEmitter {
     return res.result?.value;
   }
 
-  /** A JPEG of a game tab as it shows now, as a Buffer, for the diary's pictures of kills and milestones. */
-  async screenshot(targetId, { quality = 80, timeout = 15000 } = {}) {
-    const info = this.#tabs.get(targetId);
-    if (!isGameTarget(info)) throw new Error(`not a game tab: ${targetId}`);
-    const sessionId = await this.#sessionFor(targetId);
-    const res = await this.#send("Page.captureScreenshot", { format: "jpeg", quality }, sessionId, timeout);
-    return Buffer.from(res.data, "base64");
-  }
-
   /**
    * Give a game tab a new renderer process. A reload keeps the process, and one that has played
    * for hours holds 2 to 4.5 GB that no reload gives back, while a new one starts under 1 GB. The

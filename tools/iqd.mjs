@@ -2181,10 +2181,7 @@ export class Daemon {
 
     if (usable) {
       // What this look shows of the account's progress: level-ups and raid kills.
-      const seen = snapshotProgress({ snap, levels, now });
-      const kills = seen.filter((e) => e.kind === "raid" && !this.db.query("SELECT 1 FROM progress WHERE key = ?").get(e.key));
-      recordProgress(this.db, seen, this.groups());
-      for (const e of kills) void this.killPicture(tr, e).catch((err) => this.log(`raid kill picture: ${err.message}`));
+      recordProgress(this.db, snapshotProgress({ snap, levels, now }), this.groups());
       tr.state.pageSession = snap.pageSession;
       tr.snap = snap;
       if (snap.bot) tr.state.alertSeq = snap.bot.alertSeq;
@@ -2411,21 +2408,6 @@ export class Daemon {
   leaderOf(name) {
     this.groups();
     return this.leaderOfName.get(name) ?? name;
-  }
-
-  /**
-   * A picture of the tab whose raid just killed a boss, for the diary (`diary/media/`), taken at
-   * the first look after the kill, while its kill line and its loot still stand in the chat.
-   */
-  async killPicture(tr, e) {
-    const at = new Date(e.t);
-    const day = at.toLocaleDateString("sv-SE");
-    const slug = String(e.data.boss).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const dir = join(REPO, "diary/media");
-    const first = join(dir, `${day}-${slug}-kill.jpg`);
-    const file = existsSync(first) ? join(dir, `${day}-${slug}-kill-${at.toTimeString().slice(0, 5).replace(":", "")}.jpg`) : first;
-    await writeFile(file, await this.relay.screenshot(tr.targetId));
-    this.log(`raid kill: ${e.data.boss}, picture in ${relative(REPO, file)}`);
   }
 
   /**

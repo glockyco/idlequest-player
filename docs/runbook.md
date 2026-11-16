@@ -61,7 +61,7 @@ Attention items mirror the bot's wake alerts. The responses per bot alert:
 | `cursor` | An item sits on the cursor. The bot puts it away after three minutes. If it cannot, free a general slot or place the item by hand until `bagSpace().cursor` is null. |
 | `idle` | An idle cause outlasted every rung of the remedy table (`REMEDIES` in `src/bot.js`), such as a crowded zone with no other rotation zone, an errand, which keeps its zone and limits, an AutoLevel that would not start, or a Loading Failed window that Try Again left open, which needs a fresh page. Weigh another zone, a wider target range or ending the errand as the [guide](guide.md#deciding-where-to-hunt-and-what-to-do) describes, then measure the choice and record it with the reason. |
 | `task` | A hand-in, hunt or raid task failed at the step the alert names. `iqBot.state.task` holds the step and the error, and the tab is back with its leader. |
-| `raid` | The raid task killed its target. The collector saves a screenshot to `diary/media/` on its first look after the kill. Keep the kill lines for the diary. |
+| `raid` | The raid task killed its target. Keep the kill lines for the diary. |
 | `autoLevelRestarted`, repeated | Something keeps stopping AutoLevel for no reason the page states. Find it in the event log. The client's own stops and the bot's holds are not behind it: the activity label names those (`clientPause`, `clientRejoin`, `contested`, `held`). `REMEDIES` in `src/bot.js` answers those with a start, or a rejoin for `clientRejoin`. For `noEnemies`, it first widens the limits, then tries moving zones, and finally starts another search. |
 | `offline` | The page left the game world. Never reload or navigate the tab. The client tries to resume the session by itself, and `iqd run --recover` signs it in after a minute at the login form. The alert closes once the page is back in the world. If it still shows the login form after five minutes, restore the group as "Recover on your own" describes. |
 | `guard` | Notes only: a lowered cap after repeated escapes and an escape whose zone change failed. The escape is one of the bot's holds, so the bot starts AutoLevel again after it. Escapes from wanderers alone never alert: judge the zone by its measured XP per hour, which `analyze.mjs` reports with the escapes and their cost. An escape re-enters the zone at its safe spot, and a second escape within the guard's `loopSec` leaves for another zone of the rotation, because a mob camping the safe spot would start the same fight again. |
@@ -82,7 +82,7 @@ Attention items mirror the bot's wake alerts. The responses per bot alert:
 
 ## Screenshots
 
-Game tabs run with rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps running, and the bot keeps that setting as one of its client options. For a screenshot of the world, such as a raid kill, call `iqBot.render(seconds)` in that tab, which draws the world for that long.
+Game tabs run with rendering off (Options, Graphics, Disable Rendering), which pauses 3D drawing while AutoLevel keeps running, and the bot keeps that setting as one of its client options. For a screenshot of the world, call `iqBot.render(seconds)` in that tab, which draws the world for that long.
 
 ## After a client update
 
