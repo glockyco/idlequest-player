@@ -10,6 +10,10 @@ CREATE INDEX IF NOT EXISTS fights_npc ON fights (npc, grp, t);
 `;
 
 const KILL = /^You have defeated (.+?) and gained/;
+// A raid's fight starts with this line and ends with the raid task's end or after `RAID_MAX_MS`.
+const RAID_ENGAGED = /is engaged by your raid\.$/;
+const RAID_END = /^\[bot\] (?:note task: raid done|alert task: raid failed)/;
+const RAID_MAX_MS = 20 * 60000;
 
 /**
  * An enemy's name as the record keys it: the game writes `Lady_Vox` in some places and `Lady Vox` in
@@ -25,12 +29,17 @@ const LOST = new Set(["level", "hit", "dying", "down", "healer"]);
  * The kills and escapes among one tab's `events`, whose leader is at `level`: rows
  * `{ t, npc, level, outcome, rule }`. An escape counts once against every enemy of the fight it
  * left (`mobs`), because a named enemy fights with its company and the guard names one of them.
- * An escape without an enemy, such as a member's death in no fight, counts against nobody.
+ * An escape without an enemy, such as a member's death in no fight, counts against nobody. A kill
+ * of a raid's fight is the raid's of 72 and says nothing about a group, so it counts for none.
+ * `state` carries the raid's fight from one batch of a tab's events to the next.
  */
-export function fightOutcomes(events, level) {
+export function fightOutcomes(events, level, state = {}) {
   const out = [];
   for (const e of events) {
+    if (e.type === "SYSTEM" && RAID_ENGAGED.test(e.text ?? "")) state.raidUntil = e.t + RAID_MAX_MS;
+    else if (e.type === "bot" && RAID_END.test(e.text ?? "")) state.raidUntil = 0;
     const kill = e.type === "EXPERIENCE_GAIN" && KILL.exec(e.text ?? "");
+    if (kill && e.t <= (state.raidUntil ?? 0)) continue;
     if (kill) out.push({ t: e.t, npc: npcKey(kill[1]), level, outcome: "kill", rule: null });
     else if (e.type === "guard" && LOST.has(e.escape)) {
       const names = new Set([e.npc, ...(e.mobs ?? []).map((m) => m.name)].filter(Boolean).map(npcKey));

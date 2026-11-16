@@ -26,6 +26,20 @@ test("a defeat line is a kill, a guard escape naming its enemy is an escape, and
   ]);
 });
 
+test("a kill inside a raid's fight counts for no group, and the group's next kill does", () => {
+  const events = [
+    { t: T0, type: "SYSTEM", text: "Lord Nagafen is engaged by your raid." },
+    { t: T0 + 20000, type: "EXPERIENCE_GAIN", text: "You have defeated Lord Nagafen and gained 260150 experience!" },
+    { t: T0 + 40000, type: "bot", text: "[bot] note task: raid done; killed Lord Nagafen in 28 s with 71 of 71 standing, looted 7 items" },
+    { t: T0 + 60000, type: "EXPERIENCE_GAIN", text: "You have defeated a lava duct crawler and gained 900 experience!" },
+  ];
+  expect(fightOutcomes(events, 60).map((r) => r.npc)).toEqual(["a lava duct crawler"]);
+  // A tab's events come in batches, and the raid's fight goes on into the next one.
+  const state = {};
+  expect(fightOutcomes(events.slice(0, 1), 60, state)).toEqual([]);
+  expect(fightOutcomes(events.slice(1), 60, state).map((r) => r.npc)).toEqual(["a lava duct crawler"]);
+});
+
 test("an enemy has one key however the game spells its name", () => {
   // The simulator found no "Cazic-Thule" of the daily list among the content's NPCs, so the boss had no kill chance.
   expect(["Cazic-Thule", "#Cazic_Thule", "Cazic Thule"].map(npcKey)).toEqual(["cazic thule", "cazic thule", "cazic thule"]);

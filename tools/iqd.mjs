@@ -2354,7 +2354,7 @@ export class Daemon {
             }
           }
           // Each kill and escape, per enemy, for the kill chances of gear targets (tools/lib/fight-record.mjs).
-          recordFights(this.db, this.groups().get(snap.leader.name) ?? snap.leader.name, fightOutcomes(got.events, snap.leader.level));
+          recordFights(this.db, this.groups().get(snap.leader.name) ?? snap.leader.name, fightOutcomes(got.events, snap.leader.level, (tr.state.fights ??= {})));
         }
         if (!got.more) return true;
       }
