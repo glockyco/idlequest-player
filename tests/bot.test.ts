@@ -1902,7 +1902,7 @@ test("a summoned enemy that is up already sends the member to the fight", async 
     Object.assign(f.runtime, { selectEnemyTarget: () => (pulledReady.push(f.iq.partyFull()), setTimeout(() => ((dead = true), f.say("You have defeated Maligars Enraged Doppleganger, but gain no experience.")), 3000)) });
     const steps = [
       { zone: "qey2hh1", npc: "Maligar", give: ["Note to Maligar"] },
-      { zone: "qey2hh1", kill: "Enraged Doppleganger", waitSec: 120 },
+      { zone: "qey2hh1", kill: "Maligars Enraged Doppleganger", waitSec: 120 },
     ];
     f.bot.quest({ members: ["Tagujazolu"], steps });
     await runToEnd(f);

@@ -175,7 +175,7 @@
       },
       {
         "zone": "lakerathe",
-        "kill": "spirit of flame",
+        "kill": "a spirit of flame",
         "waitSec": 60
       },
       {
@@ -392,7 +392,7 @@
       },
       {
         "zone": "qey2hh1",
-        "kill": "Enraged Doppleganger",
+        "kill": "Maligars Enraged Doppleganger",
         "expect": "Maligar's Head",
         "waitSec": 120
       },
