@@ -33,13 +33,17 @@
     // bot makes room until `targetFreeSlots` are free, so a drop always fits.
     minFreeSlots: 8,
     targetFreeSlots: 16,
-    autoBank: true, // the game's Auto Bank sends crafting ingredients and spell scrolls to the account banks, and the reserve never sells them
+    autoBank: true, // the game's Auto Bank sends crafting ingredients and spell scrolls to the account banks, up to `bankKeep`
     // The courier charges 20 to 30 platinum a visit, and a visit at every cleanup cost 21,000 a day
     // (docs/plans/coin.md). Ingredients stack, so they take few slots, and the courier comes for
     // this many stacks of them, or once in `bankEveryMin` for fewer, or when nothing else makes room.
     bankAtStacks: 12,
     bankEveryMin: 120,
     scrollBankCap: 12, // a scroll the Spell Bank holds this many copies of is sold like other surplus
+    // Copies of an item the account banks keep, beyond which it is sold (`bankKeep` of the
+    // coordinator): gems and the scrolls no merchant sells. With it, every other scroll is sold.
+    bankKeep: null,
+    bankSeller: false, // this tab sells what the account banks hold beyond `bankKeep`
     discard: true, // surplus the client cannot sell (no price, NO DROP or NO RENT) is destroyed; false leaves it in the bags
     // Client options the bot keeps for every character it plays, by the combat store's state key. The
     // client's Auto-Upgrade equips each drop on the looting party only, the leader first, and never
@@ -260,6 +264,9 @@
    * "demand", "reagent", "quest" (a running quest's item under an id the demand does not name) or
    * "bank" (for the courier's next visit). Without a demand (`config.demand` null) every row is kept.
    */
+  // The copies the account banks keep of an item and the copies they hold, by the last hourly read.
+  const bankCap = (id, d) => (config.bankKeep ? (config.bankKeep[id] ?? (d.scrolleffect > 0 ? 0 : Infinity)) : d.scrolleffect > 0 ? config.scrollBankCap : Infinity);
+  const bankHeld = (id, d) => (d.scrolleffect > 0 ? state.spellBank : state.ingredientBank)?.[id] ?? 0;
   const fates = (i, withCursor = false) => {
     const inv = i.stores.character.getState().characterProfile?.inventory ?? [];
     const reagents = new Set((classTable(i)?.spells ?? []).flatMap((s) => s.reagents.map((x) => x.id)));
@@ -278,13 +285,14 @@
       const wanted = !move && demandLeft[r.itemid] > 0 && ((demandLeft[r.itemid] -= row.quantity), true);
       // An item a running quest received under an id the demand does not know (`task.keep`).
       const quest = state.task?.status === "running" && state.task.keep?.includes(r.itemInstanceId);
-      // What the courier banks stays for its next visit: crafting ingredients, and scrolls the
-      // Spell Bank is short of. An item a visit left behind is not the bank's and is surplus.
-      const bank = config.autoBank && !state.unbankable?.[r.itemid] && ((d.tradeskills && !(d.slots > 0)) || (d.scrolleffect > 0 && !((state.spellBank?.[r.itemid] ?? 0) >= config.scrollBankCap)));
+      // What the courier banks stays for its next visit: crafting ingredients and scrolls, up to
+      // the copies the banks keep (`bankCap`). An item a visit left behind is not the bank's and is surplus.
+      const bankable = (d.tradeskills && !(d.slots > 0)) || d.scrolleffect > 0;
+      const bank = config.autoBank && !state.unbankable?.[r.itemid] && bankable && bankHeld(r.itemid, d) < bankCap(r.itemid, d);
       const epic = config.keepIds.includes(r.itemid);
       const why = epic ? "epic" : supply ? "supply" : move ? "move" : wanted ? "demand" : reagents.has(r.itemid) ? "reagent" : quest ? "quest" : bank ? "bank" : null;
       if (why || config.demand == null) out.keep.push({ ...row, why: why ?? "unknown" });
-      else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push(row);
+      else if (d.price > 0 && d.nodrop !== 0 && d.norent !== 0) out.sell.push({ ...row, courier: bankable });
       else out.discard.push(row);
     }
     out.sell.sort((a, b) => a.price * a.quantity - b.price * b.quantity);
@@ -308,6 +316,64 @@
     if (!(await moveSlot(i, { bag: s.bag, slot: s.slot }, { bag: 0, slot: 30 }))) return false;
     return destroyCursor(i);
   };
+  // The Spell Bank's and the Tradeskill Bank's copies, read with the windows' own request once an hour.
+  const readBanks = async (i) => {
+    if (!config.autoBank || now() - (state.spellBankAt ?? 0) < 3600000 || typeof i.query !== "function") return;
+    state.spellBankAt = now();
+    const id = i.stores.character.getState().characterProfile?.id;
+    for (const [kind, key] of [["spells", "spellBank"], ["ingredients", "ingredientBank"]]) {
+      const r = await i.query(1225, { characterId: id, kind, action: "read" }).catch(() => null);
+      if (r?.success) state[key] = Object.fromEntries((r.bankUpdate?.entries ?? []).map((e) => [e.itemId, e.quantity]));
+    }
+  };
+  // Sell the rows `rows` of `fates`, as the reserve does, with the line the coin ledger reads.
+  const sellRows = async (i, rows, max = config.sellPerTick) => {
+    let copper = 0;
+    const sold = [];
+    for (const s of rows.slice(0, max)) {
+      if (rowAt(i, s)?.itemInstanceId !== s.instanceId) break;
+      const r = await sellAt(s.bag, s.slot);
+      if (!r?.success) {
+        log(`sale of ${s.name} at ${s.bag}/${s.slot} stopped: ${r?.message ?? "no reply"}`);
+        break;
+      }
+      copper += r.data?.copperTotal ?? 0;
+      sold.push(s.quantity > 1 ? `${s.quantity} ${s.name}` : s.name);
+      await sleep(400);
+    }
+    if (sold.length) log(`sold ${sold.length} surplus item(s) for ${copper} copper (${sold.join(", ")}); ${i.bagSpace().free} slots free`);
+    return sold.length;
+  };
+  /**
+   * The banks' copies beyond `bankKeep`, sold by the one tab with `bankSeller` once an hour: each
+   * stack is taken out onto the cursor (the bank window's Withdraw), goes into the bags and is sold
+   * from there, a few stacks a run while the bags have room.
+   */
+  const drainBanks = async (i) => {
+    if (!config.bankSeller || !config.bankKeep || now() - (state.drainAt ?? 0) < 3600000) return;
+    if (config.leaderId != null && Number(i.stores.character.getState().characterProfile?.id) !== Number(config.leaderId)) return;
+    if (typeof i.bankWithdraw !== "function" || i.bagSpace().cursor || i.bagSpace().free < config.minFreeSlots) return;
+    state.drainAt = now();
+    state.spellBankAt = 0;
+    await readBanks(i);
+    const over = [];
+    for (const [kind, key] of [["spells", "spellBank"], ["ingredients", "ingredientBank"]]) {
+      for (const [id, n] of Object.entries(state[key] ?? {})) {
+        const keep = config.bankKeep[id] ?? (kind === "spells" ? 0 : Infinity);
+        if (n > keep) over.push({ kind, key, id: Number(id), n: n - keep, keep });
+      }
+    }
+    let moved = 0;
+    for (const o of over) {
+      if (moved >= 4 || i.bagSpace().free < config.minFreeSlots) break;
+      const taken = await i.bankWithdraw(o.id, o.n, () => settleHeld(i), o.kind).catch((e) => (log(`bank sale: withdrawing item ${o.id} failed: ${e?.message ?? e}`), 0));
+      if (!taken) break;
+      state[o.key][o.id] = o.keep;
+      moved++;
+      await sellRows(i, fates(i).sell.filter((s) => s.id === o.id));
+    }
+    if (moved) log(`bank sale: sold the banks' copies of ${moved} item(s) beyond what they keep, ${over.length - moved} left for the next run`);
+  };
   /**
    * The bag reserve: below `minFreeSlots` free slots, Auto Bank once enough stacks wait for it
    * (`bankAtStacks`, at most every ten minutes, it is a slow courier), then the cheapest loss first
@@ -329,14 +395,11 @@
       space = i.bagSpace();
     }
     if ((!force && now() < state.pauseUntil) || (space.cursor && !withCursor) || space.free >= config.minFreeSlots) return;
-    // The Spell Bank's copies, read with the window's own request once an hour, for `scrollBankCap`.
-    if (config.autoBank && now() - (state.spellBankAt ?? 0) > 3600000 && typeof i.query === "function") {
-      state.spellBankAt = now();
-      const r = await i.query(1225, { characterId: i.stores.character.getState().characterProfile?.id, kind: "spells", action: "read" }).catch(() => null);
-      if (r?.success) state.spellBank = Object.fromEntries((r.bankUpdate?.entries ?? []).map((e) => [e.itemId, e.quantity]));
-    }
-    // The courier's visit (`bankAtStacks`). What it leaves in the bags is not the bank's.
+    await readBanks(i);
+    // The courier's visit (`bankAtStacks`). It takes every ingredient and scroll in the bags, so
+    // the surplus among them is sold first. What it leaves in the bags is not the bank's.
     const visit = async () => {
+      await sellRows(i, fates(i).sell.filter((s) => s.courier));
       const waiting = fates(i).keep.filter((k) => k.why === "bank");
       state.bankAt = now();
       const before = i.bagSpace().free;
@@ -3847,6 +3910,7 @@
     await upkeepIfDue(i);
     await returnCoin(i);
     await keepReserve(i);
+    await drainBanks(i);
     await restoreBags(i);
   };
   const runTick = async () => {

@@ -43,11 +43,11 @@ The unit is an hour of one group's progress (`copyValue` in `tools/lib/acquire.m
 2. The day's casino credit, then one more every four hours while the coin allows, fewer than three credits wait for a raid that kills their boss, and a credit is worth half a group-hour on average over the casino's 30 bosses (`casino` of `DEFAULTS` in `tools/lib/coordinator.mjs`, `creditMean` from the boss pass). Kill odds fights every casino boss for that.
 3. AA ranks from what is above the raid reserve (`AA_POLICY`), the rank that adds most to its group first (`aaPlan`, `aaGain`).
 4. Merchant gear from the hour's loot and sales less the raid budget, or from what the coin holds above 200,000, and never from the raid reserve (`buyBudget`). Crafted jewelry counts as merchant gear ([gear acquisition](gear-acquisition.md), "Ways to get a copy"), and its crafter trains when the coin covers a run of the job over the raid reserve.
-5. A dead leader takes the resurrection that restores most for up to 200 platinum (`rezMaxPp` in `src/bot.js`).
+5. The banks keep 100 of each gem of `data/gems.json`, which a jewelry craft takes from the bank before it buys, and 12 of each scroll no merchant sells. Other scrolls are sold, since the game's Buy Spells buys them, and so is every copy beyond those counts (`bankKeepOf` in `tools/iqd.mjs`, `drainBanks` in `src/bot.js`). Other ingredients stay banked.
+6. A dead leader takes the resurrection that restores most for up to 200 platinum (`rezMaxPp` in `src/bot.js`).
 
 ## Open
 
 - Weigh ranks against credits once coin limits the ranks.
-- The Spell Bank's scrolls: sell the copies nobody can use, or stop banking them.
 - The courier came at every cleanup, about 87 times a day for each group. Ingredients stack and take few slots, so it now comes once enough stacks wait (`bankAtStacks` in `src/bot.js`), and the reserve sells no ingredient meanwhile. Read the ledger's courier line after a day.
 - Larger bags for the leaders are not bought. The reserve sells surplus from where the leader stands, the courier comes by gathered stacks and not by free slots, and the only loot left on corpses is a container, which needs a free general slot whatever the bags hold. So more slots save neither coin nor trips.

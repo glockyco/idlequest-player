@@ -467,6 +467,22 @@ export async function searchInPage(a) {
 }
 
 /** How many of item `a.itemId` the account's Tradeskill Bank holds, through the bridge's `bankCount`. Read-only. */
+/** The group whose tab sells what the account banks hold beyond `bankKeep`. */
+const BANK_SELLER = "G1";
+/**
+ * The copies of an item the account's banks keep (`bankKeep` of src/bot.js): `keep` of each gem of
+ * data/gems.json, which a jewelry craft takes from the bank before it buys, and the Spell Bank's cap
+ * of each scroll no merchant sells. Every other scroll is sold, since the game's Buy Spells buys it.
+ */
+export async function bankKeepOf() {
+  const { rows } = await import("./lib/content.mjs");
+  const gems = JSON.parse(await readFile(new URL("../data/gems.json", import.meta.url), "utf8"));
+  const scrolls = new Set();
+  for await (const i of rows("items")) if (i.scrolleffect > 0) scrolls.add(i.id);
+  for await (const m of rows("merchantlist")) scrolls.delete(m.item);
+  return { ...Object.fromEntries([...scrolls].map((id) => [id, 12])), ...Object.fromEntries(Object.keys(gems.items).map((id) => [id, gems.keep])) };
+}
+
 export async function bankCountInPage(a) {
   return window.iq.bankCount(a.itemId);
 }
@@ -1033,7 +1049,7 @@ export class Daemon {
     // members' copies can cover the account's count while the leader still needs his own.
     const epicIds = Object.values(this.itemModel.epics).flat();
     const piecesOf = (cls) => (this.itemModel.epics[cls] ?? []).flatMap((r) => Object.keys(this.itemModel.epicNeeds.get(r) ?? {}).map(Number));
-    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], keepIds: [...new Set([...epicIds, ...piecesOf(t.members[0].class)])], gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
+    for (const t of tabs) await this.relay.evaluate(t.targetId, call(applySettingsInPage, { s: { demand: shares[t.members[0].name], bankKeep: this.bankKeep ??= await bankKeepOf(), bankSeller: t.group === BANK_SELLER, keepIds: [...new Set([...epicIds, ...piecesOf(t.members[0].class)])], gearKeepInstances: this.gearKeep.instances, tabTitle: `${t.group} ${t.members[0].name} | IdleQuest` } }), { timeout: 10000 }).catch(() => {});
     // Each group's chance against a gear target (docs/plans/gear-acquisition.md, "Kill chance"): the
     // prior fitted to every fight on file, the simulator's fights of its six and the live fights
     // that count at its level, once per pair for the pass. A chain's enemies share the target's name

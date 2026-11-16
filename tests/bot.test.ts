@@ -3173,6 +3173,15 @@ test("the reserve keeps crafting ingredients for the courier, which comes once e
     await clean();
     expect(acts.slice(2)).toEqual(["courier"]);
     expect(f.bot.fates().sell.map((x: { name: string }) => x.name)).toContain("Short Sword of the Ykesha");
+    // With the banks' keep counts a gem the Tradeskill Bank holds enough of is surplus, and the
+    // surplus the courier would take is sold before it comes. A gem the bank lacks waits for it.
+    inv.push(item(2, 3, "Star Ruby", 100, { tradeskills: 1 }), item(3, 4, "Sapphire", 100, { tradeskills: 1 }));
+    Object.assign(f.bot.config, { bankKeep: { 3: 100, 4: 100 }, bankAtStacks: 1 });
+    f.bot.state.ingredientBank = { 3: 100, 4: 99 };
+    f.bot.state.bankAt = Date.now() - 11 * 60000;
+    const before = acts.length;
+    await clean();
+    expect(acts.slice(before)).toEqual(["sell Star Ruby", "sell Short Sword of the Ykesha", "courier"]);
   } finally {
     vi.useRealTimers();
   }

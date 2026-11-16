@@ -1807,29 +1807,25 @@
    * Sell item `itemId` out of the Tradeskill Bank as the bank window's Sell ("one") and Sell Stack
    * ("stack", the whole quantity) buttons do. Resolves with `{ quantity, pp }`, what a merchant paid.
    */
-  const bankSell = async (itemId, mode = "stack") => {
-    const r = await socket.sendJsonRequest(1102, 1103, { itemId, mode }, 20000);
-    if (!r?.success) throw new Error(`the bank sale failed: ${r?.error ?? "no reply"}`);
-    return { quantity: r.quantity ?? 0, pp: (r.platinum ?? 0) + (r.gold ?? 0) / 10 + (r.silver ?? 0) / 100 + (r.copper ?? 0) / 1000 };
-  };
   /** How many of item `itemId` the account's Tradeskill Bank holds. */
   const bankCount = async (itemId) => {
     const bank = await query(1225, { characterId: stores.character.getState().characterProfile.id, kind: "ingredients", action: "read" });
     return (bank?.bankUpdate?.entries ?? []).filter((e) => e.itemId === itemId).reduce((s, e) => s + (e.quantity ?? 1), 0);
   };
   /**
-   * Take `quantity` of item `itemId` out of the Tradeskill Bank, each withdrawal onto the cursor
-   * and where `settle` puts it. The cursor takes a whole stack of a stackable item and one of any
+   * Take `quantity` of item `itemId` out of the Tradeskill Bank (`kind` "ingredients") or the Spell
+   * Bank ("spells"), each withdrawal onto the cursor as the bank window's Withdraw does, and where
+   * `settle` puts it. The cursor takes a whole stack of a stackable item and one of any
    * other, and the server's refusal names that limit ("Choose between 1 and 1 items for the
    * cursor"), which then sizes the withdrawals. Resolves with the number taken.
    */
-  const bankWithdraw = async (itemId, quantity, settle) => {
+  const bankWithdraw = async (itemId, quantity, settle, kind = "ingredients") => {
     const id = () => stores.character.getState().characterProfile.id;
     let taken = 0;
     for (let most = quantity; taken < quantity; ) {
       const n = Math.min(most, quantity - taken);
-      const bank = await query(1225, { characterId: id(), kind: "ingredients", action: "read" });
-      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: id(), kind: "ingredients", action: "withdrawToCursor", itemId, quantity: n, revision: bank?.revision }, 10000);
+      const bank = await query(1225, { characterId: id(), kind, action: "read" });
+      const w = await socket.sendCorrelatedJsonRequest(1225, 1225, { characterId: id(), kind, action: "withdrawToCursor", itemId, quantity: n, revision: bank?.revision }, 10000);
       if (!w?.success) {
         const limit = Number(/Choose between 1 and (\d+) items/.exec(w?.error ?? "")?.[1]);
         if (limit >= 1 && limit < n) {
@@ -2064,7 +2060,6 @@
     craftItem,
     bankCount,
     bankWithdraw,
-    bankSell,
     combineInContainer,
     sellCursor,
     placeCursor,
