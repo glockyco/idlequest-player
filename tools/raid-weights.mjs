@@ -19,7 +19,7 @@
 // boss's hit points the raid took, plus for a kill the share of the time limit it left. A weight is
 // the mean change of the score against the baseline fight of the same seed, per point and per member
 // of the role, with its standard error.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { readFile } from "node:fs/promises";
 import { findBoss, bossSpec } from "./raidsim/boss.mjs";
@@ -100,10 +100,11 @@ log(`${bossIds.length} bosses × ${variants.length} variants × ${seeds} seeds, 
 
 const results = [];
 const baselines = {};
-// Written after every boss, so a run cut short keeps the bosses it finished.
-const save = () => {
-  mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, `${JSON.stringify({ t: Date.now(), seeds, bosses: bossIds, orders: RAID_MODES, probes: PROBES, baselines, results }, null, 2)}\n`);
+// Written after every boss beside the weights file, so a run cut short keeps the bosses it
+// finished, and moved over it at the end, so the gear pass never reads a part of a run.
+const save = (file) => {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ t: Date.now(), seeds, bosses: bossIds, orders: RAID_MODES, probes: PROBES, baselines, results }, null, 2)}\n`);
 };
 for (const npc of bossIds) {
   const boss = await bossSpec(await findBoss(npc));
@@ -122,6 +123,8 @@ for (const npc of bossIds) {
     results.push({ boss: name, npc, role: v.role, probe: v.probe, members: v.members, shift, ...w });
     log(`${name} ${v.label}: ${w.perPoint.toExponential(2)} ± ${w.se.toExponential(2)} per point and member, stats ${JSON.stringify(shift)}`);
   }
-  save();
+  save(`${out}.partial`);
 }
+save(out);
+rmSync(`${out}.partial`, { force: true });
 log(`wrote ${out}`);
