@@ -215,6 +215,11 @@ test("a quest's fight goes to the raid when the simulated raid kills an enemy th
   // Raid mode takes enemies above level 50 and a leader of 46.
   expect(run(50, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) })).toEqual([]);
   expect(run(62, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }) }, 45)).toEqual([]);
+  // Short of the raid reserve the quest waits, unless paid raid time outlasts its raid.
+  const poor = { pp: 5000, credits: 0 };
+  expect(run(62, { raid, raidKill: () => true, killChance: () => ({ p: 0.2 }), coin: poor })).toEqual([]);
+  expect(run(62, { raid: { ...raid, paidUntil: NOW + 10 * 60000 }, raidKill: () => true, killChance: () => ({ p: 0.2 }), coin: poor })).toEqual([]);
+  expect(run(62, { raid: { ...raid, paidUntil: NOW + 40 * 60000 }, raidKill: () => true, killChance: () => ({ p: 0.2 }), coin: poor })).toHaveLength(1);
 });
 
 test("a chain whose reward a later chain takes stays done", () => {

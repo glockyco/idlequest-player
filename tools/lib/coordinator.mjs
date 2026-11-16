@@ -48,6 +48,8 @@ export const DEFAULTS = {
   questRaidLevel: 57,
   // Coin below which no quest starts a raid or a craft job runs (`RAID_RESERVE_PP`).
   questRaidReservePp: RAID_RESERVE_PP,
+  // Minutes of paid raid time a quest's raid needs left to run without the reserve.
+  questRaidPaidMin: 25,
 };
 
 /**
@@ -551,8 +553,10 @@ export function decide({ now, tabs, stock = {}, stoneXp = {}, opportunities = []
       if (tooStrong.length) { no(t, `the group's chance against ${tooStrong.map((s) => `${s.kill}${s.adds?.length ? ` and what its death brings` : ""} is ${Math.round(100 * chance(s))}%`).join(", ")}, and the raid does not take ${tooStrong.length > 1 ? "them" : "it"}`); continue; }
       const steps = q.steps.some(byRaid) ? q.steps.map((s) => (byRaid(s) ? { ...s, raid: true } : s)) : q.steps;
       // A raid buys an hour of raid time when none is paid, so a quest with one waits for the
-      // account's reserve, as one more casino credit does.
-      if (steps !== q.steps && coin && coin.pp < cfg.questRaidReservePp) { no(t, `its fights are the raid's, and the account holds ${Math.round(coin.pp)} of the ${cfg.questRaidReservePp} platinum a raid waits for`); continue; }
+      // account's reserve, as one more casino credit does. Paid time that outlasts the quest's
+      // raid (`questRaidPaidMin`) costs it nothing.
+      const paidLeft = (raid?.paidUntil ?? 0) - now;
+      if (steps !== q.steps && coin && coin.pp < cfg.questRaidReservePp && !(paidLeft > cfg.questRaidPaidMin * 60000)) { no(t, `its fights are the raid's, and the account holds ${Math.round(coin.pp)} of the ${cfg.questRaidReservePp} platinum a raid waits for`); continue; }
       if (!free(t)) { no(t, `it would run for ${who.join(", ")}`); continue; }
       for (const [p, n] of left) spare.set(p, n);
       out.push({ label: t.label, kind: "quest", id, spec: { members: who, steps, name: id, ...(steps !== q.steps ? { raid } : {}), ...(Object.keys(timed).length ? { timed } : {}), ...(q.ids ? { ids: q.ids } : {}), ...(q.needs?.length ? { avoid: needers.filter((n) => !who.includes(n)) } : {}), ...spareOf(who) }, why: `${q.reward ? `${q.reward} (${id})` : id} for ${who.join(", ")}` });

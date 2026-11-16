@@ -1060,7 +1060,7 @@ export class Daemon {
     const coin = purse && now - purse.t < 1800000 ? { pp: purse.pp, credits: (lastPlan?.creditsDue ?? lastPlan?.credits ?? 0) + (lastPlan?.standing?.length ?? 0), ...(lastPlan?.creditMean != null ? { creditMean: lastPlan.creditMean } : {}) } : null;
     const input = { now, tabs, stock, stoneXp, opportunities: opportunities.map((o) => ({ ...o, points: this.points.get(o.id) })), missing, carriedBy, farms, quests, holders, started, have, own, gear, held, history: state.history, code: this.code, targets: huntable, crowded: crowdedZones(tabs, now), points: Object.fromEntries(huntable.map((x) => [targetId(x), this.points.get(targetId(x))])), hoursPerLevel, killsPerHour: this.killsPerHour, killChance, coin, xpFactor,
       // A quest's fight the raid wins: the roster and the orders of a boss raid, and whether the simulated raid kills a step's enemy.
-      raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
+      raid: { members: [...groupOf.keys()], maxPp: lastPlan?.price ?? 0, paidUntil: this.raidPaidUntil ?? 0, heal: RAID_MODES.heal, nuke: RAID_MODES.nuke, revive: RAID_MODES.revive, rods: RAID_MODES.rods },
       raidKill: (s) => killable(odds?.odds?.[`${s.zone}|${npcKey(s.kill)}`]?.raid),
       crafts,
       resumeAt,
@@ -1536,6 +1536,7 @@ export class Daemon {
     const value = bossValues({ bosses: candidates, targets: this.targetWants, hoursPerLevel });
     // Raid time that still runs for five minutes carries one more raid without a new hour.
     const paid = Boolean(st.time?.active && st.time.expiresAt - now > 5 * 60000);
+    this.raidPaidUntil = st.time?.active ? st.time.expiresAt : 0;
     const hours = raidHours(metaGet(this.db, "raidHours") ?? [], st.time, now);
     metaSet(this.db, "raidHours", hours);
     // The account's coin decides whether an open-world boss buys an hour. Every
