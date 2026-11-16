@@ -2310,18 +2310,34 @@
         }), 300000);
       }
       // `forage: { tries, everySec }`: forage until the member carries `expect`. Other finds go
-      // where `settleHeld` puts them.
+      // where `settleHeld` puts them. A member's bags have no reserve, so full ones send their
+      // ingredients to the tradeskill bank once (`autoBank`), and a find that still finds no room
+      // ends the step.
       if (s.forage) {
         const want = ref(s.expect);
         const found = {};
+        let banked = false;
+        const free = () => i.bagSpace().free > 0 && !i.bagSpace().cursor;
+        const room = async () => {
+          if (i.bagSpace().cursor) await settleHeld(i);
+          if (free() || banked) return free();
+          banked = true;
+          log(`quest: ${m.name}'s bags are full, so the courier takes their ingredients to the tradeskill bank`);
+          await autoBank().catch((e) => log(`quest: auto bank failed: ${e?.message ?? e}`));
+          await sleep(8000);
+          if (i.bagSpace().cursor) await settleHeld(i);
+          return free();
+        };
         await step(`forage for ${s.expect}`, async () => {
           for (let k = 0; k < (s.forage.tries ?? 30) && i.carried(want) < 1; k++) {
             if (task.status !== "running") throw new TaskStopped();
+            if (!(await room())) throw new Error(`${m.name}'s bags have no room for a forage${i.bagSpace().cursor ? `, and ${i.bagSpace().cursor} waits on the cursor` : ""}`);
             const r = await i.forage();
             const line = r.lines.find((l) => /forag|find|found/i.test(l ?? ""));
-            if (r.cursor) found[r.cursor] = (found[r.cursor] ?? 0) + 1;
+            const got = /^You forage (.+?)\.?$/.exec(line ?? "")?.[1] ?? null;
+            if (got) found[got] = (found[got] ?? 0) + 1;
             if (r.cursor) await settleHeld(i);
-            if (k === 0 || r.cursor) log(`quest: ${m.name} foraged in ${zoneShort(i)}: ${r.cursor ?? "nothing"}${line ? ` (${line.slice(0, 80)})` : ""}`);
+            if (k === 0 || got) log(`quest: ${m.name} foraged in ${zoneShort(i)}: ${got ?? "nothing"}${line ? ` (${line.slice(0, 80)})` : ""}`);
             if (i.carried(want) < 1) await sleep(Math.max(0, (s.forage.everySec ?? 30) * 1000 - 5000));
           }
           log(`quest: ${m.name}'s forage in ${zoneShort(i)} found ${Object.entries(found).map(([k, n]) => `${n} ${k}`).join(", ") || "nothing"}`);
