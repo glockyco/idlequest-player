@@ -42,7 +42,7 @@ Quest steps pull the pieces they need from any account character when they run (
 
 Hand-in rewards (XP, coin and items) are read from the scripts. An item a hand-in pays for is kept in every copy while a coordinator task hands it in, because without the task the copies only fill bags. The XP the coordinator reports for a lightstone batch comes from the same edges.
 
-Gear has two kits, because leveling value (XP rate) and raid value (a boss fight's outcome) have no measured exchange rate. The leveling kit is scored by `xpGain` and worn while hunting. The raid kit is scored by the raid simulator, which runs the client's own code for clicks, procs, focus effects and resists that the leveling score leaves out: kill chance first, then mean kill time. Its target is the coordinator's next planned raid, and until raid planning exists, the goal bosses the simulator says are closest to a kill. The demand keeps both kits' copies. The item task swaps the raid kit in before a raid and back after it, only when the simulator says the raid kit changes the outcome.
+Gear has one kit, scored raids first (`gearGain`, docs/plans/gear-acquisition.md): what an item adds to the raid's result against the hard bosses, by stat weights the raid simulator measures per role (`tools/raid-weights.mjs`), and a quarter of what it adds to its group's XP rate. One kit needs no swap around each raid. The raid simulator runs the client's own code for clicks, procs, focus effects and resists, and the weights carry only what its probes measure: HP, AC, resists, mana and attack. `tools/raid-kit.mjs` checks the kit against one boss in full fights.
 
 ## Migration
 
@@ -53,7 +53,7 @@ Gear has two kits, because leveling value (XP rate) and raid value (a boss fight
 | 3 | One held-item routine in the bot (`settleHeld`), cursor and raid loot primitives in the bridge (`placeCursor`, `giveCursor`, `raid.loot`), passed to the bridge's actions as `settle`. | `clearCursorAfterTrade`, `collectLoot`'s placement, and the auto-place in `giveItem` and `craftItem` | Done |
 | 4 | Kept copies stored with party members by the bag reserve, and raid loot given straight to its recipient with the raid window's Give Item and Equip Item. | Kept items alone filling a leader's bags | Under way: the store step is in, the raid recipient waits for the raid kit |
 | 5 | Hand-in reward values from the scripts, for the hand-ins a coordinator task runs. | `keepItemIds`, the coordinator's hand-written `STONE_XP` | Done |
-| 6 | The raid kit: simulator values for raid gear, its copies in the demand and the swap around a raid. | Raid drops rated sell | Open |
+| 6 | Raid value for gear: stat weights from the raid simulator in the gear plan's gain. | Raid drops rated sell | Under way: the weights and the gain are in |
 
 ## Checks
 

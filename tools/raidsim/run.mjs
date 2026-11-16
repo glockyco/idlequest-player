@@ -17,13 +17,14 @@ let compact;
 
 /**
  * Fights every variant of a roster against `boss` (`bossSpec` in boss.mjs), `seeds` fights each
- * with the seeds `seedBase` up (a variant's own `seedBase` wins). `variants`: `[{ label, entries, seedBase? }]`, roster entries as roster.mjs
+ * with the seeds `seedBase` up (a variant's own `seedBase` wins). `variants`: `[{ label, entries, seedBase?, items? }]`, roster entries as roster.mjs
  * takes them (`rosterEntries`), normalized here with `level`, `gear`, `farmHours` and `resolve`
  * (the options of `normalizeEntries`). `jobs` fights run at once, `onProgress(done, total)` hears
  * each finished fight, and `trace` is a member index or name whose first fight in the first variant
  * is traced. The client build comes from the RAIDSIM_CLIENT environment variable.
  * Returns `[{ label, roster, summary, fights }]` in the order of `variants`, `roster` being the
- * normalized members.
+ * normalized members. A variant's `items` (item id to content row) holds rows its entries wear
+ * that the content snapshot lacks, such as tools/raid-weights.mjs's probe copies.
  */
 export async function simulate({ boss, variants, level = 60, gear, farmHours, resolve, seeds = 20, seedBase = 1, maxSec = 900, dpsMode = "dps-all-out", healMode = "clr-balanced", revive = "off", rods = "off", jobs = DEFAULT_JOBS, onProgress, trace }) {
   const options = { gear, farmHours, resolve };
@@ -38,7 +39,7 @@ export async function simulate({ boss, variants, level = 60, gear, farmHours, re
   const queue = [];
   for (const [v, members] of rosters.entries()) {
     const items = {};
-    for (const m of members) for (const id of Object.values(m.equipped)) items[id] ??= itemRows.get(id);
+    for (const m of members) for (const id of Object.values(m.equipped)) items[id] ??= variants[v].items?.get(id) ?? itemRows.get(id);
     for (let s = 0; s < seeds; s++) queue.push({ variant: v, job: { members, boss, items, compact, seed: (variants[v].seedBase ?? seedBase) + s, maxSec, dpsMode, healMode: healMode === "off" ? null : healMode, revive, rods, trace: v === 0 && s === 0 ? traceIndex : undefined } });
   }
 

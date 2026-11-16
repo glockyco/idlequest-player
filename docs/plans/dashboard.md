@@ -59,7 +59,7 @@ iqd records observed progress in the `progress` table (`tools/lib/progress.mjs`)
 - An item shows as its icon and name with the game's item window on hover, and an upgrade shows the replaced item's icon before the new one, or an empty box for a slot that was empty. Rows record item ids, the loot line's from its loot packet, and the cards come from the card store (`tools/lib/cards.mjs`), which the sheet and Most wanted read too.
 - The bars' green numbers count levels, gear slots, wanted items, finished chains and AA ranks over the last 24 hours. Minor steps do not count.
 - `iqd status` prints the Progress 24-hour counts and the latest milestone. Its raid count includes repeat kills.
-- Gear gains in Progress and the character sheet, and drop gains in Most wanted, are percentages of the group's XP rate, not percentages of an item's score. Gear score bars separately compare the worn set with its target.
+- Gear gains in Progress and the character sheet, and drop gains in Most wanted, are percentages of the gear plan's gain (`gearGain`): the raid's score for all twelve groups and a quarter of the group's XP rate, not percentages of an item's score. The character sheet says so once. Gear score bars separately compare the worn set with its target.
 
 ## Text on the page
 

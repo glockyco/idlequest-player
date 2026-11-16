@@ -493,9 +493,16 @@ test("AC and HP count by the share of the party's hits their wearer takes, and a
   expect(hitShares([{ group: "G1", taken: { total: 1000, minutes: 30, by: {} } }], new Map([["G1", ["Tank"]]])).size).toBe(0);
   const cloak = [{ ac: 8, hp: 35 }];
   const tank = { cls: "shadowknight", level: 59, pool: 1800, recovery: { share: 0.05, regen: 0 }, hits: 0.7 };
-  // A member that takes few hits or none keeps the sixth that stands for a raid's damage.
-  expect(setValue(cloak, tank)).toBeCloseTo(4.2 * setValue(cloak, { ...tank, hits: 0 }));
-  expect(setValue(cloak, { ...tank, hits: 0 })).toBeCloseTo(setValue(cloak, { ...tank, hits: undefined }));
+  // A member that takes no hits gains no survival from farming, and one not measured counts a sixth.
+  expect(setValue(cloak, { ...tank, hits: 0 })).toBe(0);
+  expect(setValue(cloak, { ...tank, hits: undefined })).toBeCloseTo(setValue(cloak, tank) / 4.2);
+  // Raids come first: farming takes the mana that shortens the rests, the raid's weights the HP.
+  const hpRing = [{ hp: 50 }];
+  const manaRing = [{ mana: 200 }];
+  expect(setValue(manaRing, tank)).toBeGreaterThan(setValue(hpRing, tank));
+  const raider = { ...tank, raid: { melee: 0, hp: 0.05, ac: 0, resists: 0, mana: 0 } };
+  expect(setValue(hpRing, raider)).toBeGreaterThan(setValue(manaRing, raider));
+  expect(Object.keys(gainParts(raider, manaRing, hpRing))).toContain("raid");
   // Mana for armor: the rests get shorter and survival falls, and melee and spells stay out.
   const parts = gainParts(tank, cloak, [{ ac: 4, aint: 4 }]);
   expect(Object.keys(parts).sort()).toEqual(["rest", "survival"]);

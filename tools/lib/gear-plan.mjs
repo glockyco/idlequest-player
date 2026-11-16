@@ -4,12 +4,15 @@
 // items that are an upgrade for someone, which nothing may sell. tools/iqd.mjs runs it in the
 // coordinator and queues the moves as a gear task (`iqBot.gear`), tools/handdown.mjs prints it.
 //
-// Every gain is in tenths of a percent of the wearer's group's XP rate (`xpGain`): what armor and
-// jewelry add to the wearer's melee and spells (`outputValue` in tools/lib/gear-data.mjs), weighed by
-// its measured share of the party's damage, and what they save the party, with the client's caps on haste and
-// regeneration. The main hand is ranked by `weaponRatio` (damage capped at the level's limit over delay,
-// the client's flat main-hand bonus and proc damage), for Monks too, whose fists a weapon replaces (docs/client-internals.md,
-// Melee damage). A Rogue's main hand stays a piercer for Backstab.
+// Every gain is `gearGain`'s: what an item adds to the raid against the hard bosses (`raidValue`,
+// by stat weights the raid simulator measured) for all twelve groups, plus a quarter of what it adds
+// to its group's farming (`xpGain`), both in tenths of a percent of a rate. The farming part is what
+// armor and jewelry add to the wearer's melee and spells (`outputValue` in tools/lib/gear-data.mjs),
+// weighed by its measured share of the party's damage, and what they save the party, with the
+// client's caps on haste and regeneration. The main hand is ranked by `weaponRatio` (damage capped
+// at the level's limit over delay, the client's flat main-hand bonus and proc damage), for Monks
+// too, whose fists a weapon replaces (docs/client-internals.md, Melee damage). A Rogue's main hand
+// stays a piercer for Backstab.
 //
 // The off hand (docs/client-internals.md, Off hand and dual wield) takes a shield for its stats, or
 // for a class with Dual Wield at its level a one-hander that swings with the chance `offhandChance`,
@@ -21,7 +24,8 @@
 // hand and the off hand it would empty (`clears`), and a character that holds a two-hander is
 // offered a main hand together with an off hand (`pairOffer`), since neither half has to pay alone.
 import { copyHours, elasticity } from "./acquire.mjs";
-import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
+import { BIT, CLASS_KEYS, MELEE_SHARE, RACE, SLOT_BY_NUM, damagePctPerOffense, groupOf, offhandChance, outputValue, slotName, weaponRatio } from "./gear-data.mjs";
+import { roleOf } from "./raid-weights.mjs";
 import { RAID_RESERVE_PP } from "./coin.mjs";
 
 export const ARMOR_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19, 20];
@@ -77,8 +81,51 @@ export const xpGain = (ch, p) => {
   const w = damageWeights(p);
   return w.melee * ch.melee + w.spells * ch.spells + ch.party;
 };
+/**
+ * Raids come first: gear is worth what it adds to the raid, counted for all twelve groups since the
+ * raid is the whole account (`RAID_SCALE`), and a quarter of what it adds to its group's farming
+ * (`FARM_WEIGHT`), so farming decides between items the raid values alike and an upgrade the raid
+ * cannot see still counts. A person without raid weights counts farming in full.
+ */
+export const RAID_SCALE = 12;
+export const FARM_WEIGHT = 0.25;
+/** The weight of a person's farming value: `FARM_WEIGHT` beside raid weights, else 1. */
+export const farmWeight = (p) => (p.raid ? FARM_WEIGHT : 1);
+/**
+ * What a person's channels (`outputValue`) add to the raid, in tenths of a percent of the raid's
+ * score against the hard bosses: its melee channel and raid stats times the person's raid weights
+ * (`p.raid`, from `raidWeights`), 0 without them.
+ */
+export const raidValue = (ch, p) => {
+  const w = p.raid;
+  if (!w) return 0;
+  return w.melee * ch.melee + w.hp * ch.raid.hp + w.ac * ch.raid.ac + w.resists * ch.raid.resists + w.mana * ch.raid.mana;
+};
+/** The gear plan's gain for channels: the raid's value by `RAID_SCALE` and the farming value (`xpGain`) by `farmWeight`. */
+export const gearGain = (ch, p) => RAID_SCALE * raidValue(ch, p) + farmWeight(p) * xpGain(ch, p);
+/**
+ * A person's raid weights from a run of tools/raid-weights.mjs (`doc`, runs/state/raid-weights.json):
+ * per point of HP, AC, resists and mana, and per tenth of a percent of melee (`outputValue`'s
+ * `melee`, through attack's), in tenths of a percent of the raid's score. Each boss's weight is
+ * over its baseline score, the bosses count alike, and a weight below 0, which is noise, counts 0.
+ * Null without results for the person's role.
+ */
+export function raidWeights(doc, cls, level) {
+  const role = roleOf(CLASS_KEYS.indexOf(cls));
+  const rows = (doc?.results ?? []).filter((r) => r.role === role && doc.baselines?.[r.npc] > 0);
+  if (!rows.length) return null;
+  const of = (probe) => {
+    const xs = rows.filter((r) => r.probe === probe).map((r) => (1000 * r.perPoint) / doc.baselines[r.npc]);
+    return xs.length ? Math.max(0, xs.reduce((a, b) => a + b, 0) / xs.length) : 0;
+  };
+  return { melee: of("attack") / (10 * damagePctPerOffense(level)), hp: of("hp"), ac: of("ac"), resists: of("resists"), mana: of("mana") };
+}
 /** A weapon's gain: the change in its melee value over what it swings now, as a melee percent weighed like armor's. */
-const meleeGain = (delta, now, p) => (now > 0 ? (damageWeights(p).melee * 1000 * delta) / now : 0);
+const meleeGain = (delta, now, p) => {
+  if (!(now > 0)) return 0;
+  const pct = (1000 * delta) / now;
+  return RAID_SCALE * (p.raid?.melee ?? 0) * pct + farmWeight(p) * damageWeights(p).melee * pct;
+};
 
 // Item kinds for Inventory Search, which matches names anywhere and lists at most 200 rows.
 const KINDS = ["Bracer", "Ring", "Mask", "Cloak", "Cape", "Boots", "Shoes", "Gloves", "Gauntlets", "Helm", "Cap", "Robe", "Tunic", "Breastplate", "Leggings", "Pants", "Sleeves", "Vambraces", "Belt", "Girdle", "Earring", "Necklace", "Amulet", "Choker", "Shield", "Sword", "Dagger", "Staff", "Mace", "Axe", "Spear", "Bow", "Hammer", "Club", "Wand", "Mantle", "Shoulder", "Collar", "Veil", "Band", "Stud", "Armor", "Coif", "Skullcap", "Wristband", "Greaves", "Jerkin", "Shirt", "Hood", "Scimitar", "Blade", "Rapier", "Flail", "Warhammer", "Knife", "Fist", "Totem", "Idol", "Charm", "Medallion", "Pendant", "Bandolier", "Sash", "Gorget", "Brooch", "Torque", "Circlet", "Crown"];
@@ -126,18 +173,20 @@ export function rosterPeople(survey, groupOf, raceOf) {
   return [...people.values()];
 }
 
-/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, room?, hits?, shares? }`), in `xpGain`'s unit. */
-export const setValue = (items, p) => xpGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room, hits: p.hits }), p);
+/** The value of a set of worn armor and jewelry for a person (`{ cls, level, pool?, recovery?, room?, hits?, shares?, raid? }`), in `gearGain`'s unit. */
+export const setValue = (items, p) => gearGain(outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room, hits: p.hits }), p);
 
 /**
- * What a change of worn armor from `before` to `after` gains a person by channel, in `xpGain`'s
- * unit: melee and spell damage by the wearer's share, the rests it shortens and survival. The
- * channels that do not change are left out, so a swap that trades one for another shows it.
+ * What a change of worn armor from `before` to `after` gains a person by channel, in `gearGain`'s
+ * unit: the raid's value, and for farming melee and spell damage by the wearer's share, the rests
+ * it shortens and survival. The channels that do not change are left out, so a swap that trades
+ * one for another shows it.
  */
 export function gainParts(p, before, after) {
   const [a, b] = [before, after].map((items) => outputValue(items, p.cls, p.level, { pool: p.pool, recovery: p.recovery, room: p.room, hits: p.hits }));
   const w = damageWeights(p);
-  const parts = { melee: w.melee * (b.melee - a.melee), spells: w.spells * (b.spells - a.spells), rest: b.rest - a.rest, survival: b.survival - a.survival };
+  const f = farmWeight(p);
+  const parts = { raid: RAID_SCALE * (raidValue(b, p) - raidValue(a, p)), melee: f * w.melee * (b.melee - a.melee), spells: f * w.spells * (b.spells - a.spells), rest: f * (b.rest - a.rest), survival: f * (b.survival - a.survival) };
   return Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, Math.round(v * 100) / 100]).filter(([, v]) => v !== 0));
 }
 
@@ -339,7 +388,7 @@ export const fits = (item, p, slot) =>
  * slot the best such reward. Their pieces join the targets with `slot` "quest", as an epic's do.
  * `drops` lists for each character the best drop per slot that beats what it wears after the moves
  * by `2 * minGain`, the dropped items worth hunting for. Every gain, of armor and of weapons, is in
- * `xpGain`'s unit, tenths of a percent of the wearer's group's XP rate, and `minGain` is 0.05% of it.
+ * `gearGain`'s unit, and `minGain` is 0.05% of it.
  * `characters` has one entry per person for the dashboard, `{ name, cls, level, score: { now, moves,
  * target }, slots: [{ slotNum, slot, worn, move, drop }] }`: the set score of the armor and jewelry
  * worn now (`setValue`, a weapon for its stats, plus a Bard's walk value), after this pass's moves, and after the moves and every wanted drop; and for each
@@ -364,8 +413,8 @@ export function planGear({ survey, items, people, minGain = 0.5, shop = [], buyP
 
   // A character's worn items by the set score, a weapon for its stats as well, since its swings
   // count apart (`meleeGain`), plus for a Bard the walk its percussion instrument, worn or in the
-  // bags, speeds up.
-  const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s) || s === PRIMARY || s === SECONDARY).map(([, i]) => i), p) + (p.cls === "bard" ? walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
+  // bags, speeds up, which is farming value.
+  const value = (p, mine, bag = bags.get(p.name) ?? []) => setValue([...mine].filter(([s]) => ARMOR_SLOTS.includes(s) || s === PRIMARY || s === SECONDARY).map(([, i]) => i), p) + (p.cls === "bard" ? farmWeight(p) * walkValue(percussionMod([...mine.values()], bag), p.walk) : 0);
   // What one copy is worth to one character in one slot, against what it wears now.
   const offer = (r, p, { mine = worn.get(p.name), min = minGain } = {}) => {
     const item = items.get(r.itemId);

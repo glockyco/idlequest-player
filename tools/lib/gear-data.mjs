@@ -75,21 +75,22 @@ export const MELEE_SHARE = { melee: 1, hybrid: 0.5, priest: 0, caster: 0 };
  *   of the maximum per 600 ms times 1 + min(regen / 50, 1), so a rest lasts the share of the bar a
  *   fight spent over that rate; and survival, AC and HP (STA at about 6 HP a point at 60) at the
  *   leveling model's 0.5% per 100 for the member that takes the hits (leveling plan, lever 7),
- *   by the wearer's share of the damage its party takes (`hits`, from `hitShares`) and at least one
- *   sixth, which stands for the damage a raid deals everyone. It undervalues them for raids until
- *   the raid model weighs them. `rest` and `survival` are the two parts of `party`.
+ *   by the wearer's share of the damage its party takes (`hits`, from `hitShares`, else one sixth).
+ *   `rest` and `survival` are the two parts of `party`;
+ * - `raid`, the stats the raid value weighs (`raidValue` in tools/lib/gear-plan.mjs): HP with STA's,
+ *   AC, the five resists summed, and for a caster the mana `spells` counts.
  * The gear plan weighs `melee` and `spells` by the wearer's share of the party's damage (`xpGain` in
  * tools/lib/gear-plan.mjs). A worn effect (`wornEffects` from `attachEffects`) adds its stats, haste,
  * regeneration, HP and mana like the item's own fields, and a spell focus (`focusEffects`) its best
- * mana cost reduction, spell damage and spell haste percent. Resists and the stats the client does
- * not use for this class count for nothing. The client caps each stat at 255 with base, buffs and
+ * mana cost reduction, spell damage and spell haste percent. The stats the client does not use for
+ * this class count for nothing. The client caps each stat at 255 with base, buffs and
  * gear together (`Za`), so with `room` (`{ STR, STA, INT, WIS }`, what the cap leaves the wearer's
  * gear, `statRoom` in tools/iqd.mjs) gear counts a stat only up to its room.
  */
 /** The most haste, in percent, that items, buffs and songs give together at `level` (`PEe` in the client of 2026-11-15). */
 export const hasteCap = (level) => (level <= 30 ? 50 : level <= 50 ? 74 : level <= 54 ? 84 : level <= 59 ? 94 : 100);
 export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}) => {
-  let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0;
+  let str = 0, atk = 0, mana = 0, stat = 0, haste = 0, manaregen = 0, ac = 0, hp = 0, sta = 0, resists = 0;
   // A spell focus counts its best item per kind, as the client takes the best (`Z1`).
   const focus = { 124: 0, 127: 0, 132: 0 };
   const statSpa = WIS_CLASSES.has(c) ? 9 : 8;
@@ -104,6 +105,7 @@ export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}
     ac += i.ac ?? 0;
     hp += i.hp ?? 0;
     sta += i.asta ?? 0;
+    resists += (i.fr ?? 0) + (i.cr ?? 0) + (i.mr ?? 0) + (i.pr ?? 0) + (i.dr ?? 0);
     // A worn effect adds to the item fields by the spell's effects (`kd` in the client), only once
     // the wearer has the item's required level (`HE`).
     if (i.wornEffects && level >= (i.reqlevel ?? 0)) {
@@ -117,6 +119,7 @@ export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}
         else if (spa === 15) manaregen += value;
         else if (spa === 69) hp += value;
         else if (spa === 97) mana += value;
+        else if (spa >= 46 && spa <= 50) resists += value;
       }
     }
     if (i.focusEffects && level >= (i.reqlevel ?? 0)) for (const { spa, value } of i.focusEffects) if (spa in focus) focus[spa] = Math.max(focus[spa], value);
@@ -139,8 +142,8 @@ export const outputValue = (items, c, level, { pool, recovery, room, hits } = {}
   const rest = caster && recovery ? 100 * recovery.share * (1 - ((cheaper * base) / (base + added)) * (refill(r0 + regen) / refill(r0))) : 0;
   const spendable = caster && !recovery ? (100 * added) / base + 2 * regen + focus[132] : 0;
   const spells = caster ? focus[124] + focus[127] + spendable : 0;
-  const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta) * Math.max(1 / 6, hits ?? 0);
-  return { melee: 10 * melee, spells: 10 * spells, party: 10 * (rest + survival), rest: 10 * rest, survival: 10 * survival };
+  const survival = 0.005 * (ac + hp + ((6 * level) / 60) * sta) * (hits ?? 1 / 6);
+  return { melee: 10 * melee, spells: 10 * spells, party: 10 * (rest + survival), rest: 10 * rest, survival: 10 * survival, raid: { hp: hp + ((6 * level) / 60) * sta, ac, resists, mana: caster ? added : 0 } };
 };
 
 // A weapon's worth per swing, in damage over delay (tenths of a second), from the client's melee

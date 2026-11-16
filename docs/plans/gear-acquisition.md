@@ -13,11 +13,13 @@ A copy is worth the progress it adds to its taker's group while it is worn, and 
 the hunting group gives up to get it.
 
     V = g × T        C = H / p × k + D
-    g = e × (s_melee × Δmelee + s_spell × Δspells) + Δparty
+    g = 12 × r + f × (e × (s_melee × Δmelee + s_spell × Δspells) + Δparty)
 
 | Term | Meaning | Source |
 | --- | --- | --- |
-| g | the copy's gain to the taker's group's XP rate, against what the taker has after this pass's moves (`xpGain`) | `xpGain` in `tools/lib/gear-plan.mjs` |
+| g | the copy's gain, against what the taker has after this pass's moves (`gearGain`) | `gearGain` in `tools/lib/gear-plan.mjs` |
+| r | the copy's gain to the raid's score against the hard bosses, counted twelve times since the raid is all twelve groups: HP, AC, resists, mana and melee by the stat weights of the taker's role | `raidValue` and `raidWeights` in `tools/lib/gear-plan.mjs`, weights from `tools/raid-weights.mjs` |
+| f | the weight of farming: a quarter beside raid weights, 1 without them | `farmWeight` |
 | Δmelee, Δspells | the change of the taker's own melee and spell damage | `outputValue` and `weaponRatio` in `tools/lib/gear-data.mjs` |
 | Δparty | the party time or XP the item saves directly: shorter rests, a Bard's faster walk, survival | `outputValue` and `walkValue` |
 | s_melee, s_spell | the taker's melee and spell share of the party's damage | measured from the fight lines the bridge tags by source (`damageShares`), else the class's melee share of one sixth |
@@ -28,8 +30,10 @@ the hunting group gives up to get it.
 | k | the share of the hunting group's XP lost while it hunts | 0 inside its rotation, 1 outside it, where a camp or a visit earns no XP |
 | D | the deaths of the fights one copy takes, won and lost | [Kill chance](#kill-chance) |
 
-`g` is the relative gain of the group's XP rate, so `V` is in hours of the group's progress. The
-same `g` decides the gear plan's moves, so an item goes to the member it adds most XP through: a
+`g` is a relative gain of a rate, so `V` is in hours of the group's progress. Raids come first, so
+a copy that makes the raid stronger is worth more than one that only speeds up its group, and the
+ranking by value per hour of hunting takes a quick lesser upgrade first when it brings more per hour than a raid boss's best item.
+The same `g` decides the gear plan's moves, so an item goes to the member it adds most through: a
 weapon to the member whose melee deals most of the party's damage, not to a pet class whose pet does.
 A copy is worth getting when `V > C`. A group's time is what each choice spends, and a trip takes a
 group to one zone, where it hunts every wanted enemy that pays: the zone's cost `k` is paid once,

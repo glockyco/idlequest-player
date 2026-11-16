@@ -1,0 +1,127 @@
+#!/usr/bin/env bun
+// Raid stat weights: what one point of a stat on one member of a role is worth in the raid
+// simulator's fights against the hard bosses, measured by giving every member of the role a probe
+// of the stat and fighting the same seeds as the baseline. Writes runs/state/raid-weights.json.
+//
+//   bun tools/raid-weights.mjs [--bosses 128093,128091] [--seeds 8] [--jobs 2] [--roles tank,melee]
+//     [--stats hp,ac] [--out <file>]
+//
+//   --bosses  npc ids of the bosses to fight (default the five bosses of the last kill odds whose
+//             raid kill chance is nearest one half, among those it kills sometimes or nearly kills,
+//             since gear moves the raid's results only there)
+//   --seeds   fights per variant and boss, the same seeds in every variant (default 8)
+//   --roles   roles to probe (default all four: tank, melee, priest, caster)
+//   --stats   probes to give (default all of PROBES)
+//
+// The roster is every roster character as runs/state/account-items.json found it, with the raid's
+// orders (`RAID_MODES`). A probe is a copy of the item a member wears in its first worn slot with the
+// probe's amounts added, under an id the content does not use. A fight's score is the share of the
+// boss's hit points the raid took, plus for a kill the share of the time limit it left. A weight is
+// the mean change of the score against the baseline fight of the same seed, per point and per member
+// of the role, with its standard error.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { findBoss, bossSpec } from "./raidsim/boss.mjs";
+import { resolveClient } from "./raidsim/clients.mjs";
+import { accountRoster } from "./raidsim/account.mjs";
+import { rosterEntries } from "./raidsim/roster.mjs";
+import { byId } from "./raidsim/content.mjs";
+import { simulate } from "./raidsim/run.mjs";
+import { RAID_MODES } from "./lib/boss-plan.mjs";
+import { PROBES, ROLES, fightScore, probeRow, roleOf, weightOf } from "./lib/raid-weights.mjs";
+
+const args = process.argv.slice(2);
+const opt = (name, fallback) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : fallback;
+};
+const fail = (message) => {
+  console.error(`raid-weights: ${message}`);
+  process.exit(1);
+};
+const started = Date.now();
+const log = (message) => console.error(`[${((Date.now() - started) / 60000).toFixed(1)} min] ${message}`);
+
+const seeds = Number(opt("seeds", 8));
+const jobs = Number(opt("jobs", 2));
+const maxSec = 900;
+const roles = opt("roles", Object.keys(ROLES).join(",")).split(",");
+const stats = opt("stats", Object.keys(PROBES).join(",")).split(",");
+for (const r of roles) if (!ROLES[r]) fail(`unknown role ${r}, one of ${Object.keys(ROLES).join(", ")}`);
+for (const s of stats) if (!PROBES[s]) fail(`unknown probe ${s}, one of ${Object.keys(PROBES).join(", ")}`);
+const out = opt("out", new URL("../runs/state/raid-weights.json", import.meta.url).pathname);
+
+try {
+  process.env.RAIDSIM_CLIENT = (await resolveClient(opt("client"))).id;
+} catch (error) {
+  fail(error.message);
+}
+
+const rows = JSON.parse(await readFile(new URL("../runs/state/account-items.json", import.meta.url), "utf8"));
+const groups = JSON.parse(await readFile(new URL("../data/roster.json", import.meta.url), "utf8")).groups;
+const names = groups.flatMap((g) => g.members ?? []);
+const { entries, level } = rosterEntries(accountRoster(rows, { leader: names[0], names }));
+const items = await byId("items");
+
+const bossIds = opt("bosses")
+  ? opt("bosses").split(",").map(Number)
+  : await (async () => {
+      const odds = JSON.parse(await readFile(new URL("../runs/state/kill-odds.json", import.meta.url), "utf8")).odds;
+      const byNpc = new Map();
+      for (const o of Object.values(odds)) if (o.raid && !o.raid.error && o.hp > 0 && o.raid.fights > 0) byNpc.set(o.npc, o);
+      const chance = (o) => o.raid.kills / o.raid.fights;
+      return [...byNpc.values()]
+        .filter((o) => (chance(o) > 0 && chance(o) < 1) || (o.raid.kills === 0 && o.raid.hpLeft / o.hp < 0.35))
+        .sort((a, b) => Math.abs(chance(a) - 0.5) - Math.abs(chance(b) - 0.5))
+        .slice(0, 5)
+        .map((o) => o.npc);
+    })();
+if (!bossIds.length) fail("no boss to fight");
+
+// Variants: the baseline and one per role and probe.
+const variants = [{ label: "baseline", role: null, probe: null, entries }];
+let nextId = 9_000_000;
+for (const role of roles) {
+  for (const stat of stats) {
+    const added = new Map();
+    const probed = entries.map((e) => {
+      if (roleOf(e.class) !== role) return e;
+      const slot = Object.keys(e.items).find((s) => items.has(e.items[s]));
+      if (slot === undefined) return e;
+      const id = nextId++;
+      added.set(id, probeRow(items.get(e.items[slot]), id, PROBES[stat]));
+      return { ...e, items: { ...e.items, [slot]: id } };
+    });
+    variants.push({ label: `${role} ${stat}`, role, probe: stat, members: added.size, entries: probed, items: added });
+  }
+}
+log(`${bossIds.length} bosses × ${variants.length} variants × ${seeds} seeds, ${jobs} at once`);
+
+const results = [];
+const baselines = {};
+// Written after every boss, so a run cut short keeps the bosses it finished.
+const save = () => {
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, `${JSON.stringify({ t: Date.now(), seeds, bosses: bossIds, orders: RAID_MODES, probes: PROBES, baselines, results }, null, 2)}\n`);
+};
+for (const npc of bossIds) {
+  const boss = await bossSpec(await findBoss(npc));
+  const name = boss.row.name.replace(/#/g, "").replace(/_/g, " ");
+  const runs = await simulate({ boss, level, seeds, maxSec, jobs, dpsMode: RAID_MODES.nuke, healMode: RAID_MODES.heal, revive: RAID_MODES.revive, rods: RAID_MODES.rods, variants: variants.map((v) => ({ label: v.label, entries: v.entries, items: v.items })) });
+  const base = runs[0].fights.map((f) => fightScore(f, maxSec));
+  baselines[npc] = base.reduce((a, b) => a + b, 0) / seeds;
+  log(`${name}: baseline ${runs[0].summary.kills}/${seeds} kills, score ${baselines[npc].toFixed(3)}`);
+  for (const [i, v] of variants.entries()) {
+    if (!v.role) continue;
+    const w = weightOf(base, runs[i].fights.map((f) => fightScore(f, maxSec)), PROBES[v.probe], v.members);
+    // What the probe did to its members' hit points, armor class and mana in the fights, which
+    // shows that the client applied it.
+    const probed = runs[i].summary.members.map((m, k) => [m, runs[0].summary.members[k]]).filter(([m]) => roleOf(m.cls) === v.role);
+    const shift = Object.fromEntries(["hp", "ac", "mana"].map((k) => [k, Math.round(probed.reduce((a, [m, b]) => a + (m.stats?.[k] ?? 0) - (b.stats?.[k] ?? 0), 0) / Math.max(1, probed.length))]));
+    results.push({ boss: name, npc, role: v.role, probe: v.probe, members: v.members, shift, ...w });
+    log(`${name} ${v.label}: ${w.perPoint.toExponential(2)} ± ${w.se.toExponential(2)} per point and member, stats ${JSON.stringify(shift)}`);
+  }
+  save();
+}
+log(`wrote ${out}`);

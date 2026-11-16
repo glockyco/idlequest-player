@@ -134,6 +134,12 @@ bun tools/raidsweep.mjs --name heal-mode --bosses 127098 --levels 60 --extra 3 -
 bun tools/raid-kit.mjs --boss 72003 --seeds 6   # Cazic-Thule
 ```
 
+`tools/raid-weights.mjs` measures what a point of HP, AC, resists, mana and attack on one member of a role (tank, melee, priest, caster) adds to the raid's fights, which the gear plan's gain takes (docs/plans/gear-acquisition.md). Every member of the role gets a probe item with a large amount of the stat, and the fights use the baseline's seeds. It writes `runs/state/raid-weights.json` after every boss. Without `--bosses` it takes the five bosses of the kill odds whose raid kill chance is nearest one half. A full run fights 21 variants a boss and takes hours, so run it in the background after the roster's gear or the raid's orders change much.
+
+```sh
+bun tools/raid-weights.mjs --seeds 8 --jobs 3
+```
+
 `tools/kill-odds.mjs` fights each daily boss and each casino potion boss the survey finds with all roster characters and with the strongest group's six, and the pairs of group and gear target with the highest expected value under the model fitted to every simulated fight (`tools/lib/kill-prior.mjs`). Its fights run in the client's raid mode, which takes only enemies above level 50. It writes the kill chances and the model to `runs/state/kill-odds.json`, keeps a result for a day at its group's level, and fights `--pairs` pairs a run.
 
 Kill odds uses the newest saved client release that has a table in `tools/raidsim/clients.mjs`. It prints a notice when a newer saved release lacks a table, and the collector raises an item while the pages run a release without one. A failed group or raid simulation is saved as an error for that variant, while the remaining variants and targets proceed. Errors are not treated as fresh successful results on the next run.
