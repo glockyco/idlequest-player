@@ -187,6 +187,7 @@ main > details[open] { padding-bottom: 12px; }
 .cell .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell .lv { font-weight: 600; font-variant-numeric: tabular-nums; }
 .cell .cl { position: relative; color: var(--muted); font-size: 11px; }
+.cell .aa { float: right; color: var(--fg); font-variant-numeric: tabular-nums; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 svg text { fill: var(--muted); font-size: 11px; }
 svg .grid { stroke: var(--border); }

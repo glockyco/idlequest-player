@@ -2,7 +2,7 @@
 // database. Run with `bun test`.
 import { expect, test } from "bun:test";
 import { openDb } from "../tools/iqd.mjs";
-import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, historyView, hourlyView, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
+import { aaView, coordinatorView, dayStart, engineeringView, epicsView, gearSheetView, gearView, groupRowsView, historyView, hourlyView, levelTrends, makeCatalog, minuteTotals, nameIds, needsYouView, retryAt, rosterView, statusView, taskName, taskView, xpRate } from "../tools/lib/dashboard.mjs";
 import { putCards } from "../tools/lib/cards.mjs";
 import { xpStart } from "../tools/lib/xp.mjs";
 
@@ -48,6 +48,20 @@ test("roster progress counts XP with race and class factors, and members never s
   // Troll Warrior needs 1.2 x 0.9 of the XP, the unseen member counts at factor 1 with none of it.
   const need = xpStart(60) * 1.08 + xpStart(60);
   expect(view.progress).toBeCloseTo((xpStart(60) * 1.08) / need);
+});
+
+test("a member's AA counts its points with the share of the next, and the trend follows a leader's AA from its snapshots", () => {
+  const db = openDb(":memory:");
+  const now = Date.now();
+  db.query("INSERT INTO characters (id, name, class, race, first_seen, last_seen) VALUES (1, 'Tank', 'Warrior', 'Troll', ?, ?), (2, 'Young', 'Cleric', 'Dwarf', ?, ?)").run(now, now, now, now);
+  db.query("INSERT INTO char_snapshots (char_id, t, level, xp_pct, aa) VALUES (1, ?, 60, 0, 1.5), (1, ?, 60, 0, 2.25), (2, ?, 40, 10, NULL)").run(now - 3600000, now, now);
+  db.query("INSERT INTO meta (k, v) VALUES ('aa', ?)").run(JSON.stringify({ Tank: { level: 60, points: 1, spent: 1, experience: 18750000, perPoint: 75000000, maxRanks: 72 }, Young: { level: 40, points: 0, spent: 0 } }));
+  const [tank, young] = rosterView(db, { groups: [{ id: "G1", members: ["Tank", "Young"] }] }).groups[0].members;
+  expect(tank.aa).toMatchObject({ earned: 2.25, trained: 1, unspent: 1, max: 72 });
+  // AA opens at 46, so a younger member has none.
+  expect(young.aa).toBeNull();
+  const [line] = levelTrends(db, { groups: [{ id: "G1", members: ["Tank"] }] }, now - 7200000, 1000);
+  expect(line.aa.map((p) => p[1])).toEqual([1.5, 2.25]);
 });
 
 const item = (id: number, over: Record<string, unknown>) => ({ id, t: 0, severity: "act", kind: "alert-task", session: "Tank", text: `item ${id}`, ...over });

@@ -36,11 +36,14 @@ function latestLevels(db) {
 
 /**
  * The roster of data/roster.json with each member's class, race and latest level, and the totals
- * the level 60 goal is measured by. A member the collector never saw has no level.
+ * the level 60 goal is measured by. A member the collector never saw has no level. `aa` is a
+ * member's AA state as the coordinator's last pass read it (the meta key `aa`): points earned,
+ * with the share of the next, ranks trained and points unspent. Null before AA opens for it.
  */
 export function rosterView(db, roster, target = 60) {
   const chars = new Map(db.query("SELECT id, name, class, race, roster_level FROM characters").all().map((c) => [c.name, c]));
   const latest = latestLevels(db);
+  const aaOf = metaRow(db, "aa") ?? {};
   // Progress counts XP, not levels: each member's XP over the XP to the target, with its race and
   // class factor, because the late levels cost most of it (the start of level 40 is 12% of 60's).
   const share = (ms) => {
@@ -55,7 +58,9 @@ export function rosterView(db, roster, target = 60) {
         const c = chars.get(name);
         const snap = c ? latest.get(c.id) : null;
         const level = snap?.level ?? c?.roster_level ?? null;
-        return { name, class: c?.class ?? null, race: c?.race ?? null, level, xpPct: snap?.level === level ? (snap?.xp_pct ?? null) : null, seen: snap?.t ?? null };
+        const a = aaOf[name];
+        const aa = a && (a.level ?? 0) >= AA_LEVEL ? { earned: a.points + a.spent + (a.perPoint > 0 ? (a.experience ?? 0) / a.perPoint : 0), trained: a.spent, unspent: a.points, max: a.maxRanks ?? null, t: a.t ?? null } : null;
+        return { name, class: c?.class ?? null, race: c?.race ?? null, level, xpPct: snap?.level === level ? (snap?.xp_pct ?? null) : null, seen: snap?.t ?? null, aa };
       });
       return { id: g.id, members, progress: share(members) };
     });
@@ -157,23 +162,26 @@ export function engineeringView(db, now, days = 14) {
 
 /**
  * Level over time for each group's first member (its roster leader) since `since`, as fractional
- * levels, at most one point per `stepMs`. Snapshots are written when a level, HP, mana or zone
- * changes and at least every five minutes.
+ * levels, at most one point per `stepMs`, and its AA points earned with the share of the next
+ * (`aa`), where a snapshot has them. Snapshots are written when a level, HP, mana or zone changes
+ * and at least every five minutes.
  */
 export function levelTrends(db, roster, since, stepMs = 600000) {
   const ids = new Map(db.query("SELECT id, name FROM characters").all().map((c) => [c.name, c.id]));
-  const q = db.query("SELECT t, level, xp_pct FROM char_snapshots WHERE char_id = ? AND t >= ? ORDER BY t");
+  const q = db.query("SELECT t, level, xp_pct, aa FROM char_snapshots WHERE char_id = ? AND t >= ? ORDER BY t");
   return roster.groups
     .filter((g) => g.members?.length && ids.has(g.members[0]))
     .map((g) => {
       const points = [];
+      const aa = [];
       let next = 0;
       for (const r of q.all(ids.get(g.members[0]), since)) {
         if (r.t < next || r.level == null) continue;
         points.push([r.t, r.level + (r.xp_pct ?? 0) / 100]);
+        if (r.aa != null) aa.push([r.t, r.aa]);
         next = r.t + stepMs;
       }
-      return { group: g.id, leader: g.members[0], points };
+      return { group: g.id, leader: g.members[0], points, aa };
     });
 }
 

@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS characters (
   first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS char_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT, char_id INTEGER NOT NULL, t INTEGER NOT NULL, session_id INTEGER,
-  leader INTEGER NOT NULL DEFAULT 0, level INTEGER, xp_pct REAL, max_hp INTEGER, max_mana INTEGER, zone TEXT);
+  leader INTEGER NOT NULL DEFAULT 0, level INTEGER, xp_pct REAL, max_hp INTEGER, max_mana INTEGER, zone TEXT, aa REAL);
 CREATE INDEX IF NOT EXISTS char_snapshots_char ON char_snapshots (char_id, t);
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, target_id TEXT NOT NULL, page_session INTEGER NOT NULL,
@@ -96,6 +96,8 @@ export function openDb(path) {
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA);
+  // `aa`, the AA points a leader has earned with the share of the next, came after the table.
+  if (!db.query("SELECT 1 FROM pragma_table_info('char_snapshots') WHERE name = 'aa'").get()) db.run("ALTER TABLE char_snapshots ADD COLUMN aa REAL");
   db.run(WEAR_SCHEMA);
   db.run(COIN_SCHEMA);
   db.run(PROGRESS_SCHEMA);
@@ -343,7 +345,7 @@ export function snapshotInPage(a) {
     // `supportManaRegen`: the mana regeneration the party's supply gives every member, which sets how
     // fast the slowest bar refills between fights (docs/client-internals.md, Readiness wait).
     out.leader = p?.id
-      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, aaPct: p.aaExp != null ? p.aaExp / 750000 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
+      ? { id: p.id, name: p.name, level: p.level, class: p.class?.name ?? cls[p.class] ?? null, race: p.race?.name ?? races[p.race] ?? null, hp: p.curHp, maxHp: p.maxHp, mana: p.mana, maxMana: p.maxMana, xpPct: ep ? ep.progressBasisPoints / 100 : null, aaPct: p.aaExp != null ? p.aaExp / 750000 : null, aa: p.aaExp != null ? (p.aaPoints ?? 0) + (p.aaPointsSpent ?? 0) + p.aaExp / 75e6 : null, xp: ep?.current ?? null, supportManaRegen: p.partySupport?.bonuses?.ManaRegen ?? null }
       : null;
     // The party's supplied run speed and the Bard's run song in it with its instrument modifier,
     // which the gear plan weighs a Bard's percussion instrument by (`walkShares`).
@@ -673,7 +675,7 @@ export async function aaInPage(a) {
     }
     return Object.entries(STAT).filter(([, k]) => Number.isFinite(b?.[k]?.total) && Number.isFinite(b?.[k]?.cap) && b[k].total >= b[k].cap).map(([id]) => Number(id));
   };
-  const view = (s, characterId) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null, capped: cappedOf(characterId) });
+  const view = (s, characterId) => ({ name: s.characterName, level: s.characterLevel, points: s.points ?? 0, spent: s.spent ?? 0, experience: s.experience ?? 0, perPoint: s.experiencePerPoint ?? null, ranks: s.ranks ?? {}, names: Object.fromEntries((s.abilities ?? []).map((x) => [x.id, x.name])), maxRanks: (s.abilities ?? []).reduce((n, x) => n + (x.maxRank ?? 0), 0), allocation: s.allocation ?? null, capped: cappedOf(characterId) });
   const party = r.state.party ?? [];
   const state = view(await train(r.state, null), host);
   const members = [];
@@ -2318,7 +2320,7 @@ export class Daemon {
        ON CONFLICT (id) DO UPDATE SET name = excluded.name, class = COALESCE(excluded.class, class), race = COALESCE(excluded.race, race), roster_level = COALESCE(excluded.roster_level, roster_level), last_seen = excluded.last_seen`,
     );
     const seeRoster = db.query("INSERT INTO characters (id, name, class, race, roster_level, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, class = COALESCE(excluded.class, class), race = COALESCE(excluded.race, race), roster_level = excluded.roster_level");
-    const insertSnap = db.query("INSERT INTO char_snapshots (char_id, t, session_id, leader, level, xp_pct, max_hp, max_mana, zone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const insertSnap = db.query("INSERT INTO char_snapshots (char_id, t, session_id, leader, level, xp_pct, max_hp, max_mana, zone, aa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const live = [];
     if (snap.leader) live.push({ ...snap.leader, isLeader: 1 });
     for (const m of snap.party ?? []) if (m.type === 2 && m.id != null) live.push({ ...m, isLeader: 0 });
@@ -2331,7 +2333,7 @@ export class Daemon {
         const next = { t: now, level: c.level, maxHp: c.maxHp, maxMana: c.maxMana, zone: snap.zone };
         const changed = !prev || prev.level !== next.level || prev.maxHp !== next.maxHp || prev.maxMana !== next.maxMana || prev.zone !== next.zone;
         if (changed || now - prev.t >= THRESHOLDS.snapshotEverySec * 1000) {
-          insertSnap.run(c.id, now, tr.rowId, c.isLeader, c.level, c.xpPct ?? null, c.maxHp, c.maxMana, snap.zone);
+          insertSnap.run(c.id, now, tr.rowId, c.isLeader, c.level, c.xpPct ?? null, c.maxHp, c.maxMana, snap.zone, c.aa ?? null);
           this.lastSnap.set(c.id, next);
         }
       }

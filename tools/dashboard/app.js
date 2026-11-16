@@ -389,6 +389,9 @@ function renderEngineering(s) {
   $("manual").innerHTML = table(["Time", "Actor", "Tab", "What"], s.attention.manual.map((x) => [ago(s.now, x.t), esc(x.actor), esc(x.session ?? ""), esc(x.text)]));
 }
 
+/** A member's AA in words: points earned with the share of the next, ranks trained and points unspent. */
+const aaWords = (aa) => `AA ${aa.earned.toFixed(1)} points earned: ${aa.trained} rank${aa.trained === 1 ? "" : "s"} trained${aa.max ? ` of ${aa.max}` : ""}, ${aa.unspent} unspent`;
+
 function renderRoster(s) {
   const r = s.roster;
   const cells = r.groups
@@ -396,10 +399,10 @@ function renderRoster(s) {
       const members = g.members
         .map((m) => {
           const frac = m.level == null ? 0 : Math.min(1, (m.level - 1 + (m.xpPct ?? 0) / 100) / (r.target - 1));
-          return `<div class="cell" title="${esc(`${m.name}, ${m.race ?? "?"} ${m.class ?? "?"}, level ${m.level ?? "?"}${m.xpPct != null ? ` and ${m.xpPct.toFixed(0)}%` : ""}${m.seen ? `, seen ${dur(s.now - m.seen)} ago` : ""}`)}">
+          return `<div class="cell" title="${esc(`${m.name}, ${m.race ?? "?"} ${m.class ?? "?"}, level ${m.level ?? "?"}${m.xpPct != null && m.level < r.target ? ` and ${m.xpPct.toFixed(0)}%` : ""}${m.aa ? `, ${aaWords(m.aa)}` : ""}${m.seen ? `, seen ${dur(s.now - m.seen)} ago` : ""}`)}">
             <div class="fill" style="width:${(100 * frac).toFixed(1)}%;background:${levelColor(m.level)}"></div>
             <div class="t"><span class="nm">${esc(m.name)}</span><span class="lv">${m.level ?? "?"}</span></div>
-            <div class="cl">${esc(SHORT[m.class] ?? m.class ?? "?")}</div></div>`;
+            <div class="cl">${esc(SHORT[m.class] ?? m.class ?? "?")}${m.aa && (m.level >= r.target || m.aa.earned > 0) ? ` <span class="aa">AA ${Math.floor(m.aa.earned)}</span>` : ""}</div></div>`;
         })
         .join("");
       return `<div class="g">${esc(g.id)}</div>${members}`;
@@ -571,27 +574,27 @@ function renderAlerts(s) {
   );
 }
 
-async function renderTrends() {
-  if (!$("d-trends").open) return;
-  const hoursBack = Number($("trend-hours").value);
-  const t = await (await fetch(`/api/trends?hours=${hoursBack}`)).json();
+/**
+ * One line per group over the window from `x0` to `now`: `series` of `{ group, leader, points }`,
+ * `points` as `[t, value]`, the value's axis from its lowest to its highest whole number. A
+ * group's colour goes by its place in `series`.
+ */
+function lineChart(series, { x0, now, hoursBack }) {
   const W = 1100, H = 360, L = 40, R = 110, T = 10, B = 26;
-  const x0 = t.now - hoursBack * 3600000;
-  const pts = t.levels.flatMap((s) => s.points);
-  if (!pts.length) return void ($("trend-chart").innerHTML = `<p class="muted">No snapshots in this window.</p>`);
+  const pts = series.flatMap((s) => s.points);
   const lo = Math.floor(Math.min(...pts.map((p) => p[1]))), hi = Math.ceil(Math.max(...pts.map((p) => p[1])));
-  const X = (tt) => L + ((tt - x0) / (t.now - x0)) * (W - L - R);
+  const X = (tt) => L + ((tt - x0) / (now - x0)) * (W - L - R);
   const Y = (v) => T + (1 - (v - lo) / Math.max(1, hi - lo)) * (H - T - B);
   const step = Math.max(1, Math.ceil((hi - lo) / 8));
   let grid = "";
   for (let v = lo; v <= hi; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let i = 0; i <= 6; i++) {
-    const tt = x0 + (i / 6) * (t.now - x0);
+    const tt = x0 + (i / 6) * (now - x0);
     grid += `<text x="${X(tt)}" y="${H - 6}" text-anchor="middle">${hoursBack > 48 ? new Date(tt).toLocaleDateString([], { day: "numeric", month: "numeric" }) + " " : ""}${hhmm(tt)}</text>`;
   }
-  // End labels sit at their line's last value, pushed apart where groups share a level.
-  const ends = t.levels
-    .map((s, i) => ({ s, c: groupColor(i, t.levels.length), y: s.points.length ? Y(s.points.at(-1)[1]) + 4 : null }))
+  // End labels sit at their line's last value, pushed apart where groups share a value.
+  const ends = series
+    .map((s, i) => ({ s, c: groupColor(i, series.length), y: s.points.length ? Y(s.points.at(-1)[1]) + 4 : null }))
     .filter((e) => e.y != null)
     .sort((a, b) => a.y - b.y);
   for (let k = 1; k < ends.length; k++) ends[k].y = Math.max(ends[k].y, ends[k - 1].y + 12);
@@ -601,7 +604,20 @@ async function renderTrends() {
       return `<path d="${d}" fill="none" stroke="${c}" stroke-width="2"><title>${esc(s.group)} ${esc(s.leader)}</title></path><text x="${W - R + 6}" y="${y}" style="fill:${c}">${esc(s.group)} ${s.points.at(-1)[1].toFixed(1)}</text>`;
     })
     .join("");
-  $("trend-chart").innerHTML = `<svg viewBox="0 0 ${W} ${Math.max(H, (ends.at(-1)?.y ?? 0) + 8)}" width="100%">${grid}${lines}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${Math.max(H, (ends.at(-1)?.y ?? 0) + 8)}" width="100%">${grid}${lines}</svg>`;
+}
+
+async function renderTrends() {
+  if (!$("d-trends").open) return;
+  const hoursBack = Number($("trend-hours").value);
+  const t = await (await fetch(`/api/trends?hours=${hoursBack}`)).json();
+  const at = { x0: t.now - hoursBack * 3600000, now: t.now, hoursBack };
+  if (!t.levels.some((s) => s.points.length)) return void ($("trend-chart").innerHTML = `<p class="muted">No snapshots in this window.</p>`);
+  // A leader at 60 earns AA points instead of levels, so their chart follows the level chart.
+  const aa = t.levels.map((s) => ({ ...s, points: s.aa ?? [] }));
+  $("trend-chart").innerHTML =
+    lineChart(t.levels, at) +
+    (aa.some((s) => s.points.length) ? `<h3>AA points earned by each group's leader</h3><p class="muted small">Ranks trained and points unspent, with the share of the next point. A point takes 75 million XP and buys one rank.</p>${lineChart(aa, at)}` : "");
 }
 
 // ---- Loop --------------------------------------------------------------------------------------

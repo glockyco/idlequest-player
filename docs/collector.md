@@ -44,8 +44,8 @@ history), the progress feed of what moved the bars in the last two days (the `pr
 `tools/lib/progress.mjs`), the coordinator's tasks and decisions, a gear section with a character
 sheet per roster character (each slot's worn item beside the best one the account's items,
 merchants and wanted drops give, from the gear pass's meta keys `gearPlan` and `gearSheets`) and
-the most wanted enemies, and folded sections for engineering health, the roster, epic chains, level
-trends, jobs and the alert history. Wherever it names an item, in the sheet, the progress feed and
+the most wanted enemies, and folded sections for engineering health, the roster with each
+character's level and AA points, epic chains, the leaders' level and AA trends, jobs and the alert history. Wherever it names an item, in the sheet, the progress feed and
 Most wanted, it shows the game's icon and item window from the item cards iqd stores
 (`tools/lib/cards.mjs`). It reads `runs/iq.db` and runs `tools/groups.mjs` and `tools/plan.mjs` for
 their reports, and it changes nothing. The page lives in `tools/dashboard/`, its views in
