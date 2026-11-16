@@ -108,11 +108,12 @@ const add = (e, group) => {
   const have = enemies.get(e.key) ?? enemies.set(e.key, { ...e, groups: new Set() }).get(e.key);
   if (group) have.groups.add(group);
 };
+// Quest kills come first, since a group sent to one on a guess can lose its fight.
+for (const k of questKills.values()) add({ ...k, raid: true }, null);
 for (const b of daily.bosses ?? []) add({ key: b.key, name: b.name, zone: b.zone, raid: true }, strongest);
 // Every casino boss, held or not: what a further credit is worth depends on which of them the raid kills.
 for (const c of casino) add({ key: c.key, name: c.name, zone: c.zone, npcId: c.npcId, raid: true }, strongest);
 for (const b of openWatched) add({ ...b, raid: true }, strongest);
-for (const k of questKills.values()) add({ ...k, raid: true }, null);
 const pairs = [];
 // A summoned boss's drops (`summoned`) come only from a raid, so no group fights it.
 for (const x of targets.filter((t) => t.npcLevel > 50 && !t.summoned)) {
