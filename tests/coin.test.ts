@@ -18,8 +18,11 @@ test("the ledger reads each kind of coin line once, and nothing from lines that 
     e("bot", "[bot] task raid: bought an hour of raid time for 10000pp"),
     e("bot", "[bot] note task: casino done; won a boss credit in 3 rolls for 1800pp, Tagujazolu holds credits for Lady Vox (1)"),
     e("bot", "[bot] casino: won a boss credit in 3 rolls for 1800pp"),
+    // The upkeep's alert line comes with every purchase and is the one counted, its log line only sometimes.
     e("bot", "[bot] upkeep: spells: self: Bought and scribed 5 spell(s) for you for 550pp 0gp 0sp 0cp. | companions: Bought and scribed 3 spell(s) for your companions for 309pp 5gp 0sp 0cp., gem 1 Spirit Tap"),
-    e("bot", "[bot] note upkeep: level or spells changed: spells: self: Bought and scribed 5 spell(s) for you for 550pp 0gp 0sp 0cp."),
+    e("bot", "[bot] note upkeep: level or spells changed: spells: self: Bought and scribed 5 spell(s) for you for 550pp 0gp 0sp 0cp. | companions: Bought and scribed 3 spell(s) for your companions for 309pp 5gp 0sp 0cp., gem 1 Spirit Tap"),
+    e("chore", "[chore] bought spells: self: No missing merchant spells for the current class and level. | companions: Bought and scribed 1 spell(s) for your companions for 145pp 0gp 0sp 0cp."),
+    e("bot", "[bot] cursor item Plasmatic Priest Robe: sold: You sold 1 x Plasmatic Priest Robe for 12pp 5gp total."),
     e("SYSTEM", "You purchased Cloth Shirt for 5gp."),
     e("bot", "[bot] quest: Hargrimol gave 500 platinum to Dirkog Steelhand, which answered: Thank ye, laddie!"),
     e("bot", "[bot] quest: Hargrimol took Pivorandel's coin for a hand-in of 500 platinum"),
@@ -29,8 +32,10 @@ test("the ledger reads each kind of coin line once, and nothing from lines that 
     e("bot", "[bot] craft: sold 100 Powered Gloves for 3400 pp"),
   ]);
   const by = Object.fromEntries(entries.map((x) => [x.kind, Math.round(x.pp * 1000) / 1000]));
-  expect(entries).toHaveLength(12);
-  expect(by).toEqual({ loot: 0.067, sales: 3400, courier: -20, "raid time": -10000, casino: -1800, spells: -859.5, purchases: -0.5, "hand-ins": -500, resurrection: -200, crafts: -2950 });
+  expect(entries).toHaveLength(14);
+  expect(by).toEqual({ loot: 0.067, sales: 3400, courier: -20, "raid time": -10000, casino: -1800, spells: -145, purchases: -0.5, "hand-ins": -500, resurrection: -200, crafts: -2950 });
+  expect(entries.filter((x) => x.kind === "spells").map((x) => x.pp)).toEqual([-859.5, -145]);
+  expect(entries.filter((x) => x.kind === "sales").map((x) => x.pp)).toEqual([58.019, 12.5, 3400]);
   expect(entries[0].pp).toBeCloseTo(5.773);
 });
 

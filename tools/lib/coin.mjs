@@ -23,10 +23,14 @@ const RULES = [
   { kind: "loot", type: "LOOT", re: /^You loot ((?:\d+ (?:platinum|gold|silver|copper)(?:, )?)+)[!.]$/, pp: (m) => sum(m[1], /(\d+) (platinum|gold|silver|copper)/g) },
   { kind: "sales", type: "bot", re: /^\[bot\] sold \d+ surplus item\(s\) for (\d+) copper/, pp: (m) => Number(m[1]) / 1000 },
   { kind: "sales", type: "bot", re: /^\[bot\] craft: sold \d+ .+? for (\d+) pp$/, pp: (m) => Number(m[1]) },
+  { kind: "sales", type: "bot", re: /^\[bot\] cursor item .+?: sold: You sold \d+ x .+? for ((?:\d+(?:pp|gp|sp|cp) ?)+) total\.$/, pp: (m) => sum(m[1], /(\d+)(pp|gp|sp|cp)/g) },
   { kind: "courier", type: "SYSTEM", re: /^You are charged (\d+)pp for courier-based banking fees/, pp: (m) => -Number(m[1]) },
   { kind: "raid time", type: "SYSTEM", re: /^Raid time purchased: one hour for ([\d,]+) platinum/, pp: (m) => -Number(m[1].replace(/,/g, "")) },
   { kind: "casino", type: "bot", re: /^\[bot\] note task: casino .*? in \d+ rolls for (\d+)pp/, pp: (m) => -Number(m[1]) },
-  { kind: "spells", type: "bot", re: /^\[bot\] upkeep: .*Bought and scribed/, pp: (m) => -sum(m.input, /(\d+)(pp|gp|sp|cp)\b/g) },
+  // Spells are bought by the bridge's chore at the game's reminder, and by the upkeep after a
+  // level-up, whose alert line comes every time and whose log line only sometimes.
+  { kind: "spells", type: "chore", re: /^\[chore\] bought spells: .*Bought and scribed/, pp: (m) => -sum(m.input, /(\d+)(pp|gp|sp|cp)\b/g) },
+  { kind: "spells", type: "bot", re: /^\[bot\] (?:note|alert) upkeep: .*Bought and scribed/, pp: (m) => -sum(m.input, /(\d+)(pp|gp|sp|cp)\b/g) },
   { kind: "purchases", type: "SYSTEM", re: /^You purchased .* for ((?:\d+(?:pp|gp|sp|cp) ?)+)\.$/, pp: (m) => -sum(m[1], /(\d+)(pp|gp|sp|cp)/g) },
   { kind: "hand-ins", type: "bot", re: /^\[bot\] quest: \S+ gave (\d+) platinum to /, pp: (m) => -Number(m[1]) },
   { kind: "resurrection", type: "SYSTEM", re: /^Resurrected: .*?(\d+(?:\.\d+)?)pp charged/, pp: (m) => -Number(m[1]) },
