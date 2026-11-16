@@ -3,10 +3,12 @@
 //
 //   bun tools/gear-quests.mjs [--force]
 //
-// The file names the content's source commit, and a run for the same commit does nothing unless
-// `--force` is given, because building the chains takes about half a minute and the content
-// changes rarely. Reads the content only, never contacts the game. iqd runs it from its gear pass.
+// The file names the content's source commit and a hash of the code and data the chains come from
+// (`SOURCES`), and a run for the same pair does nothing unless `--force` is given, because building
+// the chains takes about half a minute. Reads the content only, never contacts the game. iqd runs
+// it from its gear pass.
 
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { contentRoot, rows } from "./lib/content.mjs";
@@ -16,8 +18,12 @@ import { questChains, questRewards } from "./lib/gear-quests.mjs";
 const OUT = "runs/state/gear-quests.json";
 const root = contentRoot();
 const commit = JSON.parse(await readFile(join(root, "manifest.json"), "utf8")).sourceCommit ?? null;
+const SOURCES = ["tools/gear-quests.mjs", "tools/lib/gear-quests.mjs", "tools/lib/epic-model.mjs", "tools/lib/epic-chain.mjs", "tools/lib/content.mjs", "tools/lib/quest-script.mjs", "data/epics.json", "data/forage.json", "data/withheld-gives.json", "data/shop-zones.json"];
+const hash = createHash("sha256");
+for (const f of SOURCES) hash.update(await readFile(new URL(`../${f}`, import.meta.url)));
+const code = hash.digest("hex").slice(0, 16);
 const before = await readFile(OUT, "utf8").then(JSON.parse).catch(() => null);
-if (before?.commit === commit && !process.argv.includes("--force")) process.exit(0);
+if (before?.commit === commit && before?.code === code && !process.argv.includes("--force")) process.exit(0);
 
 const model = await loadEpicModel(root);
 const items = new Map();
@@ -32,6 +38,6 @@ const epics = new Set(Object.values(JSON.parse(await readFile(new URL("../data/e
 const shopZones = new Set(JSON.parse(await readFile(new URL("../data/shop-zones.json", import.meta.url), "utf8")));
 const rewards = questRewards(model, { items, exclude: epics }).map(({ tree, ...q }) => ({ ...q, pieces: q.pieces.map((x) => ({ ...x, name: names.get(x.itemId) })), chains: questChains(model, { ...q, tree }, { names, shopZones }) })).filter((q) => q.chains.length);
 await mkdir("runs/state", { recursive: true });
-await writeFile(`${OUT}.tmp`, JSON.stringify({ t: Date.now(), commit, rewards }));
+await writeFile(`${OUT}.tmp`, JSON.stringify({ t: Date.now(), commit, code, rewards }));
 await rename(`${OUT}.tmp`, OUT);
 console.log(`${rewards.length} quest rewards written to ${OUT}`);
