@@ -1948,6 +1948,22 @@
       delete state.fullBags?.[m.name];
     }
     await step(`switch to ${m.name}`, () => becomeActive(i, m.name), 200000);
+    // A member's bags have no reserve, so bags nearly full send their ingredients to the
+    // tradeskill bank once a run, with coin for the courier's fee of 20 platinum a visit that
+    // banks something. Quest items arrive on the cursor and need a free slot.
+    const roomFor = async (min) => {
+      if (i.bagSpace().cursor) await settleHeld(i);
+      const ok = () => i.bagSpace().free >= min && !i.bagSpace().cursor;
+      if (ok() || m.banked) return ok();
+      m.banked = true;
+      log(`quest: ${m.name}'s bags are nearly full, so the courier takes their ingredients to the tradeskill bank`);
+      await gatherCoin(i, 25, { least: true }).catch(() => []);
+      await autoBank().catch((e) => log(`quest: auto bank failed: ${e?.message ?? e}`));
+      await sleep(8000);
+      if (i.bagSpace().cursor) await settleHeld(i);
+      return ok();
+    };
+    await roomFor(3);
     // Resume after the last step whose `expect` the member already carries.
     const resume = m.steps.findLastIndex((s) => s.expect && i.carried(ref(s.expect)) > 0) + 1;
     m.at = Math.max(m.at ?? 0, resume);
@@ -2310,30 +2326,14 @@
         }), 300000);
       }
       // `forage: { tries, everySec }`: forage until the member carries `expect`. Other finds go
-      // where `settleHeld` puts them. A member's bags have no reserve, so full ones send their
-      // ingredients to the tradeskill bank once (`autoBank`, with coin for the courier's fee), and
-      // a find that still finds no room ends the step.
+      // where `settleHeld` puts them, and a find that finds no room ends the step (`roomFor`).
       if (s.forage) {
         const want = ref(s.expect);
         const found = {};
-        let banked = false;
-        const free = () => i.bagSpace().free > 0 && !i.bagSpace().cursor;
-        const room = async () => {
-          if (i.bagSpace().cursor) await settleHeld(i);
-          if (free() || banked) return free();
-          banked = true;
-          log(`quest: ${m.name}'s bags are full, so the courier takes their ingredients to the tradeskill bank`);
-          // The courier charges 20 platinum for a visit that banks something.
-          await gatherCoin(i, 25, { least: true }).catch(() => []);
-          await autoBank().catch((e) => log(`quest: auto bank failed: ${e?.message ?? e}`));
-          await sleep(8000);
-          if (i.bagSpace().cursor) await settleHeld(i);
-          return free();
-        };
         await step(`forage for ${s.expect}`, async () => {
           for (let k = 0; k < (s.forage.tries ?? 30) && i.carried(want) < 1; k++) {
             if (task.status !== "running") throw new TaskStopped();
-            if (!(await room())) throw new Error(`${m.name}'s bags have no room for a forage${i.bagSpace().cursor ? `, and ${i.bagSpace().cursor} waits on the cursor` : ""}`);
+            if (!(await roomFor(1))) throw new Error(`${m.name}'s bags have no room for a forage${i.bagSpace().cursor ? `, and ${i.bagSpace().cursor} waits on the cursor` : ""}`);
             const r = await i.forage();
             const line = r.lines.find((l) => /forag|find|found/i.test(l ?? ""));
             const got = /^You forage (.+?)\.?$/.exec(line ?? "")?.[1] ?? null;
