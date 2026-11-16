@@ -2311,8 +2311,8 @@
       }
       // `forage: { tries, everySec }`: forage until the member carries `expect`. Other finds go
       // where `settleHeld` puts them. A member's bags have no reserve, so full ones send their
-      // ingredients to the tradeskill bank once (`autoBank`), and a find that still finds no room
-      // ends the step.
+      // ingredients to the tradeskill bank once (`autoBank`, with coin for the courier's fee), and
+      // a find that still finds no room ends the step.
       if (s.forage) {
         const want = ref(s.expect);
         const found = {};
@@ -2323,6 +2323,8 @@
           if (free() || banked) return free();
           banked = true;
           log(`quest: ${m.name}'s bags are full, so the courier takes their ingredients to the tradeskill bank`);
+          // The courier charges 20 platinum for a visit that banks something.
+          await gatherCoin(i, 25, { least: true }).catch(() => []);
           await autoBank().catch((e) => log(`quest: auto bank failed: ${e?.message ?? e}`));
           await sleep(8000);
           if (i.bagSpace().cursor) await settleHeld(i);
