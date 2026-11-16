@@ -856,15 +856,28 @@ export class Daemon {
       // A step's item shows progress only once the chain's needed pieces lie behind it
       // (`progressItems`), because a member who holds an earlier step's item still needs the pieces.
       started[id] = [...new Set((await Promise.all(progressItems(q).map((n) => carriers(n, q.ids, find)))).flat())];
+    }
+    // Whoever still needs a piece for any chain keeps his copy from the needers of every other
+    // chain that takes the same piece, as the Druids' and the Rangers' chains both take an Ancient
+    // Pattern.
+    const neederOf = {};
+    for (const [id, q] of Object.entries(quests)) {
       if (!q.needs?.length) continue;
+      const needers = chainNeeders(id, { quests, holders, members });
+      for (const n of q.needs) for (const who of needers) (neederOf[q.ids?.[n] ?? n] ??= new Set()).add(who);
+    }
+    for (const [id, q] of Object.entries(quests)) {
+      if (!q.needs?.length) continue;
+      const find = q.for ? inSurvey : search;
       // A copy a needer of the chain carries is its own: it is not free for others (`have`), it
       // counts for that needer (`own`), and a needer that carries every piece runs like one part
       // way through.
       const needers = chainNeeders(id, { quests, holders, members });
       const rows = await Promise.all(q.needs.map(async (n) => (await find(plainName(n))).filter((m) => matches(m, n, q.ids))));
-      q.needs.forEach((n, k) => { const key = q.ids?.[n] ?? n; have[key] = Math.min(have[key] ?? Infinity, rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0)); });
+      const freeOf = (n, k) => rows[k].filter((m) => !needers.includes(m.who) && !neederOf[q.ids?.[n] ?? n]?.has(m.who)).reduce((a, m) => a + m.n, 0);
+      q.needs.forEach((n, k) => { const key = q.ids?.[n] ?? n; have[key] = Math.min(have[key] ?? Infinity, freeOf(n, k)); });
       q.needs.forEach((n, k) => {
-        const free = rows[k].filter((m) => !needers.includes(m.who)).reduce((a, m) => a + m.n, 0);
+        const free = freeOf(n, k);
         const key = q.ids?.[n] ?? n;
         lacking[key] = Math.max(lacking[key] ?? 0, needers.filter((who) => !rows[k].some((m) => m.who === who)).length - free);
       });
