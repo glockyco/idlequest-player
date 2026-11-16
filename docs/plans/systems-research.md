@@ -23,6 +23,8 @@ The server sends the catalog with the window's own request, which works at any l
 | Innate Metabolism (50015) | 3 | food and drink last 10, 25, 50% longer |
 | Innate Lung Capacity (50016) | 3 | 10, 25, 50% more breath |
 
+There are no class abilities. The catalog lists the same 16 abilities for every class, also for a character at 60 with a rank trained: a read for Tagujazolu (Warrior, one rank of Innate Stamina) and each of his five companions (Magician, Cleric, Bard, Shaman, Enchanter) on 2026-11-16 returned the ids 50001 to 50016 and nothing else. An ability has only `id`, `name`, `description` and `maxRank`, with no class, prerequisite or category, and the reply's `bonuses` has one field per ability's effect and none for another. The client's AA window renders whatever the catalog lists, so class abilities would need a server change and would show there without a new client. A read of the catalog after a patch tells.
+
 All 72 ranks cost 5.4 billion XP and 144,000 platinum per character. The same request with `action` `"purchase"` (`abilityId`, `expectedRank`, `expectedCostPlatinum`) trains a rank, `"allocate"` (`allocation` 0 to 100 in steps of 5, `targets` of `{ characterId, leaseId }`) sets the XP share of the active character and its account companions, and `"levelRule"` (`ruleScope` `"player"` or `"companions"`, `levelRule: { enabled, level }`, `expectedRulesRevision`) pauses the share below a level and resumes the saved share there. Default companions earn no AA. The bonuses enter the ordinary stat calculation (`Bt`, `OSTsR53r.js:21853-22029`), run speed as the greater of spell speed and AA speed, and breath through `airCapacitySeconds`.
 
 ### When and what to train
