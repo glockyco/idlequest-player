@@ -2791,14 +2791,15 @@
   // The roles a raid revives first, the last named first.
   const REVIVE_FIRST = ["Healers", "Tanks"];
   // Balances a raid's leader pulls at most for an hour of raid time.
-  const RAID_COIN_PULLS = 8;
+  const RAID_COIN_PULLS = 11;
   const raidFight = async (i, task, step) => {
     const raid = i.raid;
     if (!raid) throw new Error("the bridge has no raid actions");
     const rt = runtime(i);
     // The fight has to end before a switch, which the client refuses in combat. A potion or credit
-    // raid is led by its holder, since neither leaves the character that won it.
-    await step("stop", () => calm(i), 75000);
+    // raid is led by its holder, since neither leaves the character that won it. A raid kept for
+    // the enemies a death brings fights them as they come, already in raid mode with its leader.
+    if (!(inRaid(i) && (!task.who || activeName(i) === task.who))) await step("stop", () => calm(i), 75000);
     if (task.who && activeName(i) !== task.who) await step(`become ${task.who}`, () => becomeActive(i, task.who), 240000);
     if (task.zone && zoneShort(i) !== task.zone) await step(`travel to ${task.zone}`, () => i.changeZone(task.zone), 90000);
     // A boss of the open world can be dead by the time the raid arrives, killed by other players,
