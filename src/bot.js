@@ -732,7 +732,7 @@
     const mob = i.fightMobs().find((x) => foeKey(x.name) === f.name);
     if (!mob || typeof i.leaveFight !== "function" || !i.guard?.config?.enabled || i.guard.phase !== "watching" || now() < (i.guard.retryAt ?? 0) || !i.socket?.isConnected || cb.isZoneLoading || inRaid(i)) return;
     const t = state.task;
-    if (t?.status === "running" && t.kind === "quest" && t.members.some((m) => m.steps[m.at ?? 0]?.kill && enemyPattern(m.steps[m.at ?? 0].kill).test(f.name))) return;
+    if (t?.status === "running" && t.kind === "quest" && t.members.some((m) => m.steps[m.at ?? 0]?.kill && enemyName(m.steps[m.at ?? 0].kill).test(f.name))) return;
     if (t?.status === "running" && t.kind === "hunt" && enemyPattern(t.keep).test(f.name)) {
       const mark = f.mark ?? { t: f.t, hp: mob.maxHp };
       if (now() - mark.t < config.slowFightSec * 1000) return;
@@ -1993,7 +1993,7 @@
       const call = state.timed?.[timedKey(x)];
       return call?.who === m.name && now() < call.at + (x.after.maxSec + UP_SEC) * 1000 ? call.at : null;
     };
-    const enemyUp = (name) => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(name).test(x.name ?? ""));
+    const enemyUp = (name) => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyName(name).test(x.name ?? ""));
     const called = (k) => {
       for (const x of m.steps) {
         if (x.calledBy !== k || !x.after || !x.kill || pending(x) != null) continue;
@@ -2020,8 +2020,8 @@
       // enemy other than the hand-in's NPC: Shmendrik Lavawalker takes the crown and is then the
       // enemy, and he can be attacked before the hand-in too, so his being up says nothing.
       const next = m.steps[k + 1];
-      if (next?.kill && !s.kill && next.zone === s.zone && !enemyPattern(next.kill).test(s.npc ?? "")) {
-        if ((runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyPattern(next.kill).test(x.name ?? ""))) {
+      if (next?.kill && !s.kill && next.zone === s.zone && !enemyName(next.kill).test(s.npc ?? "")) {
+        if ((runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => enemyName(next.kill).test(x.name ?? ""))) {
           log(`quest: ${next.kill} is up already, so ${m.name} goes on to the fight`);
           m.at = Math.max(m.at, k + 1);
           continue;
@@ -2070,7 +2070,7 @@
         // one of the chain's NPCs says nothing, since that NPC stands there too.
         const fights = [];
         for (let j = k + 1; j < m.steps.length && (m.steps[j].kill || !fights.length); j++) if (m.steps[j].kill) fights.push(j);
-        const named = (x) => m.steps.some((y) => y.npc && enemyPattern(x.kill).test(y.npc));
+        const named = (x) => m.steps.some((y) => y.npc && enemyName(x.kill).test(y.npc));
         const ahead = (s.give ?? []).some((item) => i.carried(ref(item)) < 1) ? fights.filter((j) => !named(m.steps[j]) && !m.steps[j].after) : [];
         let found = null;
         for (const j of ahead) {
@@ -2166,7 +2166,7 @@
       // of the Cleric epic at its first death twice, and the raid kills him in seconds. The raid
       // starts only once the enemy is up, so a spawn that did not come costs no raid time.
       if (s.kill && s.raid && task.raid?.members?.length) {
-        const wanted = enemyPattern(s.kill);
+        const wanted = enemyName(s.kill);
         const up = () => (runtime(i)?.combatScene?.getAliveCombatTargetList?.() ?? []).some((x) => wanted.test(x.name ?? ""));
         for (const end = now() + (s.waitSec ?? 60) * 1000; !up() && now() < end; ) await sleep(2000);
         if (!up()) throw Object.assign(new Error(`no ${s.kill} came up (${fightState(i)})`), { retryAfterMs: 3600000 });
@@ -2212,7 +2212,7 @@
         // The client pulls only a party it finds ready, so the fight's time starts once it is, also
         // when the enemy was up already and the summoning hand-in, which waits too, was skipped.
         if (!i.stores.skills.getState().inCombat) await readyParty();
-        const wanted = enemyPattern(s.kill);
+        const wanted = enemyName(s.kill);
         const since = now();
         const end = since + (s.waitSec ?? 60) * 1000;
         // A fight that still runs is no lost one, however long it takes: group 9 fought Jaeil the
@@ -2252,7 +2252,7 @@
             let r = null;
             for (const stop = now() + 240000; now() < stop && (r == null || r === "fighting" || r === "approaching"); ) {
               if (r) await sleep(2000);
-              r = await step(`kill ${add.name}`, () => directedKill(i, enemyPattern(add.name)), 200000);
+              r = await step(`kill ${add.name}`, () => directedKill(i, enemyName(add.name)), 200000);
             }
             if (r !== "killed") break adds;
           }
@@ -2305,7 +2305,7 @@
           const joined = await gatherParty(i);
           if (partyMissing(i).length) throw new TaskLater(`the leader's party did not gather to clear ${s.npc}'s spawn point (${joined})`, now() + 600000);
           const names = held.map((x) => x.name).join("|");
-          const r = await campPoints(i, { points: s.points, keep: names, startedAt: now(), minutes: 10 }, enemyPattern(names), task);
+          const r = await campPoints(i, { points: s.points, keep: names, startedAt: now(), minutes: 10 }, enemyName(names), task);
           log(`quest: the leader camped ${s.npc}'s spawn point: ${r.result ?? r.stopped}, ${r.kills} kill(s)`);
           if (r.stopped) throw new TaskLater(`${s.npc}'s spawn point: ${r.stopped}`, now() + 600000);
           // A camp that ran out of time without a kill needs a stronger group, which a few hours may bring.
@@ -3501,6 +3501,9 @@
   // With an item id the id decides, because several items can share a name (three are called "Shovel").
   const hasItem = (i, name, id = null) => (i.inventory?.() ?? []).some((r) => (id != null ? r.id === id : r.name === name));
   const enemyPattern = (s) => new RegExp(s.replace(/[ _]/g, "[ _]"), "i");
+  // A quest's enemy by its whole name, or "|"-separated names: "Vorash" in Lake of Ill Omen also
+  // matched Xenevorash, so a run went to a fight that was not up.
+  const enemyName = (s) => new RegExp(`^#?(?:${s.split("|").map((n) => n.trim().replace(/[ _]/g, "[ _]")).join("|")})\\d*$`, "i");
   // AutoLevel's level range at the leader's level, as the limits were before the errand.
   const normalRange = (i, e) => {
     const shift = (i.stores.character.getState().characterProfile?.level ?? e.startLevel) - e.startLevel;
