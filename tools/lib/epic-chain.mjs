@@ -90,6 +90,13 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
   // because the same NPC type can also have a permanent spawn elsewhere.
   const caller = (npcIds, zone) => npcIds.map((id) => part.spawned.get(id)).find((c) => c?.zone === zone) ?? null;
   const calledBy = (npcIds, zone) => (caller(npcIds, zone) ? { calledBy: caller(npcIds, zone).at, ...(caller(npcIds, zone).delay ? { after: caller(npcIds, zone).delay } : {}) } : {});
+  // The only time of day the NPC stands in `zone`, when each of its spawn points there spawns
+  // only then (`when` of the model's sites): Vilnius the Small stands in West Karana by night.
+  const npcWhen = (npcIds, zone) => {
+    const times = new Set(npcIds.map((id) => model.sites.get(id)?.get(zone)).filter(Boolean).map((site) => site.when ?? null));
+    const only = times.size === 1 ? [...times][0] : null;
+    return only ? { npcWhen: only } : {};
+  };
   // A timer's delay in seconds, `{ minSec, maxSec }`, from the branch that sets it, when it is two
   // minutes or more: Keeper of Souls comes 60 to 85 minutes after a soul carrier's death.
   const delayOf = (b, after) => {
@@ -246,7 +253,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
     // A say that only gives a container the tree's crafts combine in runs before each craft that
     // lacks one, since a craft that uses its container up needs a new one each time.
     if (say && !Object.keys(b.inputs).length && !coin && gives.length && gives.every((id) => boxes.has(id))) {
-      const step = { zone: b.zone, npc: b.npc, ...(npcIds.length ? { npcIds } : {}), say: [say[0]], ...(held.length ? { hold: held.map(name) } : {}), expect: name(gives[0]) };
+      const step = { zone: b.zone, npc: b.npc, ...(npcIds.length ? { npcIds } : {}), ...npcWhen(npcIds, b.zone), say: [say[0]], ...(held.length ? { hold: held.map(name) } : {}), expect: name(gives[0]) };
       for (const id of gives) givers.set(id, { step, held });
       continue;
     }
@@ -265,6 +272,7 @@ export function epicChains(model, tree, { cls, reward, names, shopZones = new Se
       npc: b.npc,
       // Another NPC of the zone can have this one's name, so the step names its type ids too.
       ...(npcIds.length ? { npcIds } : {}),
+      ...npcWhen(npcIds, b.zone),
       ...(say ? { say: [say[0]] } : {}),
       ...(takes.length ? { give: takes.map(name) } : {}),
       ...(coin ? { coin } : {}),

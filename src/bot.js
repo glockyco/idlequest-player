@@ -1722,6 +1722,15 @@
       this.at = at;
     }
   }
+  // A step that works only by `when` ("night" or "day"), as a spell's time rule or an NPC that
+  // stands only then: before that time the task waits until it begins. The game day lasts 40
+  // minutes, from 5 to 20 by day (bridge `gameHour`).
+  const timeOfDay = (i, when, what) => {
+    const hour = i.gameHour();
+    if (!when || hour == null || (hour >= 20 || hour < 5) === (when === "night")) return;
+    const until = ((when === "night" ? 20 : 5) - hour + 24) % 24;
+    throw new TaskLater(`${what} only by ${when}, in ${Math.ceil((until * 100) / 60)} minutes`, now() + (until * 100 + 30) * 1000);
+  };
   // The group's own leader, for fights a quest member is too weak for.
   const becomeLeader = async (i) => {
     const id = Number(config.leaderId);
@@ -2383,14 +2392,7 @@
         for (const item of s.cast.inputs ?? []) {
           if (i.carried(ref(item)) < 1) await step(`pull ${item} for ${m.name}`, () => pullOne(i, ref(item), null, m.avoid ?? []), 45000);
         }
-        // `when` names the only time of day the spell casts. The game day lasts 40 minutes, from
-        // 5 to 20 by day (bridge `gameHour`), so the task comes back when that time begins.
-        const hour = i.gameHour();
-        const night = hour != null && (hour >= 20 || hour < 5);
-        if (s.cast.when && hour != null && night !== (s.cast.when === "night")) {
-          const until = ((s.cast.when === "night" ? 20 : 5) - hour + 24) % 24;
-          throw new TaskLater(`${s.cast.spell} casts only by ${s.cast.when}, in ${Math.ceil(until * 100 / 60)} minutes`, now() + (until * 100 + 30) * 1000);
-        }
+        timeOfDay(i, s.cast.when, `${s.cast.spell} casts`);
         await step(`cast ${s.cast.spell}`, () => i.castSummon(s.cast.spellId, { output: ref(s.expect) }), 180000);
       }
       // A quest item that lies in the zone is picked up where it lies. One that another player
@@ -2426,6 +2428,7 @@
       // `npcIds` tells the step's NPC from another of its name in the zone.
       const talk = (say) => i.talkToNpc(s.npc, say, s.npcIds?.length ? { ids: s.npcIds } : undefined);
       const trades = Boolean(s.give?.length || s.coin);
+      if (s.npcWhen && (s.say?.length || trades)) timeOfDay(i, s.npcWhen, `${s.npc} stands in ${s.zone}`);
       if (s.coin) await step(`coin for ${m.name}`, () => coinFor(i, m, s.coin), 60000);
       if (s.say?.length || trades) await step(`talk to ${s.npc}`, () => talk(s.say ?? []), 900000);
       // A refused trade closes the dialogue and refreshes the bags, so the retry talks first.
