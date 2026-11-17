@@ -1848,13 +1848,35 @@
           const c = mv.buy.craft;
           const before = i.carried(ref);
           if (mv.stock && i.bagSpace().free < 3) throw new Error(`${activeName(i)}'s bags have no room to keep it`);
+          // A copy comes out of the Tradeskill Bank onto the cursor, so the cursor has to be free and
+          // the bags need a slot for it. On 2026-11-17 a Golden Peridot Bracelet stayed on the cursor,
+          // and 37 crafts each paid for their components and left the copy in the bank.
+          if (i.bagSpace().cursor && !(await settleHeld(i))) throw new Error(`${i.bagSpace().cursor} is on the cursor`);
+          if (i.bagSpace().free < 1) throw new Error(`${activeName(i)}'s bags have no room for ${mv.item}`);
           // The catalog charges the crafter, so it gathers two attempts' worth from the largest
           // balances, as no single balance may cover it.
           const purse = () => i.stores.character.getState().characterProfile?.platinum ?? 0;
-          await gatherCoin(i, (mv.buy.price ?? 0) * 2);
-          if (purse() < (mv.buy.price ?? 0)) throw new Error(`the account's balances do not cover ${Math.ceil(mv.buy.price ?? 0)} pp of components (${Math.floor(purse())} pp gathered)`);
-          const made = await step(`craft ${mv.item}`, () => i.craftItem(c.recipeId, { quantity: 20, until: 1, skillId: c.skillId, output: mv.itemId, settle: () => settleHeld(i) }), 120000);
-          if (i.carried(ref) <= before) throw new Error(`${mv.item} did not come out of ${made.attempted} attempts`);
+          let attempted = 0;
+          let spent = 0;
+          try {
+            // A copy already in the bank, as from an attempt whose withdrawal failed, is taken
+            // instead of a new craft, also when the step tries a second time.
+            await step(`craft ${mv.item}`, async () => {
+              if (mv.itemId != null && (await i.bankCount(mv.itemId).catch(() => 0)) > 0) return i.bankWithdraw(mv.itemId, 1, () => settleHeld(i));
+              await gatherCoin(i, (mv.buy.price ?? 0) * 2);
+              if (purse() < (mv.buy.price ?? 0)) throw new Error(`the account's balances do not cover ${Math.ceil(mv.buy.price ?? 0)} pp of components (${Math.floor(purse())} pp gathered)`);
+              const paid = purse();
+              try {
+                attempted += (await i.craftItem(c.recipeId, { quantity: 20, until: 1, skillId: c.skillId, output: mv.itemId, settle: () => settleHeld(i) })).attempted;
+              } finally {
+                spent += Math.max(0, paid - purse());
+              }
+            }, 120000);
+          } finally {
+            // The coin ledger reads this line as a craft's cost (`crafts` in tools/lib/coin.mjs).
+            if (spent > 0) log(`craft: ${mv.item} for ${mv.to} after ${attempted} attempts for about ${Math.round(spent)} pp`);
+          }
+          if (i.carried(ref) <= before) throw new Error(`${mv.item} did not come out of ${attempted} attempts`);
           if (mv.stock) {
             Object.assign(mv, { done: true, stocked: true, lines: [] });
             continue;

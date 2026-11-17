@@ -3455,16 +3455,25 @@ test("a gear move with a merchant travels there, buys the item and gives it, a h
   }
 });
 
-test("a crafted gear move is made by the crafter and given on, and a leader's copy stays in the crafter's bags", async () => {
+test("a crafted gear move is made by the crafter and given on, a copy left in the bank is taken first, and a leader's copy stays in the crafter's bags", async () => {
   vi.useFakeTimers();
   try {
     const f = await install([10, 20]);
     f.bot.config.leaderId = 1;
     const bag: Record<string, number> = {};
+    // A craft whose withdrawal failed left one ring in the Tradeskill Bank.
+    let banked = 1;
     const log: string[] = [];
     const nameOf = (x: string | { name: string }) => (typeof x === "string" ? x : x.name);
     Object.assign(f.iq, {
       carried: (x: string | { name: string }) => bag[nameOf(x)] ?? 0,
+      bankCount: async () => banked,
+      bankWithdraw: async (itemId: number, n: number) => {
+        log.push(`${f.sheet.characterProfile.name} takes item ${itemId} out of the bank`);
+        banked -= n;
+        bag["Velium Jasper Ring"] = (bag["Velium Jasper Ring"] ?? 0) + n;
+        return n;
+      },
       craftItem: async (recipeId: number, opts: { until: number; output: number }) => {
         log.push(`${f.sheet.characterProfile.name} crafts ${recipeId} for item ${opts.output} until ${opts.until}`);
         bag["Velium Jasper Ring"] = (bag["Velium Jasper Ring"] ?? 0) + 1;
@@ -3480,8 +3489,8 @@ test("a crafted gear move is made by the crafter and given on, and a leader's co
     const ring = (to: string) => ({ item: "Velium Jasper Ring", itemId: 14675, from: null, to, slot: "finger", slotNum: 15, buy: { merchant: "Edroun", zone: "craft", price: 0, craft } });
     f.bot.gear({ moves: [ring("Tagujazolu"), ring(f.me.name)], who: "Edroun", stock: [f.me.name] });
     await runToEnd(f);
-    // Edroun makes both. The member's goes on at once, and the leader's stays with Edroun.
-    expect(log).toEqual(["Edroun crafts 8411 for item 14675 until 1", "give Velium Jasper Ring to 10 equipped", "Edroun crafts 8411 for item 14675 until 1"]);
+    // Edroun takes the banked ring for the member, which goes on at once, and makes the leader's, which stays with Edroun.
+    expect(log).toEqual(["Edroun takes item 14675 out of the bank", "give Velium Jasper Ring to 10 equipped", "Edroun crafts 8411 for item 14675 until 1"]);
     expect(bag["Velium Jasper Ring"]).toBe(1);
     expect(f.bot.state.task).toMatchObject({ status: "done", result: "2 of 2 moves", moves: [{ done: true }, { done: true, stocked: true }] });
   } finally {
