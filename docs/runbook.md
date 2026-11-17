@@ -7,6 +7,7 @@ The bot, the page supervisor and the coordinator operate the tabs. This page des
 - The bot in `src/bot.js` does the routine work inside the page and keeps running while no agent is attached. It restarts AutoLevel when it stays off without a pause or hangs, clears bag space before the bags fill, puts a forgotten cursor item away and raises alerts. Extend the bot instead of repeating routine work by hand.
 - Stop AutoLevel only with `stopAutoLevel` or `pausedAutoLevel`. Both pause the bot with a deadline, so a forgotten stop ends by itself. Renew the pause with `pauseBot(minutes, reason)` for longer work. When a pause ends, the bot brings back the tab's leader, party, zone and AutoLevel at once.
 - Requests to the server that only read, sent to learn how the game works, are allowed even when the client would not send them in the current state: `window.iq.socket.sendCorrelatedJsonRequest(op, replyOp, payload, 10000)` with opcodes from `data/opcodes.json`. Examples are raid snapshots of account characters (1194), a zone's NPC list (1004) and the raid time quote (1236 with `action: "status"`). Never send a request that spends coin, changes a character or could gain items, XP or coin outside normal play, and space requests so they never load the server.
+- Never run `footprint` or `vmmap` on a tab's process: one run stalled every tab for seven minutes. `bun tools/iqd.mjs load <group> [--stacks 150]` measures a page's processor time and samples its stacks, and `ps` gives a process's memory.
 
 ## Driving a game tab from a session
 
