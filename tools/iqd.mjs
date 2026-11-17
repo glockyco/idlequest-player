@@ -2880,7 +2880,8 @@ async function cmdDeploy({ values, positionals, runs }) {
     // The tests run on the working tree, so they speak for the commit only where its page files are the tree's.
     const differ = await git("diff", "--name-only", commit, "--", ...PAGE_FILES);
     if (differ) throw new Error(`the working tree's ${differ.split("\n").join(", ")} differ from ${commit.slice(0, 7)}, so the tests would not test it: commit or stash them, or pass --untested`);
-    const t = Bun.spawn(["bun", "test"], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
+    // 30 s a test: on the machine the game tabs keep busy, some tests outlast bun's five seconds.
+    const t = Bun.spawn(["bun", "test", "--timeout=30000"], { cwd: REPO, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(t.stdout).text(), new Response(t.stderr).text(), t.exited]);
     if (code !== 0) throw new Error(`the tests fail, so nothing is deployed:\n${(out + err).trim().split("\n").slice(-12).join("\n")}`);
   }

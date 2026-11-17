@@ -460,24 +460,28 @@ test("kill odds failures back off, report stderr and raise attention until succe
   const clock = spyOn(Date, "now").mockReturnValue(T0);
   let exit = 1;
   const spawn = spyOn(Bun, "spawn").mockImplementation(() => processResult(exit, "", "fixture error"));
-  // The refresh's end reads and removes files, which takes more than microtasks.
-  const finish = () => new Promise((r) => setTimeout(r, 50));
+  // The refresh's end reads and removes files, which takes more than microtasks and, under load,
+  // more than a fixed wait: each check waits until its effect shows, up to two seconds.
+  const until = async (seen: () => boolean) => {
+    for (let k = 0; k < 100 && !seen(); k++) await Bun.sleep(20);
+  };
+  const attention = () => d.db.query("SELECT kind, severity, resolved FROM attention").get();
   try {
     await d.killOdds(T0);
-    await finish();
+    await until(() => d.oddsRetryAt != null);
     expect(d.oddsRetryAt).toBe(T0 + 1800000);
     await d.killOdds(T0 + 1799999);
     expect(spawn.mock.calls.length).toBe(1);
     clock.mockReturnValue(T0 + 1800000);
     await d.killOdds(T0 + 1800000);
-    await finish();
-    expect(d.db.query("SELECT kind, severity, resolved FROM attention").get()).toEqual({ kind: "odds", severity: "act", resolved: null });
+    await until(() => attention() != null);
+    expect(attention()).toEqual({ kind: "odds", severity: "act", resolved: null });
     expect(logs.some((s) => s.includes("fixture error"))).toBe(true);
     exit = 0;
     clock.mockReturnValue(T0 + 3600000);
     await d.killOdds(T0 + 3600000);
-    await finish();
-    expect(d.db.query("SELECT resolved FROM attention").get().resolved).toBe(T0 + 3600000);
+    await until(() => attention()?.resolved != null);
+    expect(attention().resolved).toBe(T0 + 3600000);
   } finally {
     clock.mockRestore();
     spawn.mockRestore();

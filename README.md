@@ -44,7 +44,7 @@ The project has only run on macOS.
 
 ## Setup
 
-1. Clone the repository, install and run the tests. The repository is private, so the clone needs access to it. The tests end with `0 fail`.
+1. Clone the repository, install and run the tests. The tests end with `0 fail`.
 
    ```sh
    git clone git@github.com:glockyco/idlequest-player.git   # or https://github.com/glockyco/idlequest-player.git
@@ -160,7 +160,7 @@ bun tools/iqd.mjs deploy               # HEAD in every group
 bun tools/iqd.mjs revert               # every group back to the commit that ran before this one, also after a canary
 ```
 
-`deploy` takes a commit as its first argument and runs `bun test` first. The tests run on the working tree, so it refuses while the tree's page files differ from the commit's. `--untested` skips both. The collector installs the code within about two minutes, outside raids. A running task delays installation only while its page is in the world and the task is younger than `PAGE.taskWaitMin` in `tools/lib/page.mjs`. `iqd status` names the deployed commit and the groups that do not run it yet. Before the first deploy the collector deploys the commit at HEAD.
+`deploy` takes a commit as its first argument and runs `bun test` first, with 30 s a test, because the game tabs keep the machine busy. The tests run on the working tree, so it refuses while the tree's page files differ from the commit's. `--untested` skips both. The collector installs the code within about two minutes, outside raids. A running task delays installation only while its page is in the world and the task is younger than `PAGE.taskWaitMin` in `tools/lib/page.mjs`. `iqd status` names the deployed commit and the groups that do not run it yet. Before the first deploy the collector deploys the commit at HEAD.
 
 The collector's own code under `tools/` is the working tree's and loads when the collector starts. After changing it, stop `tools/play.sh` with Ctrl-C and start it again at once.
 
@@ -169,11 +169,11 @@ The collector's own code under `tools/` is the working tree's and loads when the
 - The project plays as the game's own client could. It sends only requests the client can send and gains no items, XP or coin outside normal play.
 - Its characters trade with no other player, send no messages and join no guild.
 - When the game or its developer warns about automation or blocks it, stop.
-- The repository holds data extracted from the game client and the names of an account's characters. Keep a copy of it private.
+- The repository holds data extracted from the game client and the names of an account's characters, and it is public on GitHub.
 
 ## Rules for changes
 
-- `bun test` passes. The tests in `tests/` run the bot against a fake page, because a loop in the real page freezes and then crashes the game tab.
+- `bun test` passes. While the game tabs play, some tests outlast the default five seconds, so run it with `--timeout=30000` then. The tests in `tests/` run the bot against a fake page, because a loop in the real page freezes and then crashes the game tab.
 - Never assign to `socket.onJson` or another callback slot on the game's objects. The client's own packet dispatch lives there, and replacing it leaves the world stuck on the loading screen. Wrap instance methods, as `src/bridge.js` does.
 - Never call `warpPlayerToCombatEntity` or `teleportPlayerToEQPosition`. They are debug functions that a player cannot use.
 - `.re/` holds downloaded copies of the game client and `runs/` the collector's data. Neither is committed.
